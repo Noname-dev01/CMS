@@ -4,7 +4,10 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.validation.constraints.NotNull;
 import lombok.*;
+
+import java.util.Date;
 
 @Entity
 @Getter
@@ -24,7 +27,16 @@ public class Member {
 
     private String userName;
 
+    private String email;
+
     private String userType;
 
     private String useYN;
+
+    private Date createDate;
+
+    private Date updateDate;
+
+    private String resetToken;
+
 }

@@ -15,14 +15,15 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> auth
-                        .requestMatchers("/admin/login","/admin/login-error").permitAll()
+                        .requestMatchers("/admin/login", "/admin/login-error").permitAll()
+                        .requestMatchers("/member/forgot-password", "/member/reset-password").permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll()
                 )
                 .formLogin((form) -> form
                         .loginPage("/admin/login")
                         .loginProcessingUrl("/admin/login")
-                        .defaultSuccessUrl("/admin",true)
+                        .defaultSuccessUrl("/admin", true)
                         .failureUrl("/admin/login-error")
                         .permitAll()
                 )
