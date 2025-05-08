@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
 
 <head>
 
@@ -9,7 +9,7 @@
     <meta name="description" content="">
     <meta name="author" content="">
 
-    <title>SB Admin 2 - Login</title>
+    <title>관리자 로그인</title>
 
     <!-- Custom fonts for this template-->
     <link href="/vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
@@ -19,19 +19,17 @@
 
     <!-- Custom styles for this template-->
     <link href="/css/sb-admin-2.min.css" rel="stylesheet">
+    <link href="/css/admin/login.css" rel="stylesheet">
 
 </head>
 
 <body class="bg-gradient-primary">
 
 <div class="container">
-
-    <!-- Outer Row -->
-    <div class="row justify-content-center">
-
+    <div class="row justify-content-center align-items-center min-vh-100">
         <div class="col-xl-10 col-lg-12 col-md-9">
 
-            <div class="card o-hidden border-0 shadow-lg my-5">
+            <div class="card o-hidden border-0 shadow-lg">
                 <div class="card-body p-0">
                     <!-- Nested Row within Card Body -->
                     <div class="row">
@@ -39,35 +37,48 @@
                         <div class="col-lg-6">
                             <div class="p-5">
                                 <div class="text-center">
-                                    <h1 class="h4 text-gray-900 mb-4">Welcome Back!</h1>
+                                    <h1 class="h4 text-gray-900 mb-4">관리자 로그인</h1>
                                 </div>
                                 <form th:action="@{/admin/login}" method="post" class="user">
                                     <div class="form-group">
-                                        <input type="text" name="username" class="form-control form-control-user"
-                                               id="exampleInputEmail" aria-describedby="emailHelp"
-                                               placeholder="Enter Email Address...">
+                                        <div class="input-group">
+                                            <div class="input-group-prepend">
+                                                <span class="input-group-text">
+                                                    <i class="fas fa-user fa-fw"></i>
+                                                </span>
+                                            </div>
+                                            <input type="text" name="username" class="form-control form-control-user"
+                                                   id="exampleInputEmail" aria-describedby="emailHelp"
+                                                   placeholder="아이디를 입력하세요">
+                                        </div>
                                     </div>
                                     <div class="form-group">
-                                        <input type="password" name="password" class="form-control form-control-user"
-                                               id="exampleInputPassword" placeholder="Password">
+                                        <div class="input-group">
+                                            <div class="input-group-prepend">
+                                                <span class="input-group-text">
+                                                    <i class="fas fa-lock fa-fw"></i>
+                                                </span>
+                                            </div>
+                                            <input type="password" name="password" class="form-control form-control-user"
+                                                   id="exampleInputPassword" placeholder="비밀번호를 입력하세요">
+                                        </div>
                                     </div>
                                     <div class="form-group">
                                         <div class="custom-control custom-checkbox small">
-                                            <input type="checkbox" class="custom-control-input" id="customCheck">
-                                            <label class="custom-control-label" for="customCheck">Remember
-                                                Me</label>
+                                            <input type="checkbox" class="custom-control-input" id="customCheck" name="remember-me">
+                                            <label class="custom-control-label" for="customCheck">로그인 상태 유지</label>
                                         </div>
                                     </div>
                                     <button type="submit" class="btn btn-primary btn-user btn-block">
-                                        Login
+                                        로그인
                                     </button>
                                 </form>
                                 <hr>
                                 <div class="text-center">
-                                    <a class="small" href="forgot-password.html">Forgot Password?</a>
+                                    <a class="small text-primary" href="forgot-password.html">비밀번호를 잊으셨나요?</a>
                                 </div>
                                 <div class="text-center">
-                                    <a class="small" href="register.html">Create an Account!</a>
+                                    <a class="small text-primary" href="register.html">계정이 없으신가요? 회원가입</a>
                                 </div>
                             </div>
                         </div>
@@ -76,9 +87,7 @@
             </div>
 
         </div>
-
     </div>
-
 </div>
 
 <!-- Bootstrap core JavaScript-->
