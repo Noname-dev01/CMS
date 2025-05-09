@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - 페이지를 찾을 수 없습니다</title>
+    <link rel="stylesheet" th:href="@{/css/error.css}">
+    <style>
+        body {
+            background: #e9ecef;
+            font-family: 'Noto Sans KR', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+        }
+
+        .error-container {
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+
+        h1 {
+            color: #dc3545;
+            font-size: 48px;
+            margin-bottom: 20px;
+            font-weight: 700;
+        }
+
+        .error-message {
+            color: #343a40;
+            font-size: 18px;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+
+        .error-description {
+            color: #6c757d;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+
+        .home-button {
+            display: inline-block;
+            width: 100%;
+            padding: 12px;
+            background: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 500;
+            text-decoration: none;
+            transition: background-color 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .home-button:hover {
+            background: #0056b3;
+            text-decoration: none;
+            color: #fff;
+        }
+
+        .error-details {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            color: #6c757d;
+            font-size: 12px;
+        }
+
+        .error-details p {
+            margin: 5px 0;
+        }
+
+        .error-details span {
+            color: #495057;
+            font-weight: 500;
+        }
+
+        @media (max-width: 480px) {
+            .error-container {
+                padding: 30px 20px;
+                margin: 20px;
+            }
+
+            h1 {
+                font-size: 36px;
+            }
+
+            .error-message {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1>404</h1>
+        <p class="error-message">관리자 페이지를 찾을 수 없습니다.</p>
+        <p class="error-description">페이지가 이동되었거나 삭제되었을 수 있습니다.</p>
+        <a th:href="@{/admin}" class="home-button">관리자 홈으로</a>
+        <div class="error-details" th:if="${timestamp}">
+            <p>오류 발생 시간: <span th:text="${#dates.format(timestamp, 'yyyy-MM-dd HH:mm:ss')}"></span></p>
+        </div>
+    </div>
+</body>
+</html> 

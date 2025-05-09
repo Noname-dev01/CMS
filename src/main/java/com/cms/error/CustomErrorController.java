@@ -12,18 +12,24 @@ public class CustomErrorController implements ErrorController {
     @RequestMapping("/error")
     public ModelAndView handleError(HttpServletRequest request) {
         Integer statusCode = (Integer) request.getAttribute("jakarta.servlet.error.status_code");
-        Exception exception = (Exception) request.getAttribute("jakarta.servlet.error.exception");
-        
+        String requestURI = (String) request.getAttribute("jakarta.servlet.error.request_uri");
+
         ModelAndView modelAndView = new ModelAndView();
-        
+
         if (statusCode != null) {
             if (statusCode == 404) {
-                modelAndView.setViewName("error/404");
+                // 관리자 페이지인 경우
+                if (requestURI != null && requestURI.startsWith("/admin")) {
+                    modelAndView.setViewName("error/admin/404");
+                } else {
+                    // 일반 사용자 페이지인 경우
+                    modelAndView.setViewName("error/404");
+                }
                 modelAndView.addObject("timestamp", new java.util.Date());
-                modelAndView.addObject("path", request.getAttribute("jakarta.servlet.error.request_uri"));
+                modelAndView.addObject("path", requestURI);
             }
         }
-        
+
         return modelAndView;
     }
 } 
