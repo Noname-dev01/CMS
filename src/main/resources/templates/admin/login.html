@@ -39,6 +39,10 @@
                                 <div class="text-center">
                                     <h1 class="h4 text-gray-900 mb-4">관리자 로그인</h1>
                                 </div>
+                                <div th:if="${error}" class="alert alert-danger text-center mb-3" role="alert">
+                                    <i class="fas fa-exclamation-circle mr-2"></i>
+                                    [[${error}]]
+                                </div>
                                 <form th:action="@{/admin/login}" method="post" class="user">
                                     <div class="form-group">
                                         <div class="input-group">
