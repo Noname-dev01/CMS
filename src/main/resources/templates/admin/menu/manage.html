@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>메뉴 관리</title>
+    <!-- jstree CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
+    <style>
+        .menu-container {
+            padding: 20px;
+            height: calc(100vh - 200px);
+            background-color: #f8f9fc;
+        }
+        .tree-container {
+            background: white;
+            padding: 0;
+            border-radius: 0.35rem;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+            overflow: auto;
+            height: 100%;
+            margin-right: 20px;
+            border: 1px solid #4e73df;
+        }
+        .form-container {
+            background: white;
+            padding: 0;
+            border-radius: 0.35rem;
+            box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+            overflow: auto;
+            height: 100%;
+            margin-left: 20px;
+            border: 1px solid #1cc88a;
+        }
+        .card-header {
+            background-color: #f8f9fc;
+            border-bottom: 1px solid #e3e6f0;
+            padding: 0.75rem 1.25rem;
+        }
+        .tree-container .card-header {
+            background: linear-gradient(to right, #4e73df, #224abe);
+            border-bottom: none;
+        }
+        .form-container .card-header {
+            background: linear-gradient(to right, #1cc88a, #13855c);
+            border-bottom: none;
+        }
+        .card-header h6 {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 700;
+            color: white;
+        }
+        .form-container .card-header h6 {
+            color: #1cc88a;
+        }
+        .card-body {
+            padding: 1.25rem;
+        }
+        .btn-container {
+            margin-top: 25px;
+            display: flex;
+            gap: 10px;
+        }
+        #menuTree {
+            margin-top: 15px;
+            padding: 20px;
+            border: 1px solid #eaecf4;
+            border-radius: 8px;
+            background-color: #f8f9fc;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+            background-color: #f8f9fc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #eaecf4;
+        }
+        .form-group label {
+            font-weight: 600;
+            color: #5a5c69;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+        .form-control {
+            border-radius: 5px;
+            border: 1px solid #d1d3e2;
+            padding: 0.6rem 1rem;
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+            background-color: white;
+        }
+        .form-control:focus {
+            border-color: #4e73df;
+            box-shadow: 0 0 0 0.2rem rgba(78, 115, 223, 0.25);
+        }
+        .btn {
+            padding: 0.6rem 1.2rem;
+            font-weight: 600;
+            border-radius: 5px;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background-color: #4e73df;
+            border-color: #4e73df;
+        }
+        .btn-primary:hover {
+            background-color: #2e59d9;
+            border-color: #2653d4;
+        }
+        .btn-danger {
+            background-color: #e74a3b;
+            border-color: #e74a3b;
+        }
+        .btn-danger:hover {
+            background-color: #e02d1b;
+            border-color: #d52a1a;
+        }
+        .btn-secondary {
+            background-color: #858796;
+            border-color: #858796;
+        }
+        .btn-secondary:hover {
+            background-color: #717384;
+            border-color: #6b6d7d;
+        }
+        .custom-control-input:checked ~ .custom-control-label::before {
+            background-color: #4e73df;
+            border-color: #4e73df;
+        }
+        .jstree-default .jstree-node {
+            margin-left: 12px;
+        }
+        .jstree-default .jstree-themeicon {
+            color: #4e73df;
+        }
+        .jstree-default .jstree-clicked {
+            background-color: #eaecf4 !important;
+            box-shadow: none;
+        }
+        .jstree-default .jstree-hovered {
+            background-color: #f8f9fc !important;
+            box-shadow: none;
+        }
+        .custom-control {
+            padding-left: 2rem;
+        }
+        .custom-control-label {
+            color: #5a5c69;
+        }
+        .custom-switch .custom-control-label::before {
+            height: 1.25rem;
+            width: 2.5rem;
+            border-radius: 0.625rem;
+        }
+        .custom-switch .custom-control-label::after {
+            height: calc(1.25rem - 4px);
+            width: calc(1.25rem - 4px);
+            border-radius: calc(1.25rem - 4px);
+        }
+    </style>
+</head>
+<body id="page-top">
+
+<div id="wrapper">
+    <!-- Sidebar -->
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+    <!-- End of Sidebar -->
+
+    <!-- Content Wrapper -->
+    <div id="content-wrapper" class="d-flex flex-column">
+        <!-- Main Content -->
+        <div id="content">
+            <!-- Topbar -->
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+            <!-- End of Topbar -->
+
+            <div class="container-fluid">
+                <!-- Page Heading -->
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">메뉴 관리</h1>
+                </div>
+
+                <div class="menu-container">
+                    <div class="row">
+                        <div class="col-md-5">
+                            <div class="tree-container">
+                                <div class="card-header">
+                                    <h6>메뉴 구조</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div id="menuTree"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-7">
+                            <div class="form-container">
+                                <div class="card-header">
+                                    <h6>메뉴 정보</h6>
+                                </div>
+                                <div class="card-body">
+                                    <form id="menuForm">
+                                        <div class="form-group">
+                                            <label for="menuName">메뉴명</label>
+                                            <input type="text" class="form-control" id="menuName" name="menuName">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="menuUrl">URL</label>
+                                            <input type="text" class="form-control" id="menuUrl" name="menuUrl">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="menuOrder">순서</label>
+                                            <input type="number" class="form-control" id="menuOrder" name="menuOrder">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="menuIcon">아이콘</label>
+                                            <input type="text" class="form-control" id="menuIcon" name="menuIcon">
+                                        </div>
+                                        <div class="form-group">
+                                            <div class="custom-control custom-switch">
+                                                <input type="checkbox" class="custom-control-input" id="menuUseYn" name="menuUseYn">
+                                                <label class="custom-control-label" for="menuUseYn">사용 여부</label>
+                                            </div>
+                                        </div>
+                                        <div class="btn-container">
+                                            <button type="button" class="btn btn-primary" id="btnSave">저장</button>
+                                            <button type="button" class="btn btn-danger" id="btnDelete">삭제</button>
+                                            <button type="button" class="btn btn-secondary" id="btnReset">초기화</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap core JavaScript-->
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+
+<!-- Core plugin JavaScript-->
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+
+<!-- Custom scripts for all pages-->
+<script src="/js/sb-admin-2.min.js"></script>
+
+<!-- jstree JavaScript -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
+
+<script>
+$(document).ready(function() {
+    // 예시 데이터로 jstree 초기화
+    $('#menuTree').jstree({
+        'core': {
+            'themes': {
+                'name': 'default',
+                'responsive': true
+            },
+            'data': [
+                {
+                    'text': '대시보드',
+                    'id': '1',
+                    'state': { 'opened': false },
+                    'children': [
+                        { 'text': '통계', 'id': '1-1' },
+                        { 'text': '분석', 'id': '1-2' }
+                    ]
+                },
+                {
+                    'text': '사용자 관리',
+                    'id': '2',
+                    'state': { 'opened': false },
+                    'children': [
+                        { 'text': '사용자 목록', 'id': '2-1' },
+                        { 'text': '권한 관리', 'id': '2-2' }
+                    ]
+                },
+                {
+                    'text': '시스템 설정',
+                    'id': '3',
+                    'state': { 'opened': false },
+                    'children': [
+                        { 'text': '기본 설정', 'id': '3-1' },
+                        { 'text': '메뉴 관리', 'id': '3-2' }
+                    ]
+                }
+            ]
+        },
+        'plugins': ['types', 'dnd'],
+        'types': {
+            'default': {
+                'icon': 'fas fa-folder'
+            }
+        }
+    });
+
+    // 노드 클릭 이벤트
+    $('#menuTree').on('click', '.jstree-anchor', function(e) {
+        var node = $('#menuTree').jstree(true).get_node(this);
+        if (node.children && node.children.length > 0) {
+            $('#menuTree').jstree(true).toggle_node(node);
+        }
+    });
+
+    // 노드 선택 이벤트
+    $('#menuTree').on('select_node.jstree', function(e, data) {
+        // 선택된 노드의 정보를 폼에 표시
+        console.log('Selected node:', data.node);
+    });
+
+    // 저장 버튼 클릭 이벤트
+    $('#btnSave').on('click', function() {
+        // 저장 로직 구현
+        console.log('Save clicked');
+    });
+
+    // 삭제 버튼 클릭 이벤트
+    $('#btnDelete').on('click', function() {
+        // 삭제 로직 구현
+        console.log('Delete clicked');
+    });
+
+    // 초기화 버튼 클릭 이벤트
+    $('#btnReset').on('click', function() {
+        $('#menuForm')[0].reset();
+    });
+});
+</script>
+
+</body>
+</html> 
