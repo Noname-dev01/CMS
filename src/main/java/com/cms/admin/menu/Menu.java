@@ -2,6 +2,7 @@ package com.cms.admin.menu;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import lombok.*;
 
@@ -16,7 +17,7 @@ import java.util.Date;
 public class Menu {
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long menuNo;
 
     private String menuName;

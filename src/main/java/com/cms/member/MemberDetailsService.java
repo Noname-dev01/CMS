@@ -26,7 +26,7 @@ public class MemberDetailsService implements UserDetailsService {
         return new User(
                 member.getUserId(),
                 member.getPwd(),
-                Collections.singletonList(new SimpleGrantedAuthority(member.getUserType()))
+                Collections.singletonList(new SimpleGrantedAuthority(member.getUserType().name()))
         );
     }
 }

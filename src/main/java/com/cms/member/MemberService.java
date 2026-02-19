@@ -22,7 +22,7 @@ public class MemberService {
     }
 
     public void registerMember(Member member) {
-        member.setUserType("ROLE_ADMIN");
+        member.setUserType(Role.ROLE_ADMIN);
         member.setPwd(passwordEncoder.encode(member.getPwd()));
         memberRepository.save(member);
     }

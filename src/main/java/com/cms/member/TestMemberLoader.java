@@ -19,7 +19,7 @@ public class TestMemberLoader implements CommandLineRunner {
                             .userName("admin")
                             .pwd(passwordEncoder.encode("1234"))
                             .userId("admin")
-                            .userType("ROLE_ADMIN")
+                            .userType(Role.ROLE_ADMIN)
                             .useYN("Y")
                     .build());
         }
