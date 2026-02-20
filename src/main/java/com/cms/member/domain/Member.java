@@ -1,7 +1,6 @@
-package com.cms.member;
+package com.cms.member.domain;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotNull;
 import lombok.*;
 
 import java.util.Date;

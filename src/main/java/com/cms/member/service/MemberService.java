@@ -1,6 +1,8 @@
-package com.cms.member;
+package com.cms.member.service;
 
-import org.springframework.mail.SimpleMailMessage;
+import com.cms.member.domain.Member;
+import com.cms.member.domain.Role;
+import com.cms.member.repository.MemberRepository;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;

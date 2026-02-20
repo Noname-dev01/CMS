@@ -1,5 +1,7 @@
-package com.cms.member;
+package com.cms.member.controller;
 
+import com.cms.member.domain.Member;
+import com.cms.member.service.MemberService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;

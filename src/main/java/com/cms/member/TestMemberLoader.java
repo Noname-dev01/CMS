@@ -1,5 +1,8 @@
 package com.cms.member;
 
+import com.cms.member.domain.Member;
+import com.cms.member.domain.Role;
+import com.cms.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
