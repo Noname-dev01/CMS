@@ -15,6 +15,7 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> auth
+                        .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/admin/login", "/admin/login-error").permitAll()
                         .requestMatchers("/member/forgot-password", "/member/reset-password").permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
@@ -30,8 +31,9 @@ public class SecurityConfig {
                 .logout((logout) -> logout
                         .logoutUrl("/admin/logout")
                         .logoutSuccessUrl("/admin/login")
-                        .permitAll());
+                        .permitAll())
 
+                .csrf(csrf -> csrf.disable());
         return http.build();
     }
 

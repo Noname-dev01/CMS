@@ -1,6 +1,7 @@
 package com.cms.member;
 
 import com.cms.member.domain.Member;
+import com.cms.member.domain.MemberStatus;
 import com.cms.member.domain.Role;
 import com.cms.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ public class TestMemberLoader implements CommandLineRunner {
                             .pwd(passwordEncoder.encode("1234"))
                             .userId("admin")
                             .userType(Role.ROLE_ADMIN)
-                            .useYN("Y")
+                            .status(MemberStatus.ACTIVE)
                     .build());
         }
     }

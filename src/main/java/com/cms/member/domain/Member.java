@@ -28,7 +28,8 @@ public class Member {
     @Enumerated(EnumType.STRING)
     private Role userType;
 
-    private String useYN;
+    @Enumerated(EnumType.STRING)
+    private MemberStatus status;
 
     private Date createDate;
 
