@@ -14,6 +14,14 @@
 Spring Boot 기반 관리자 CMS 프로젝트입니다.  
 Docker를 활용하여 개발 환경과 통합 실행 환경을 분리하였으며,  
 Spring Security 및 Swagger 문서화를 적용했습니다.
+---
+## 🛠 문제 해결 기록 (Troubleshooting)
+
+프로젝트 개발 과정에서 발생한 주요 이슈와 해결 방법을 정리했습니다.
+
+자세한 내용은 아래 문서를 참고하세요.
+
+➡ `docs/troubleshooting.md`
 
 ---
 
