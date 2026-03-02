@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: CMS
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+server:
+  error:
+    whitelabel:
+      enabled: false
+    path: /error
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: alpha
+    tagsSorter: alpha
+    withCredentials: true
