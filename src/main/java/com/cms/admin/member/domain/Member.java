@@ -1,4 +1,4 @@
-package com.cms.member.domain;
+package com.cms.admin.member.domain;
 
 import jakarta.persistence.*;
 import lombok.*;

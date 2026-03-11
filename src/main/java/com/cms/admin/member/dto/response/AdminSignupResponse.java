@@ -1,7 +1,7 @@
-package com.cms.member.dto.response;
+package com.cms.admin.member.dto.response;
 
-import com.cms.member.domain.MemberStatus;
-import com.cms.member.domain.Role;
+import com.cms.admin.member.domain.MemberStatus;
+import com.cms.admin.member.domain.Role;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 

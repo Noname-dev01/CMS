@@ -1,6 +1,6 @@
-package com.cms.member.repository;
+package com.cms.admin.member.repository;
 
-import com.cms.member.domain.Member;
+import com.cms.admin.member.domain.Member;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;

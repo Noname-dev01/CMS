@@ -1,11 +1,11 @@
-package com.cms.member.service;
+package com.cms.admin.member.service;
 
-import com.cms.member.domain.Member;
-import com.cms.member.domain.MemberStatus;
-import com.cms.member.domain.Role;
-import com.cms.member.dto.request.AdminSignupRequest;
-import com.cms.member.dto.response.AdminSignupResponse;
-import com.cms.member.repository.MemberRepository;
+import com.cms.admin.member.domain.Member;
+import com.cms.admin.member.domain.MemberStatus;
+import com.cms.admin.member.domain.Role;
+import com.cms.admin.member.dto.request.AdminSignupRequest;
+import com.cms.admin.member.dto.response.AdminSignupResponse;
+import com.cms.admin.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;

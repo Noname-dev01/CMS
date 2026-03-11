@@ -1,7 +1,7 @@
-package com.cms.member.service;
+package com.cms.admin.member.service;
 
-import com.cms.member.repository.MemberRepository;
-import com.cms.member.domain.Member;
+import com.cms.admin.member.repository.MemberRepository;
+import com.cms.admin.member.domain.Member;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
