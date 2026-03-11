@@ -1,8 +1,8 @@
-package com.cms.member.controller;
+package com.cms.admin.member.controller;
 
-import com.cms.member.dto.request.AdminSignupRequest;
-import com.cms.member.dto.response.AdminSignupResponse;
-import com.cms.member.service.AdminMemberService;
+import com.cms.admin.member.dto.request.AdminSignupRequest;
+import com.cms.admin.member.dto.response.AdminSignupResponse;
+import com.cms.admin.member.service.AdminMemberService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;

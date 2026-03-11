@@ -1,11 +1,10 @@
-package com.cms.member.dto.request;
+package com.cms.admin.member.dto.request;
 
-import com.cms.member.domain.Role;
+import com.cms.admin.member.domain.Role;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 import lombok.*;
 
 @Getter @Setter
