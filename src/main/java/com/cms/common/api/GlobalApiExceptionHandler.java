@@ -3,6 +3,7 @@ package com.cms.common.api;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -93,6 +94,35 @@ public class GlobalApiExceptionHandler {
                 request.getRequestURI(),
                 "DUPLICATE_RESOURCE",
                 e.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    /**
+     * 데이터 무결성 제약 조건 위반
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiErrorResponse> handleDataIntegrityViolation(
+            DataIntegrityViolationException e,
+            HttpServletRequest request
+    ) {
+        String message = "중복된 데이터이거나 제약 조건을 위반했습니다.";
+
+        String rootMessage = e.getMostSpecificCause() != null
+                ? e.getMostSpecificCause().getMessage()
+                : "";
+
+        if (rootMessage.contains("uk_member_user_id")) {
+            message = "이미 사용 중인 아이디입니다.";
+        } else if (rootMessage.contains("uk_member_email")) {
+            message = "이미 사용 중인 이메일입니다.";
+        }
+
+        ApiErrorResponse response = ApiErrorResponse.of(
+                request.getRequestURI(),
+                "DUPLICATE_RESOURCE",
+                message
         );
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
