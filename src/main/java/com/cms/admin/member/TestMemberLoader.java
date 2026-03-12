@@ -9,6 +9,8 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.Date;
+
 @Component
 @RequiredArgsConstructor
 public class TestMemberLoader implements CommandLineRunner {
@@ -20,10 +22,13 @@ public class TestMemberLoader implements CommandLineRunner {
     public void run(String... args) throws Exception {
         if (memberRepository.count() == 0) {
             memberRepository.save(Member.builder()
-                            .userName("admin")
-                            .pwd(passwordEncoder.encode("1234"))
                             .userId("admin")
+                            .userName("admin")
+                            .email("admin@test.com")
+                            .pwd(passwordEncoder.encode("1234"))
                             .userType(Role.ROLE_ADMIN)
+                            .status(MemberStatus.ACTIVE)
+                            .createDate(new Date())
                             .status(MemberStatus.ACTIVE)
                     .build());
         }

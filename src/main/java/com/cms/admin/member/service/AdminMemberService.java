@@ -6,6 +6,8 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.repository.MemberRepository;
+import com.cms.common.exception.DuplicateResourceException;
+import com.cms.common.exception.InvalidRequestException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -23,16 +25,16 @@ public class AdminMemberService {
     @Transactional
     public AdminSignupResponse createAdmin(AdminSignupRequest req) {
         if (req.getUserType() != Role.ROLE_ADMIN) {
-            throw new IllegalArgumentException("허용되지 않은 권한입니다.");
+            throw new InvalidRequestException("관리자 권한이 없습니다.");
         }
 
         if (memberRepository.existsByUserId(req.getUserId())){
-            throw new IllegalStateException("이미 사용중인 아이디입니다.");
+            throw new DuplicateResourceException("이미 사용 중인 아이디입니다.");
         }
 
         if (req.getEmail() != null && !req.getEmail().isBlank()
                 && memberRepository.existsByEmail(req.getEmail())) {
-            throw new IllegalStateException("이미 사용중인 이메일입니다.");
+            throw new DuplicateResourceException("이미 사용 중인 이메일입니다.");
         }
 
         Date now = new Date();
