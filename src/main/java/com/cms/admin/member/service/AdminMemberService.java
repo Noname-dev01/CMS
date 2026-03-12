@@ -1,5 +1,6 @@
 package com.cms.admin.member.service;
 
+import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
@@ -23,6 +24,7 @@ public class AdminMemberService {
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
+    @AdminActionLogged(actionType = "ADMIN_CREATE", targetType = "MEMBER", targetIdExpression = "id")
     public AdminSignupResponse createAdmin(AdminSignupRequest req) {
         if (req.getUserType() != Role.ROLE_ADMIN) {
             throw new InvalidRequestException("관리자 권한이 없습니다.");
