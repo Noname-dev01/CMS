@@ -10,6 +10,8 @@ import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +28,7 @@ public class AdminMemberService {
     @Transactional
     @AdminActionLogged(actionType = "ADMIN_CREATE", targetType = "MEMBER", targetIdExpression = "id")
     public AdminSignupResponse createAdmin(AdminSignupRequest req) {
-        if (req.getUserType() != Role.ROLE_ADMIN) {
+        if (!hasAdminAuthority()) {
             throw new InvalidRequestException("관리자 권한이 없습니다.");
         }
 
@@ -64,6 +66,17 @@ public class AdminMemberService {
                 .status(saved.getStatus())
                 .createDate(saved.getCreateDate())
                 .build();
+    }
+
+
+    private boolean hasAdminAuthority() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return false;
+        }
+
+        return authentication.getAuthorities().stream()
+                .anyMatch(authority -> Role.ROLE_ADMIN.name().equals(authority.getAuthority()));
     }
 
 }
