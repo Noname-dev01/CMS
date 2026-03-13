@@ -9,7 +9,7 @@
         <div class="sidebar-brand-icon rotate-n-15">
             <i class="fas fa-laugh-wink"></i>
         </div>
-        <div class="sidebar-brand-text mx-3">관리자 페이지</div>
+        <div class="sidebar-brand-text mx-3">ADMIN 페이지</div>
     </a>
 
     <!-- Divider -->
@@ -34,10 +34,21 @@
     <!-- Divider -->
     <hr class="sidebar-divider">
 
+    <div class="sidebar-heading">
+        회원 관리
+    </div>
+
     <li class="nav-item">
-        <a class="nav-link" th:href="@{/admin/member}">
-            <i class="fas fa-fw fa-bars"></i>
-            <span>회원 관리</span></a>
+        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMember"
+           aria-expanded="true" aria-controls="collapseTwo">
+            <i class="fas fa-fw fa-user-shield"></i>
+            <span>관리자</span>
+        </a>
+        <div id="collapseMember" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
+            <div class="bg-white py-2 collapse-inner rounded">
+                <a class="collapse-item" th:href="@{/admin/member/new}"><i class="fas fa-fw fa-user-plus"></i><span class="ml-2">관리자 추가</span></a>
+            </div>
+        </div>
     </li>
 
     <hr class="sidebar-divider">
