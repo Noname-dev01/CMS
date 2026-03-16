@@ -8,6 +8,7 @@ import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.config.auth.AdminSecurityService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +33,9 @@ class AdminMemberServiceTest {
     @Mock
     PasswordEncoder passwordEncoder;
 
+    @Mock
+    AdminSecurityService adminSecurityService;
+
     @InjectMocks
     AdminMemberService adminMemberService;
 
@@ -51,6 +55,7 @@ class AdminMemberServiceTest {
 
         AdminSignupRequest req = validRequest();
 
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.existsByUserId(req.getUserId())).willReturn(false);
         given(memberRepository.existsByEmail(req.getEmail())).willReturn(false);
         given(passwordEncoder.encode(req.getPwd())).willReturn("encodedPassword");
@@ -90,13 +95,9 @@ class AdminMemberServiceTest {
     @Test
     @DisplayName("관리자 권한이 없으면 InvalidRequestException")
     void createAdmin_invalidRole() {
-        AdminSignupRequest req = AdminSignupRequest.builder()
-                .userId("manager01")
-                .pwd("Manager1234!")
-                .userName("매니저")
-                .email("manager01@test.com")
-                .userType(Role.ROLE_MANAGER)
-                .build();
+        AdminSignupRequest req = validRequest();
+
+        given(adminSecurityService.hasAdminAuthority()).willReturn(false);
 
         InvalidRequestException exception = assertThrows(InvalidRequestException.class,
                 () -> adminMemberService.createAdmin(req));
@@ -109,6 +110,7 @@ class AdminMemberServiceTest {
     void createAdmin_duplicateUserId() {
         AdminSignupRequest req = validRequest();
 
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.existsByUserId(req.getUserId())).willReturn(true);
 
         DuplicateResourceException exception = assertThrows(DuplicateResourceException.class, () -> adminMemberService.createAdmin(req));
@@ -121,6 +123,7 @@ class AdminMemberServiceTest {
     void createAdmin_duplicateEmail() {
         AdminSignupRequest req = validRequest();
 
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.existsByUserId(req.getUserId())).willReturn(false);
         given(memberRepository.existsByEmail(req.getEmail())).willReturn(true);
 
