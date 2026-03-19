@@ -1,6 +1,9 @@
 package com.cms.admin.member.controller;
 
+import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
+import com.cms.admin.member.dto.response.AdminMemberPageResponse;
+import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.service.AdminMemberService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -8,12 +11,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
@@ -31,5 +34,29 @@ public class AdminMemberController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminSignupResponse> createAdmin(@Valid @RequestBody AdminSignupRequest req) {
         return ResponseEntity.ok(adminMemberService.createAdmin(req));
+    }
+
+    @Operation(summary = "관리자 목록 조회")
+    @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberPageResponse> getAdminMembers(
+            @ParameterObject @PageableDefault(size = 20) Pageable pageable,
+            @ModelAttribute AdminMemberSearchRequest request
+    ) {
+        return ResponseEntity.ok(adminMemberService.getAdminMembers(request, pageable));
+    }
+
+    @Operation(summary = "관리자 상세 조회")
+    @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberResponse> getAdminMember(@PathVariable Long id) {
+        return ResponseEntity.ok(adminMemberService.getAdminMember(id));
+    }
+
+    @Operation(summary = "내 관리자 정보 조회")
+    @GetMapping("/me")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberResponse> getMyInfo() {
+        return ResponseEntity.ok(adminMemberService.getMyInfo());
     }
 }
