@@ -2,13 +2,17 @@ package com.cms.admin.member.controller;
 
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
+import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
+import com.cms.admin.member.dto.response.AdminMemberPageResponse;
+import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.service.AdminMemberService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.config.MethodSecurityTestConfig;
+import com.cms.config.auth.AdminSecurityService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,16 +23,22 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Date;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -71,6 +81,18 @@ class AdminMemberControllerTest {
                 .userName("홍길동")
                 .email("admin@test.com")
                 .userType(Role.ROLE_ADMIN)
+                .build();
+    }
+
+    private AdminMemberResponse adminMemberResponse() {
+        return AdminMemberResponse.builder()
+                .id(1L)
+                .userId("admin01")
+                .userName("홍길동")
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.ACTIVE)
+                .createDate(new Date())
                 .build();
     }
 
@@ -185,5 +207,76 @@ class AdminMemberControllerTest {
                         .content(objectMapper.writeValueAsString(request())))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
+    }
+
+    @Test
+    @DisplayName("관리자 목록 조회 성공")
+    @WithMockUser(roles = "ADMIN")
+    void getAdminMembers_success() throws Exception {
+        AdminMemberPageResponse pageResponse = AdminMemberPageResponse.builder()
+                .content(List.of(adminMemberResponse()))
+                .page(0)
+                .size(20)
+                .totalElements(1)
+                .totalPages(1)
+                .last(true)
+                .build();
+
+        given(adminMemberService.getAdminMembers(any(), any())).willReturn(pageResponse);
+
+        mockMvc.perform(get("/admin/api/members")
+                .param("page", "0")
+                .param("size", "20")
+                .param("userId", "admin")
+                .param("status", "ACTIVE")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].userId").value("admin01"))
+                .andExpect(jsonPath("$.content[0].userType").value("ROLE_ADMIN"))
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    @DisplayName("관리자 상세 조회 성공")
+    @WithMockUser(roles = "ADMIN")
+    void getAdminMember_success() throws Exception {
+        given(adminMemberService.getAdminMember(anyLong())).willReturn(adminMemberResponse());
+
+        mockMvc.perform(get("/admin/api/member/1")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.userId").value("admin01"));
+    }
+
+    @Test
+    @DisplayName("내 관리자 정보 조회 성공")
+    @WithMockUser(roles = "ADMIN")
+    void getMyInfo_success() throws Exception {
+        given(adminMemberService.getMyInfo()).willReturn(adminMemberResponse());
+
+        mockMvc.perform(get("/admin/api/member/info")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value("admin01"));
+    }
+
+    @Test
+    @DisplayName("인증 없이 관리자 목록 조회하면 401 ERROR")
+    void getAdminMembers_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/api/members")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("관리자 권한이 아니면 관리자 상세 조회 403")
+    @WithMockUser(roles = "USER")
+    void getAdminMember_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/member/1")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
     }
 }
