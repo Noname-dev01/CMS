@@ -38,4 +38,24 @@ public class AdminSecurityService {
 
         return userDetails.getMember().getUserId();
     }
+
+    public String getCurrentAdminName() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+
+        if (auth == null || !(auth.getPrincipal() instanceof CustomUserDetails userDetails)) {
+            return null;
+        }
+
+        return userDetails.getMember().getUserName();
+    }
+
+    public String getCurrentAdminProfileImageUrl() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+
+        if (auth == null || !(auth.getPrincipal() instanceof CustomUserDetails userDetails)) {
+            return null;
+        }
+
+        return userDetails.getMember().getProfileImageUrl();
+    }
 }

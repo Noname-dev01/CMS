@@ -53,4 +53,8 @@ public class Member {
     @Column(length = 255)
     private String resetToken;
 
+    @Lob
+    @Column(name = "profile_image_url", columnDefinition = "LONGTEXT")
+    private String profileImageUrl;
+
 }
