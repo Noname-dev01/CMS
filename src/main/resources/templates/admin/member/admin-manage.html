@@ -203,6 +203,27 @@
         detailAlert.textContent = "";
     }
 
+    async function extractErrorMessage(response, fallbackMessage) {
+        try {
+            const errorBody = await response.json();
+            return errorBody.message || fallbackMessage;
+        } catch (error) {
+            return fallbackMessage;
+        }
+    }
+
+    function getRequestErrorMessage(error, fallbackMessage) {
+        if (error && error.name === "AbortError") {
+            return "요청이 취소되었습니다.";
+        }
+
+        if (error instanceof TypeError) {
+            return "네트워크 연결을 확인해주세요.";
+        }
+
+        return error && error.message ? error.message : fallbackMessage;
+    }
+
     function escapeHtml(value) {
         return String(value ?? "")
             .replace(/&/g, "&amp;")
@@ -349,8 +370,7 @@
         try {
             const response = await fetch("/admin/api/members?" + buildQueryString(page));
             if (!response.ok) {
-                const errorBody = await response.json().catch(() => ({}));
-                throw new Error(errorBody.message || "관리자 목록 조회에 실패했습니다.");
+                throw new Error(await extractErrorMessage(response, "관리자 목록 조회에 실패했습니다."));
             }
 
             const data = await response.json();
@@ -363,7 +383,7 @@
         } catch (error) {
             tableBody.innerHTML = "<tr><td colspan=\"8\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
             pagination.innerHTML = "";
-            showPageError(error.message || "관리자 목록 조회 중 오류가 발생했습니다.");
+            showPageError(getRequestErrorMessage(error, "관리자 목록 조회 중 오류가 발생했습니다."));
         }
     }
 
@@ -379,10 +399,20 @@
     function renderDetail(data) {
         const displayName = data.userName || data.userId || "-";
         const emailValue = data.email ? escapeHtml(data.email) : "-";
+        const profileImageMarkup = data.profileImageUrl
+            ? "<img src=\"" + escapeHtml(data.profileImageUrl) + "\" alt=\"프로필 이미지\" onerror=\"this.remove(); this.parentElement.querySelector('.detail-profile-fallback').classList.remove('d-none');\">"
+            : "";
+        const profileFallbackClass = data.profileImageUrl ? "detail-profile-fallback d-none" : "detail-profile-fallback";
 
         detailSummary.innerHTML =
+            "<div class=\"detail-summary-main\">" +
+            "<div class=\"detail-profile-thumb\">" +
+            profileImageMarkup +
+            "<span class=\"" + profileFallbackClass + "\"><i class=\"fas fa-user\"></i></span>" +
+            "</div>" +
             "<div class=\"detail-identity\">" +
             "<div class=\"headline\">" + escapeHtml(displayName) + "</div>" +
+            "</div>" +
             "</div>" +
             "<div class=\"detail-meta\">" +
             "<span class=\"" + getRoleBadgeClass(data.userType) + "\">" + escapeHtml(getRoleLabel(data.userType)) + "</span>" +
@@ -424,15 +454,14 @@
         try {
             const response = await fetch("/admin/api/member/" + encodeURIComponent(id));
             if (!response.ok) {
-                const errorBody = await response.json().catch(() => ({}));
-                throw new Error(errorBody.message || "관리자 상세 조회에 실패했습니다.");
+                throw new Error(await extractErrorMessage(response, "관리자 상세 조회에 실패했습니다."));
             }
 
             const data = await response.json();
             renderDetail(data);
         } catch (error) {
             detailLoading.classList.add("d-none");
-            showDetailError(error.message || "관리자 상세 조회 중 오류가 발생했습니다.");
+            showDetailError(getRequestErrorMessage(error, "관리자 상세 조회 중 오류가 발생했습니다."));
         }
     }
 

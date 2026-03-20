@@ -14,8 +14,10 @@ import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -58,5 +60,26 @@ public class AdminMemberController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> getMyInfo() {
         return ResponseEntity.ok(adminMemberService.getMyInfo());
+    }
+
+    @Operation(summary = "내 프로필 이미지 수정")
+    @PatchMapping(value = "/member/info/profile-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberResponse> updateMyProfileImage(@RequestPart("file") MultipartFile file) {
+        return ResponseEntity.ok(adminMemberService.updateMyProfileImage(file));
+    }
+
+    @Operation(summary = "내 프로필 이미지 기본값 복원")
+    @DeleteMapping("/member/info/profile-image")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberResponse> resetMyProfileImage() {
+        return ResponseEntity.ok(adminMemberService.resetMyProfileImage());
+    }
+
+    @Operation(summary = "내 기본 프로필 이미지 선택")
+    @PatchMapping("/member/info/profile-image/default")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberResponse> applyDefaultProfileImage(@RequestParam("preset") String preset) {
+        return ResponseEntity.ok(adminMemberService.applyDefaultProfileImage(preset));
     }
 }

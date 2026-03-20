@@ -13,21 +13,34 @@ import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.config.auth.AdminSecurityService;
+import com.cms.config.auth.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class AdminMemberService {
+
+    private static final Map<String, String> DEFAULT_PROFILE_IMAGE_MAP = Map.of(
+            "profile-default", "/img/undraw_profile.svg",
+            "profile-1", "/img/undraw_profile_1.svg",
+            "profile-2", "/img/undraw_profile_2.svg",
+            "profile-3", "/img/undraw_profile_3.svg"
+    );
 
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
@@ -82,7 +95,7 @@ public class AdminMemberService {
         Page<Member> page = memberRepository.searchAdminMembers(request, pageable);
 
         List<AdminMemberResponse> content = page.getContent().stream()
-                .map(this::toResponse)
+                .map(member -> toResponse(member, false))
                 .toList();
 
         return AdminMemberPageResponse.builder()
@@ -104,7 +117,7 @@ public class AdminMemberService {
 
         validateAdminTarget(member);
 
-        return toResponse(member);
+        return toResponse(member, true);
     }
 
     @Transactional(readOnly = true)
@@ -116,7 +129,76 @@ public class AdminMemberService {
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
 
-        return toResponse(member);
+        return toResponse(member, true);
+    }
+
+    @Transactional
+    public AdminMemberResponse updateMyProfileImage(MultipartFile file) {
+        validateAdminAuthority();
+
+        if (file == null || file.isEmpty()) {
+            throw new InvalidRequestException("업로드할 이미지 파일을 선택해주세요.");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
+            throw new InvalidRequestException("이미지 파일만 업로드할 수 있습니다.");
+        }
+
+        long maxFileSize = 2 * 1024 * 1024;
+        if (file.getSize() > maxFileSize) {
+            throw new InvalidRequestException("프로필 이미지는 2MB 이하만 업로드할 수 있습니다.");
+        }
+
+        Long adminId = adminSecurityService.getCurrentAdminId();
+        Member member = memberRepository.findById(adminId)
+                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+
+        try {
+            String encoded = Base64.getEncoder().encodeToString(file.getBytes());
+            member.setProfileImageUrl("data:" + contentType + ";base64," + encoded);
+            member.setUpdateDate(new Date());
+            refreshAuthentication(member);
+        } catch (IOException e) {
+            throw new InvalidRequestException("프로필 이미지를 처리할 수 없습니다.");
+        }
+
+        return toResponse(member, true);
+    }
+
+    @Transactional
+    public AdminMemberResponse resetMyProfileImage() {
+        validateAdminAuthority();
+
+        Long adminId = adminSecurityService.getCurrentAdminId();
+        Member member = memberRepository.findById(adminId)
+                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+
+        member.setProfileImageUrl(null);
+        member.setUpdateDate(new Date());
+        refreshAuthentication(member);
+
+        return toResponse(member, true);
+    }
+
+    @Transactional
+    public AdminMemberResponse applyDefaultProfileImage(String presetKey) {
+        validateAdminAuthority();
+
+        String presetImageUrl = DEFAULT_PROFILE_IMAGE_MAP.get(presetKey);
+        if (presetImageUrl == null) {
+            throw new InvalidRequestException("선택할 수 없는 기본 프로필 이미지입니다.");
+        }
+
+        Long adminId = adminSecurityService.getCurrentAdminId();
+        Member member = memberRepository.findById(adminId)
+                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+
+        member.setProfileImageUrl(presetImageUrl);
+        member.setUpdateDate(new Date());
+        refreshAuthentication(member);
+
+        return toResponse(member, true);
     }
 
     private void validateAdminAuthority() {
@@ -135,7 +217,23 @@ public class AdminMemberService {
         }
     }
 
-    private AdminMemberResponse toResponse(Member member) {
+    private void refreshAuthentication(Member member) {
+        Authentication currentAuth = SecurityContextHolder.getContext().getAuthentication();
+        if (currentAuth == null) {
+            return;
+        }
+
+        CustomUserDetails refreshedUser = new CustomUserDetails(member);
+        UsernamePasswordAuthenticationToken newAuth = new UsernamePasswordAuthenticationToken(
+                refreshedUser,
+                currentAuth.getCredentials(),
+                refreshedUser.getAuthorities()
+        );
+        newAuth.setDetails(currentAuth.getDetails());
+        SecurityContextHolder.getContext().setAuthentication(newAuth);
+    }
+
+    private AdminMemberResponse toResponse(Member member, boolean includeProfileImage) {
         return AdminMemberResponse.builder()
                 .id(member.getId())
                 .userId(member.getUserId())
@@ -144,6 +242,7 @@ public class AdminMemberService {
                 .userType(member.getUserType())
                 .status(member.getStatus())
                 .createDate(member.getCreateDate())
+                .profileImageUrl(includeProfileImage ? member.getProfileImageUrl() : null)
                 .build();
     }
 }

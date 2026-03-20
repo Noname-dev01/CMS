@@ -35,7 +35,29 @@
                         </div>
                         <div class="card-body">
                             <div id="myInfoLoading" class="detail-loading">내 정보를 불러오는 중입니다.</div>
-                            <div id="myInfoContent" class="detail-grid d-none"></div>
+                            <div id="myInfoContent" class="d-none">
+                                <div class="my-info-layout">
+                                    <div class="profile-uploader">
+                                        <div class="profile-uploader-head">
+                                            <h6>프로필 이미지</h6>
+                                            <p>현재 사용 중인 프로필 이미지입니다. 변경은 모달에서 진행합니다.</p>
+                                        </div>
+                                        <div class="profile-preview-frame" id="profilePreviewFrame">
+                                            <div class="profile-preview-empty" id="profilePreviewEmpty">
+                                                <i class="fas fa-user"></i>
+                                            </div>
+                                            <img id="profilePreviewImage" class="d-none" alt="프로필 이미지 미리보기">
+                                        </div>
+                                        <div class="profile-upload-actions">
+                                            <button type="button" class="btn btn-primary btn-sm" id="btnOpenProfileModal">프로필 변경</button>
+                                        </div>
+                                    </div>
+                                    <div class="info-detail-panel">
+                                        <div id="profileSummary" class="profile-summary"></div>
+                                        <div id="detailGrid" class="detail-grid"></div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -43,6 +65,74 @@
         </div>
 
         <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<div class="modal fade profile-edit-modal" id="profileEditModal" tabindex="-1" role="dialog" aria-labelledby="profileEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="profileEditModalLabel">프로필 변경</h5>
+                    <p class="mb-0 text-muted small">기본 이미지를 선택하거나 직접 이미지를 업로드할 수 있습니다.</p>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="uploadAlert" class="alert alert-danger d-none mb-3" role="alert"></div>
+                <div class="profile-edit-layout">
+                    <div class="profile-edit-preview">
+                        <div class="profile-preview-frame profile-preview-frame-modal">
+                            <div class="profile-preview-empty" id="modalProfilePreviewEmpty">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <img id="modalProfilePreviewImage" class="d-none" alt="프로필 이미지 미리보기">
+                        </div>
+                        <div class="profile-upload-help">JPG, PNG, GIF, WEBP 파일을 2MB 이하로 업로드할 수 있습니다.</div>
+                    </div>
+                    <div class="profile-edit-options">
+                        <div class="profile-uploader-head">
+                            <h6>기본 프로필 이미지</h6>
+                            <p>원하는 기본 이미지를 선택하면 즉시 적용됩니다.</p>
+                        </div>
+                        <div class="default-profile-grid" id="defaultProfileGrid">
+                            <button type="button" class="default-profile-option" data-preset="profile-default" data-image-url="/img/undraw_profile.svg">
+                                <img src="/img/undraw_profile.svg" alt="기본 프로필 1">
+                                <span>기본 1</span>
+                            </button>
+                            <button type="button" class="default-profile-option" data-preset="profile-1" data-image-url="/img/undraw_profile_1.svg">
+                                <img src="/img/undraw_profile_1.svg" alt="기본 프로필 2">
+                                <span>기본 2</span>
+                            </button>
+                            <button type="button" class="default-profile-option" data-preset="profile-2" data-image-url="/img/undraw_profile_2.svg">
+                                <img src="/img/undraw_profile_2.svg" alt="기본 프로필 3">
+                                <span>기본 3</span>
+                            </button>
+                            <button type="button" class="default-profile-option" data-preset="profile-3" data-image-url="/img/undraw_profile_3.svg">
+                                <img src="/img/undraw_profile_3.svg" alt="기본 프로필 4">
+                                <span>기본 4</span>
+                            </button>
+                        </div>
+                        <hr>
+                        <div class="profile-uploader-head">
+                            <h6>이미지 업로드</h6>
+                            <p>직접 올린 이미지는 저장 후 바로 프로필에 반영됩니다.</p>
+                        </div>
+                        <div class="custom-file">
+                            <input type="file" class="custom-file-input" id="profileImageFile" accept="image/png,image/jpeg,image/gif,image/webp">
+                            <label class="custom-file-label" for="profileImageFile" id="profileImageFileLabel">이미지 선택</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="btnRestoreDefaultProfileImage">이미지 제거</button>
+                <button type="button" class="btn btn-light border btn-sm" id="btnResetProfileImage">선택 취소</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnUploadProfileImage">이미지 저장</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -55,6 +145,22 @@
     const pageAlert = document.getElementById("pageAlert");
     const myInfoLoading = document.getElementById("myInfoLoading");
     const myInfoContent = document.getElementById("myInfoContent");
+    const uploadAlert = document.getElementById("uploadAlert");
+    const profilePreviewImage = document.getElementById("profilePreviewImage");
+    const profilePreviewEmpty = document.getElementById("profilePreviewEmpty");
+    const modalProfilePreviewImage = document.getElementById("modalProfilePreviewImage");
+    const modalProfilePreviewEmpty = document.getElementById("modalProfilePreviewEmpty");
+    const profileSummary = document.getElementById("profileSummary");
+    const detailGrid = document.getElementById("detailGrid");
+    const profileImageFile = document.getElementById("profileImageFile");
+    const profileImageFileLabel = document.getElementById("profileImageFileLabel");
+    const uploadButton = document.getElementById("btnUploadProfileImage");
+    const resetButton = document.getElementById("btnResetProfileImage");
+    const restoreDefaultButton = document.getElementById("btnRestoreDefaultProfileImage");
+    const defaultProfileGrid = document.getElementById("defaultProfileGrid");
+    const openProfileModalButton = document.getElementById("btnOpenProfileModal");
+
+    let currentProfileImageUrl = "";
 
     function showPageError(message) {
         pageAlert.textContent = message;
@@ -64,6 +170,37 @@
     function hidePageError() {
         pageAlert.classList.add("d-none");
         pageAlert.textContent = "";
+    }
+
+    function showUploadError(message) {
+        uploadAlert.textContent = message;
+        uploadAlert.classList.remove("d-none");
+    }
+
+    function hideUploadError() {
+        uploadAlert.classList.add("d-none");
+        uploadAlert.textContent = "";
+    }
+
+    async function extractErrorMessage(response, fallbackMessage) {
+        try {
+            const errorBody = await response.json();
+            return errorBody.message || fallbackMessage;
+        } catch (error) {
+            return fallbackMessage;
+        }
+    }
+
+    function getRequestErrorMessage(error, fallbackMessage) {
+        if (error && error.name === "AbortError") {
+            return "요청이 취소되었습니다.";
+        }
+
+        if (error instanceof TypeError) {
+            return "네트워크 연결을 확인해주세요.";
+        }
+
+        return error && error.message ? error.message : fallbackMessage;
     }
 
     function escapeHtml(value) {
@@ -124,7 +261,68 @@
         return "badge badge-light";
     }
 
+    function setProfilePreview(src) {
+        if (src) {
+            profilePreviewImage.src = src;
+            profilePreviewImage.classList.remove("d-none");
+            profilePreviewEmpty.classList.add("d-none");
+            return;
+        }
+
+        profilePreviewImage.src = "";
+        profilePreviewImage.classList.add("d-none");
+        profilePreviewEmpty.classList.remove("d-none");
+    }
+
+    function setModalProfilePreview(src) {
+        if (src) {
+            modalProfilePreviewImage.src = src;
+            modalProfilePreviewImage.classList.remove("d-none");
+            modalProfilePreviewEmpty.classList.add("d-none");
+            return;
+        }
+
+        modalProfilePreviewImage.src = "";
+        modalProfilePreviewImage.classList.add("d-none");
+        modalProfilePreviewEmpty.classList.remove("d-none");
+    }
+
+    function updateTopbarProfile(data) {
+        const topbarName = document.getElementById("topbarCurrentAdminName");
+        const topbarImage = document.getElementById("topbarCurrentAdminImage");
+
+        if (topbarName && data.userName) {
+            topbarName.textContent = data.userName;
+        }
+
+        if (topbarImage) {
+            topbarImage.src = data.profileImageUrl || "/img/undraw_profile.svg";
+        }
+    }
+
+    function syncDefaultProfileSelection(profileImageUrl) {
+        const options = defaultProfileGrid.querySelectorAll(".default-profile-option");
+        options.forEach(option => {
+            option.classList.toggle("active", option.dataset.imageUrl === profileImageUrl);
+        });
+    }
+
     function renderMyInfo(data) {
+        currentProfileImageUrl = data.profileImageUrl || "";
+        setProfilePreview(currentProfileImageUrl);
+        setModalProfilePreview(currentProfileImageUrl);
+        syncDefaultProfileSelection(currentProfileImageUrl);
+
+        profileSummary.innerHTML =
+            "<div class=\"profile-summary-copy\">" +
+            "<span class=\"eyebrow\">My Account</span>" +
+            "<div class=\"headline\">" + escapeHtml(data.userName || data.userId || "-") + "</div>" +
+            "</div>" +
+            "<div class=\"profile-summary-meta\">" +
+            "<span class=\"" + getRoleBadgeClass(data.userType) + "\">" + escapeHtml(getRoleLabel(data.userType)) + "</span>" +
+            "<span class=\"" + getStatusBadgeClass(data.status) + "\">" + escapeHtml(getStatusLabel(data.status)) + "</span>" +
+            "</div>";
+
         const detailItems = [
             { label: "아이디", value: escapeHtml(data.userId) },
             { label: "이름", value: escapeHtml(data.userName || "-") },
@@ -134,7 +332,7 @@
             { label: "생성일", value: escapeHtml(formatDate(data.createDate)) }
         ];
 
-        myInfoContent.innerHTML = detailItems.map(item => {
+        detailGrid.innerHTML = detailItems.map(item => {
             return "<div class=\"detail-item\">" +
                 "<span class=\"label\">" + item.label + "</span>" +
                 "<div class=\"value\">" + item.value + "</div>" +
@@ -143,7 +341,169 @@
 
         myInfoLoading.classList.add("d-none");
         myInfoContent.classList.remove("d-none");
+        updateTopbarProfile(data);
     }
+
+    function resetSelectedFile() {
+        profileImageFile.value = "";
+        profileImageFileLabel.textContent = "이미지 선택";
+        setModalProfilePreview(currentProfileImageUrl);
+        syncDefaultProfileSelection(currentProfileImageUrl);
+    }
+
+    function clearSelectedFileWithoutHidingError() {
+        profileImageFile.value = "";
+        profileImageFileLabel.textContent = "이미지 선택";
+        setModalProfilePreview(currentProfileImageUrl);
+        syncDefaultProfileSelection(currentProfileImageUrl);
+    }
+
+    openProfileModalButton.addEventListener("click", function () {
+        hideUploadError();
+        resetSelectedFile();
+        $("#profileEditModal").modal("show");
+    });
+
+    profileImageFile.addEventListener("change", function (event) {
+        hideUploadError();
+
+        const file = event.target.files && event.target.files[0];
+        if (!file) {
+            resetSelectedFile();
+            return;
+        }
+
+        const allowedTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+        if (!allowedTypes.includes(file.type)) {
+            showUploadError("JPG, PNG, GIF, WEBP 형식의 이미지만 업로드할 수 있습니다.");
+            clearSelectedFileWithoutHidingError();
+            return;
+        }
+
+        if (file.size > 2 * 1024 * 1024) {
+            showUploadError("프로필 이미지 파일 크기가 2MB를 초과했습니다. 2MB 이하 파일만 업로드할 수 있습니다.");
+            clearSelectedFileWithoutHidingError();
+            return;
+        }
+
+        profileImageFileLabel.textContent = file.name;
+
+        const reader = new FileReader();
+        reader.onload = function (loadEvent) {
+            setModalProfilePreview(loadEvent.target && loadEvent.target.result ? loadEvent.target.result : "");
+        };
+        reader.onerror = function () {
+            showUploadError("선택한 이미지를 미리보기할 수 없습니다.");
+            clearSelectedFileWithoutHidingError();
+        };
+        reader.readAsDataURL(file);
+    });
+
+    resetButton.addEventListener("click", function () {
+        hideUploadError();
+        resetSelectedFile();
+    });
+
+    defaultProfileGrid.addEventListener("click", async function (event) {
+        const option = event.target.closest(".default-profile-option");
+        if (!option) {
+            return;
+        }
+
+        hideUploadError();
+        clearSelectedFileWithoutHidingError();
+
+        const preset = option.dataset.preset;
+        if (!preset) {
+            return;
+        }
+
+        const options = defaultProfileGrid.querySelectorAll(".default-profile-option");
+        options.forEach(item => item.disabled = true);
+        option.classList.add("active");
+
+        try {
+            const response = await fetch("/admin/api/member/info/profile-image/default?preset=" + encodeURIComponent(preset), {
+                method: "PATCH"
+            });
+
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "기본 프로필 이미지 적용에 실패했습니다."));
+            }
+
+            const data = await response.json();
+            renderMyInfo(data);
+            $("#profileEditModal").modal("hide");
+        } catch (error) {
+            syncDefaultProfileSelection(currentProfileImageUrl);
+            showUploadError(getRequestErrorMessage(error, "기본 프로필 이미지 적용 중 오류가 발생했습니다."));
+        } finally {
+            options.forEach(item => item.disabled = false);
+        }
+    });
+
+    restoreDefaultButton.addEventListener("click", async function () {
+        hideUploadError();
+        restoreDefaultButton.disabled = true;
+        restoreDefaultButton.textContent = "적용 중...";
+
+        try {
+            const response = await fetch("/admin/api/member/info/profile-image", {
+                method: "DELETE"
+            });
+
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "이미지 제거에 실패했습니다."));
+            }
+
+            const data = await response.json();
+            renderMyInfo(data);
+            resetSelectedFile();
+            $("#profileEditModal").modal("hide");
+        } catch (error) {
+            showUploadError(getRequestErrorMessage(error, "이미지 제거 중 오류가 발생했습니다."));
+        } finally {
+            restoreDefaultButton.disabled = false;
+            restoreDefaultButton.textContent = "이미지 제거";
+        }
+    });
+
+    uploadButton.addEventListener("click", async function () {
+        hideUploadError();
+
+        const file = profileImageFile.files && profileImageFile.files[0];
+        if (!file) {
+            showUploadError("업로드할 이미지 파일을 선택해주세요.");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        uploadButton.disabled = true;
+        uploadButton.textContent = "저장 중...";
+
+        try {
+            const response = await fetch("/admin/api/member/info/profile-image", {
+                method: "PATCH",
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "프로필 이미지 저장에 실패했습니다."));
+            }
+
+            const data = await response.json();
+            renderMyInfo(data);
+            resetSelectedFile();
+            $("#profileEditModal").modal("hide");
+        } catch (error) {
+            showUploadError(getRequestErrorMessage(error, "프로필 이미지 저장 중 오류가 발생했습니다."));
+        } finally {
+            uploadButton.disabled = false;
+            uploadButton.textContent = "이미지 저장";
+        }
+    });
 
     async function loadMyInfo() {
         hidePageError();
@@ -151,15 +511,14 @@
         try {
             const response = await fetch("/admin/api/member/info");
             if (!response.ok) {
-                const errorBody = await response.json().catch(() => ({}));
-                throw new Error(errorBody.message || "내 정보 조회에 실패했습니다.");
+                throw new Error(await extractErrorMessage(response, "내 정보 조회에 실패했습니다."));
             }
 
             const data = await response.json();
             renderMyInfo(data);
         } catch (error) {
             myInfoLoading.classList.add("d-none");
-            showPageError(error.message || "내 정보 조회 중 오류가 발생했습니다.");
+            showPageError(getRequestErrorMessage(error, "내 정보 조회 중 오류가 발생했습니다."));
         }
     }
 
