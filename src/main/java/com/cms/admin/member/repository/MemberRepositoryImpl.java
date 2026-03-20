@@ -42,6 +42,10 @@ public class MemberRepositoryImpl implements MemberRepositoryCustom {
             builder.and(member.userName.contains(request.getUserName().trim()));
         }
 
+        if (request.getUserType() != null) {
+            builder.and(member.userType.eq(request.getUserType()));
+        }
+
         if (request.getStatus() != null) {
             builder.and(member.status.eq(request.getStatus()));
         }
