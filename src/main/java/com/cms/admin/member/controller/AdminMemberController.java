@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/admin/api/member")
+@RequestMapping("/admin/api")
 @Tag(name = "Admin Member", description = "관리자 계정 관리 API")
 public class AdminMemberController {
 
@@ -30,14 +30,14 @@ public class AdminMemberController {
     @ApiResponse(responseCode = "200", description = "관리자 계정 생성 성공")
     @ApiResponse(responseCode = "400", description = "요청값 검증 실패")
     @ApiResponse(responseCode = "403", description = "권한 없음")
-    @PostMapping
+    @PostMapping("member")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminSignupResponse> createAdmin(@Valid @RequestBody AdminSignupRequest req) {
         return ResponseEntity.ok(adminMemberService.createAdmin(req));
     }
 
     @Operation(summary = "관리자 목록 조회")
-    @GetMapping
+    @GetMapping("members")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberPageResponse> getAdminMembers(
             @ParameterObject @PageableDefault(size = 20) Pageable pageable,
@@ -47,14 +47,14 @@ public class AdminMemberController {
     }
 
     @Operation(summary = "관리자 상세 조회")
-    @GetMapping("/{id}")
+    @GetMapping("/member/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> getAdminMember(@PathVariable Long id) {
         return ResponseEntity.ok(adminMemberService.getAdminMember(id));
     }
 
     @Operation(summary = "내 관리자 정보 조회")
-    @GetMapping("/me")
+    @GetMapping("/member/info")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> getMyInfo() {
         return ResponseEntity.ok(adminMemberService.getMyInfo());
