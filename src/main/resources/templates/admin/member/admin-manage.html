@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>관리자 조회</title>
+</head>
+<body id="page-top">
+<link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">관리자 조회</h1>
+                    <div class="page-actions">
+                        <a class="btn btn-outline-primary btn-sm" th:href="@{/admin/member/info}">
+                            <i class="fas fa-user-circle fa-sm mr-1"></i>내 정보
+                        </a>
+                        <a class="btn btn-primary btn-sm shadow-sm" th:href="@{/admin/member/new}">
+                            <i class="fas fa-user-plus fa-sm mr-1"></i>관리자 추가
+                        </a>
+                    </div>
+                </div>
+
+                <div class="admin-manage-shell">
+                    <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+
+                    <div class="card shadow mb-0 admin-panel">
+                        <div class="card-header">
+                            <div>
+                                <h6>검색 조건</h6>
+                                <p>아이디, 이름, 상태로 관리자 계정을 조회합니다.</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <form id="searchForm">
+                                <div class="filter-grid">
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchUserId">아이디</label>
+                                        <input type="text" class="form-control" id="searchUserId" name="userId" maxlength="50">
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchUserName">이름</label>
+                                        <input type="text" class="form-control" id="searchUserName" name="userName" maxlength="100">
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchUserType">권한</label>
+                                        <select class="form-control" id="searchUserType" name="userType">
+                                            <option value="">전체</option>
+                                            <option value="ROLE_ADMIN">관리자</option>
+                                            <option value="ROLE_MANAGER">매니저</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchStatus">상태</label>
+                                        <select class="form-control" id="searchStatus" name="status">
+                                            <option value="">전체</option>
+                                            <option value="ACTIVE">활성</option>
+                                            <option value="LOCKED">잠김</option>
+                                            <option value="DISABLED">비활성</option>
+                                            <option value="PASSWORD_EXPIRED">비밀번호 만료</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="filter-actions mt-4">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-search fa-sm mr-1"></i>조회
+                                    </button>
+                                    <button type="button" class="btn btn-light border" id="btnReset">
+                                        초기화
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card shadow mb-0 admin-panel">
+                        <div class="card-header">
+                            <div>
+                                <h6>관리자 목록</h6>
+                                <p>선택한 계정의 상세 정보를 모달에서 확인할 수 있습니다.</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="summary-bar">
+                                <div class="summary-text" id="summaryText">총 <strong>0</strong>건</div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>아이디</th>
+                                        <th>이름</th>
+                                        <th>이메일</th>
+                                        <th>권한</th>
+                                        <th>상태</th>
+                                        <th>생성일</th>
+                                        <th class="text-center">상세</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="adminTableBody">
+                                    <tr>
+                                        <td colspan="8" class="text-center text-muted py-4">조회 중입니다.</td>
+                                    </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div id="emptyState" class="empty-state d-none mt-3">
+                                조회 결과가 없습니다.
+                            </div>
+
+                            <div class="pagination-bar">
+                                <nav aria-label="관리자 페이지 목록">
+                                    <ul class="pagination mb-0" id="pagination"></ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<div class="modal fade admin-detail-modal" id="adminDetailModal" tabindex="-1" role="dialog" aria-labelledby="adminDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="detail-hero">
+                    <div class="detail-hero-copy">
+                        <h5 class="modal-title" id="adminDetailModalLabel">관리자 상세 정보</h5>
+                        <p>선택한 관리자 계정의 기본 정보와 상태를 확인합니다.</p>
+                    </div>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="detailAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="detailLoading" class="detail-loading">상세 정보를 불러오는 중입니다.</div>
+                <div id="detailSummary" class="detail-summary d-none"></div>
+                <div id="detailContent" class="detail-grid d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+
+<script>
+    const searchForm = document.getElementById("searchForm");
+    const resetButton = document.getElementById("btnReset");
+    const tableBody = document.getElementById("adminTableBody");
+    const pageAlert = document.getElementById("pageAlert");
+    const summaryText = document.getElementById("summaryText");
+    const pagination = document.getElementById("pagination");
+    const emptyState = document.getElementById("emptyState");
+
+    const detailAlert = document.getElementById("detailAlert");
+    const detailLoading = document.getElementById("detailLoading");
+    const detailSummary = document.getElementById("detailSummary");
+    const detailContent = document.getElementById("detailContent");
+
+    const pageState = {
+        page: 0,
+        size: 20,
+        totalPages: 0
+    };
+
+    function showPageError(message) {
+        pageAlert.textContent = message;
+        pageAlert.classList.remove("d-none");
+    }
+
+    function hidePageError() {
+        pageAlert.classList.add("d-none");
+        pageAlert.textContent = "";
+    }
+
+    function showDetailError(message) {
+        detailAlert.textContent = message;
+        detailAlert.classList.remove("d-none");
+    }
+
+    function hideDetailError() {
+        detailAlert.classList.add("d-none");
+        detailAlert.textContent = "";
+    }
+
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function formatDate(value) {
+        if (!value) {
+            return "-";
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return value;
+        }
+
+        return new Intl.DateTimeFormat("ko-KR", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit"
+        }).format(date);
+    }
+
+    function getRoleLabel(value) {
+        if (value === "ROLE_ADMIN") return "관리자";
+        if (value === "ROLE_MANAGER") return "매니저";
+        return value || "-";
+    }
+
+    function getStatusLabel(value) {
+        if (value === "ACTIVE") return "활성";
+        if (value === "LOCKED") return "잠김";
+        if (value === "DISABLED") return "비활성";
+        if (value === "PASSWORD_EXPIRED") return "비밀번호 만료";
+        if (value === "DELETED") return "삭제";
+        return value || "-";
+    }
+
+    function getRoleBadgeClass(value) {
+        if (value === "ROLE_ADMIN") return "badge-role badge-role-admin";
+        if (value === "ROLE_MANAGER") return "badge-role badge-role-manager";
+        return "badge badge-light";
+    }
+
+    function getStatusBadgeClass(value) {
+        if (value === "ACTIVE") return "badge-status badge-status-active";
+        if (value === "LOCKED") return "badge-status badge-status-locked";
+        if (value === "DISABLED") return "badge-status badge-status-disabled";
+        if (value === "PASSWORD_EXPIRED") return "badge-status badge-status-password-expired";
+        if (value === "DELETED") return "badge-status badge-status-deleted";
+        return "badge badge-light";
+    }
+
+    function buildQueryString(page) {
+        const params = new URLSearchParams();
+        const formData = new FormData(searchForm);
+
+        formData.forEach((value, key) => {
+            const trimmed = typeof value === "string" ? value.trim() : value;
+            if (trimmed) {
+                params.append(key, trimmed);
+            }
+        });
+
+        params.set("page", String(page));
+        params.set("size", String(pageState.size));
+        return params.toString();
+    }
+
+    function renderSummary(data) {
+        const currentPage = data.totalPages === 0 ? 0 : data.page + 1;
+        summaryText.innerHTML = "총 <strong>" + data.totalElements + "</strong>건 · " +
+            currentPage + " / " + Math.max(data.totalPages, 1) + " 페이지";
+    }
+
+    function renderTable(items) {
+        if (!items || items.length === 0) {
+            tableBody.innerHTML = "";
+            emptyState.classList.remove("d-none");
+            return;
+        }
+
+        emptyState.classList.add("d-none");
+
+        tableBody.innerHTML = items.map(item => {
+            return "<tr>" +
+                "<td>" + escapeHtml(item.id) + "</td>" +
+                "<td><button type=\"button\" class=\"btn btn-link p-0 cell-link js-detail\" data-id=\"" + escapeHtml(item.id) + "\">" + escapeHtml(item.userId) + "</button></td>" +
+                "<td>" + escapeHtml(item.userName || "-") + "</td>" +
+                "<td>" + escapeHtml(item.email || "-") + "</td>" +
+                "<td><span class=\"" + getRoleBadgeClass(item.userType) + "\">" + escapeHtml(getRoleLabel(item.userType)) + "</span></td>" +
+                "<td><span class=\"" + getStatusBadgeClass(item.status) + "\">" + escapeHtml(getStatusLabel(item.status)) + "</span></td>" +
+                "<td>" + escapeHtml(formatDate(item.createDate)) + "</td>" +
+                "<td class=\"text-center\"><button type=\"button\" class=\"btn btn-outline-primary btn-sm js-detail\" data-id=\"" + escapeHtml(item.id) + "\">상세</button></td>" +
+                "</tr>";
+        }).join("");
+    }
+
+    function renderPagination(data) {
+        pagination.innerHTML = "";
+
+        if (!data.totalPages || data.totalPages <= 1) {
+            return;
+        }
+
+        const fragment = [];
+        const startPage = Math.max(0, data.page - 2);
+        const endPage = Math.min(data.totalPages - 1, startPage + 4);
+
+        fragment.push(
+            "<li class=\"page-item " + (data.page === 0 ? "disabled" : "") + "\">" +
+            "<button type=\"button\" class=\"page-link\" data-page=\"" + Math.max(data.page - 1, 0) + "\">이전</button></li>"
+        );
+
+        for (let i = startPage; i <= endPage; i += 1) {
+            fragment.push(
+                "<li class=\"page-item " + (i === data.page ? "active" : "") + "\">" +
+                "<button type=\"button\" class=\"page-link\" data-page=\"" + i + "\">" + (i + 1) + "</button></li>"
+            );
+        }
+
+        fragment.push(
+            "<li class=\"page-item " + (data.last ? "disabled" : "") + "\">" +
+            "<button type=\"button\" class=\"page-link\" data-page=\"" + Math.min(data.page + 1, data.totalPages - 1) + "\">다음</button></li>"
+        );
+
+        pagination.innerHTML = fragment.join("");
+    }
+
+    function setLoadingRow() {
+        emptyState.classList.add("d-none");
+        tableBody.innerHTML = "<tr><td colspan=\"8\" class=\"text-center text-muted py-4\">조회 중입니다.</td></tr>";
+    }
+
+    async function loadAdminMembers(page) {
+        hidePageError();
+        setLoadingRow();
+
+        try {
+            const response = await fetch("/admin/api/members?" + buildQueryString(page));
+            if (!response.ok) {
+                const errorBody = await response.json().catch(() => ({}));
+                throw new Error(errorBody.message || "관리자 목록 조회에 실패했습니다.");
+            }
+
+            const data = await response.json();
+            pageState.page = data.page;
+            pageState.totalPages = data.totalPages;
+
+            renderSummary(data);
+            renderTable(data.content || []);
+            renderPagination(data);
+        } catch (error) {
+            tableBody.innerHTML = "<tr><td colspan=\"8\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
+            pagination.innerHTML = "";
+            showPageError(error.message || "관리자 목록 조회 중 오류가 발생했습니다.");
+        }
+    }
+
+    function resetDetailModal() {
+        hideDetailError();
+        detailLoading.classList.remove("d-none");
+        detailSummary.classList.add("d-none");
+        detailSummary.innerHTML = "";
+        detailContent.classList.add("d-none");
+        detailContent.innerHTML = "";
+    }
+
+    function renderDetail(data) {
+        const displayName = data.userName || data.userId || "-";
+        const emailValue = data.email ? escapeHtml(data.email) : "-";
+
+        detailSummary.innerHTML =
+            "<div class=\"detail-identity\">" +
+            "<div class=\"headline\">" + escapeHtml(displayName) + "</div>" +
+            "</div>" +
+            "<div class=\"detail-meta\">" +
+            "<span class=\"" + getRoleBadgeClass(data.userType) + "\">" + escapeHtml(getRoleLabel(data.userType)) + "</span>" +
+            "<span class=\"" + getStatusBadgeClass(data.status) + "\">" + escapeHtml(getStatusLabel(data.status)) + "</span>" +
+            "</div>";
+
+        const detailItems = [
+            { label: "아이디", value: data.userId },
+            { label: "이름", value: data.userName || "-" },
+            {
+                label: "이메일",
+                value: data.email
+                    ? "<button type=\"button\" class=\"copy-email-btn\" data-email=\"" + emailValue + "\">" +
+                      "<span class=\"copy-email-icon\"><i class=\"far fa-copy\"></i></span>" +
+                      "<span class=\"copy-email-text\"><span>" + emailValue + "</span><small>클릭해서 복사</small></span>" +
+                      "</button>"
+                    : "<span class=\"value-muted\">-</span>"
+            },
+            { label: "권한", value: escapeHtml(getRoleLabel(data.userType)) },
+            { label: "상태", value: escapeHtml(getStatusLabel(data.status)) },
+            { label: "생성일", value: formatDate(data.createDate) }
+        ];
+
+        detailContent.innerHTML = detailItems.map(item => {
+            return "<div class=\"detail-item\">" +
+                "<span class=\"label\">" + escapeHtml(item.label) + "</span>" +
+                "<div class=\"value\">" + item.value + "</div>" +
+                "</div>";
+        }).join("");
+
+        detailLoading.classList.add("d-none");
+        detailSummary.classList.remove("d-none");
+        detailContent.classList.remove("d-none");
+    }
+
+    async function loadAdminDetail(id) {
+        resetDetailModal();
+
+        try {
+            const response = await fetch("/admin/api/member/" + encodeURIComponent(id));
+            if (!response.ok) {
+                const errorBody = await response.json().catch(() => ({}));
+                throw new Error(errorBody.message || "관리자 상세 조회에 실패했습니다.");
+            }
+
+            const data = await response.json();
+            renderDetail(data);
+        } catch (error) {
+            detailLoading.classList.add("d-none");
+            showDetailError(error.message || "관리자 상세 조회 중 오류가 발생했습니다.");
+        }
+    }
+
+    searchForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        loadAdminMembers(0);
+    });
+
+    resetButton.addEventListener("click", function () {
+        searchForm.reset();
+        loadAdminMembers(0);
+    });
+
+    pagination.addEventListener("click", function (event) {
+        const button = event.target.closest("button[data-page]");
+        if (!button || button.parentElement.classList.contains("disabled") || button.parentElement.classList.contains("active")) {
+            return;
+        }
+
+        loadAdminMembers(Number(button.dataset.page));
+    });
+
+    tableBody.addEventListener("click", function (event) {
+        const button = event.target.closest(".js-detail");
+        if (!button) {
+            return;
+        }
+
+        $("#adminDetailModal").modal("show");
+        loadAdminDetail(button.dataset.id);
+    });
+
+    detailContent.addEventListener("click", async function (event) {
+        const button = event.target.closest(".copy-email-btn");
+        if (!button) {
+            return;
+        }
+
+        const originalMarkup = button.innerHTML;
+        const email = button.dataset.email;
+        if (!email) {
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(email);
+            button.classList.add("copied");
+            button.innerHTML =
+                "<span class=\"copy-email-icon\"><i class=\"fas fa-check\"></i></span>" +
+                "<span class=\"copy-email-text\"><span>" + escapeHtml(email) + "</span><small>복사되었습니다</small></span>";
+
+            window.setTimeout(function () {
+                button.classList.remove("copied");
+                button.innerHTML = originalMarkup;
+            }, 1400);
+        } catch (error) {
+            showDetailError("이메일 복사에 실패했습니다.");
+        }
+    });
+
+    loadAdminMembers(0);
+</script>
+
+</body>
+</html>

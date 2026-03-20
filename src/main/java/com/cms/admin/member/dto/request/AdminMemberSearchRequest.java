@@ -1,6 +1,7 @@
 package com.cms.admin.member.dto.request;
 
 import com.cms.admin.member.domain.MemberStatus;
+import com.cms.admin.member.domain.Role;
 import lombok.*;
 
 @Getter
@@ -12,5 +13,6 @@ public class AdminMemberSearchRequest {
 
     private String userId;
     private String userName;
+    private Role userType;
     private MemberStatus status;
 }

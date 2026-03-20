@@ -12,4 +12,14 @@ public class AdminMemberPageController {
     public String adminCreatePage() {
         return "admin/member/admin-create";
     }
+
+    @GetMapping("/manage")
+    public String adminManagePage() {
+        return "admin/member/admin-manage";
+    }
+
+    @GetMapping("/info")
+    public String adminMyInfoPage() {
+        return "admin/member/admin-my-info";
+    }
 }
