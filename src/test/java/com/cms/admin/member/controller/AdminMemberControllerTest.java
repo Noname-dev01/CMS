@@ -3,6 +3,7 @@ package com.cms.admin.member.controller;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
+import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
@@ -23,8 +24,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -39,6 +38,7 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -61,9 +61,14 @@ class AdminMemberControllerTest {
     @Autowired
     AdminMemberService adminMemberService;
 
+    @Autowired
+    AdminSecurityService adminSecurityService;
+
     @BeforeEach
     void setUp() {
-        reset(adminMemberService);
+        reset(adminMemberService, adminSecurityService);
+        given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
+        given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
     }
 
     @TestConfiguration
@@ -71,6 +76,11 @@ class AdminMemberControllerTest {
         @Bean
         public AdminMemberService adminMemberService() {
             return Mockito.mock(AdminMemberService.class);
+        }
+
+        @Bean
+        public AdminSecurityService adminSecurityService() {
+            return Mockito.mock(AdminSecurityService.class);
         }
     }
 
@@ -93,6 +103,14 @@ class AdminMemberControllerTest {
                 .userType(Role.ROLE_ADMIN)
                 .status(MemberStatus.ACTIVE)
                 .createDate(new Date())
+                .updateDate(new Date())
+                .build();
+    }
+
+    private AdminMyInfoUpdateRequest myInfoUpdateRequest() {
+        return AdminMyInfoUpdateRequest.builder()
+                .userName("홍길동 수정")
+                .email("admin02@test.com")
                 .build();
     }
 
@@ -259,6 +277,78 @@ class AdminMemberControllerTest {
                 .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("admin01"));
+    }
+
+    @Test
+    @DisplayName("내 관리자 정보 수정 성공")
+    @WithMockUser(roles = "ADMIN")
+    void updateMyInfo_success() throws Exception {
+        AdminMemberResponse response = AdminMemberResponse.builder()
+                .id(1L)
+                .userId("admin01")
+                .userName("홍길동 수정")
+                .email("admin02@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.ACTIVE)
+                .createDate(new Date())
+                .updateDate(new Date())
+                .build();
+
+        given(adminMemberService.updateMyInfo(any())).willReturn(response);
+
+        mockMvc.perform(patch("/admin/api/member/info")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userName").value("홍길동 수정"))
+                .andExpect(jsonPath("$.email").value("admin02@test.com"));
+    }
+
+    @Test
+    @DisplayName("내 관리자 정보 수정 요청 검증 실패면 400 ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void updateMyInfo_validationFail() throws Exception {
+        AdminMyInfoUpdateRequest badRequest = AdminMyInfoUpdateRequest.builder()
+                .userName("")
+                .email("not-email")
+                .build();
+
+        mockMvc.perform(patch("/admin/api/member/info")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    @DisplayName("내 관리자 정보 수정 시 중복 이메일이면 409 ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void updateMyInfo_duplicateEmail() throws Exception {
+        given(adminMemberService.updateMyInfo(any()))
+                .willThrow(new DuplicateResourceException("이미 사용 중인 이메일입니다."));
+
+        mockMvc.perform(patch("/admin/api/member/info")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DUPLICATE_RESOURCE"))
+                .andExpect(jsonPath("$.message").value("이미 사용 중인 이메일입니다."));
+    }
+
+    @Test
+    @DisplayName("관리자 권한 없이 내 관리자 정보 수정하면 403 ERROR")
+    @WithMockUser(roles = "USER")
+    void updateMyInfo_forbidden() throws Exception {
+        mockMvc.perform(patch("/admin/api/member/info")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
     }
 
     @Test
