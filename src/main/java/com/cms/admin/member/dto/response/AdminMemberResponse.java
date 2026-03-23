@@ -22,5 +22,6 @@ public class AdminMemberResponse {
     private Role userType;
     private MemberStatus status;
     private Date createDate;
+    private Date updateDate;
     private String profileImageUrl;
 }

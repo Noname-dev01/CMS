@@ -14,8 +14,11 @@
             <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
 
             <div class="container-fluid">
-                <div class="d-sm-flex align-items-center justify-content-between mb-4">
-                    <h1 class="h3 mb-0 text-gray-800">내 관리자 정보</h1>
+                <div class="my-info-hero mb-4">
+                    <div>
+                        <h1 class="h3 mb-2 text-gray-800">내 정보</h1>
+                        <p class="mb-0">이름, 이메일, 프로필 이미지를 관리합니다.</p>
+                    </div>
                     <div class="page-actions">
                         <a class="btn btn-outline-primary btn-sm" th:href="@{/admin/member/manage}">
                             <i class="fas fa-list fa-sm mr-1"></i>관리자 조회
@@ -25,36 +28,81 @@
 
                 <div class="admin-my-info-shell">
                     <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+                    <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
 
-                    <div class="card shadow mb-0 admin-panel profile-card">
-                        <div class="card-header">
-                            <div>
-                                <h6>기본 정보</h6>
-                                <p>현재 로그인한 관리자 계정 정보를 조회합니다.</p>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div id="myInfoLoading" class="detail-loading">내 정보를 불러오는 중입니다.</div>
-                            <div id="myInfoContent" class="d-none">
-                                <div class="my-info-layout">
-                                    <div class="profile-uploader">
-                                        <div class="profile-uploader-head">
-                                            <h6>프로필 이미지</h6>
-                                            <p>현재 사용 중인 프로필 이미지입니다. 변경은 모달에서 진행합니다.</p>
+                    <div id="myInfoLoading" class="detail-loading">내 정보를 불러오는 중입니다.</div>
+
+                    <div id="myInfoContent" class="d-none">
+                        <div class="my-info-dashboard">
+                            <div class="my-info-detail-column">
+                                <div class="card shadow mb-0 admin-panel">
+                                    <div class="card-header">
+                                        <div>
+                                            <h6>계정 정보</h6>
+                                            <p>내 계정의 기본 정보와 최근 변경 이력을 확인합니다.</p>
                                         </div>
-                                        <div class="profile-preview-frame" id="profilePreviewFrame">
-                                            <div class="profile-preview-empty" id="profilePreviewEmpty">
-                                                <i class="fas fa-user"></i>
-                                            </div>
-                                            <img id="profilePreviewImage" class="d-none" alt="프로필 이미지 미리보기">
-                                        </div>
-                                        <div class="profile-upload-actions">
-                                            <button type="button" class="btn btn-primary btn-sm" id="btnOpenProfileModal">프로필 변경</button>
+                                        <div class="page-actions">
+                                            <button type="button" class="btn btn-primary btn-sm" id="btnStartEditMyInfo">
+                                                <i class="fas fa-pen fa-sm mr-1"></i>정보 수정
+                                            </button>
                                         </div>
                                     </div>
-                                    <div class="info-detail-panel">
-                                        <div id="profileSummary" class="profile-summary"></div>
-                                        <div id="detailGrid" class="detail-grid"></div>
+                                    <div class="card-body">
+                                        <div class="my-info-card-layout">
+                                            <div class="my-info-profile-pane">
+                                                <div class="profile-image-card">
+                                                    <div class="profile-image-stage">
+                                                        <div class="profile-preview-frame profile-preview-frame-hero">
+                                                            <div class="profile-preview-empty" id="profilePreviewEmpty">
+                                                                <i class="fas fa-user"></i>
+                                                            </div>
+                                                            <img id="profilePreviewImage" class="d-none" alt="프로필 이미지 미리보기">
+                                                        </div>
+                                                    </div>
+                                                    <div class="profile-tools-copy profile-tools-copy-card">
+                                                        <h6>프로필 이미지</h6>
+                                                        <p class="mb-0">프로필 변경 버튼을 눌러 이미지 업로드, 기본 이미지 선택, 제거를 진행합니다.</p>
+                                                    </div>
+                                                    <div class="profile-inline-actions profile-inline-actions-card">
+                                                        <button type="button" class="btn btn-primary btn-sm profile-change-button btn-block" id="btnOpenProfileModal">
+                                                            <i class="fas fa-camera fa-sm mr-1"></i>프로필 변경
+                                                        </button>
+                                                    </div>
+                                                    <div class="profile-last-updated" id="profileLastUpdated">최근 수정 -</div>
+                                                </div>
+                                            </div>
+
+                                            <div class="my-info-content-pane">
+                                                <div class="info-content-hero">
+                                                    <h5>계정 기본 정보</h5>
+                                                    <p>아이디, 권한, 상태, 생성일과 수정일을 한눈에 확인하고 필요한 경우 이름과 이메일을 수정할 수 있습니다.</p>
+                                                </div>
+
+                                                <div id="viewModeSection" class="info-view-panel">
+                                                    <div class="detail-grid" id="detailGrid"></div>
+                                                </div>
+
+                                                <div id="editModeSection" class="d-none info-edit-panel">
+                                                    <div class="info-edit-grid">
+                                                        <div class="form-group mb-0">
+                                                            <label class="form-label" for="myInfoUserName">이름</label>
+                                                            <input type="text" class="form-control" id="myInfoUserName" maxlength="100">
+                                                        </div>
+                                                        <div class="form-group mb-0">
+                                                            <label class="form-label" for="myInfoEmail">이메일</label>
+                                                            <input type="email" class="form-control" id="myInfoEmail" maxlength="100">
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="readonly-summary-grid mt-4" id="readonlySummaryGrid"></div>
+
+                                                    <div class="info-edit-actions mt-4">
+                                                        <button type="button" class="btn btn-light border btn-sm" id="btnCancelEditMyInfo">취소</button>
+                                                        <button type="button" class="btn btn-primary btn-sm" id="btnSaveMyInfo">정보 저장</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -85,10 +133,10 @@
                 <div class="profile-edit-layout">
                     <div class="profile-edit-preview">
                         <div class="profile-preview-frame profile-preview-frame-modal">
-                            <div class="profile-preview-empty" id="modalProfilePreviewEmpty">
+                            <div class="profile-preview-empty" id="toolProfilePreviewEmpty">
                                 <i class="fas fa-user"></i>
                             </div>
-                            <img id="modalProfilePreviewImage" class="d-none" alt="프로필 이미지 미리보기">
+                            <img id="toolProfilePreviewImage" class="d-none" alt="프로필 이미지 편집 미리보기">
                         </div>
                         <div class="profile-upload-help">JPG, PNG, GIF, WEBP 파일을 2MB 이하로 업로드할 수 있습니다.</div>
                     </div>
@@ -130,7 +178,7 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="btnRestoreDefaultProfileImage">이미지 제거</button>
                 <button type="button" class="btn btn-light border btn-sm" id="btnResetProfileImage">선택 취소</button>
-                <button type="button" class="btn btn-primary btn-sm" id="btnUploadProfileImage">이미지 저장</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnUploadProfileImage">업로드 저장</button>
             </div>
         </div>
     </div>
@@ -143,24 +191,38 @@
 
 <script>
     const pageAlert = document.getElementById("pageAlert");
+    const pageSuccess = document.getElementById("pageSuccess");
     const myInfoLoading = document.getElementById("myInfoLoading");
     const myInfoContent = document.getElementById("myInfoContent");
     const uploadAlert = document.getElementById("uploadAlert");
+    const openProfileModalButton = document.getElementById("btnOpenProfileModal");
+
     const profilePreviewImage = document.getElementById("profilePreviewImage");
     const profilePreviewEmpty = document.getElementById("profilePreviewEmpty");
-    const modalProfilePreviewImage = document.getElementById("modalProfilePreviewImage");
-    const modalProfilePreviewEmpty = document.getElementById("modalProfilePreviewEmpty");
-    const profileSummary = document.getElementById("profileSummary");
+    const toolProfilePreviewImage = document.getElementById("toolProfilePreviewImage");
+    const toolProfilePreviewEmpty = document.getElementById("toolProfilePreviewEmpty");
+    const profileLastUpdated = document.getElementById("profileLastUpdated");
+
     const detailGrid = document.getElementById("detailGrid");
+    const readonlySummaryGrid = document.getElementById("readonlySummaryGrid");
+    const viewModeSection = document.getElementById("viewModeSection");
+    const editModeSection = document.getElementById("editModeSection");
+    const myInfoUserNameInput = document.getElementById("myInfoUserName");
+    const myInfoEmailInput = document.getElementById("myInfoEmail");
+    const startEditButton = document.getElementById("btnStartEditMyInfo");
+    const cancelEditButton = document.getElementById("btnCancelEditMyInfo");
+    const saveMyInfoButton = document.getElementById("btnSaveMyInfo");
+
     const profileImageFile = document.getElementById("profileImageFile");
     const profileImageFileLabel = document.getElementById("profileImageFileLabel");
     const uploadButton = document.getElementById("btnUploadProfileImage");
     const resetButton = document.getElementById("btnResetProfileImage");
     const restoreDefaultButton = document.getElementById("btnRestoreDefaultProfileImage");
     const defaultProfileGrid = document.getElementById("defaultProfileGrid");
-    const openProfileModalButton = document.getElementById("btnOpenProfileModal");
 
     let currentProfileImageUrl = "";
+    let currentMyInfo = null;
+    let isEditMode = false;
 
     function showPageError(message) {
         pageAlert.textContent = message;
@@ -170,6 +232,16 @@
     function hidePageError() {
         pageAlert.classList.add("d-none");
         pageAlert.textContent = "";
+    }
+
+    function showPageSuccess(message) {
+        pageSuccess.textContent = message;
+        pageSuccess.classList.remove("d-none");
+    }
+
+    function hidePageSuccess() {
+        pageSuccess.classList.add("d-none");
+        pageSuccess.textContent = "";
     }
 
     function showUploadError(message) {
@@ -197,6 +269,9 @@
         }
 
         if (error instanceof TypeError) {
+            if (error.message && !/fetch|network/i.test(error.message)) {
+                return error.message;
+            }
             return "네트워크 연결을 확인해주세요.";
         }
 
@@ -274,17 +349,17 @@
         profilePreviewEmpty.classList.remove("d-none");
     }
 
-    function setModalProfilePreview(src) {
+    function setToolProfilePreview(src) {
         if (src) {
-            modalProfilePreviewImage.src = src;
-            modalProfilePreviewImage.classList.remove("d-none");
-            modalProfilePreviewEmpty.classList.add("d-none");
+            toolProfilePreviewImage.src = src;
+            toolProfilePreviewImage.classList.remove("d-none");
+            toolProfilePreviewEmpty.classList.add("d-none");
             return;
         }
 
-        modalProfilePreviewImage.src = "";
-        modalProfilePreviewImage.classList.add("d-none");
-        modalProfilePreviewEmpty.classList.remove("d-none");
+        toolProfilePreviewImage.src = "";
+        toolProfilePreviewImage.classList.add("d-none");
+        toolProfilePreviewEmpty.classList.remove("d-none");
     }
 
     function updateTopbarProfile(data) {
@@ -307,29 +382,38 @@
         });
     }
 
-    function renderMyInfo(data) {
+    function toggleEditMode(enabled) {
+        isEditMode = enabled;
+        viewModeSection.classList.toggle("d-none", enabled);
+        editModeSection.classList.toggle("d-none", !enabled);
+        startEditButton.classList.toggle("d-none", enabled);
+
+        if (!enabled && currentMyInfo) {
+            myInfoUserNameInput.value = currentMyInfo.userName || "";
+            myInfoEmailInput.value = currentMyInfo.email || "";
+        }
+    }
+
+    function renderProfileCard(data) {
         currentProfileImageUrl = data.profileImageUrl || "";
         setProfilePreview(currentProfileImageUrl);
-        setModalProfilePreview(currentProfileImageUrl);
+        setToolProfilePreview(currentProfileImageUrl);
         syncDefaultProfileSelection(currentProfileImageUrl);
 
-        profileSummary.innerHTML =
-            "<div class=\"profile-summary-copy\">" +
-            "<span class=\"eyebrow\">My Account</span>" +
-            "<div class=\"headline\">" + escapeHtml(data.userName || data.userId || "-") + "</div>" +
-            "</div>" +
-            "<div class=\"profile-summary-meta\">" +
-            "<span class=\"" + getRoleBadgeClass(data.userType) + "\">" + escapeHtml(getRoleLabel(data.userType)) + "</span>" +
-            "<span class=\"" + getStatusBadgeClass(data.status) + "\">" + escapeHtml(getStatusLabel(data.status)) + "</span>" +
-            "</div>";
+        if (profileLastUpdated) {
+            profileLastUpdated.textContent = "최근 수정 " + formatDate(data.updateDate);
+        }
+    }
 
+    function renderInfoCards(data) {
         const detailItems = [
             { label: "아이디", value: escapeHtml(data.userId) },
             { label: "이름", value: escapeHtml(data.userName || "-") },
             { label: "이메일", value: escapeHtml(data.email || "-") },
             { label: "권한", value: "<span class=\"" + getRoleBadgeClass(data.userType) + "\">" + escapeHtml(getRoleLabel(data.userType)) + "</span>" },
             { label: "상태", value: "<span class=\"" + getStatusBadgeClass(data.status) + "\">" + escapeHtml(getStatusLabel(data.status)) + "</span>" },
-            { label: "생성일", value: escapeHtml(formatDate(data.createDate)) }
+            { label: "생성일", value: escapeHtml(formatDate(data.createDate)) },
+            { label: "수정일", value: escapeHtml(formatDate(data.updateDate)) }
         ];
 
         detailGrid.innerHTML = detailItems.map(item => {
@@ -339,33 +423,112 @@
                 "</div>";
         }).join("");
 
+        readonlySummaryGrid.innerHTML = [
+            { label: "아이디", value: escapeHtml(data.userId) },
+            { label: "권한", value: "<span class=\"" + getRoleBadgeClass(data.userType) + "\">" + escapeHtml(getRoleLabel(data.userType)) + "</span>" },
+            { label: "상태", value: "<span class=\"" + getStatusBadgeClass(data.status) + "\">" + escapeHtml(getStatusLabel(data.status)) + "</span>" },
+            { label: "생성일", value: escapeHtml(formatDate(data.createDate)) },
+            { label: "수정일", value: escapeHtml(formatDate(data.updateDate)) }
+        ].map(item => {
+            return "<div class=\"readonly-summary-item\">" +
+                "<span class=\"label\">" + item.label + "</span>" +
+                "<div class=\"value\">" + item.value + "</div>" +
+                "</div>";
+        }).join("");
+    }
+
+    function renderMyInfo(data) {
+        currentMyInfo = data;
+        myInfoUserNameInput.value = data.userName || "";
+        myInfoEmailInput.value = data.email || "";
+
+        renderProfileCard(data);
+        renderInfoCards(data);
+
         myInfoLoading.classList.add("d-none");
         myInfoContent.classList.remove("d-none");
         updateTopbarProfile(data);
+
+        if (!isEditMode) {
+            toggleEditMode(false);
+        }
     }
 
     function resetSelectedFile() {
         profileImageFile.value = "";
         profileImageFileLabel.textContent = "이미지 선택";
-        setModalProfilePreview(currentProfileImageUrl);
+        setToolProfilePreview(currentProfileImageUrl);
         syncDefaultProfileSelection(currentProfileImageUrl);
     }
 
     function clearSelectedFileWithoutHidingError() {
         profileImageFile.value = "";
         profileImageFileLabel.textContent = "이미지 선택";
-        setModalProfilePreview(currentProfileImageUrl);
+        setToolProfilePreview(currentProfileImageUrl);
         syncDefaultProfileSelection(currentProfileImageUrl);
     }
 
     openProfileModalButton.addEventListener("click", function () {
         hideUploadError();
+        hidePageError();
+        hidePageSuccess();
         resetSelectedFile();
         $("#profileEditModal").modal("show");
     });
 
+    startEditButton.addEventListener("click", function () {
+        hidePageError();
+        hidePageSuccess();
+        toggleEditMode(true);
+    });
+
+    cancelEditButton.addEventListener("click", function () {
+        hidePageError();
+        hidePageSuccess();
+        toggleEditMode(false);
+    });
+
+    saveMyInfoButton.addEventListener("click", async function () {
+        hidePageError();
+        hidePageSuccess();
+
+        const payload = {
+            userName: myInfoUserNameInput.value,
+            email: myInfoEmailInput.value
+        };
+
+        saveMyInfoButton.disabled = true;
+        saveMyInfoButton.textContent = "저장 중...";
+
+        try {
+            const response = await fetch("/admin/api/member/info", {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "내 정보 저장에 실패했습니다."));
+            }
+
+            const data = await response.json();
+            renderMyInfo(data);
+            toggleEditMode(false);
+            showPageSuccess("내 정보가 저장되었습니다.");
+        } catch (error) {
+            showPageError(getRequestErrorMessage(error, "내 정보 저장 중 오류가 발생했습니다."));
+        } finally {
+            saveMyInfoButton.disabled = false;
+            saveMyInfoButton.textContent = "정보 저장";
+        }
+    });
+
     profileImageFile.addEventListener("change", function (event) {
         hideUploadError();
+        hidePageError();
+        hidePageSuccess();
 
         const file = event.target.files && event.target.files[0];
         if (!file) {
@@ -390,7 +553,7 @@
 
         const reader = new FileReader();
         reader.onload = function (loadEvent) {
-            setModalProfilePreview(loadEvent.target && loadEvent.target.result ? loadEvent.target.result : "");
+            setToolProfilePreview(loadEvent.target && loadEvent.target.result ? loadEvent.target.result : "");
         };
         reader.onerror = function () {
             showUploadError("선택한 이미지를 미리보기할 수 없습니다.");
@@ -401,6 +564,8 @@
 
     resetButton.addEventListener("click", function () {
         hideUploadError();
+        hidePageError();
+        hidePageSuccess();
         resetSelectedFile();
     });
 
@@ -411,6 +576,8 @@
         }
 
         hideUploadError();
+        hidePageError();
+        hidePageSuccess();
         clearSelectedFileWithoutHidingError();
 
         const preset = option.dataset.preset;
@@ -433,6 +600,7 @@
 
             const data = await response.json();
             renderMyInfo(data);
+            showPageSuccess("기본 프로필 이미지가 적용되었습니다.");
             $("#profileEditModal").modal("hide");
         } catch (error) {
             syncDefaultProfileSelection(currentProfileImageUrl);
@@ -444,8 +612,10 @@
 
     restoreDefaultButton.addEventListener("click", async function () {
         hideUploadError();
+        hidePageError();
+        hidePageSuccess();
         restoreDefaultButton.disabled = true;
-        restoreDefaultButton.textContent = "적용 중...";
+        restoreDefaultButton.textContent = "처리 중...";
 
         try {
             const response = await fetch("/admin/api/member/info/profile-image", {
@@ -459,6 +629,7 @@
             const data = await response.json();
             renderMyInfo(data);
             resetSelectedFile();
+            showPageSuccess("프로필 이미지가 제거되었습니다.");
             $("#profileEditModal").modal("hide");
         } catch (error) {
             showUploadError(getRequestErrorMessage(error, "이미지 제거 중 오류가 발생했습니다."));
@@ -470,6 +641,8 @@
 
     uploadButton.addEventListener("click", async function () {
         hideUploadError();
+        hidePageError();
+        hidePageSuccess();
 
         const file = profileImageFile.files && profileImageFile.files[0];
         if (!file) {
@@ -496,17 +669,19 @@
             const data = await response.json();
             renderMyInfo(data);
             resetSelectedFile();
+            showPageSuccess("프로필 이미지가 저장되었습니다.");
             $("#profileEditModal").modal("hide");
         } catch (error) {
             showUploadError(getRequestErrorMessage(error, "프로필 이미지 저장 중 오류가 발생했습니다."));
         } finally {
             uploadButton.disabled = false;
-            uploadButton.textContent = "이미지 저장";
+            uploadButton.textContent = "업로드 저장";
         }
     });
 
     async function loadMyInfo() {
         hidePageError();
+        hidePageSuccess();
 
         try {
             const response = await fetch("/admin/api/member/info");

@@ -5,6 +5,7 @@ import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
+import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
@@ -133,6 +134,27 @@ public class AdminMemberService {
     }
 
     @Transactional
+    public AdminMemberResponse updateMyInfo(AdminMyInfoUpdateRequest request) {
+        validateAdminAuthority();
+
+        Long adminId = adminSecurityService.getCurrentAdminId();
+        Member member = memberRepository.findById(adminId)
+                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+
+        String normalizedUserName = normalizeUserName(request.getUserName());
+        String normalizedEmail = normalizeEmail(request.getEmail());
+
+        validateDuplicatedEmail(normalizedEmail, member.getId());
+
+        member.setUserName(normalizedUserName);
+        member.setEmail(normalizedEmail);
+        member.setUpdateDate(new Date());
+        refreshAuthentication(member);
+
+        return toResponse(member, true);
+    }
+
+    @Transactional
     public AdminMemberResponse updateMyProfileImage(MultipartFile file) {
         validateAdminAuthority();
 
@@ -233,6 +255,22 @@ public class AdminMemberService {
         SecurityContextHolder.getContext().setAuthentication(newAuth);
     }
 
+    private String normalizeUserName(String userName) {
+        return userName == null ? null : userName.trim();
+    }
+
+    private String normalizeEmail(String email) {
+        return email == null ? null : email.trim().toLowerCase();
+    }
+
+    private void validateDuplicatedEmail(String email, Long currentMemberId) {
+        memberRepository.findByEmail(email)
+                .filter(foundMember -> !foundMember.getId().equals(currentMemberId))
+                .ifPresent(foundMember -> {
+                    throw new DuplicateResourceException("이미 사용 중인 이메일입니다.");
+                });
+    }
+
     private AdminMemberResponse toResponse(Member member, boolean includeProfileImage) {
         return AdminMemberResponse.builder()
                 .id(member.getId())
@@ -242,6 +280,7 @@ public class AdminMemberService {
                 .userType(member.getUserType())
                 .status(member.getStatus())
                 .createDate(member.getCreateDate())
+                .updateDate(member.getUpdateDate())
                 .profileImageUrl(includeProfileImage ? member.getProfileImageUrl() : null)
                 .build();
     }
