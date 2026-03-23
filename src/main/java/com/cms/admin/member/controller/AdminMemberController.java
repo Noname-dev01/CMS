@@ -1,6 +1,7 @@
 package com.cms.admin.member.controller;
 
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
+import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
@@ -60,6 +61,13 @@ public class AdminMemberController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> getMyInfo() {
         return ResponseEntity.ok(adminMemberService.getMyInfo());
+    }
+
+    @Operation(summary = "내 관리자 정보 수정")
+    @PatchMapping("/member/info")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberResponse> updateMyInfo(@Valid @RequestBody AdminMyInfoUpdateRequest request) {
+        return ResponseEntity.ok(adminMemberService.updateMyInfo(request));
     }
 
     @Operation(summary = "내 프로필 이미지 수정")
