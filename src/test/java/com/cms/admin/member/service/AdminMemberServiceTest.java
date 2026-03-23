@@ -4,6 +4,7 @@ import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
+import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
@@ -30,6 +31,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -268,5 +270,62 @@ class AdminMemberServiceTest {
 
         assertEquals(1L, response.getId());
         assertEquals("admin01", response.getUserId());
+    }
+
+    @Test
+    @DisplayName("내 관리자 정보 수정 성공")
+    void updateMyInfo_success() {
+        Member member = adminMember();
+        Date previousUpdateDate = member.getUpdateDate();
+        AdminMyInfoUpdateRequest request = AdminMyInfoUpdateRequest.builder()
+                .userName("  관리자 수정  ")
+                .email("ADMIN02@TEST.COM ")
+                .build();
+
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
+        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByEmail("admin02@test.com")).willReturn(Optional.empty());
+
+        AdminMemberResponse response = adminMemberService.updateMyInfo(request);
+
+        assertEquals("관리자 수정", response.getUserName());
+        assertEquals("admin02@test.com", response.getEmail());
+        assertNotNull(response.getUpdateDate());
+        assertTrue(!response.getUpdateDate().before(previousUpdateDate));
+        verify(memberRepository).findByEmail("admin02@test.com");
+    }
+
+    @Test
+    @DisplayName("내 관리자 정보 수정 시 이메일 중복이면 실패")
+    void updateMyInfo_duplicateEmail() {
+        Member currentMember = adminMember();
+        Member duplicatedMember = Member.builder()
+                .id(2L)
+                .userId("admin02")
+                .pwd("encoded")
+                .userName("중복관리자")
+                .email("dup@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.ACTIVE)
+                .createDate(new Date())
+                .updateDate(new Date())
+                .build();
+
+        AdminMyInfoUpdateRequest request = AdminMyInfoUpdateRequest.builder()
+                .userName("홍길동")
+                .email("dup@test.com")
+                .build();
+
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
+        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
+        given(memberRepository.findById(1L)).willReturn(Optional.of(currentMember));
+        given(memberRepository.findByEmail("dup@test.com")).willReturn(Optional.of(duplicatedMember));
+
+        DuplicateResourceException exception = assertThrows(DuplicateResourceException.class,
+                () -> adminMemberService.updateMyInfo(request));
+
+        assertEquals("이미 사용 중인 이메일입니다.", exception.getMessage());
+        verify(memberRepository, never()).save(any(Member.class));
     }
 }
