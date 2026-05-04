@@ -88,7 +88,8 @@ public class AdminActionLogAspect {
 
         String xForwardedFor = request.getHeader("X-FORWARDED-FOR");
         if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-            return xForwardedFor.split(",")[0].trim();
+            String[] ips = xForwardedFor.split(",");
+            return ips[ips.length - 1].trim();
         }
 
         String xRealIp = request.getHeader("X-Real-IP");
