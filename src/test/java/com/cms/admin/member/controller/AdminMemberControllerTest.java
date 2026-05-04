@@ -4,6 +4,7 @@ import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
+import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
@@ -40,6 +41,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -346,6 +348,87 @@ class AdminMemberControllerTest {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 성공")
+    @WithMockUser(roles = "ADMIN")
+    void changeMyPassword_success() throws Exception {
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(adminMemberService.changeMyPassword(any())).willReturn(adminMemberResponse());
+
+        mockMvc.perform(patch("/admin/api/member/info/password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value("admin01"));
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 요청 검증 실패면 400 ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void changeMyPassword_validationFail() throws Exception {
+        AdminMyPasswordChangeRequest badRequest = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        mockMvc.perform(patch("/admin/api/member/info/password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("현재 비밀번호 불일치면 400 ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void changeMyPassword_wrongPassword() throws Exception {
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("WrongPassword!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(adminMemberService.changeMyPassword(any()))
+                .willThrow(new InvalidRequestException("현재 비밀번호가 올바르지 않습니다."));
+
+        mockMvc.perform(patch("/admin/api/member/info/password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message").value("현재 비밀번호가 올바르지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("관리자 권한 없이 비밀번호 변경하면 403 ERROR")
+    @WithMockUser(roles = "USER")
+    void changeMyPassword_forbidden() throws Exception {
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        mockMvc.perform(patch("/admin/api/member/info/password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isForbidden());
 
         verifyNoInteractions(adminMemberService);
