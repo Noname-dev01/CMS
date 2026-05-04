@@ -42,13 +42,8 @@ public class MemberController {
     public String processForgotPassword(@RequestParam String userId,
                                       @RequestParam String email,
                                       RedirectAttributes redirectAttributes) {
-        try {
-            memberService.sendPasswordResetEmail(userId, email);
-            redirectAttributes.addFlashAttribute("message", "비밀번호 재설정 링크가 이메일로 전송되었습니다.");
-        } catch (RuntimeException e) {
-            redirectAttributes.addFlashAttribute("error", e.getMessage());
-            return "redirect:/member/forgot-password";
-        }
+        memberService.sendPasswordResetEmail(userId, email);
+        redirectAttributes.addFlashAttribute("message", "입력하신 정보가 확인되면 이메일로 안내를 드립니다.");
         return "redirect:/admin/login";
     }
 

@@ -3,6 +3,7 @@ package com.cms.admin.member.domain;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
 import java.util.Date;
 
 @Entity
@@ -52,6 +53,8 @@ public class Member {
 
     @Column(length = 255)
     private String resetToken;
+
+    private LocalDateTime resetTokenExpiryAt;
 
     @Lob
     @Column(name = "profile_image_url", columnDefinition = "LONGTEXT")
