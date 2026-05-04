@@ -5,6 +5,7 @@ import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
+import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
@@ -294,6 +295,86 @@ class AdminMemberServiceTest {
         assertNotNull(response.getUpdateDate());
         assertTrue(!response.getUpdateDate().before(previousUpdateDate));
         verify(memberRepository).findByEmail("admin02@test.com");
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 성공")
+    void changeMyPassword_success() {
+        Member member = adminMember();
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
+        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.matches("Admin1234!", member.getPwd())).willReturn(true);
+        given(passwordEncoder.encode("NewAdmin1234!")).willReturn("encodedNewPassword");
+
+        AdminMemberResponse response = adminMemberService.changeMyPassword(request);
+
+        assertEquals(1L, response.getId());
+        verify(passwordEncoder).matches("Admin1234!", "encoded");
+        verify(passwordEncoder).encode("NewAdmin1234!");
+    }
+
+    @Test
+    @DisplayName("현재 비밀번호가 틀리면 InvalidRequestException")
+    void changeMyPassword_wrongCurrentPassword() {
+        Member member = adminMember();
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("WrongPassword!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
+        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.matches("WrongPassword!", member.getPwd())).willReturn(false);
+
+        InvalidRequestException exception = assertThrows(InvalidRequestException.class,
+                () -> adminMemberService.changeMyPassword(request));
+
+        assertEquals("현재 비밀번호가 올바르지 않습니다.", exception.getMessage());
+        verify(passwordEncoder, never()).encode(any());
+    }
+
+    @Test
+    @DisplayName("새 비밀번호와 확인이 다르면 InvalidRequestException")
+    void changeMyPassword_passwordMismatch() {
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("DifferentPassword!")
+                .build();
+
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
+
+        InvalidRequestException exception = assertThrows(InvalidRequestException.class,
+                () -> adminMemberService.changeMyPassword(request));
+
+        assertEquals("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.", exception.getMessage());
+        verify(memberRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 시 권한 없으면 InvalidRequestException")
+    void changeMyPassword_noAuthority() {
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(adminSecurityService.hasAdminAuthority()).willReturn(false);
+
+        InvalidRequestException exception = assertThrows(InvalidRequestException.class,
+                () -> adminMemberService.changeMyPassword(request));
+
+        assertEquals("관리자 권한이 없습니다.", exception.getMessage());
     }
 
     @Test
