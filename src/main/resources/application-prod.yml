@@ -25,6 +25,15 @@ spring:
           starttls:
             enable: true
 
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
+
+app:
+  base-url: ${APP_BASE_URL}
+
 management:
   endpoints:
     web:

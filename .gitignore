@@ -37,3 +37,14 @@ out/
 .vscode/
 
 /src/main/resources/application.properties
+
+### Secrets ###
+.env*
+!.env.example
+
+### QueryDSL Generated ###
+src/main/generated/
+
+### Claude Code ###
+.claude/
+.mcp.json
