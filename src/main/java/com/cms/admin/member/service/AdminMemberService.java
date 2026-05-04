@@ -6,6 +6,7 @@ import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
+import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
@@ -201,6 +202,30 @@ public class AdminMemberService {
         refreshAuthentication(member);
 
         return toResponse(member, true);
+    }
+
+    @Transactional
+    @AdminActionLogged(actionType = "PASSWORD_CHANGE", targetType = "MEMBER", targetIdExpression = "id")
+    public AdminMemberResponse changeMyPassword(AdminMyPasswordChangeRequest request) {
+        validateAdminAuthority();
+
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new InvalidRequestException("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.");
+        }
+
+        Long adminId = adminSecurityService.getCurrentAdminId();
+        Member member = memberRepository.findById(adminId)
+                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), member.getPwd())) {
+            throw new InvalidRequestException("현재 비밀번호가 올바르지 않습니다.");
+        }
+
+        member.setPwd(passwordEncoder.encode(request.getNewPassword()));
+        member.setUpdateDate(new Date());
+        refreshAuthentication(member);
+
+        return toResponse(member, false);
     }
 
     @Transactional

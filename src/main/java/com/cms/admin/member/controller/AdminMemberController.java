@@ -2,6 +2,7 @@ package com.cms.admin.member.controller;
 
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
+import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
@@ -89,5 +90,15 @@ public class AdminMemberController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> applyDefaultProfileImage(@RequestParam("preset") String preset) {
         return ResponseEntity.ok(adminMemberService.applyDefaultProfileImage(preset));
+    }
+
+    @Operation(summary = "내 비밀번호 변경")
+    @ApiResponse(responseCode = "200", description = "비밀번호 변경 성공")
+    @ApiResponse(responseCode = "400", description = "현재 비밀번호 불일치 또는 새 비밀번호 확인 불일치")
+    @ApiResponse(responseCode = "403", description = "권한 없음")
+    @PatchMapping("/member/info/password")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberResponse> changeMyPassword(@Valid @RequestBody AdminMyPasswordChangeRequest request) {
+        return ResponseEntity.ok(adminMemberService.changeMyPassword(request));
     }
 }
