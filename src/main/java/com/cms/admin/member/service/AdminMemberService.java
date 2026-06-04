@@ -14,11 +14,13 @@ import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -52,7 +54,7 @@ public class AdminMemberService {
     @AdminActionLogged(actionType = "ADMIN_CREATE", targetType = "MEMBER", targetIdExpression = "id")
     public AdminSignupResponse createAdmin(AdminSignupRequest req) {
         if (!adminSecurityService.hasAdminAuthority()) {
-            throw new InvalidRequestException("관리자 권한이 없습니다.");
+            throw new AccessDeniedException("관리자 권한이 없습니다.");
         }
 
         if (memberRepository.existsByUserId(req.getUserId())){
@@ -115,7 +117,7 @@ public class AdminMemberService {
         validateAdminAuthority();
 
         Member member = memberRepository.findById(id)
-                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         validateAdminTarget(member);
 
@@ -129,7 +131,7 @@ public class AdminMemberService {
         Long adminId = adminSecurityService.getCurrentAdminId();
 
         Member member = memberRepository.findById(adminId)
-                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         return toResponse(member, true);
     }
@@ -140,7 +142,7 @@ public class AdminMemberService {
 
         Long adminId = adminSecurityService.getCurrentAdminId();
         Member member = memberRepository.findById(adminId)
-                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         String normalizedUserName = normalizeUserName(request.getUserName());
         String normalizedEmail = normalizeEmail(request.getEmail());
@@ -173,7 +175,7 @@ public class AdminMemberService {
 
         Long adminId = adminSecurityService.getCurrentAdminId();
         Member member = memberRepository.findById(adminId)
-                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         try {
             String encoded = Base64.getEncoder().encodeToString(file.getBytes());
@@ -192,7 +194,7 @@ public class AdminMemberService {
 
         Long adminId = adminSecurityService.getCurrentAdminId();
         Member member = memberRepository.findById(adminId)
-                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         member.changeProfileImage(null);
         refreshAuthentication(member);
@@ -235,7 +237,7 @@ public class AdminMemberService {
 
         Long adminId = adminSecurityService.getCurrentAdminId();
         Member member = memberRepository.findById(adminId)
-                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         member.changeProfileImage(presetImageUrl);
         refreshAuthentication(member);
@@ -245,17 +247,13 @@ public class AdminMemberService {
 
     private void validateAdminAuthority() {
         if (!adminSecurityService.hasAdminAuthority()) {
-            throw new InvalidRequestException("관리자 권한이 없습니다.");
+            throw new AccessDeniedException("관리자 권한이 없습니다.");
         }
     }
 
     private void validateAdminTarget(Member member) {
         if (member.getUserType() != Role.ROLE_ADMIN && member.getUserType() != Role.ROLE_MANAGER) {
-            throw new InvalidRequestException("관리자 대상만 조회할 수 있습니다.");
-        }
-
-        if (member.getStatus() == MemberStatus.DELETED) {
-            throw new InvalidRequestException("삭제된 관리자 정보는 조회할 수 없습니다.");
+            throw new ResourceNotFoundException("관리자 대상만 조회할 수 있습니다.");
         }
     }
 

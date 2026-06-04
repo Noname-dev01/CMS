@@ -13,6 +13,8 @@ import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.ResourceNotFoundException;
+import org.springframework.security.access.AccessDeniedException;
 import com.cms.config.auth.AdminSecurityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -119,13 +121,13 @@ class AdminMemberServiceTest {
     }
 
     @Test
-    @DisplayName("관리자 권한이 없으면 InvalidRequestException")
+    @DisplayName("관리자 권한이 없으면 AccessDeniedException")
     void createAdmin_invalidRole() {
         AdminSignupRequest req = validRequest();
 
         given(adminSecurityService.hasAdminAuthority()).willReturn(false);
 
-        InvalidRequestException exception = assertThrows(InvalidRequestException.class,
+        AccessDeniedException exception = assertThrows(AccessDeniedException.class,
                 () -> adminMemberService.createAdmin(req));
 
         assertEquals("관리자 권한이 없습니다.", exception.getMessage());
@@ -187,7 +189,7 @@ class AdminMemberServiceTest {
     void getAdminMembers_noAuthority(){
         given(adminSecurityService.hasAdminAuthority()).willReturn(false);
 
-        InvalidRequestException exception = assertThrows(InvalidRequestException.class, () ->
+        AccessDeniedException exception = assertThrows(AccessDeniedException.class, () ->
                 adminMemberService.getAdminMembers(new AdminMemberSearchRequest(), PageRequest.of(0, 20)));
 
         assertEquals("관리자 권한이 없습니다.", exception.getMessage());
@@ -211,7 +213,7 @@ class AdminMemberServiceTest {
         given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.findById(1L)).willReturn(Optional.empty());
 
-        InvalidRequestException exception = assertThrows(InvalidRequestException.class, () -> adminMemberService.getAdminMember(1L));
+        ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class, () -> adminMemberService.getAdminMember(1L));
 
         assertEquals("관리자를 찾을 수 없습니다.", exception.getMessage());
     }
@@ -233,13 +235,13 @@ class AdminMemberServiceTest {
         given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.findById(3L)).willReturn(Optional.of(userCheck));
 
-        InvalidRequestException exception = assertThrows(InvalidRequestException.class, () -> adminMemberService.getAdminMember(3L));
+        ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class, () -> adminMemberService.getAdminMember(3L));
 
         assertEquals("관리자 대상만 조회할 수 있습니다.", exception.getMessage());
     }
 
     @Test
-    @DisplayName("삭제된 관리자면 상세 조회 실패")
+    @DisplayName("삭제된 관리자도 상세 조회 성공 (이력 조회 허용)")
     void getAdminMember_deletedTarget(){
         Member deletedAdmin = Member.builder()
                 .id(4L)
@@ -255,9 +257,11 @@ class AdminMemberServiceTest {
         given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.findById(4L)).willReturn(Optional.of(deletedAdmin));
 
-        InvalidRequestException exception = assertThrows(InvalidRequestException.class, () -> adminMemberService.getAdminMember(4L));
+        AdminMemberResponse response = adminMemberService.getAdminMember(4L);
 
-        assertEquals("삭제된 관리자 정보는 조회할 수 없습니다.", exception.getMessage());
+        assertEquals(4L, response.getId());
+        assertEquals("admin99", response.getUserId());
+        assertEquals(MemberStatus.DELETED, response.getStatus());
     }
 
     @Test

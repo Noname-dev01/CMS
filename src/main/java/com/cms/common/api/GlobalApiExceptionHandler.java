@@ -2,6 +2,7 @@ package com.cms.common.api;
 
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -130,6 +131,23 @@ public class GlobalApiExceptionHandler {
 
 
     /**
+     * 자원 없음
+     */
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleResourceNotFound(
+            ResourceNotFoundException e,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = ApiErrorResponse.of(
+                request.getRequestURI(),
+                "RESOURCE_NOT_FOUND",
+                e.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
+    /**
      * 권한 없음
      */
     @ExceptionHandler(AccessDeniedException.class)
@@ -137,11 +155,14 @@ public class GlobalApiExceptionHandler {
             AccessDeniedException e,
             HttpServletRequest request
     ) {
+        String message = (e.getMessage() != null && !e.getMessage().isBlank())
+                ? e.getMessage()
+                : "권한이 없습니다.";
 
         ApiErrorResponse response = ApiErrorResponse.of(
                 request.getRequestURI(),
                 "ACCESS_DENIED",
-                "권한이 없습니다."
+                message
         );
 
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
