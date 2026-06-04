@@ -2,7 +2,7 @@ package com.cms.admin.log.service;
 
 import com.cms.admin.log.domain.AdminActionLog;
 import com.cms.admin.log.domain.AdminActionResult;
-import com.cms.admin.log.repository.AdminActionLogRespository;
+import com.cms.admin.log.repository.AdminActionLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class AdminActionLogService {
 
-    private final AdminActionLogRespository adminActionLogRespository;
+    private final AdminActionLogRepository adminActionLogRepository;
 
     public void log(Long actionId, String actionUserId, String actionType, AdminActionResult actionResult, String targetType,
                     Long targetId, String requestIp, String requestUri, String requestMethod, String errorMessage){
@@ -30,6 +30,6 @@ public class AdminActionLogService {
                 .createAt(LocalDateTime.now())
                 .build();
 
-        adminActionLogRespository.save(Log);
+        adminActionLogRepository.save(Log);
     }
 }
