@@ -452,7 +452,7 @@
         resetDetailModal();
 
         try {
-            const response = await fetch("/admin/api/member/" + encodeURIComponent(id));
+            const response = await fetch("/admin/api/members/" + encodeURIComponent(id));
             if (!response.ok) {
                 throw new Error(await extractErrorMessage(response, "관리자 상세 조회에 실패했습니다."));
             }

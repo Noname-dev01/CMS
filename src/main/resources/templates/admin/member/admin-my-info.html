@@ -501,7 +501,7 @@
         saveMyInfoButton.textContent = "저장 중...";
 
         try {
-            const response = await fetch("/admin/api/member/info", {
+            const response = await fetch("/admin/api/members/me", {
                 method: "PATCH",
                 headers: {
                     "Content-Type": "application/json"
@@ -590,8 +590,10 @@
         option.classList.add("active");
 
         try {
-            const response = await fetch("/admin/api/member/info/profile-image/default?preset=" + encodeURIComponent(preset), {
-                method: "PATCH"
+            const response = await fetch("/admin/api/members/me/profile-image", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ preset: preset })
             });
 
             if (!response.ok) {
@@ -618,7 +620,7 @@
         restoreDefaultButton.textContent = "처리 중...";
 
         try {
-            const response = await fetch("/admin/api/member/info/profile-image", {
+            const response = await fetch("/admin/api/members/me/profile-image", {
                 method: "DELETE"
             });
 
@@ -626,8 +628,7 @@
                 throw new Error(await extractErrorMessage(response, "이미지 제거에 실패했습니다."));
             }
 
-            const data = await response.json();
-            renderMyInfo(data);
+            await loadMyInfo();
             resetSelectedFile();
             showPageSuccess("프로필 이미지가 제거되었습니다.");
             $("#profileEditModal").modal("hide");
@@ -657,8 +658,8 @@
         uploadButton.textContent = "저장 중...";
 
         try {
-            const response = await fetch("/admin/api/member/info/profile-image", {
-                method: "PATCH",
+            const response = await fetch("/admin/api/members/me/profile-image", {
+                method: "PUT",
                 body: formData
             });
 
@@ -684,7 +685,7 @@
         hidePageSuccess();
 
         try {
-            const response = await fetch("/admin/api/member/info");
+            const response = await fetch("/admin/api/members/me");
             if (!response.ok) {
                 throw new Error(await extractErrorMessage(response, "내 정보 조회에 실패했습니다."));
             }

@@ -37,11 +37,10 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -132,11 +131,12 @@ class AdminMemberControllerTest {
                 .build();
         given(adminMemberService.createAdmin(any())).willReturn(response);
 
-        mockMvc.perform(post("/admin/api/member")
+        mockMvc.perform(post("/admin/api/members")
                     .with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request())))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("/admin/api/members/1")))
                 .andExpect(jsonPath("$.userId").value("admin01"))
                 .andExpect(jsonPath("$.userName").value("홍길동"))
                 .andExpect(jsonPath("$.email").value("admin@test.com"))
@@ -155,7 +155,7 @@ class AdminMemberControllerTest {
                 .userType(Role.ROLE_ADMIN)
                 .build();
 
-        mockMvc.perform(post("/admin/api/member")
+        mockMvc.perform(post("/admin/api/members")
                     .with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(badRequest)))
@@ -166,7 +166,7 @@ class AdminMemberControllerTest {
     @Test
     @DisplayName("인증 없이 호출하면 401 ERROR")
     void createAdmin_unauthenticated() throws Exception {
-        mockMvc.perform(post("/admin/api/member")
+        mockMvc.perform(post("/admin/api/members")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request())))
@@ -177,7 +177,7 @@ class AdminMemberControllerTest {
     @DisplayName("관리자 권한 없이 호출하면 403 ERROR")
     @WithMockUser(roles = "USER")
     void createAdmin_forbidden() throws Exception {
-        mockMvc.perform(post("/admin/api/member")
+        mockMvc.perform(post("/admin/api/members")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request())))
@@ -190,7 +190,7 @@ class AdminMemberControllerTest {
     void createAdmin_duplicate() throws Exception {
         given(adminMemberService.createAdmin(any())).willThrow(new DuplicateResourceException("이미 사용 중인 아이디입니다."));
 
-        mockMvc.perform(post("/admin/api/member")
+        mockMvc.perform(post("/admin/api/members")
                     .with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request())))
@@ -205,7 +205,7 @@ class AdminMemberControllerTest {
     void createAdmin_invalidRequest() throws Exception{
         given(adminMemberService.createAdmin(any())).willThrow(new InvalidRequestException("관리자 생성 API에서는 userType은 ROLE_ADMIN만 허용됩니다."));
 
-        mockMvc.perform(post("/admin/api/member")
+        mockMvc.perform(post("/admin/api/members")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request())))
@@ -221,7 +221,7 @@ class AdminMemberControllerTest {
         given(adminMemberService.createAdmin(any()))
                 .willThrow(new RuntimeException("Server Error"));
 
-        mockMvc.perform(post("/admin/api/member")
+        mockMvc.perform(post("/admin/api/members")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request())))
@@ -262,7 +262,7 @@ class AdminMemberControllerTest {
     void getAdminMember_success() throws Exception {
         given(adminMemberService.getAdminMember(anyLong())).willReturn(adminMemberResponse());
 
-        mockMvc.perform(get("/admin/api/member/1")
+        mockMvc.perform(get("/admin/api/members/1")
                 .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
@@ -275,7 +275,7 @@ class AdminMemberControllerTest {
     void getMyInfo_success() throws Exception {
         given(adminMemberService.getMyInfo()).willReturn(adminMemberResponse());
 
-        mockMvc.perform(get("/admin/api/member/info")
+        mockMvc.perform(get("/admin/api/members/me")
                 .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("admin01"));
@@ -298,7 +298,7 @@ class AdminMemberControllerTest {
 
         given(adminMemberService.updateMyInfo(any())).willReturn(response);
 
-        mockMvc.perform(patch("/admin/api/member/info")
+        mockMvc.perform(patch("/admin/api/members/me")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
@@ -316,7 +316,7 @@ class AdminMemberControllerTest {
                 .email("not-email")
                 .build();
 
-        mockMvc.perform(patch("/admin/api/member/info")
+        mockMvc.perform(patch("/admin/api/members/me")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(badRequest)))
@@ -331,7 +331,7 @@ class AdminMemberControllerTest {
         given(adminMemberService.updateMyInfo(any()))
                 .willThrow(new DuplicateResourceException("이미 사용 중인 이메일입니다."));
 
-        mockMvc.perform(patch("/admin/api/member/info")
+        mockMvc.perform(patch("/admin/api/members/me")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
@@ -344,7 +344,7 @@ class AdminMemberControllerTest {
     @DisplayName("관리자 권한 없이 내 관리자 정보 수정하면 403 ERROR")
     @WithMockUser(roles = "USER")
     void updateMyInfo_forbidden() throws Exception {
-        mockMvc.perform(patch("/admin/api/member/info")
+        mockMvc.perform(patch("/admin/api/members/me")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
@@ -446,10 +446,45 @@ class AdminMemberControllerTest {
     @DisplayName("관리자 권한이 아니면 관리자 상세 조회 403")
     @WithMockUser(roles = "USER")
     void getAdminMember_forbidden() throws Exception {
-        mockMvc.perform(get("/admin/api/member/1")
+        mockMvc.perform(get("/admin/api/members/1")
                 .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isForbidden());
 
         verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("기본 프로필 이미지 선택 성공 (PUT JSON)")
+    @WithMockUser(roles = "ADMIN")
+    void applyDefaultProfileImage_success() throws Exception {
+        given(adminMemberService.applyDefaultProfileImage(anyString())).willReturn(adminMemberResponse());
+
+        mockMvc.perform(put("/admin/api/members/me/profile-image")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"preset\":\"profile-1\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value("admin01"));
+    }
+
+    @Test
+    @DisplayName("기본 프로필 이미지 preset 누락 시 400 ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void applyDefaultProfileImage_blankPreset() throws Exception {
+        mockMvc.perform(put("/admin/api/members/me/profile-image")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"preset\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    @DisplayName("프로필 이미지 초기화 성공 (DELETE 204)")
+    @WithMockUser(roles = "ADMIN")
+    void resetMyProfileImage_success() throws Exception {
+        mockMvc.perform(delete("/admin/api/members/me/profile-image")
+                        .with(csrf()))
+                .andExpect(status().isNoContent());
     }
 }
