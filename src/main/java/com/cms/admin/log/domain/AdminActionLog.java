@@ -8,7 +8,6 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "admin_action_log")
 @Getter
-@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder

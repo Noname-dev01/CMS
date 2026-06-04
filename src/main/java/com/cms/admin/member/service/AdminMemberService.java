@@ -147,9 +147,7 @@ public class AdminMemberService {
 
         validateDuplicatedEmail(normalizedEmail, member.getId());
 
-        member.setUserName(normalizedUserName);
-        member.setEmail(normalizedEmail);
-        member.setUpdateDate(new Date());
+        member.updateInfo(normalizedUserName, normalizedEmail);
         refreshAuthentication(member);
 
         return toResponse(member, true);
@@ -179,8 +177,7 @@ public class AdminMemberService {
 
         try {
             String encoded = Base64.getEncoder().encodeToString(file.getBytes());
-            member.setProfileImageUrl("data:" + contentType + ";base64," + encoded);
-            member.setUpdateDate(new Date());
+            member.changeProfileImage("data:" + contentType + ";base64," + encoded);
             refreshAuthentication(member);
         } catch (IOException e) {
             throw new InvalidRequestException("프로필 이미지를 처리할 수 없습니다.");
@@ -197,8 +194,7 @@ public class AdminMemberService {
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
 
-        member.setProfileImageUrl(null);
-        member.setUpdateDate(new Date());
+        member.changeProfileImage(null);
         refreshAuthentication(member);
 
         return toResponse(member, true);
@@ -241,8 +237,7 @@ public class AdminMemberService {
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
 
-        member.setProfileImageUrl(presetImageUrl);
-        member.setUpdateDate(new Date());
+        member.changeProfileImage(presetImageUrl);
         refreshAuthentication(member);
 
         return toResponse(member, true);
