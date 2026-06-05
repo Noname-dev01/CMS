@@ -365,7 +365,7 @@ class AdminMemberServiceTest {
     }
 
     @Test
-    @DisplayName("비밀번호 변경 시 권한 없으면 InvalidRequestException")
+    @DisplayName("비밀번호 변경 시 권한 없으면 AccessDeniedException")
     void changeMyPassword_noAuthority() {
         AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
                 .currentPassword("Admin1234!")
@@ -375,7 +375,7 @@ class AdminMemberServiceTest {
 
         given(adminSecurityService.hasAdminAuthority()).willReturn(false);
 
-        InvalidRequestException exception = assertThrows(InvalidRequestException.class,
+        AccessDeniedException exception = assertThrows(AccessDeniedException.class,
                 () -> adminMemberService.changeMyPassword(request));
 
         assertEquals("관리자 권한이 없습니다.", exception.getMessage());

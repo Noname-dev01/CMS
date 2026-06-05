@@ -219,8 +219,7 @@ public class AdminMemberService {
             throw new InvalidRequestException("현재 비밀번호가 올바르지 않습니다.");
         }
 
-        member.setPwd(passwordEncoder.encode(request.getNewPassword()));
-        member.setUpdateDate(new Date());
+        member.changePassword(passwordEncoder.encode(request.getNewPassword()));
         refreshAuthentication(member);
 
         return toResponse(member, false);

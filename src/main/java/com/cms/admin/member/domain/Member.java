@@ -76,4 +76,12 @@ public class Member {
         this.updateDate = new Date();
     }
 
+    /**
+     * 비밀번호 변경. 이미 인코딩된 비밀번호를 전달해야 한다.
+     */
+    public void changePassword(String encodedPwd) {
+        this.pwd = encodedPwd;
+        this.updateDate = new Date();
+    }
+
 }
