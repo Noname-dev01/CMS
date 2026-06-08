@@ -106,7 +106,7 @@ public class AdminMemberController {
     @ApiResponse(responseCode = "200", description = "비밀번호 변경 성공")
     @ApiResponse(responseCode = "400", description = "현재 비밀번호 불일치 또는 새 비밀번호 확인 불일치")
     @ApiResponse(responseCode = "403", description = "권한 없음")
-    @PatchMapping("/member/info/password")
+    @PatchMapping("members/me/password")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> changeMyPassword(@Valid @RequestBody AdminMyPasswordChangeRequest request) {
         return ResponseEntity.ok(adminMemberService.changeMyPassword(request));

@@ -365,6 +365,26 @@ class AdminMemberServiceTest {
     }
 
     @Test
+    @DisplayName("현재 관리자를 찾을 수 없으면 ResourceNotFoundException")
+    void changeMyPassword_memberNotFound() {
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
+        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
+        given(memberRepository.findById(1L)).willReturn(Optional.empty());
+
+        ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class,
+                () -> adminMemberService.changeMyPassword(request));
+
+        assertEquals("관리자를 찾을 수 없습니다.", exception.getMessage());
+        verify(passwordEncoder, never()).encode(any());
+    }
+
+    @Test
     @DisplayName("비밀번호 변경 시 권한 없으면 AccessDeniedException")
     void changeMyPassword_noAuthority() {
         AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()

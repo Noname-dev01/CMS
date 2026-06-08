@@ -13,6 +13,7 @@ import com.cms.admin.member.service.AdminMemberService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.MethodSecurityTestConfig;
 import com.cms.config.auth.AdminSecurityService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -365,7 +366,7 @@ class AdminMemberControllerTest {
 
         given(adminMemberService.changeMyPassword(any())).willReturn(adminMemberResponse());
 
-        mockMvc.perform(patch("/admin/api/member/info/password")
+        mockMvc.perform(patch("/admin/api/members/me/password")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
@@ -383,7 +384,7 @@ class AdminMemberControllerTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        mockMvc.perform(patch("/admin/api/member/info/password")
+        mockMvc.perform(patch("/admin/api/members/me/password")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(badRequest)))
@@ -406,13 +407,35 @@ class AdminMemberControllerTest {
         given(adminMemberService.changeMyPassword(any()))
                 .willThrow(new InvalidRequestException("현재 비밀번호가 올바르지 않습니다."));
 
-        mockMvc.perform(patch("/admin/api/member/info/password")
+        mockMvc.perform(patch("/admin/api/members/me/password")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.message").value("현재 비밀번호가 올바르지 않습니다."));
+    }
+
+    @Test
+    @DisplayName("현재 관리자를 찾을 수 없으면 404 ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void changeMyPassword_memberNotFound() throws Exception {
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(adminMemberService.changeMyPassword(any()))
+                .willThrow(new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
+
+        mockMvc.perform(patch("/admin/api/members/me/password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.message").value("관리자를 찾을 수 없습니다."));
     }
 
     @Test
@@ -425,7 +448,7 @@ class AdminMemberControllerTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        mockMvc.perform(patch("/admin/api/member/info/password")
+        mockMvc.perform(patch("/admin/api/members/me/password")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))

@@ -213,7 +213,7 @@ public class AdminMemberService {
 
         Long adminId = adminSecurityService.getCurrentAdminId();
         Member member = memberRepository.findById(adminId)
-                .orElseThrow(() -> new InvalidRequestException("관리자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         if (!passwordEncoder.matches(request.getCurrentPassword(), member.getPwd())) {
             throw new InvalidRequestException("현재 비밀번호가 올바르지 않습니다.");
