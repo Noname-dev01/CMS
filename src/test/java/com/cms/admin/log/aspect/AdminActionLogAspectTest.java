@@ -23,8 +23,7 @@ import static org.mockito.Mockito.verify;
  * - 로그 저장이 실패해도 원 작업(정상 완료/원래 예외)을 깨거나 가리지 않는지(예외 격리)
  *
  * REQUIRES_NEW 독립 트랜잭션으로 인한 "롤백돼도 FAIL 로그 보존"의 트랜잭션 경계 자체는
- * 선언적 설정이므로 {@link com.cms.admin.log.service.AdminActionLogServiceTest}에서
- * 전파 속성으로 가드한다.
+ * 선언적 설정이므로 AdminActionLogServiceTest에서 전파 속성으로 가드한다.
  */
 @ExtendWith(MockitoExtension.class)
 class AdminActionLogAspectTest {
