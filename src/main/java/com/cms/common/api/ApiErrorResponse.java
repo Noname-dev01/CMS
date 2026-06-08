@@ -1,9 +1,9 @@
 package com.cms.common.api;
 
-import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
 
 public record ApiErrorResponse(
-        String timestamp,
+        LocalDateTime timestamp,
         String path,
         String code,
         String message
@@ -11,7 +11,7 @@ public record ApiErrorResponse(
 
     public static ApiErrorResponse of(String path, String code, String message) {
         return new ApiErrorResponse(
-                OffsetDateTime.now().toString(),
+                LocalDateTime.now(),
                 path,
                 code,
                 message

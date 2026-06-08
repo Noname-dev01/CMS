@@ -30,8 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.Base64;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -66,7 +66,7 @@ public class AdminMemberService {
             throw new DuplicateResourceException("이미 사용 중인 이메일입니다.");
         }
 
-        Date now = new Date();
+        LocalDateTime now = LocalDateTime.now();
 
         Member saved = memberRepository.save(
                 Member.builder()

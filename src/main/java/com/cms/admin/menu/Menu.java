@@ -6,7 +6,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import lombok.*;
 
-import java.util.Date;
+import java.time.LocalDateTime;
 
 @Entity
 @Getter
@@ -39,7 +39,7 @@ public class Menu {
 
     private String menuDesc;
 
-    private Date createDate;
+    private LocalDateTime createDate;
 
-    private Date updateDate;
+    private LocalDateTime updateDate;
 }

@@ -4,7 +4,6 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
-import java.util.Date;
 
 @Entity
 @Table(
@@ -44,11 +43,9 @@ public class Member {
     @Column(nullable = false, length = 30)
     private MemberStatus status;
 
-    @Temporal(TemporalType.TIMESTAMP)
-    private Date createDate;
+    private LocalDateTime createDate;
 
-    @Temporal(TemporalType.TIMESTAMP)
-    private Date updateDate;
+    private LocalDateTime updateDate;
 
     @Column(length = 255)
     private String resetToken;
@@ -65,7 +62,7 @@ public class Member {
     public void updateInfo(String userName, String email) {
         this.userName = userName;
         this.email = email;
-        this.updateDate = new Date();
+        this.updateDate = LocalDateTime.now();
     }
 
     /**
@@ -73,7 +70,7 @@ public class Member {
      */
     public void changeProfileImage(String profileImageUrl) {
         this.profileImageUrl = profileImageUrl;
-        this.updateDate = new Date();
+        this.updateDate = LocalDateTime.now();
     }
 
     /**
@@ -81,7 +78,7 @@ public class Member {
      */
     public void changePassword(String encodedPwd) {
         this.pwd = encodedPwd;
-        this.updateDate = new Date();
+        this.updateDate = LocalDateTime.now();
     }
 
 }

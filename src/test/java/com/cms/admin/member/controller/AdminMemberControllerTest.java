@@ -30,7 +30,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Date;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -104,8 +104,8 @@ class AdminMemberControllerTest {
                 .email("admin01@test.com")
                 .userType(Role.ROLE_ADMIN)
                 .status(MemberStatus.ACTIVE)
-                .createDate(new Date())
-                .updateDate(new Date())
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
                 .build();
     }
 
@@ -128,7 +128,7 @@ class AdminMemberControllerTest {
                 .email("admin@test.com")
                 .userType(Role.ROLE_ADMIN)
                 .status(MemberStatus.ACTIVE)
-                .createDate(new Date())
+                .createDate(LocalDateTime.now())
                 .build();
         given(adminMemberService.createAdmin(any())).willReturn(response);
 
@@ -256,7 +256,7 @@ class AdminMemberControllerTest {
                 .email("manager01@test.com")
                 .userType(Role.ROLE_MANAGER)
                 .status(MemberStatus.ACTIVE)
-                .createDate(new Date())
+                .createDate(LocalDateTime.now())
                 .build();
         given(adminMemberService.createAdmin(any())).willReturn(response);
 
@@ -347,8 +347,8 @@ class AdminMemberControllerTest {
                 .email("admin02@test.com")
                 .userType(Role.ROLE_ADMIN)
                 .status(MemberStatus.ACTIVE)
-                .createDate(new Date())
-                .updateDate(new Date())
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
                 .build();
 
         given(adminMemberService.updateMyInfo(any())).willReturn(response);

@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
-import java.util.Date;
+import java.time.LocalDateTime;
 
 @Component
 @Profile("dev")
@@ -30,7 +30,7 @@ public class TestMemberLoader implements CommandLineRunner {
                             .pwd(passwordEncoder.encode("1234"))
                             .userType(Role.ROLE_ADMIN)
                             .status(MemberStatus.ACTIVE)
-                            .createDate(new Date())
+                            .createDate(LocalDateTime.now())
                             .status(MemberStatus.ACTIVE)
                     .build());
         }

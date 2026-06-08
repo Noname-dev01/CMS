@@ -5,7 +5,7 @@ import com.cms.admin.member.domain.Role;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.*;
 
-import java.util.Date;
+import java.time.LocalDateTime;
 
 @Getter @Setter
 @NoArgsConstructor
@@ -32,5 +32,5 @@ public class AdminSignupResponse {
     @Schema(example = "ACTIVE")
     private MemberStatus status;
 
-    private Date createDate;
+    private LocalDateTime createDate;
 }

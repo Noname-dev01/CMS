@@ -27,7 +27,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.util.Date;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -71,8 +71,8 @@ class AdminMemberServiceTest {
                 .email("admin01@test.com")
                 .userType(Role.ROLE_ADMIN)
                 .status(MemberStatus.ACTIVE)
-                .createDate(new Date())
-                .updateDate(new Date())
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
                 .resetToken(null)
                 .build();
     }
@@ -88,7 +88,7 @@ class AdminMemberServiceTest {
         given(memberRepository.existsByEmail(req.getEmail())).willReturn(false);
         given(passwordEncoder.encode(req.getPwd())).willReturn("encodedPassword");
 
-        Date date = new Date();
+        LocalDateTime date = LocalDateTime.now();
 
         Member savedMember = Member.builder()
                 .id(1L)
@@ -228,8 +228,8 @@ class AdminMemberServiceTest {
                 .email("user01@test.com")
                 .userType(Role.ROLE_USER)
                 .status(MemberStatus.ACTIVE)
-                .createDate(new Date())
-                .updateDate(new Date())
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
                 .build();
 
         given(adminSecurityService.hasAdminAuthority()).willReturn(true);
@@ -250,8 +250,8 @@ class AdminMemberServiceTest {
                 .email("admin99@test.com")
                 .userType(Role.ROLE_ADMIN)
                 .status(MemberStatus.DELETED)
-                .createDate(new Date())
-                .updateDate(new Date())
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
                 .build();
 
         given(adminSecurityService.hasAdminAuthority()).willReturn(true);
@@ -281,7 +281,7 @@ class AdminMemberServiceTest {
     @DisplayName("내 관리자 정보 수정 성공")
     void updateMyInfo_success() {
         Member member = adminMember();
-        Date previousUpdateDate = member.getUpdateDate();
+        LocalDateTime previousUpdateDate = member.getUpdateDate();
         AdminMyInfoUpdateRequest request = AdminMyInfoUpdateRequest.builder()
                 .userName("  관리자 수정  ")
                 .email("ADMIN02@TEST.COM ")
@@ -297,7 +297,7 @@ class AdminMemberServiceTest {
         assertEquals("관리자 수정", response.getUserName());
         assertEquals("admin02@test.com", response.getEmail());
         assertNotNull(response.getUpdateDate());
-        assertTrue(!response.getUpdateDate().before(previousUpdateDate));
+        assertTrue(!response.getUpdateDate().isBefore(previousUpdateDate));
         verify(memberRepository).findByEmail("admin02@test.com");
     }
 
@@ -413,8 +413,8 @@ class AdminMemberServiceTest {
                 .email("dup@test.com")
                 .userType(Role.ROLE_ADMIN)
                 .status(MemberStatus.ACTIVE)
-                .createDate(new Date())
-                .updateDate(new Date())
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
                 .build();
 
         AdminMyInfoUpdateRequest request = AdminMyInfoUpdateRequest.builder()
