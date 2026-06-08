@@ -48,3 +48,5 @@ src/main/generated/
 ### Claude Code ###
 .claude/
 .mcp.json
+
+/.playwright-mcp

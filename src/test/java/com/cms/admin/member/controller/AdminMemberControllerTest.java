@@ -201,10 +201,10 @@ class AdminMemberControllerTest {
     }
 
     @Test
-    @DisplayName("비즈니스 요청 오류면 400 ERROR")
+    @DisplayName("서비스에서 InvalidRequestException이 발생하면 400 INVALID_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void createAdmin_invalidRequest() throws Exception{
-        given(adminMemberService.createAdmin(any())).willThrow(new InvalidRequestException("관리자 생성 API에서는 userType은 ROLE_ADMIN만 허용됩니다."));
+        given(adminMemberService.createAdmin(any())).willThrow(new InvalidRequestException("잘못된 요청입니다."));
 
         mockMvc.perform(post("/admin/api/members")
                         .with(csrf())
@@ -212,7 +212,61 @@ class AdminMemberControllerTest {
                         .content(objectMapper.writeValueAsString(request())))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.message").value("관리자 생성 API에서는 userType은 ROLE_ADMIN만 허용됩니다."));
+                .andExpect(jsonPath("$.message").value("잘못된 요청입니다."));
+    }
+
+    @Test
+    @DisplayName("userType=ROLE_USER 요청 시 @AllowedRoles 검증 실패 → 400 VALIDATION_ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void createAdmin_userType_roleUser_returns400() throws Exception {
+        AdminSignupRequest roleUserRequest = AdminSignupRequest.builder()
+                .userId("admin01")
+                .pwd("Admin1234!")
+                .userName("홍길동")
+                .email("admin@test.com")
+                .userType(Role.ROLE_USER)
+                .build();
+
+        mockMvc.perform(post("/admin/api/members")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(roleUserRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("userType=ROLE_MANAGER 요청 시 201 Created 성공")
+    @WithMockUser(roles = "ADMIN")
+    void createAdmin_userType_roleManager_returns201() throws Exception {
+        AdminSignupRequest roleManagerRequest = AdminSignupRequest.builder()
+                .userId("manager01")
+                .pwd("Manager1234!")
+                .userName("김매니저")
+                .email("manager01@test.com")
+                .userType(Role.ROLE_MANAGER)
+                .build();
+
+        AdminSignupResponse response = AdminSignupResponse.builder()
+                .id(2L)
+                .userId("manager01")
+                .userName("김매니저")
+                .email("manager01@test.com")
+                .userType(Role.ROLE_MANAGER)
+                .status(MemberStatus.ACTIVE)
+                .createDate(new Date())
+                .build();
+        given(adminMemberService.createAdmin(any())).willReturn(response);
+
+        mockMvc.perform(post("/admin/api/members")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(roleManagerRequest)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.userId").value("manager01"))
+                .andExpect(jsonPath("$.userType").value("ROLE_MANAGER"));
     }
 
     @Test

@@ -33,7 +33,7 @@ public class AdminMemberController {
 
     private final AdminMemberService adminMemberService;
 
-    @Operation(summary = "관리자 계정 생성", description = "생성 가능한 userType: ADMIN")
+    @Operation(summary = "관리자 계정 생성", description = "생성 가능한 userType: ROLE_ADMIN, ROLE_MANAGER")
     @ApiResponse(responseCode = "201", description = "관리자 계정 생성 성공")
     @ApiResponse(responseCode = "400", description = "요청값 검증 실패")
     @ApiResponse(responseCode = "403", description = "권한 없음")

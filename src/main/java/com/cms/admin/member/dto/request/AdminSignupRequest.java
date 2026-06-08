@@ -1,6 +1,7 @@
 package com.cms.admin.member.dto.request;
 
 import com.cms.admin.member.domain.Role;
+import com.cms.admin.member.dto.request.validation.AllowedRoles;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -30,6 +31,10 @@ public class AdminSignupRequest {
         private String email;
 
         @NotNull
-        @Schema(description = "권한 유형", example = "ROLE_ADMIN", allowableValues = {"ROLE_ADMIN"})
+        @AllowedRoles(
+                allowed = {Role.ROLE_ADMIN, Role.ROLE_MANAGER},
+                message = "생성 가능한 userType은 ROLE_ADMIN, ROLE_MANAGER만 허용됩니다."
+        )
+        @Schema(description = "권한 유형", example = "ROLE_ADMIN", allowableValues = {"ROLE_ADMIN", "ROLE_MANAGER"})
         private Role userType;
 }
