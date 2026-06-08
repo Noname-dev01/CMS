@@ -6,6 +6,7 @@ import com.cms.admin.log.service.AdminActionLogService;
 import com.cms.config.auth.CustomUserDetails;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.AfterThrowing;
@@ -21,6 +22,7 @@ import java.lang.reflect.Method;
 
 @Aspect
 @Component
+@Slf4j
 @RequiredArgsConstructor
 public class AdminActionLogAspect {
 
@@ -31,18 +33,23 @@ public class AdminActionLogAspect {
             returning = "result"
     )
     public void logSuccess(JoinPoint joinPoint, AdminActionLogged adminActionLogged, Object result){
-        adminActionLogService.log(
-                getCurrentAdminId(),
-                getCurrentAdminUserId(),
-                adminActionLogged.actionType(),
-                AdminActionResult.SUCCESS,
-                adminActionLogged.targetType(),
-                extractTargetId(result, adminActionLogged.targetIdExpression()),
-                getClientIp(),
-                getRequestUri(),
-                getRequestMethod(),
-                null
-        );
+        // 감사 로그 저장 실패가 정상 완료된 본 작업을 실패로 뒤집지 않도록 예외를 격리한다.
+        try {
+            adminActionLogService.log(
+                    getCurrentAdminId(),
+                    getCurrentAdminUserId(),
+                    adminActionLogged.actionType(),
+                    AdminActionResult.SUCCESS,
+                    adminActionLogged.targetType(),
+                    extractTargetId(result, adminActionLogged.targetIdExpression()),
+                    getClientIp(),
+                    getRequestUri(),
+                    getRequestMethod(),
+                    null
+            );
+        } catch (Exception loggingError) {
+            log.error("관리자 액션 성공 로그 저장 실패 (actionType={})", adminActionLogged.actionType(), loggingError);
+        }
     }
 
     @AfterThrowing(
@@ -50,18 +57,23 @@ public class AdminActionLogAspect {
             throwing = "e"
     )
     public void logFailure(AdminActionLogged adminActionLogged, Exception e){
-        adminActionLogService.log(
-                getCurrentAdminId(),
-                getCurrentAdminUserId(),
-                adminActionLogged.actionType(),
-                AdminActionResult.FAIL,
-                adminActionLogged.targetType(),
-                null,
-                getClientIp(),
-                getRequestUri(),
-                getRequestMethod(),
-                truncateErrorMessage(e.getMessage())
-        );
+        // 감사 로그 저장 실패가 원래의 비즈니스 예외를 가리지 않도록 예외를 격리한다.
+        try {
+            adminActionLogService.log(
+                    getCurrentAdminId(),
+                    getCurrentAdminUserId(),
+                    adminActionLogged.actionType(),
+                    AdminActionResult.FAIL,
+                    adminActionLogged.targetType(),
+                    null,
+                    getClientIp(),
+                    getRequestUri(),
+                    getRequestMethod(),
+                    truncateErrorMessage(e.getMessage())
+            );
+        } catch (Exception loggingError) {
+            log.error("관리자 액션 실패 로그 저장 실패 (actionType={})", adminActionLogged.actionType(), loggingError);
+        }
     }
 
     private Long getCurrentAdminId(){
