@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,6 +26,35 @@ public class GlobalApiExceptionHandler {
             MethodArgumentNotValidException e,
             HttpServletRequest request
     ){
+        FieldError fieldError = e.getBindingResult()
+                .getFieldErrors()
+                .stream()
+                .findFirst()
+                .orElse(null);
+
+        String message = (fieldError == null)
+                ? "Validation error"
+                : fieldError.getField() + ": " + fieldError.getDefaultMessage();
+
+        ApiErrorResponse response = ApiErrorResponse.of(
+                request.getRequestURI(),
+                "VALIDATION_ERROR",
+                message
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    /**
+     * @ModelAttribute 검증 실패 (@Valid + @Size 등)
+     * MethodArgumentNotValidException은 BindException의 하위 타입이므로
+     * 해당 전용 핸들러가 우선 매칭되고, 나머지 BindException은 여기서 처리한다.
+     */
+    @ExceptionHandler(BindException.class)
+    public ResponseEntity<ApiErrorResponse> handleBindException(
+            BindException e,
+            HttpServletRequest request
+    ) {
         FieldError fieldError = e.getBindingResult()
                 .getFieldErrors()
                 .stream()

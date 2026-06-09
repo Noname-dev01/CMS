@@ -54,7 +54,7 @@ public class AdminMemberController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberPageResponse> getAdminMembers(
             @ParameterObject @PageableDefault(size = 20) Pageable pageable,
-            @ModelAttribute AdminMemberSearchRequest request
+            @Valid @ModelAttribute AdminMemberSearchRequest request
     ) {
         return ResponseEntity.ok(adminMemberService.getAdminMembers(request, pageable));
     }

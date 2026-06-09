@@ -512,6 +512,21 @@ class AdminMemberControllerTest {
     }
 
     @Test
+    @DisplayName("검색 userId가 50자 초과면 400 VALIDATION_ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void getAdminMembers_userId_tooLong_returns400() throws Exception {
+        String tooLongUserId = "a".repeat(51);
+
+        mockMvc.perform(get("/admin/api/members")
+                        .param("userId", tooLongUserId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
     @DisplayName("인증 없이 관리자 목록 조회하면 401 ERROR")
     void getAdminMembers_unauthenticated() throws Exception {
         mockMvc.perform(get("/admin/api/members")
