@@ -113,6 +113,9 @@
         hideError();
     });
 
+    const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
+
     form.addEventListener("submit", async function (event) {
         event.preventDefault();
         hideError();
@@ -137,7 +140,8 @@
             const response = await fetch("/admin/api/members", {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    [csrfHeader]: csrfToken
                 },
                 body: JSON.stringify(payload)
             });

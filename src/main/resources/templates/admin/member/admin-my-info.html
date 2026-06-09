@@ -190,6 +190,9 @@
 <script src="/js/sb-admin-2.min.js"></script>
 
 <script>
+    const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
+
     const pageAlert = document.getElementById("pageAlert");
     const pageSuccess = document.getElementById("pageSuccess");
     const myInfoLoading = document.getElementById("myInfoLoading");
@@ -504,7 +507,8 @@
             const response = await fetch("/admin/api/members/me", {
                 method: "PATCH",
                 headers: {
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    [csrfHeader]: csrfToken
                 },
                 body: JSON.stringify(payload)
             });
@@ -592,7 +596,7 @@
         try {
             const response = await fetch("/admin/api/members/me/profile-image", {
                 method: "PUT",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", [csrfHeader]: csrfToken },
                 body: JSON.stringify({ preset: preset })
             });
 
@@ -621,7 +625,8 @@
 
         try {
             const response = await fetch("/admin/api/members/me/profile-image", {
-                method: "DELETE"
+                method: "DELETE",
+                headers: { [csrfHeader]: csrfToken }
             });
 
             if (!response.ok) {
@@ -660,6 +665,7 @@
         try {
             const response = await fetch("/admin/api/members/me/profile-image", {
                 method: "PUT",
+                headers: { [csrfHeader]: csrfToken },
                 body: formData
             });
 
