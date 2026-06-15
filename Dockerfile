@@ -1,9 +1,9 @@
-FROM gradle:8.7-jdk21 AS builder
+FROM gradle:8.7-jdk17 AS builder
 WORKDIR /workspace
 COPY . .
 RUN gradle clean bootJar --no-daemon
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:17-jre
 WORKDIR /app
 
 RUN useradd -m appuser
