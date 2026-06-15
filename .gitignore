@@ -50,3 +50,8 @@ src/main/generated/
 .mcp.json
 
 /.playwright-mcp
+/adversarial-review
+/AGENTS.md
+/bash.exe.stackdump
+/CLAUDE.md
+/scripts/codex-discord-notify.ps1
