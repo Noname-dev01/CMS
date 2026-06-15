@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -35,10 +36,12 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -71,6 +74,8 @@ class AdminMemberControllerTest {
         reset(adminMemberService, adminSecurityService);
         given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
         given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
+        // "me" 엔드포인트의 requireCurrentAdminId() 기본 스텁 — 각 테스트에서 null로 오버라이드 가능
+        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
     }
 
     @TestConfiguration
@@ -115,6 +120,8 @@ class AdminMemberControllerTest {
                 .email("admin02@test.com")
                 .build();
     }
+
+    // ===================== createAdmin =====================
 
     @Test
     @DisplayName("관리자 계정 생성 성공")
@@ -284,6 +291,8 @@ class AdminMemberControllerTest {
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"));
     }
 
+    // ===================== getAdminMembers =====================
+
     @Test
     @DisplayName("관리자 목록 조회 성공")
     @WithMockUser(roles = "ADMIN")
@@ -312,6 +321,42 @@ class AdminMemberControllerTest {
     }
 
     @Test
+    @DisplayName("관리자 권한 없이 관리자 목록 조회하면 403 ERROR")
+    @WithMockUser(roles = "USER")
+    void getAdminMembers_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/members")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("인증 없이 관리자 목록 조회하면 401 ERROR")
+    void getAdminMembers_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/api/members")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("검색 userId가 50자 초과면 400 VALIDATION_ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void getAdminMembers_userId_tooLong_returns400() throws Exception {
+        String tooLongUserId = "a".repeat(51);
+
+        mockMvc.perform(get("/admin/api/members")
+                        .param("userId", tooLongUserId)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    // ===================== getAdminMember =====================
+
+    @Test
     @DisplayName("관리자 상세 조회 성공")
     @WithMockUser(roles = "ADMIN")
     void getAdminMember_success() throws Exception {
@@ -325,16 +370,47 @@ class AdminMemberControllerTest {
     }
 
     @Test
+    @DisplayName("관리자 권한이 아니면 관리자 상세 조회 403")
+    @WithMockUser(roles = "USER")
+    void getAdminMember_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/members/1")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    // ===================== getMyInfo =====================
+
+    @Test
     @DisplayName("내 관리자 정보 조회 성공")
     @WithMockUser(roles = "ADMIN")
     void getMyInfo_success() throws Exception {
-        given(adminMemberService.getMyInfo()).willReturn(adminMemberResponse());
+        given(adminMemberService.getMyInfo(1L)).willReturn(adminMemberResponse());
 
         mockMvc.perform(get("/admin/api/members/me")
                 .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("admin01"));
+
+        verify(adminMemberService).getMyInfo(1L);
     }
+
+    @Test
+    @DisplayName("getCurrentAdminId()가 null이면 403 ACCESS_DENIED")
+    @WithMockUser(roles = "ADMIN")
+    void getMyInfo_adminIdNull_returns403() throws Exception {
+        given(adminSecurityService.getCurrentAdminId()).willReturn(null);
+
+        mockMvc.perform(get("/admin/api/members/me")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    // ===================== updateMyInfo =====================
 
     @Test
     @DisplayName("내 관리자 정보 수정 성공")
@@ -351,7 +427,7 @@ class AdminMemberControllerTest {
                 .updateDate(LocalDateTime.now())
                 .build();
 
-        given(adminMemberService.updateMyInfo(any())).willReturn(response);
+        given(adminMemberService.updateMyInfo(anyLong(), any())).willReturn(response);
 
         mockMvc.perform(patch("/admin/api/members/me")
                         .with(csrf())
@@ -360,6 +436,12 @@ class AdminMemberControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userName").value("홍길동 수정"))
                 .andExpect(jsonPath("$.email").value("admin02@test.com"));
+
+        // 서비스 성공 후 refresh가 호출되어야 한다
+        // DTO는 JSON 역직렬화 후 새 인스턴스이므로 any()로 매칭한다
+        InOrder inOrder = Mockito.inOrder(adminMemberService, adminSecurityService);
+        inOrder.verify(adminMemberService).updateMyInfo(eq(1L), any(AdminMyInfoUpdateRequest.class));
+        inOrder.verify(adminSecurityService).refreshAuthentication(1L);
     }
 
     @Test
@@ -380,10 +462,10 @@ class AdminMemberControllerTest {
     }
 
     @Test
-    @DisplayName("내 관리자 정보 수정 시 중복 이메일이면 409 ERROR")
+    @DisplayName("내 관리자 정보 수정 시 중복 이메일이면 409 ERROR — 서비스 실패 시 refresh 미호출")
     @WithMockUser(roles = "ADMIN")
     void updateMyInfo_duplicateEmail() throws Exception {
-        given(adminMemberService.updateMyInfo(any()))
+        given(adminMemberService.updateMyInfo(anyLong(), any()))
                 .willThrow(new DuplicateResourceException("이미 사용 중인 이메일입니다."));
 
         mockMvc.perform(patch("/admin/api/members/me")
@@ -393,6 +475,8 @@ class AdminMemberControllerTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("DUPLICATE_RESOURCE"))
                 .andExpect(jsonPath("$.message").value("이미 사용 중인 이메일입니다."));
+
+        verify(adminSecurityService, Mockito.never()).refreshAuthentication(anyLong());
     }
 
     @Test
@@ -408,6 +492,8 @@ class AdminMemberControllerTest {
         verifyNoInteractions(adminMemberService);
     }
 
+    // ===================== changeMyPassword =====================
+
     @Test
     @DisplayName("비밀번호 변경 성공")
     @WithMockUser(roles = "ADMIN")
@@ -418,7 +504,7 @@ class AdminMemberControllerTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(adminMemberService.changeMyPassword(any())).willReturn(adminMemberResponse());
+        given(adminMemberService.changeMyPassword(anyLong(), any())).willReturn(adminMemberResponse());
 
         mockMvc.perform(patch("/admin/api/members/me/password")
                         .with(csrf())
@@ -426,6 +512,12 @@ class AdminMemberControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("admin01"));
+
+        // 서비스 성공 후 refresh가 호출되어야 한다
+        // DTO는 JSON 역직렬화 후 새 인스턴스이므로 any()로 매칭한다
+        InOrder inOrder = Mockito.inOrder(adminMemberService, adminSecurityService);
+        inOrder.verify(adminMemberService).changeMyPassword(eq(1L), any(AdminMyPasswordChangeRequest.class));
+        inOrder.verify(adminSecurityService).refreshAuthentication(1L);
     }
 
     @Test
@@ -449,7 +541,7 @@ class AdminMemberControllerTest {
     }
 
     @Test
-    @DisplayName("현재 비밀번호 불일치면 400 ERROR")
+    @DisplayName("현재 비밀번호 불일치면 400 ERROR — 서비스 실패 시 refresh 미호출")
     @WithMockUser(roles = "ADMIN")
     void changeMyPassword_wrongPassword() throws Exception {
         AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
@@ -458,7 +550,7 @@ class AdminMemberControllerTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(adminMemberService.changeMyPassword(any()))
+        given(adminMemberService.changeMyPassword(anyLong(), any()))
                 .willThrow(new InvalidRequestException("현재 비밀번호가 올바르지 않습니다."));
 
         mockMvc.perform(patch("/admin/api/members/me/password")
@@ -468,6 +560,8 @@ class AdminMemberControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
                 .andExpect(jsonPath("$.message").value("현재 비밀번호가 올바르지 않습니다."));
+
+        verify(adminSecurityService, Mockito.never()).refreshAuthentication(anyLong());
     }
 
     @Test
@@ -480,7 +574,7 @@ class AdminMemberControllerTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(adminMemberService.changeMyPassword(any()))
+        given(adminMemberService.changeMyPassword(anyLong(), any()))
                 .willThrow(new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         mockMvc.perform(patch("/admin/api/members/me/password")
@@ -511,45 +605,13 @@ class AdminMemberControllerTest {
         verifyNoInteractions(adminMemberService);
     }
 
-    @Test
-    @DisplayName("검색 userId가 50자 초과면 400 VALIDATION_ERROR")
-    @WithMockUser(roles = "ADMIN")
-    void getAdminMembers_userId_tooLong_returns400() throws Exception {
-        String tooLongUserId = "a".repeat(51);
-
-        mockMvc.perform(get("/admin/api/members")
-                        .param("userId", tooLongUserId)
-                        .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
-
-        verifyNoInteractions(adminMemberService);
-    }
-
-    @Test
-    @DisplayName("인증 없이 관리자 목록 조회하면 401 ERROR")
-    void getAdminMembers_unauthenticated() throws Exception {
-        mockMvc.perform(get("/admin/api/members")
-                .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isUnauthorized());
-    }
-
-    @Test
-    @DisplayName("관리자 권한이 아니면 관리자 상세 조회 403")
-    @WithMockUser(roles = "USER")
-    void getAdminMember_forbidden() throws Exception {
-        mockMvc.perform(get("/admin/api/members/1")
-                .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isForbidden());
-
-        verifyNoInteractions(adminMemberService);
-    }
+    // ===================== profile-image =====================
 
     @Test
     @DisplayName("기본 프로필 이미지 선택 성공 (PUT JSON)")
     @WithMockUser(roles = "ADMIN")
     void applyDefaultProfileImage_success() throws Exception {
-        given(adminMemberService.applyDefaultProfileImage(anyString())).willReturn(adminMemberResponse());
+        given(adminMemberService.applyDefaultProfileImage(anyLong(), anyString())).willReturn(adminMemberResponse());
 
         mockMvc.perform(put("/admin/api/members/me/profile-image")
                         .with(csrf())
@@ -557,6 +619,11 @@ class AdminMemberControllerTest {
                         .content("{\"preset\":\"profile-1\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("admin01"));
+
+        // 서비스 성공 후 refresh가 호출되어야 한다
+        InOrder inOrder = Mockito.inOrder(adminMemberService, adminSecurityService);
+        inOrder.verify(adminMemberService).applyDefaultProfileImage(1L, "profile-1");
+        inOrder.verify(adminSecurityService).refreshAuthentication(1L);
     }
 
     @Test
@@ -578,5 +645,10 @@ class AdminMemberControllerTest {
         mockMvc.perform(delete("/admin/api/members/me/profile-image")
                         .with(csrf()))
                 .andExpect(status().isNoContent());
+
+        // 서비스 성공 후 refresh가 호출되어야 한다
+        InOrder inOrder = Mockito.inOrder(adminMemberService, adminSecurityService);
+        inOrder.verify(adminMemberService).resetMyProfileImage(1L);
+        inOrder.verify(adminSecurityService).refreshAuthentication(1L);
     }
 }

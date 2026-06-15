@@ -15,15 +15,9 @@ import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
-import com.cms.config.auth.AdminSecurityService;
-import com.cms.config.auth.CustomUserDetails;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,15 +42,10 @@ public class AdminMemberService {
 
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
-    private final AdminSecurityService adminSecurityService;
 
     @Transactional
     @AdminActionLogged(actionType = "ADMIN_CREATE", targetType = "MEMBER", targetIdExpression = "id")
     public AdminSignupResponse createAdmin(AdminSignupRequest req) {
-        if (!adminSecurityService.hasAdminAuthority()) {
-            throw new AccessDeniedException("관리자 권한이 없습니다.");
-        }
-
         if (memberRepository.existsByUserId(req.getUserId())){
             throw new DuplicateResourceException("이미 사용 중인 아이디입니다.");
         }
@@ -92,10 +81,9 @@ public class AdminMemberService {
                 .createDate(saved.getCreateDate())
                 .build();
     }
+
     @Transactional(readOnly = true)
     public AdminMemberPageResponse getAdminMembers(AdminMemberSearchRequest request, Pageable pageable) {
-        validateAdminAuthority();
-
         Page<Member> page = memberRepository.searchAdminMembers(request, pageable);
 
         List<AdminMemberResponse> content = page.getContent().stream()
@@ -114,8 +102,6 @@ public class AdminMemberService {
 
     @Transactional(readOnly = true)
     public AdminMemberResponse getAdminMember(Long id) {
-        validateAdminAuthority();
-
         Member member = memberRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
@@ -125,11 +111,7 @@ public class AdminMemberService {
     }
 
     @Transactional(readOnly = true)
-    public AdminMemberResponse getMyInfo() {
-        validateAdminAuthority();
-
-        Long adminId = adminSecurityService.getCurrentAdminId();
-
+    public AdminMemberResponse getMyInfo(Long adminId) {
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
@@ -137,10 +119,7 @@ public class AdminMemberService {
     }
 
     @Transactional
-    public AdminMemberResponse updateMyInfo(AdminMyInfoUpdateRequest request) {
-        validateAdminAuthority();
-
-        Long adminId = adminSecurityService.getCurrentAdminId();
+    public AdminMemberResponse updateMyInfo(Long adminId, AdminMyInfoUpdateRequest request) {
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
@@ -150,15 +129,12 @@ public class AdminMemberService {
         validateDuplicatedEmail(normalizedEmail, member.getId());
 
         member.updateInfo(normalizedUserName, normalizedEmail);
-        refreshAuthentication(member);
 
         return toResponse(member, true);
     }
 
     @Transactional
-    public AdminMemberResponse updateMyProfileImage(MultipartFile file) {
-        validateAdminAuthority();
-
+    public AdminMemberResponse updateMyProfileImage(Long adminId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new InvalidRequestException("업로드할 이미지 파일을 선택해주세요.");
         }
@@ -173,14 +149,12 @@ public class AdminMemberService {
             throw new InvalidRequestException("프로필 이미지는 2MB 이하만 업로드할 수 있습니다.");
         }
 
-        Long adminId = adminSecurityService.getCurrentAdminId();
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         try {
             String encoded = Base64.getEncoder().encodeToString(file.getBytes());
             member.changeProfileImage("data:" + contentType + ";base64," + encoded);
-            refreshAuthentication(member);
         } catch (IOException e) {
             throw new InvalidRequestException("프로필 이미지를 처리할 수 없습니다.");
         }
@@ -189,29 +163,20 @@ public class AdminMemberService {
     }
 
     @Transactional
-    public AdminMemberResponse resetMyProfileImage() {
-        validateAdminAuthority();
-
-        Long adminId = adminSecurityService.getCurrentAdminId();
+    public void resetMyProfileImage(Long adminId) {
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         member.changeProfileImage(null);
-        refreshAuthentication(member);
-
-        return toResponse(member, true);
     }
 
     @Transactional
     @AdminActionLogged(actionType = "PASSWORD_CHANGE", targetType = "MEMBER", targetIdExpression = "id")
-    public AdminMemberResponse changeMyPassword(AdminMyPasswordChangeRequest request) {
-        validateAdminAuthority();
-
+    public AdminMemberResponse changeMyPassword(Long adminId, AdminMyPasswordChangeRequest request) {
         if (!request.getNewPassword().equals(request.getConfirmPassword())) {
             throw new InvalidRequestException("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.");
         }
 
-        Long adminId = adminSecurityService.getCurrentAdminId();
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
@@ -220,56 +185,29 @@ public class AdminMemberService {
         }
 
         member.changePassword(passwordEncoder.encode(request.getNewPassword()));
-        refreshAuthentication(member);
 
         return toResponse(member, false);
     }
 
     @Transactional
-    public AdminMemberResponse applyDefaultProfileImage(String presetKey) {
-        validateAdminAuthority();
-
+    public AdminMemberResponse applyDefaultProfileImage(Long adminId, String presetKey) {
         String presetImageUrl = DEFAULT_PROFILE_IMAGE_MAP.get(presetKey);
         if (presetImageUrl == null) {
             throw new InvalidRequestException("선택할 수 없는 기본 프로필 이미지입니다.");
         }
 
-        Long adminId = adminSecurityService.getCurrentAdminId();
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         member.changeProfileImage(presetImageUrl);
-        refreshAuthentication(member);
 
         return toResponse(member, true);
-    }
-
-    private void validateAdminAuthority() {
-        if (!adminSecurityService.hasAdminAuthority()) {
-            throw new AccessDeniedException("관리자 권한이 없습니다.");
-        }
     }
 
     private void validateAdminTarget(Member member) {
         if (member.getUserType() != Role.ROLE_ADMIN && member.getUserType() != Role.ROLE_MANAGER) {
             throw new ResourceNotFoundException("관리자 대상만 조회할 수 있습니다.");
         }
-    }
-
-    private void refreshAuthentication(Member member) {
-        Authentication currentAuth = SecurityContextHolder.getContext().getAuthentication();
-        if (currentAuth == null) {
-            return;
-        }
-
-        CustomUserDetails refreshedUser = new CustomUserDetails(member);
-        UsernamePasswordAuthenticationToken newAuth = new UsernamePasswordAuthenticationToken(
-                refreshedUser,
-                currentAuth.getCredentials(),
-                refreshedUser.getAuthorities()
-        );
-        newAuth.setDetails(currentAuth.getDetails());
-        SecurityContextHolder.getContext().setAuthentication(newAuth);
     }
 
     private String normalizeUserName(String userName) {

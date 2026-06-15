@@ -14,8 +14,6 @@ import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
-import org.springframework.security.access.AccessDeniedException;
-import com.cms.config.auth.AdminSecurityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -45,9 +43,6 @@ class AdminMemberServiceTest {
 
     @Mock
     PasswordEncoder passwordEncoder;
-
-    @Mock
-    AdminSecurityService adminSecurityService;
 
     @InjectMocks
     AdminMemberService adminMemberService;
@@ -83,7 +78,6 @@ class AdminMemberServiceTest {
 
         AdminSignupRequest req = validRequest();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.existsByUserId(req.getUserId())).willReturn(false);
         given(memberRepository.existsByEmail(req.getEmail())).willReturn(false);
         given(passwordEncoder.encode(req.getPwd())).willReturn("encodedPassword");
@@ -121,24 +115,10 @@ class AdminMemberServiceTest {
     }
 
     @Test
-    @DisplayName("관리자 권한이 없으면 AccessDeniedException")
-    void createAdmin_invalidRole() {
-        AdminSignupRequest req = validRequest();
-
-        given(adminSecurityService.hasAdminAuthority()).willReturn(false);
-
-        AccessDeniedException exception = assertThrows(AccessDeniedException.class,
-                () -> adminMemberService.createAdmin(req));
-
-        assertEquals("관리자 권한이 없습니다.", exception.getMessage());
-    }
-
-    @Test
     @DisplayName("아이디가 중복이면 DuplicateResourceException")
     void createAdmin_duplicateUserId() {
         AdminSignupRequest req = validRequest();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.existsByUserId(req.getUserId())).willReturn(true);
 
         DuplicateResourceException exception = assertThrows(DuplicateResourceException.class, () -> adminMemberService.createAdmin(req));
@@ -151,7 +131,6 @@ class AdminMemberServiceTest {
     void createAdmin_duplicateEmail() {
         AdminSignupRequest req = validRequest();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.existsByUserId(req.getUserId())).willReturn(false);
         given(memberRepository.existsByEmail(req.getEmail())).willReturn(true);
 
@@ -163,8 +142,6 @@ class AdminMemberServiceTest {
     @Test
     @DisplayName("관리자 목록 조회 성공")
     void getAdminMembers_success(){
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-
         PageRequest pageable = PageRequest.of(0, 20);
 
         AdminMemberSearchRequest request = AdminMemberSearchRequest.builder()
@@ -185,20 +162,8 @@ class AdminMemberServiceTest {
     }
 
     @Test
-    @DisplayName("관리자 권한이 없으면 목록 조회 실패")
-    void getAdminMembers_noAuthority(){
-        given(adminSecurityService.hasAdminAuthority()).willReturn(false);
-
-        AccessDeniedException exception = assertThrows(AccessDeniedException.class, () ->
-                adminMemberService.getAdminMembers(new AdminMemberSearchRequest(), PageRequest.of(0, 20)));
-
-        assertEquals("관리자 권한이 없습니다.", exception.getMessage());
-    }
-
-    @Test
     @DisplayName("관리자 상세 조회 성공")
     void getAdminMember_success(){
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.findById(1L)).willReturn(Optional.of(adminMember()));
 
         AdminMemberResponse response = adminMemberService.getAdminMember(1L);
@@ -210,7 +175,6 @@ class AdminMemberServiceTest {
     @Test
     @DisplayName("존재하지 않는 관리자 조회 실패")
     void getAdminMember_notFound(){
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.findById(1L)).willReturn(Optional.empty());
 
         ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class, () -> adminMemberService.getAdminMember(1L));
@@ -232,7 +196,6 @@ class AdminMemberServiceTest {
                 .updateDate(LocalDateTime.now())
                 .build();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.findById(3L)).willReturn(Optional.of(userCheck));
 
         ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class, () -> adminMemberService.getAdminMember(3L));
@@ -254,7 +217,6 @@ class AdminMemberServiceTest {
                 .updateDate(LocalDateTime.now())
                 .build();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(memberRepository.findById(4L)).willReturn(Optional.of(deletedAdmin));
 
         AdminMemberResponse response = adminMemberService.getAdminMember(4L);
@@ -267,11 +229,9 @@ class AdminMemberServiceTest {
     @Test
     @DisplayName("내 관리자 정보 조회 성공")
     void getMyInfo_success(){
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
         given(memberRepository.findById(1L)).willReturn(Optional.of(adminMember()));
 
-        AdminMemberResponse response = adminMemberService.getMyInfo();
+        AdminMemberResponse response = adminMemberService.getMyInfo(1L);
 
         assertEquals(1L, response.getId());
         assertEquals("admin01", response.getUserId());
@@ -287,12 +247,10 @@ class AdminMemberServiceTest {
                 .email("ADMIN02@TEST.COM ")
                 .build();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
         given(memberRepository.findById(1L)).willReturn(Optional.of(member));
         given(memberRepository.findByEmail("admin02@test.com")).willReturn(Optional.empty());
 
-        AdminMemberResponse response = adminMemberService.updateMyInfo(request);
+        AdminMemberResponse response = adminMemberService.updateMyInfo(1L, request);
 
         assertEquals("관리자 수정", response.getUserName());
         assertEquals("admin02@test.com", response.getEmail());
@@ -311,13 +269,11 @@ class AdminMemberServiceTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
         given(memberRepository.findById(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.matches("Admin1234!", member.getPwd())).willReturn(true);
         given(passwordEncoder.encode("NewAdmin1234!")).willReturn("encodedNewPassword");
 
-        AdminMemberResponse response = adminMemberService.changeMyPassword(request);
+        AdminMemberResponse response = adminMemberService.changeMyPassword(1L, request);
 
         assertEquals(1L, response.getId());
         verify(passwordEncoder).matches("Admin1234!", "encoded");
@@ -334,13 +290,11 @@ class AdminMemberServiceTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
         given(memberRepository.findById(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.matches("WrongPassword!", member.getPwd())).willReturn(false);
 
         InvalidRequestException exception = assertThrows(InvalidRequestException.class,
-                () -> adminMemberService.changeMyPassword(request));
+                () -> adminMemberService.changeMyPassword(1L, request));
 
         assertEquals("현재 비밀번호가 올바르지 않습니다.", exception.getMessage());
         verify(passwordEncoder, never()).encode(any());
@@ -355,10 +309,8 @@ class AdminMemberServiceTest {
                 .confirmPassword("DifferentPassword!")
                 .build();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-
         InvalidRequestException exception = assertThrows(InvalidRequestException.class,
-                () -> adminMemberService.changeMyPassword(request));
+                () -> adminMemberService.changeMyPassword(1L, request));
 
         assertEquals("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.", exception.getMessage());
         verify(memberRepository, never()).findById(any());
@@ -373,32 +325,13 @@ class AdminMemberServiceTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
         given(memberRepository.findById(1L)).willReturn(Optional.empty());
 
         ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class,
-                () -> adminMemberService.changeMyPassword(request));
+                () -> adminMemberService.changeMyPassword(1L, request));
 
         assertEquals("관리자를 찾을 수 없습니다.", exception.getMessage());
         verify(passwordEncoder, never()).encode(any());
-    }
-
-    @Test
-    @DisplayName("비밀번호 변경 시 권한 없으면 AccessDeniedException")
-    void changeMyPassword_noAuthority() {
-        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
-                .currentPassword("Admin1234!")
-                .newPassword("NewAdmin1234!")
-                .confirmPassword("NewAdmin1234!")
-                .build();
-
-        given(adminSecurityService.hasAdminAuthority()).willReturn(false);
-
-        AccessDeniedException exception = assertThrows(AccessDeniedException.class,
-                () -> adminMemberService.changeMyPassword(request));
-
-        assertEquals("관리자 권한이 없습니다.", exception.getMessage());
     }
 
     @Test
@@ -422,13 +355,11 @@ class AdminMemberServiceTest {
                 .email("dup@test.com")
                 .build();
 
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
         given(memberRepository.findById(1L)).willReturn(Optional.of(currentMember));
         given(memberRepository.findByEmail("dup@test.com")).willReturn(Optional.of(duplicatedMember));
 
         DuplicateResourceException exception = assertThrows(DuplicateResourceException.class,
-                () -> adminMemberService.updateMyInfo(request));
+                () -> adminMemberService.updateMyInfo(1L, request));
 
         assertEquals("이미 사용 중인 이메일입니다.", exception.getMessage());
         verify(memberRepository, never()).save(any(Member.class));
