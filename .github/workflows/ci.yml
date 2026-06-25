@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:10.11
+        ports:
+          - 3306:3306
+        env:
+          MARIADB_ROOT_PASSWORD: ci_root
+          MARIADB_DATABASE: cms
+          MARIADB_USER: admin
+          MARIADB_PASSWORD: ci_pass
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: 소스 체크아웃
+        uses: actions/checkout@v4
+
+      - name: JDK 17 설정
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Gradle 캐시 설정
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: gradlew 실행 권한 부여
+        run: chmod +x gradlew
+
+      - name: 테스트 실행
+        run: ./gradlew test
+        env:
+          SPRING_PROFILES_ACTIVE: dev
+          # CI MariaDB service container (기본 포트 3306 사용)
+          DB_URL: jdbc:mariadb://localhost:3306/cms
+          DB_USER: admin
+          DB_PASS: ci_pass
+          # 메일 기능 미구현 — 더미 값으로 컨텍스트 로드만 통과
+          MAIL_USER: ci@example.com
+          MAIL_PASS: dummy_for_ci
+          APP_BASE_URL: http://localhost:8080
+
+      - name: 테스트 결과 업로드 (항상 실행)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report
+          path: build/reports/tests/test/
+          retention-days: 14
