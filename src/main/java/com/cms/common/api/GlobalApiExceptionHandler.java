@@ -10,7 +10,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
+import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
+import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -26,15 +28,7 @@ public class GlobalApiExceptionHandler {
             MethodArgumentNotValidException e,
             HttpServletRequest request
     ){
-        FieldError fieldError = e.getBindingResult()
-                .getFieldErrors()
-                .stream()
-                .findFirst()
-                .orElse(null);
-
-        String message = (fieldError == null)
-                ? "Validation error"
-                : fieldError.getField() + ": " + fieldError.getDefaultMessage();
+        String message = buildValidationMessage(e.getBindingResult());
 
         ApiErrorResponse response = ApiErrorResponse.of(
                 request.getRequestURI(),
@@ -55,15 +49,7 @@ public class GlobalApiExceptionHandler {
             BindException e,
             HttpServletRequest request
     ) {
-        FieldError fieldError = e.getBindingResult()
-                .getFieldErrors()
-                .stream()
-                .findFirst()
-                .orElse(null);
-
-        String message = (fieldError == null)
-                ? "Validation error"
-                : fieldError.getField() + ": " + fieldError.getDefaultMessage();
+        String message = buildValidationMessage(e.getBindingResult());
 
         ApiErrorResponse response = ApiErrorResponse.of(
                 request.getRequestURI(),
@@ -72,6 +58,49 @@ public class GlobalApiExceptionHandler {
         );
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    /**
+     * 검증 실패 메시지를 조립한다.
+     * <ul>
+     *   <li>실제 선언 필드(FieldError)일 때: "필드명: 메시지" 형식 — 어느 필드인지 명시</li>
+     *   <li>@AssertTrue 등 게터 기반 교차검증의 파생 프로퍼티명일 때: 메시지만 반환 — 내부 식별자 노출 방지</li>
+     *   <li>클래스레벨 ObjectError(global error)일 때: 메시지만 반환</li>
+     * </ul>
+     */
+    private String buildValidationMessage(BindingResult bindingResult) {
+        FieldError fieldError = bindingResult.getFieldErrors().stream().findFirst().orElse(null);
+        if (fieldError == null) {
+            ObjectError globalError = bindingResult.getGlobalErrors().stream().findFirst().orElse(null);
+            return globalError != null ? globalError.getDefaultMessage() : "Validation error";
+        }
+        String field = fieldError.getField();
+        if (isDeclaredField(bindingResult.getTarget(), field)) {
+            return field + ": " + fieldError.getDefaultMessage();
+        }
+        return fieldError.getDefaultMessage();
+    }
+
+    /**
+     * 주어진 필드명이 대상 객체 클래스(혹은 상위 클래스)에 실제로 선언된 필드인지 반환한다.
+     * target이 null이면 판단 불가로 보아 true(prefix 유지)를 반환한다.
+     */
+    private boolean isDeclaredField(Object target, String field) {
+        if (target == null) {
+            return true;
+        }
+        // 중첩 경로("address.city")는 최상위 세그먼트만 확인
+        String name = field.contains(".") ? field.substring(0, field.indexOf('.')) : field;
+        Class<?> type = target.getClass();
+        while (type != null && type != Object.class) {
+            try {
+                type.getDeclaredField(name);
+                return true;
+            } catch (NoSuchFieldException ignored) {
+                type = type.getSuperclass();
+            }
+        }
+        return false;
     }
 
     /**

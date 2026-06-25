@@ -1,6 +1,7 @@
 package com.cms.admin.member.service;
 
 import com.cms.admin.log.annotation.AdminActionLogged;
+import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
@@ -44,7 +45,7 @@ public class AdminMemberService {
     private final PasswordEncoder passwordEncoder;
 
     @Transactional
-    @AdminActionLogged(actionType = "ADMIN_CREATE", targetType = "MEMBER", targetIdExpression = "id")
+    @AdminActionLogged(actionType = AdminActionTypes.ADMIN_CREATE, targetType = "MEMBER", targetIdExpression = "id")
     public AdminSignupResponse createAdmin(AdminSignupRequest req) {
         if (memberRepository.existsByUserId(req.getUserId())){
             throw new DuplicateResourceException("이미 사용 중인 아이디입니다.");
@@ -171,7 +172,7 @@ public class AdminMemberService {
     }
 
     @Transactional
-    @AdminActionLogged(actionType = "PASSWORD_CHANGE", targetType = "MEMBER", targetIdExpression = "id")
+    @AdminActionLogged(actionType = AdminActionTypes.PASSWORD_CHANGE, targetType = "MEMBER", targetIdExpression = "id")
     public AdminMemberResponse changeMyPassword(Long adminId, AdminMyPasswordChangeRequest request) {
         if (!request.getNewPassword().equals(request.getConfirmPassword())) {
             throw new InvalidRequestException("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.");

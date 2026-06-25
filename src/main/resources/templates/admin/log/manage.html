@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>활동 로그</title>
+</head>
+<body id="page-top">
+<link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">활동 로그</h1>
+                </div>
+
+                <div class="admin-manage-shell">
+                    <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+
+                    <div class="card shadow mb-0 admin-panel">
+                        <div class="card-header">
+                            <div>
+                                <h6>검색 조건</h6>
+                                <p>수행자 아이디, 액션 유형, 결과, 기간으로 활동 로그를 조회합니다.</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <form id="searchForm">
+                                <div class="filter-grid">
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchActionUserId">수행자 아이디</label>
+                                        <input type="text" class="form-control" id="searchActionUserId"
+                                               name="actionUserId" maxlength="50">
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchActionType">액션 유형</label>
+                                        <select class="form-control" id="searchActionType" name="actionType">
+                                            <option value="">전체</option>
+                                            <option th:each="type : ${actionTypes}"
+                                                    th:value="${type}"
+                                                    th:text="${type}"></option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchActionResult">결과</label>
+                                        <select class="form-control" id="searchActionResult" name="actionResult">
+                                            <option value="">전체</option>
+                                            <option value="SUCCESS">성공</option>
+                                            <option value="FAIL">실패</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchFrom">시작일</label>
+                                        <input type="date" class="form-control" id="searchFrom"
+                                               name="from" th:value="${defaultFrom}">
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchTo">종료일</label>
+                                        <input type="date" class="form-control" id="searchTo"
+                                               name="to" th:value="${defaultTo}">
+                                    </div>
+                                </div>
+                                <div class="filter-actions mt-4">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-search fa-sm mr-1"></i>조회
+                                    </button>
+                                    <button type="button" class="btn btn-light border" id="btnReset">
+                                        초기화
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card shadow mb-0 admin-panel">
+                        <div class="card-header">
+                            <div>
+                                <h6>활동 로그 목록</h6>
+                                <p>선택한 로그의 상세 정보를 모달에서 확인할 수 있습니다.</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="summary-bar">
+                                <div class="summary-text" id="summaryText">총 <strong>0</strong>건</div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>일시</th>
+                                        <th>수행자</th>
+                                        <th>액션</th>
+                                        <th>결과</th>
+                                        <th>대상</th>
+                                        <th class="text-center">상세</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="logTableBody">
+                                    <tr>
+                                        <td colspan="6" class="text-center text-muted py-4">조회 중입니다.</td>
+                                    </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div id="emptyState" class="empty-state d-none mt-3">
+                                조회 결과가 없습니다.
+                            </div>
+
+                            <div class="pagination-bar">
+                                <nav aria-label="활동 로그 페이지 목록">
+                                    <ul class="pagination mb-0" id="pagination"></ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<!-- 상세 모달: 목록 fetch로 받은 행 객체를 JS 배열에 보관했다가 클릭 시 렌더링 (추가 fetch 없음) -->
+<div class="modal fade admin-detail-modal" id="logDetailModal" tabindex="-1" role="dialog"
+     aria-labelledby="logDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="detail-hero">
+                    <div class="detail-hero-copy">
+                        <h5 class="modal-title" id="logDetailModalLabel">로그 상세 정보</h5>
+                        <p>선택한 활동 로그의 전체 필드를 확인합니다.</p>
+                    </div>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="detailContent" class="detail-grid"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+
+<script>
+    // ===== 라벨 맵 단일 출처 =====
+    const ACTION_TYPE_LABELS = {
+        ADMIN_CREATE:    "관리자 생성",
+        PASSWORD_CHANGE: "비밀번호 변경"
+    };
+    const RESULT_LABELS = {
+        SUCCESS: "성공",
+        FAIL:    "실패"
+    };
+
+    function getActionTypeLabel(value) {
+        return ACTION_TYPE_LABELS[value] || value || "-";
+    }
+
+    function getResultLabel(value) {
+        return RESULT_LABELS[value] || value || "-";
+    }
+
+    function getResultBadgeClass(value) {
+        if (value === "SUCCESS") return "badge-status badge-status-active";
+        if (value === "FAIL")    return "badge-status badge-status-locked";
+        return "badge badge-light";
+    }
+
+    // ===== 드롭다운 옵션 라벨 교체 (서버는 상수값만, 라벨은 JS 맵 단일 출처) =====
+    document.querySelectorAll("#searchActionType option").forEach(function (opt) {
+        if (opt.value) {
+            opt.textContent = getActionTypeLabel(opt.value);
+        }
+    });
+
+    // ===== DOM 참조 =====
+    const searchForm    = document.getElementById("searchForm");
+    const resetButton   = document.getElementById("btnReset");
+    const tableBody     = document.getElementById("logTableBody");
+    const pageAlert     = document.getElementById("pageAlert");
+    const summaryText   = document.getElementById("summaryText");
+    const pagination    = document.getElementById("pagination");
+    const emptyState    = document.getElementById("emptyState");
+    const detailContent = document.getElementById("detailContent");
+
+    // 목록 데이터 캐시 — 상세 모달에서 추가 fetch 없이 재사용
+    let logCache = [];
+
+    const pageState = {
+        page: 0,
+        size: 20,
+        totalPages: 0
+    };
+
+    // ===== 유틸 =====
+    function showPageError(message) {
+        pageAlert.textContent = message;
+        pageAlert.classList.remove("d-none");
+    }
+
+    function hidePageError() {
+        pageAlert.classList.add("d-none");
+        pageAlert.textContent = "";
+    }
+
+    async function extractErrorMessage(response, fallbackMessage) {
+        try {
+            const errorBody = await response.json();
+            return errorBody.message || fallbackMessage;
+        } catch (error) {
+            return fallbackMessage;
+        }
+    }
+
+    function getRequestErrorMessage(error, fallbackMessage) {
+        if (error && error.name === "AbortError") {
+            return "요청이 취소되었습니다.";
+        }
+        if (error instanceof TypeError) {
+            return "네트워크 연결을 확인해주세요.";
+        }
+        return error && error.message ? error.message : fallbackMessage;
+    }
+
+    /** 모든 로그 필드를 예외 없이 이스케이프 — requestUri·errorMessage는 공격자 영향 가능 값 */
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function formatDate(value) {
+        if (!value) {
+            return "-";
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return escapeHtml(value);
+        }
+        return new Intl.DateTimeFormat("ko-KR", {
+            year: "numeric", month: "2-digit", day: "2-digit",
+            hour: "2-digit", minute: "2-digit", second: "2-digit"
+        }).format(date);
+    }
+
+    function buildQueryString(page) {
+        const params = new URLSearchParams();
+        const formData = new FormData(searchForm);
+
+        formData.forEach(function (value, key) {
+            const trimmed = typeof value === "string" ? value.trim() : value;
+            if (trimmed) {
+                params.append(key, trimmed);
+            }
+        });
+
+        params.set("page", String(page));
+        params.set("size", String(pageState.size));
+        return params.toString();
+    }
+
+    function renderSummary(data) {
+        const currentPage = data.totalPages === 0 ? 0 : data.page + 1;
+        summaryText.innerHTML = "총 <strong>" + data.totalElements + "</strong>건 · " +
+            currentPage + " / " + Math.max(data.totalPages, 1) + " 페이지";
+    }
+
+    function renderTable(items) {
+        if (!items || items.length === 0) {
+            tableBody.innerHTML = "";
+            emptyState.classList.remove("d-none");
+            return;
+        }
+
+        emptyState.classList.add("d-none");
+
+        tableBody.innerHTML = items.map(function (item, idx) {
+            const targetText = item.targetType
+                ? escapeHtml(item.targetType) + (item.targetId != null ? " #" + escapeHtml(item.targetId) : "")
+                : "-";
+
+            return "<tr>" +
+                "<td>" + escapeHtml(formatDate(item.createAt)) + "</td>" +
+                "<td>" + escapeHtml(item.actionUserId || "-") + "</td>" +
+                "<td>" + escapeHtml(getActionTypeLabel(item.actionType)) + "</td>" +
+                "<td><span class=\"" + getResultBadgeClass(item.actionResult) + "\">" +
+                    escapeHtml(getResultLabel(item.actionResult)) + "</span></td>" +
+                "<td>" + targetText + "</td>" +
+                "<td class=\"text-center\"><button type=\"button\" class=\"btn btn-outline-primary btn-sm js-detail\" " +
+                    "data-idx=\"" + idx + "\">상세</button></td>" +
+                "</tr>";
+        }).join("");
+    }
+
+    function renderPagination(data) {
+        pagination.innerHTML = "";
+
+        if (!data.totalPages || data.totalPages <= 1) {
+            return;
+        }
+
+        const fragment = [];
+        const startPage = Math.max(0, data.page - 2);
+        const endPage   = Math.min(data.totalPages - 1, startPage + 4);
+
+        fragment.push(
+            "<li class=\"page-item " + (data.page === 0 ? "disabled" : "") + "\">" +
+            "<button type=\"button\" class=\"page-link\" data-page=\"" + Math.max(data.page - 1, 0) + "\">이전</button></li>"
+        );
+
+        for (let i = startPage; i <= endPage; i += 1) {
+            fragment.push(
+                "<li class=\"page-item " + (i === data.page ? "active" : "") + "\">" +
+                "<button type=\"button\" class=\"page-link\" data-page=\"" + i + "\">" + (i + 1) + "</button></li>"
+            );
+        }
+
+        fragment.push(
+            "<li class=\"page-item " + (data.last ? "disabled" : "") + "\">" +
+            "<button type=\"button\" class=\"page-link\" data-page=\"" + Math.min(data.page + 1, data.totalPages - 1) + "\">다음</button></li>"
+        );
+
+        pagination.innerHTML = fragment.join("");
+    }
+
+    function setLoadingRow() {
+        emptyState.classList.add("d-none");
+        tableBody.innerHTML = "<tr><td colspan=\"6\" class=\"text-center text-muted py-4\">조회 중입니다.</td></tr>";
+    }
+
+    async function loadActionLogs(page) {
+        hidePageError();
+        setLoadingRow();
+        logCache = [];
+
+        try {
+            const response = await fetch("/admin/api/logs?" + buildQueryString(page));
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "활동 로그 조회에 실패했습니다."));
+            }
+
+            const data = await response.json();
+            logCache = data.content || [];
+
+            pageState.page = data.page;
+            pageState.totalPages = data.totalPages;
+
+            renderSummary(data);
+            renderTable(logCache);
+            renderPagination(data);
+        } catch (error) {
+            tableBody.innerHTML = "<tr><td colspan=\"6\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
+            pagination.innerHTML = "";
+            showPageError(getRequestErrorMessage(error, "활동 로그 조회 중 오류가 발생했습니다."));
+        }
+    }
+
+    /** 목록 캐시에서 상세 데이터를 꺼내 모달을 렌더링한다 (추가 네트워크 요청 없음). */
+    function renderDetailModal(item) {
+        // actionId: Jackson non_null 설정으로 null이면 JSON 키 자체가 생략됨 → undefined → "시스템"
+        const actorId   = item.actionId != null ? escapeHtml(item.actionId) : "시스템";
+        const actorUser = escapeHtml(item.actionUserId || "-");
+
+        const rows = [
+            { label: "로그 ID",    value: escapeHtml(item.id) },
+            { label: "행위자 PK",  value: actorId },
+            { label: "수행자 아이디", value: actorUser },
+            { label: "액션 유형",  value: escapeHtml(getActionTypeLabel(item.actionType)) },
+            { label: "결과",      value: "<span class=\"" + getResultBadgeClass(item.actionResult) + "\">" +
+                                         escapeHtml(getResultLabel(item.actionResult)) + "</span>" },
+            { label: "대상 유형",  value: escapeHtml(item.targetType || "-") },
+            { label: "대상 ID",   value: item.targetId != null ? escapeHtml(item.targetId) : "-" },
+            { label: "요청 IP",   value: escapeHtml(item.requestIp || "-") },
+            { label: "요청 URI",  value: escapeHtml(item.requestUri || "-") },
+            { label: "HTTP 메서드", value: escapeHtml(item.requestMethod || "-") },
+            { label: "오류 메시지", value: item.errorMessage
+                ? "<span style=\"white-space:pre-wrap;word-break:break-all\">" + escapeHtml(item.errorMessage) + "</span>"
+                : "<span class=\"value-muted\">-</span>" },
+            { label: "발생 일시",  value: escapeHtml(formatDate(item.createAt)) }
+        ];
+
+        detailContent.innerHTML = rows.map(function (row) {
+            return "<div class=\"detail-item\">" +
+                "<span class=\"label\">" + escapeHtml(row.label) + "</span>" +
+                "<div class=\"value\">" + row.value + "</div>" +
+                "</div>";
+        }).join("");
+    }
+
+    // ===== 이벤트 바인딩 =====
+    searchForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        loadActionLogs(0);
+    });
+
+    resetButton.addEventListener("click", function () {
+        searchForm.reset();
+        loadActionLogs(0);
+    });
+
+    pagination.addEventListener("click", function (event) {
+        const button = event.target.closest("button[data-page]");
+        if (!button || button.parentElement.classList.contains("disabled") || button.parentElement.classList.contains("active")) {
+            return;
+        }
+        loadActionLogs(Number(button.dataset.page));
+    });
+
+    tableBody.addEventListener("click", function (event) {
+        const button = event.target.closest(".js-detail");
+        if (!button) {
+            return;
+        }
+
+        const idx = Number(button.dataset.idx);
+        const item = logCache[idx];
+        if (!item) {
+            return;
+        }
+
+        renderDetailModal(item);
+        $("#logDetailModal").modal("show");
+    });
+
+    // 초기 조회
+    loadActionLogs(0);
+</script>
+
+</body>
+</html>
