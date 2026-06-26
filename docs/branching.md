@@ -69,3 +69,43 @@ CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고
 - Require a pull request before merging
 - Require status checks to pass → `test` (CI job 이름)
 - Include administrators (관리자도 규칙 적용)
+
+---
+
+## IntelliJ IDEA로 GitHub Flow 수행
+
+CLI 대신 IntelliJ UI로 동일한 워크플로를 수행하는 방법.
+
+### 사전 1회 설정: GitHub 계정 연결
+
+`File → Settings → Version Control → GitHub → +` → "Log In via GitHub..." 클릭 → 브라우저에서 인증  
+연결 후 PR 생성·조회를 IDE 안에서 할 수 있다.
+
+### 단계별 조작
+
+| CLI 명령 | IntelliJ UI |
+|----------|-------------|
+| `git switch master && git pull` | 우하단 **Git 브랜치 위젯** → `master` → Checkout. 이어서 툴바 ⬇ 아이콘(Update Project) 또는 `Ctrl+T` |
+| `git switch -c feat/...` | 브랜치 위젯 → **New Branch** → 이름 입력(`feat/menu-management`) → "Checkout branch" 체크 후 Create |
+| `git add . && git commit -m "..."` | `Ctrl+K` (Commit 창) → 변경 파일 체크 → 한국어 접두사 커밋 메시지 입력 → **Commit** |
+| `git push -u origin feat/...` | `Ctrl+Shift+K` → **Push** |
+| `gh pr create` | Push 직후 IDE 상단 알림 **"Create Pull Request"** 클릭, 또는 좌측 **Pull Requests 도구창** → `+` → 제목/본문 작성 → Create |
+| CI 통과 확인 | Pull Requests 도구창에서 해당 PR 선택 → ✓/✗ 체크 상태 확인 |
+| `gh pr merge --squash --delete-branch` | PR 도구창 → **Merge** 드롭다운 → **Squash and merge** → 머지 후 "Delete branch" |
+| `git switch master && git pull` | 브랜치 위젯에서 `master` Checkout → `Ctrl+T` |
+
+### 핵심 단축키 (Windows)
+
+| 단축키 | 동작 |
+|--------|------|
+| `Ctrl+K` | Commit 창 열기 |
+| `Ctrl+Shift+K` | Push |
+| `Ctrl+T` | Update Project (pull) |
+| `Alt+0` | Commit 도구창 토글 |
+| `Alt+9` | Git 로그/히스토리 도구창 |
+
+### 주의점
+
+1. **Squash 선택지가 안 보이면** — GitHub 저장소 `Settings → General → Pull Requests`에서 "Allow squash merging"이 켜져 있어야 IDE 머지 버튼에 Squash 옵션이 노출된다.
+2. **master 직접 push 거부는 IntelliJ에서도 동일** — 브랜치 보호는 서버 측 강제라 IDE에서 push해도 똑같이 reject된다.
+3. **머지는 GitHub 웹에서 해도 무방** — IntelliJ는 PR 생성까지만 쓰고, 머지는 웹에서 "Squash and merge" 클릭하는 방식도 된다.
