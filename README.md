@@ -104,15 +104,6 @@ make dev-up
 make dev-down
 ```
 
-### 운영 유사 환경 실행
-
-```bash
-make prod-up
-make prod-down
-```
-
----
-
 # 🔎 Utility Commands
 
 ```bash
