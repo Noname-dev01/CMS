@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help dev-db dev-up dev-down prod-up prod-down logs logs-app logs-db ps rebuild prune
+.PHONY: help dev-db dev-up dev-down logs logs-app logs-db ps rebuild prune
 
 help:
 	@echo ""
@@ -9,8 +9,6 @@ help:
 	@echo "make dev-db      → Start DB only (for IntelliJ development)"
 	@echo "make dev-up      → Start full dev stack (app + db)"
 	@echo "make dev-down    → Stop dev stack"
-	@echo "make prod-up     → Start production-like stack (nginx + app + db)"
-	@echo "make prod-down   → Stop production-like stack"
 	@echo "make logs        → Show all dev logs"
 	@echo "make logs-app    → Show app logs"
 	@echo "make logs-db     → Show DB logs"
@@ -27,12 +25,6 @@ dev-up:
 
 dev-down:
 	@bash scripts/dev-down.sh
-
-prod-up:
-	@bash scripts/prod-up.sh
-
-prod-down:
-	@bash scripts/prod-down.sh
 
 logs:
 	@docker compose -f docker-compose.dev.yml --env-file .env.dev logs -f
