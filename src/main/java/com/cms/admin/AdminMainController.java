@@ -1,5 +1,6 @@
 package com.cms.admin;
 
+import com.cms.admin.dashboard.service.DashboardService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -11,9 +12,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 @RequestMapping("/admin")
 public class AdminMainController {
 
+    private final DashboardService dashboardService;
 
     @GetMapping
     public String main(Model model) {
+        model.addAttribute("stats", dashboardService.getDashboardStats());
         return "admin/index";
     }
 

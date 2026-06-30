@@ -1,6 +1,8 @@
 package com.cms.config;
 
+import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.config.auth.AdminSecurityService;
+import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -35,9 +37,19 @@ class ApiSecurityConfigTest {
 
     @TestConfiguration
     static class MockConfig {
+
         @Bean
         public AdminSecurityService adminSecurityService() {
             return Mockito.mock(AdminSecurityService.class);
+        }
+
+        /**
+         * filterChain 시그니처에 핸들러 파라미터가 추가됐으므로 mock 빈이 없으면 컨텍스트 로딩 실패.
+         */
+        @Bean
+        public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler() {
+            VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
+            return new VisitLoggingAuthenticationSuccessHandler(mockRepo);
         }
     }
 
