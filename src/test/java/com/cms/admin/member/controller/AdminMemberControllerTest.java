@@ -651,4 +651,80 @@ class AdminMemberControllerTest {
         inOrder.verify(adminMemberService).resetMyProfileImage(1L);
         inOrder.verify(adminSecurityService).refreshAuthentication(1L);
     }
+
+    // ===================== MANAGER 권한 — self API 접근 검증 ====================
+
+    @Test
+    @DisplayName("MANAGER는 자기 자신 정보 조회(GET /members/me) 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void getMyInfo_manager_ok() throws Exception {
+        given(adminMemberService.getMyInfo(anyLong())).willReturn(adminMemberResponse());
+
+        mockMvc.perform(get("/admin/api/members/me"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("MANAGER는 자기 자신 정보 수정(PATCH /members/me) 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void updateMyInfo_manager_ok() throws Exception {
+        given(adminMemberService.updateMyInfo(anyLong(), any())).willReturn(adminMemberResponse());
+
+        mockMvc.perform(patch("/admin/api/members/me")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("MANAGER는 비밀번호 변경(PATCH /members/me/password) 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void changeMyPassword_manager_ok() throws Exception {
+        given(adminMemberService.changeMyPassword(anyLong(), any())).willReturn(adminMemberResponse());
+
+        AdminMyPasswordChangeRequest pwdRequest = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        mockMvc.perform(patch("/admin/api/members/me/password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(pwdRequest)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("MANAGER는 프로필 이미지 초기화(DELETE /members/me/profile-image) 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void resetMyProfileImage_manager_ok() throws Exception {
+        mockMvc.perform(delete("/admin/api/members/me/profile-image")
+                        .with(csrf()))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("MANAGER는 관리자 계정 생성(POST /members)을 할 수 없다(403)")
+    @WithMockUser(roles = "MANAGER")
+    void createAdmin_manager_forbidden() throws Exception {
+        mockMvc.perform(post("/admin/api/members")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request())))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("MANAGER는 관리자 목록 조회(GET /members)를 할 수 없다(403)")
+    @WithMockUser(roles = "MANAGER")
+    void getAdminMembers_manager_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/members"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
+    }
 }

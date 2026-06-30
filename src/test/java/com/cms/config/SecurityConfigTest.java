@@ -1,6 +1,9 @@
 package com.cms.config;
 
+import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.config.auth.AdminSecurityService;
+import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
+import com.cms.support.TestStubController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -9,20 +12,21 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrlPattern;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = OpenApiDocsTestController.class)
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class})
 @Import({
         SecurityConfig.class,
         SecurityConfigTest.MockConfig.class
 })
+@ActiveProfiles({"test", "webmvc-test"})
 class SecurityConfigTest {
 
     @Autowired
@@ -35,7 +39,15 @@ class SecurityConfigTest {
         public AdminSecurityService adminSecurityService() {
             return Mockito.mock(AdminSecurityService.class);
         }
+
+        @Bean
+        public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler() {
+            VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
+            return new VisitLoggingAuthenticationSuccessHandler(mockRepo);
+        }
     }
+
+    // ==================== 기존 OpenAPI 테스트 ====================
 
     @Test
     @DisplayName("OpenAPI docs require authentication")
@@ -61,13 +73,100 @@ class SecurityConfigTest {
                 .andExpect(status().isOk());
     }
 
+    // ==================== MANAGER 인가 범위 검증 ====================
+
+    @Test
+    @DisplayName("MANAGER는 대시보드(/admin) 접근이 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_dashboard_ok() throws Exception {
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("MANAGER는 내 정보 페이지(/admin/member/info) 접근이 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_memberInfo_ok() throws Exception {
+        mockMvc.perform(get("/admin/member/info"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("MANAGER는 self API(/admin/api/members/me)에 접근이 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_selfApi_ok() throws Exception {
+        mockMvc.perform(get("/admin/api/members/me"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("MANAGER는 관리자 목록 API(/admin/api/members)에 접근할 수 없다(403)")
+    @WithMockUser(roles = "MANAGER")
+    void manager_membersListApi_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/members")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    @DisplayName("MANAGER는 관리자 관리 페이지(/admin/member/manage)에 접근할 수 없다(403)")
+    @WithMockUser(roles = "MANAGER")
+    void manager_memberManagePage_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/member/manage"))
+                .andExpect(status().isForbidden());
+    }
 }
 
-@RestController
+// ==================== 슬라이스 테스트 전용 스텁 컨트롤러 ====================
+// @TestStubController: CmsTestApplication이 FilterType.ANNOTATION으로 제외 → full-context 충돌 없음
+
+@TestStubController
 class OpenApiDocsTestController {
 
     @GetMapping("/v3/api-docs")
     String openApiDocs() {
         return "{}";
+    }
+}
+
+@TestStubController
+class AdminDashboardStubController {
+
+    @GetMapping("/admin")
+    String dashboard() {
+        return "dashboard";
+    }
+}
+
+@TestStubController
+class AdminMemberInfoStubController {
+
+    @GetMapping("/admin/member/info")
+    String memberInfo() {
+        return "info";
+    }
+}
+
+@TestStubController
+class AdminMembersApiStubController {
+
+    @GetMapping("/admin/api/members/me")
+    String membersMe() {
+        return "{}";
+    }
+
+    @GetMapping("/admin/api/members")
+    String membersList() {
+        return "[]";
+    }
+}
+
+@TestStubController
+class AdminMemberManageStubController {
+
+    @GetMapping("/admin/member/manage")
+    String memberManage() {
+        return "manage";
     }
 }

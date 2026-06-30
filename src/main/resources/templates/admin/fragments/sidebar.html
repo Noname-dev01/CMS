@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <body th:fragment="adminSidebar">
 
 <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
@@ -49,25 +50,32 @@
         </a>
         <div id="collapseMember" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
             <div class="bg-white py-2 collapse-inner rounded">
-                <a class="collapse-item" th:href="@{/admin/member/manage}"><i class="fas fa-fw fa-users"></i><span class="ml-2">관리자 조회</span></a>
-                <a class="collapse-item" th:href="@{/admin/member/new}"><i class="fas fa-fw fa-user-plus"></i><span class="ml-2">관리자 추가</span></a>
+                <!-- 관리자 조회·추가는 ADMIN 전용 -->
+                <th:block sec:authorize="hasRole('ROLE_ADMIN')">
+                    <a class="collapse-item" th:href="@{/admin/member/manage}"><i class="fas fa-fw fa-users"></i><span class="ml-2">관리자 조회</span></a>
+                    <a class="collapse-item" th:href="@{/admin/member/new}"><i class="fas fa-fw fa-user-plus"></i><span class="ml-2">관리자 추가</span></a>
+                </th:block>
+                <!-- 내 정보는 ADMIN·MANAGER 모두 접근 가능 -->
                 <a class="collapse-item" th:href="@{/admin/member/info}"><i class="fas fa-fw fa-id-badge"></i><span class="ml-2">내 정보</span></a>
             </div>
         </div>
     </li>
 
-    <hr class="sidebar-divider">
+    <!-- 시스템 섹션은 ADMIN 전용 -->
+    <th:block sec:authorize="hasRole('ROLE_ADMIN')">
+        <hr class="sidebar-divider">
 
-    <!-- 시스템 -->
-    <div class="sidebar-heading">
-        시스템
-    </div>
+        <!-- 시스템 -->
+        <div class="sidebar-heading">
+            시스템
+        </div>
 
-    <li class="nav-item">
-        <a class="nav-link" th:href="@{/admin/log/manage}">
-            <i class="fas fa-fw fa-clipboard-list"></i>
-            <span>활동 로그</span></a>
-    </li>
+        <li class="nav-item">
+            <a class="nav-link" th:href="@{/admin/log/manage}">
+                <i class="fas fa-fw fa-clipboard-list"></i>
+                <span>활동 로그</span></a>
+        </li>
+    </th:block>
 
     <hr class="sidebar-divider">
 

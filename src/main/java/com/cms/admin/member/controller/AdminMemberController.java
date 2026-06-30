@@ -72,7 +72,7 @@ public class AdminMemberController {
 
     @Operation(summary = "내 관리자 정보 조회")
     @GetMapping("members/me")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> getMyInfo() {
         Long adminId = requireCurrentAdminId();
         return ResponseEntity.ok(adminMemberService.getMyInfo(adminId));
@@ -80,7 +80,7 @@ public class AdminMemberController {
 
     @Operation(summary = "내 관리자 정보 수정")
     @PatchMapping("members/me")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> updateMyInfo(@Valid @RequestBody AdminMyInfoUpdateRequest request) {
         Long adminId = requireCurrentAdminId();
         AdminMemberResponse response = adminMemberService.updateMyInfo(adminId, request);
@@ -91,7 +91,7 @@ public class AdminMemberController {
 
     @Operation(summary = "내 프로필 이미지 업로드")
     @PutMapping(value = "members/me/profile-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> updateMyProfileImage(@RequestPart("file") MultipartFile file) {
         Long adminId = requireCurrentAdminId();
         AdminMemberResponse response = adminMemberService.updateMyProfileImage(adminId, file);
@@ -102,7 +102,7 @@ public class AdminMemberController {
 
     @Operation(summary = "내 기본 프로필 이미지 선택")
     @PutMapping(value = "members/me/profile-image", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> applyDefaultProfileImage(@Valid @RequestBody ProfileImagePresetRequest request) {
         Long adminId = requireCurrentAdminId();
         AdminMemberResponse response = adminMemberService.applyDefaultProfileImage(adminId, request.getPreset());
@@ -113,7 +113,7 @@ public class AdminMemberController {
 
     @Operation(summary = "내 프로필 이미지 초기화")
     @DeleteMapping("members/me/profile-image")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<Void> resetMyProfileImage() {
         Long adminId = requireCurrentAdminId();
         adminMemberService.resetMyProfileImage(adminId);
@@ -127,7 +127,7 @@ public class AdminMemberController {
     @ApiResponse(responseCode = "400", description = "현재 비밀번호 불일치 또는 새 비밀번호 확인 불일치")
     @ApiResponse(responseCode = "403", description = "권한 없음")
     @PatchMapping("members/me/password")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> changeMyPassword(@Valid @RequestBody AdminMyPasswordChangeRequest request) {
         Long adminId = requireCurrentAdminId();
         AdminMemberResponse response = adminMemberService.changeMyPassword(adminId, request);

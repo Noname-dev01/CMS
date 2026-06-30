@@ -1,5 +1,6 @@
 package com.cms.config;
 
+import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import com.cms.config.security.ApiAccessDeniedHandler;
 import com.cms.config.security.ApiAuthenticationEntryPoint;
 import org.springframework.context.annotation.Bean;
@@ -28,18 +29,24 @@ public class SecurityConfig {
     private static final AccessDeniedHandlerImpl DEFAULT_ACCESS_DENIED_HANDLER = new AccessDeniedHandlerImpl();
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http,
+                                           VisitLoggingAuthenticationSuccessHandler successHandler) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> auth
                         .requestMatchers("/admin/login", "/admin/login-error").permitAll()
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").hasRole("ADMIN")
+                        // MANAGER 허용 범위: 대시보드 + 자기 자신 내 정보(페이지 + self API)
+                        .requestMatchers("/admin").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers("/admin/member/info").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers("/admin/api/members/me", "/admin/api/members/me/**").hasAnyRole("ADMIN", "MANAGER")
+                        // 그 외 admin 전부 ADMIN 전용
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll()
                 )
                 .formLogin((form) -> form
                         .loginPage("/admin/login")
                         .loginProcessingUrl("/admin/login")
-                        .defaultSuccessUrl("/admin", true)
+                        .successHandler(successHandler)
                         .failureUrl("/admin/login-error")
                         .permitAll()
                 )
