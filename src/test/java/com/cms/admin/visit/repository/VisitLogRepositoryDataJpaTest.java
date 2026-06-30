@@ -20,10 +20,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 실제 MariaDB(CI의 service container 또는 로컬 DB)를 사용하는 JPA 슬라이스 테스트.
+ * 실제 MariaDB(CI service container 또는 로컬 DB)를 사용하는 JPA 슬라이스 테스트.
  *
- * <p>@AutoConfigureTestDatabase(replace = NONE): 내장 H2 대신 실제 MariaDB 사용(dev 프로파일).
- * 로컬 MariaDB가 없으면 실패한다(기존 CmsApplicationTests와 동일 조건).
+ * <p>@AutoConfigureTestDatabase(replace = NONE): 내장 DB 대신 dev 프로필의 MariaDB 설정을 사용한다.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)

@@ -3,6 +3,7 @@ package com.cms.config;
 import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
+import com.cms.support.TestStubController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -15,10 +16,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -30,6 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         SecurityConfig.class,
         ApiSecurityConfigTest.MockConfig.class
 })
+@ActiveProfiles({"test", "webmvc-test"})
 class ApiSecurityConfigTest {
 
     @Autowired
@@ -43,9 +45,6 @@ class ApiSecurityConfigTest {
             return Mockito.mock(AdminSecurityService.class);
         }
 
-        /**
-         * filterChain 시그니처에 핸들러 파라미터가 추가됐으므로 mock 빈이 없으면 컨텍스트 로딩 실패.
-         */
         @Bean
         public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler() {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
@@ -118,7 +117,9 @@ class ApiSecurityConfigTest {
     }
 }
 
-@RestController
+// ==================== 슬라이스 테스트 전용 스텁 컨트롤러 ====================
+
+@TestStubController
 class AdminApiTestController {
 
     @GetMapping("/admin/api/security-test")

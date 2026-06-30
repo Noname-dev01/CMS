@@ -3,6 +3,7 @@ package com.cms.config;
 import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
+import com.cms.support.TestStubController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -13,9 +14,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -25,6 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         SecurityConfig.class,
         SecurityConfigTest.MockConfig.class
 })
+@ActiveProfiles({"test", "webmvc-test"})
 class SecurityConfigTest {
 
     @Autowired
@@ -38,9 +40,6 @@ class SecurityConfigTest {
             return Mockito.mock(AdminSecurityService.class);
         }
 
-        /**
-         * filterChain 시그니처에 핸들러 파라미터가 추가됐으므로 mock 빈이 없으면 컨텍스트 로딩 실패.
-         */
         @Bean
         public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler() {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
@@ -119,10 +118,10 @@ class SecurityConfigTest {
     }
 }
 
-// ==================== 슬라이스 테스트용 더미 컨트롤러 ====================
-// @SpringBootTest 전체 스캔 충돌 방지: CmsApplicationTests.TestBootConfig의 excludeFilters에 이 클래스들을 등록한다.
+// ==================== 슬라이스 테스트 전용 스텁 컨트롤러 ====================
+// @TestStubController: CmsTestApplication이 FilterType.ANNOTATION으로 제외 → full-context 충돌 없음
 
-@RestController
+@TestStubController
 class OpenApiDocsTestController {
 
     @GetMapping("/v3/api-docs")
@@ -131,7 +130,7 @@ class OpenApiDocsTestController {
     }
 }
 
-@RestController
+@TestStubController
 class AdminDashboardStubController {
 
     @GetMapping("/admin")
@@ -140,7 +139,7 @@ class AdminDashboardStubController {
     }
 }
 
-@RestController
+@TestStubController
 class AdminMemberInfoStubController {
 
     @GetMapping("/admin/member/info")
@@ -149,7 +148,7 @@ class AdminMemberInfoStubController {
     }
 }
 
-@RestController
+@TestStubController
 class AdminMembersApiStubController {
 
     @GetMapping("/admin/api/members/me")
@@ -163,7 +162,7 @@ class AdminMembersApiStubController {
     }
 }
 
-@RestController
+@TestStubController
 class AdminMemberManageStubController {
 
     @GetMapping("/admin/member/manage")
