@@ -20,13 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {
-        SecurityConfigTest.OpenApiDocsTestController.class,
-        SecurityConfigTest.AdminDashboardStubController.class,
-        SecurityConfigTest.AdminMemberInfoStubController.class,
-        SecurityConfigTest.AdminMembersApiStubController.class,
-        SecurityConfigTest.AdminMemberManageStubController.class
-})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class})
 @Import({
         SecurityConfig.class,
         SecurityConfigTest.MockConfig.class
@@ -123,57 +117,57 @@ class SecurityConfigTest {
         mockMvc.perform(get("/admin/member/manage"))
                 .andExpect(status().isForbidden());
     }
+}
 
-    // ==================== 슬라이스 테스트용 더미 컨트롤러 ====================
-    // 내부 static class로 선언해 @SpringBootTest 컴포넌트 스캔에서 독립 클래스로 노출되지 않도록 한다.
+// ==================== 슬라이스 테스트용 더미 컨트롤러 ====================
+// @SpringBootTest 전체 스캔 충돌 방지: CmsApplicationTests.TestBootConfig의 excludeFilters에 이 클래스들을 등록한다.
 
-    @RestController
-    static class OpenApiDocsTestController {
+@RestController
+class OpenApiDocsTestController {
 
-        @GetMapping("/v3/api-docs")
-        String openApiDocs() {
-            return "{}";
-        }
+    @GetMapping("/v3/api-docs")
+    String openApiDocs() {
+        return "{}";
+    }
+}
+
+@RestController
+class AdminDashboardStubController {
+
+    @GetMapping("/admin")
+    String dashboard() {
+        return "dashboard";
+    }
+}
+
+@RestController
+class AdminMemberInfoStubController {
+
+    @GetMapping("/admin/member/info")
+    String memberInfo() {
+        return "info";
+    }
+}
+
+@RestController
+class AdminMembersApiStubController {
+
+    @GetMapping("/admin/api/members/me")
+    String membersMe() {
+        return "{}";
     }
 
-    @RestController
-    static class AdminDashboardStubController {
-
-        @GetMapping("/admin")
-        String dashboard() {
-            return "dashboard";
-        }
+    @GetMapping("/admin/api/members")
+    String membersList() {
+        return "[]";
     }
+}
 
-    @RestController
-    static class AdminMemberInfoStubController {
+@RestController
+class AdminMemberManageStubController {
 
-        @GetMapping("/admin/member/info")
-        String memberInfo() {
-            return "info";
-        }
-    }
-
-    @RestController
-    static class AdminMembersApiStubController {
-
-        @GetMapping("/admin/api/members/me")
-        String membersMe() {
-            return "{}";
-        }
-
-        @GetMapping("/admin/api/members")
-        String membersList() {
-            return "[]";
-        }
-    }
-
-    @RestController
-    static class AdminMemberManageStubController {
-
-        @GetMapping("/admin/member/manage")
-        String memberManage() {
-            return "manage";
-        }
+    @GetMapping("/admin/member/manage")
+    String memberManage() {
+        return "manage";
     }
 }
