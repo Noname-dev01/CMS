@@ -1,8 +1,8 @@
 package com.cms.config;
 
+import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
-import com.cms.admin.visit.repository.VisitLogRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -20,7 +20,13 @@ import org.springframework.web.bind.annotation.RestController;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class})
+@WebMvcTest(controllers = {
+        SecurityConfigTest.OpenApiDocsTestController.class,
+        SecurityConfigTest.AdminDashboardStubController.class,
+        SecurityConfigTest.AdminMemberInfoStubController.class,
+        SecurityConfigTest.AdminMembersApiStubController.class,
+        SecurityConfigTest.AdminMemberManageStubController.class
+})
 @Import({
         SecurityConfig.class,
         SecurityConfigTest.MockConfig.class
@@ -117,56 +123,57 @@ class SecurityConfigTest {
         mockMvc.perform(get("/admin/member/manage"))
                 .andExpect(status().isForbidden());
     }
-}
 
-// ==================== 슬라이스 테스트용 더미 컨트롤러 ====================
+    // ==================== 슬라이스 테스트용 더미 컨트롤러 ====================
+    // 내부 static class로 선언해 @SpringBootTest 컴포넌트 스캔에서 독립 클래스로 노출되지 않도록 한다.
 
-@RestController
-class OpenApiDocsTestController {
+    @RestController
+    static class OpenApiDocsTestController {
 
-    @GetMapping("/v3/api-docs")
-    String openApiDocs() {
-        return "{}";
-    }
-}
-
-@RestController
-class AdminDashboardStubController {
-
-    @GetMapping("/admin")
-    String dashboard() {
-        return "dashboard";
-    }
-}
-
-@RestController
-class AdminMemberInfoStubController {
-
-    @GetMapping("/admin/member/info")
-    String memberInfo() {
-        return "info";
-    }
-}
-
-@RestController
-class AdminMembersApiStubController {
-
-    @GetMapping("/admin/api/members/me")
-    String membersMe() {
-        return "{}";
+        @GetMapping("/v3/api-docs")
+        String openApiDocs() {
+            return "{}";
+        }
     }
 
-    @GetMapping("/admin/api/members")
-    String membersList() {
-        return "[]";
+    @RestController
+    static class AdminDashboardStubController {
+
+        @GetMapping("/admin")
+        String dashboard() {
+            return "dashboard";
+        }
     }
-}
 
-@RestController
-class AdminMemberManageStubController {
+    @RestController
+    static class AdminMemberInfoStubController {
 
-    @GetMapping("/admin/member/manage")
-    String memberManage() {
-        return "manage";
+        @GetMapping("/admin/member/info")
+        String memberInfo() {
+            return "info";
+        }
+    }
+
+    @RestController
+    static class AdminMembersApiStubController {
+
+        @GetMapping("/admin/api/members/me")
+        String membersMe() {
+            return "{}";
+        }
+
+        @GetMapping("/admin/api/members")
+        String membersList() {
+            return "[]";
+        }
+    }
+
+    @RestController
+    static class AdminMemberManageStubController {
+
+        @GetMapping("/admin/member/manage")
+        String memberManage() {
+            return "manage";
+        }
     }
 }
