@@ -1,6 +1,6 @@
 # CMS (Content Management System)
 
-![Java](https://img.shields.io/badge/Java-21-blue)
+![Java](https://img.shields.io/badge/Java-17-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4-brightgreen)
 ![Spring Security](https://img.shields.io/badge/Spring%20Security-6-green)
 ![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-Hibernate%206-yellowgreen)
@@ -14,6 +14,8 @@
 Spring Boot 기반 관리자 CMS 프로젝트입니다.  
 Docker를 활용하여 개발 환경과 통합 실행 환경을 분리하였으며,  
 Spring Security 및 Swagger 문서화를 적용했습니다.
+
+소스 코드와 문서는 UTF-8 인코딩을 기준으로 작성합니다. 에디터 설정은 루트의 `.editorconfig`를 따릅니다.
 ---
 ## 🛠 문제 해결 기록 (Troubleshooting)
 
