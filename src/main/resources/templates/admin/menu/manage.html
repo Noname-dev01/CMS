@@ -2,9 +2,16 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <head th:replace="~{admin/fragments/head :: adminHead}">
     <title>메뉴 관리</title>
-    <!-- jstree CSS -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
-    <style>
+</head>
+<body id="page-top">
+<!--
+    th:replace는 head 태그 자체를 통째로 adminHead 프래그먼트로 치환하므로, 원래 head 안에
+    있던 title·link·style은 렌더링 결과에 포함되지 않는다(기존 admin-manage.html의
+    페이지 전용 CSS link도 동일한 이유로 head 바깥/body 시작 지점에 둔다 — 그 컨벤션을 따른다).
+-->
+<!-- jstree CSS -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
+<style>
         .menu-container {
             padding: 20px;
             height: calc(100vh - 200px);
@@ -59,6 +66,18 @@
             margin-top: 25px;
             display: flex;
             gap: 10px;
+        }
+        .tree-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .tree-toolbar .btn-group-actions {
+            display: flex;
+            gap: 8px;
         }
         #menuTree {
             margin-top: 15px;
@@ -155,9 +174,17 @@
             width: calc(1.25rem - 4px);
             border-radius: calc(1.25rem - 4px);
         }
+        .form-mode-label {
+            font-size: 0.85rem;
+            color: #858796;
+            margin-bottom: 10px;
+        }
+        /* 비활성 메뉴는 회색으로만 구분하고 선택은 그대로 가능하게 둔다 (jstree state.disabled 미사용) */
+        .jstree-anchor.menu-inactive,
+        .jstree-anchor.menu-inactive .jstree-icon {
+            color: #b0b3b8 !important;
+        }
     </style>
-</head>
-<body id="page-top">
 
 <div id="wrapper">
     <!-- Sidebar -->
@@ -186,6 +213,17 @@
                                     <h6>메뉴 구조</h6>
                                 </div>
                                 <div class="card-body">
+                                    <div id="treeAlert" class="alert alert-danger d-none" role="alert"></div>
+                                    <div class="tree-toolbar">
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" class="custom-control-input" id="includeInactiveToggle">
+                                            <label class="custom-control-label" for="includeInactiveToggle">비활성 포함</label>
+                                        </div>
+                                        <div class="btn-group-actions">
+                                            <button type="button" class="btn btn-primary btn-sm" id="btnNewTop">새 최상위</button>
+                                            <button type="button" class="btn btn-primary btn-sm" id="btnNewChild">선택 아래 하위 추가</button>
+                                        </div>
+                                    </div>
                                     <div id="menuTree"></div>
                                 </div>
                             </div>
@@ -196,6 +234,8 @@
                                     <h6>메뉴 정보</h6>
                                 </div>
                                 <div class="card-body">
+                                    <div id="formAlert" class="alert alert-danger d-none" role="alert"></div>
+                                    <div id="formModeLabel" class="form-mode-label">메뉴를 선택하거나 추가 버튼을 눌러주세요.</div>
                                     <form id="menuForm">
                                         <div class="form-group">
                                             <label for="menuName">메뉴명</label>
@@ -207,11 +247,15 @@
                                         </div>
                                         <div class="form-group">
                                             <label for="menuOrder">순서</label>
-                                            <input type="number" class="form-control" id="menuOrder" name="menuOrder">
+                                            <input type="number" class="form-control" id="menuOrder" name="menuOrder" min="0">
                                         </div>
                                         <div class="form-group">
                                             <label for="menuIcon">아이콘</label>
                                             <input type="text" class="form-control" id="menuIcon" name="menuIcon">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="menuDesc">설명</label>
+                                            <textarea class="form-control" id="menuDesc" name="menuDesc" rows="3"></textarea>
                                         </div>
                                         <div class="form-group">
                                             <div class="custom-control custom-switch">
@@ -249,84 +293,308 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
 
 <script>
-$(document).ready(function() {
-    // 예시 데이터로 jstree 초기화
-    $('#menuTree').jstree({
-        'core': {
-            'themes': {
-                'name': 'default',
-                'responsive': true
-            },
-            'data': [
-                {
-                    'text': '대시보드',
-                    'id': '1',
-                    'state': { 'opened': false },
-                    'children': [
-                        { 'text': '통계', 'id': '1-1' },
-                        { 'text': '분석', 'id': '1-2' }
-                    ]
-                },
-                {
-                    'text': '사용자 관리',
-                    'id': '2',
-                    'state': { 'opened': false },
-                    'children': [
-                        { 'text': '사용자 목록', 'id': '2-1' },
-                        { 'text': '권한 관리', 'id': '2-2' }
-                    ]
-                },
-                {
-                    'text': '시스템 설정',
-                    'id': '3',
-                    'state': { 'opened': false },
-                    'children': [
-                        { 'text': '기본 설정', 'id': '3-1' },
-                        { 'text': '메뉴 관리', 'id': '3-2' }
-                    ]
-                }
-            ]
-        },
-        'plugins': ['types', 'dnd'],
-        'types': {
-            'default': {
-                'icon': 'fas fa-folder'
+$(document).ready(function () {
+    const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
+
+    const $tree = $('#menuTree');
+    const treeAlert = document.getElementById('treeAlert');
+    const formAlert = document.getElementById('formAlert');
+    const formModeLabel = document.getElementById('formModeLabel');
+    const includeInactiveToggle = document.getElementById('includeInactiveToggle');
+
+    const menuForm = document.getElementById('menuForm');
+    const menuNameInput = document.getElementById('menuName');
+    const menuUrlInput = document.getElementById('menuUrl');
+    const menuOrderInput = document.getElementById('menuOrder');
+    const menuIconInput = document.getElementById('menuIcon');
+    const menuDescInput = document.getElementById('menuDesc');
+    const menuUseYnInput = document.getElementById('menuUseYn');
+
+    const btnSave = document.getElementById('btnSave');
+    const btnDelete = document.getElementById('btnDelete');
+    const btnReset = document.getElementById('btnReset');
+    const btnNewTop = document.getElementById('btnNewTop');
+    const btnNewChild = document.getElementById('btnNewChild');
+
+    // mode: null(선택 없음) | 'edit'(기존 메뉴 수정) | 'create'(신규 생성)
+    let mode = null;
+    let selectedMenuNo = null;
+    let pendingParentMenuNo = null;
+
+    function showTreeError(message) {
+        treeAlert.textContent = message;
+        treeAlert.classList.remove('d-none');
+    }
+
+    function hideTreeError() {
+        treeAlert.classList.add('d-none');
+        treeAlert.textContent = '';
+    }
+
+    function showFormError(message) {
+        formAlert.textContent = message;
+        formAlert.classList.remove('d-none');
+    }
+
+    function hideFormError() {
+        formAlert.classList.add('d-none');
+        formAlert.textContent = '';
+    }
+
+    async function extractErrorMessage(response, fallbackMessage) {
+        try {
+            const body = await response.json();
+            return body.message || fallbackMessage;
+        } catch (e) {
+            return fallbackMessage;
+        }
+    }
+
+    function clearForm() {
+        menuForm.reset();
+        // 신규 메뉴는 기본 활성으로 생성한다(API의 생성 기본값 useYn=true와 일치).
+        // reset()은 스위치를 HTML 기본값(미체크)으로 되돌리므로 명시적으로 다시 켠다.
+        menuUseYnInput.checked = true;
+    }
+
+    function fillForm(menu) {
+        menuNameInput.value = menu.menuName || '';
+        menuUrlInput.value = menu.menuUrl || '';
+        menuOrderInput.value = menu.ord != null ? menu.ord : '';
+        menuIconInput.value = menu.menuIcon || '';
+        menuDescInput.value = menu.menuDesc || '';
+        menuUseYnInput.checked = !!menu.useYn;
+    }
+
+    function setModeLabel(text) {
+        formModeLabel.textContent = text;
+    }
+
+    function resetSelectionState() {
+        mode = null;
+        selectedMenuNo = null;
+        pendingParentMenuNo = null;
+        clearForm();
+        hideFormError();
+        setModeLabel('메뉴를 선택하거나 추가 버튼을 눌러주세요.');
+    }
+
+    // ── 트리 렌더링 ──────────────────────────────────────
+
+    function decorateInactive(nodes) {
+        return (nodes || []).map(function (node) {
+            const decorated = Object.assign({}, node);
+            if (node.data && node.data.useYn === false) {
+                decorated.a_attr = { class: 'menu-inactive' };
             }
+            if (node.children && node.children.length) {
+                decorated.children = decorateInactive(node.children);
+            }
+            return decorated;
+        });
+    }
+
+    async function loadTree() {
+        hideTreeError();
+        const useYnParam = includeInactiveToggle.checked ? 'all' : 'true';
+
+        try {
+            const response = await fetch('/admin/api/menus/tree?useYn=' + useYnParam);
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, '메뉴 트리 조회에 실패했습니다.'));
+            }
+
+            const data = await response.json();
+            const decorated = decorateInactive(data);
+            const instance = $tree.jstree(true);
+
+            // 매번 destroy 후 재초기화해 이전 트리 상태에 의존하지 않고 최신 데이터를 반영한다.
+            if (instance) {
+                instance.destroy();
+            }
+            initTree(decorated);
+        } catch (error) {
+            showTreeError(error && error.message ? error.message : '메뉴 트리 조회 중 오류가 발생했습니다.');
+        }
+    }
+
+    // ── 선택/모드 전환 ──────────────────────────────────────
+
+    async function handleSelectNode(e, data) {
+        const menuNo = data.node.data.menuNo;
+        hideFormError();
+
+        try {
+            const response = await fetch('/admin/api/menus/' + encodeURIComponent(menuNo));
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, '메뉴 상세 조회에 실패했습니다.'));
+            }
+
+            const menu = await response.json();
+            mode = 'edit';
+            selectedMenuNo = menu.menuNo;
+            pendingParentMenuNo = null;
+            fillForm(menu);
+            setModeLabel('메뉴 수정: ' + menu.menuName);
+        } catch (error) {
+            showFormError(error && error.message ? error.message : '메뉴 상세 조회 중 오류가 발생했습니다.');
+        }
+    }
+
+    function initTree(data) {
+        $tree.jstree({
+            core: {
+                themes: {
+                    name: 'default',
+                    responsive: true
+                },
+                data: data
+            },
+            plugins: ['types'],
+            types: {
+                default: {
+                    icon: 'fas fa-folder'
+                }
+            }
+        });
+
+        // instance.destroy()가 이 요소에 바인딩된 이벤트(select_node 핸들러 포함)를 모두
+        // 제거하므로, 매번 재초기화할 때 다시 바인딩한다.
+        $tree.off('select_node.jstree').on('select_node.jstree', handleSelectNode);
+    }
+
+    btnNewTop.addEventListener('click', function () {
+        mode = 'create';
+        selectedMenuNo = null;
+        pendingParentMenuNo = null;
+        clearForm();
+        hideFormError();
+        setModeLabel('새 메뉴 추가 (최상위)');
+    });
+
+    btnNewChild.addEventListener('click', function () {
+        const instance = $tree.jstree(true);
+        const selected = instance ? instance.get_selected(true) : [];
+
+        if (!selected || selected.length === 0) {
+            showFormError('먼저 상위로 사용할 메뉴를 트리에서 선택해주세요.');
+            return;
+        }
+
+        const parentNode = selected[0];
+        mode = 'create';
+        pendingParentMenuNo = parentNode.data.menuNo;
+        selectedMenuNo = null;
+        clearForm();
+        hideFormError();
+        setModeLabel('새 메뉴 추가 (상위: ' + parentNode.text + ')');
+    });
+
+    btnReset.addEventListener('click', function () {
+        const instance = $tree.jstree(true);
+        if (instance) {
+            instance.deselect_all();
+        }
+        resetSelectionState();
+    });
+
+    // ── 저장/삭제 ──────────────────────────────────────
+
+    function buildPayload() {
+        const ordRaw = menuOrderInput.value.trim();
+        return {
+            menuName: menuNameInput.value.trim(),
+            menuUrl: menuUrlInput.value.trim(),
+            menuIcon: menuIconInput.value.trim(),
+            menuDesc: menuDescInput.value.trim(),
+            useYn: menuUseYnInput.checked,
+            ord: ordRaw === '' ? null : Number(ordRaw)
+        };
+    }
+
+    btnSave.addEventListener('click', async function () {
+        hideFormError();
+
+        if (mode !== 'create' && mode !== 'edit') {
+            showFormError('메뉴를 선택하거나 추가 버튼을 눌러 새 메뉴를 작성해주세요.');
+            return;
+        }
+
+        const payload = buildPayload();
+
+        try {
+            let response;
+            if (mode === 'create') {
+                payload.upMenuNo = pendingParentMenuNo;
+                response = await fetch('/admin/api/menus', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        [csrfHeader]: csrfToken
+                    },
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                response = await fetch('/admin/api/menus/' + encodeURIComponent(selectedMenuNo), {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        [csrfHeader]: csrfToken
+                    },
+                    body: JSON.stringify(payload)
+                });
+            }
+
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, '저장에 실패했습니다.'));
+            }
+
+            resetSelectionState();
+            await loadTree();
+        } catch (error) {
+            showFormError(error && error.message ? error.message : '저장 중 오류가 발생했습니다.');
         }
     });
 
-    // 노드 클릭 이벤트
-    $('#menuTree').on('click', '.jstree-anchor', function(e) {
-        var node = $('#menuTree').jstree(true).get_node(this);
-        if (node.children && node.children.length > 0) {
-            $('#menuTree').jstree(true).toggle_node(node);
+    btnDelete.addEventListener('click', async function () {
+        hideFormError();
+
+        if (mode !== 'edit' || selectedMenuNo == null) {
+            showFormError('비활성화할 메뉴를 선택해주세요.');
+            return;
+        }
+
+        if (!confirm('선택한 메뉴를 비활성화하시겠습니까?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/admin/api/menus/' + encodeURIComponent(selectedMenuNo), {
+                method: 'DELETE',
+                headers: {
+                    [csrfHeader]: csrfToken
+                }
+            });
+
+            if (!response.ok && response.status !== 204) {
+                throw new Error(await extractErrorMessage(response, '메뉴 비활성화에 실패했습니다.'));
+            }
+
+            resetSelectionState();
+            await loadTree();
+        } catch (error) {
+            showFormError(error && error.message ? error.message : '메뉴 비활성화 중 오류가 발생했습니다.');
         }
     });
 
-    // 노드 선택 이벤트
-    $('#menuTree').on('select_node.jstree', function(e, data) {
-        // 선택된 노드의 정보를 폼에 표시
-        console.log('Selected node:', data.node);
+    includeInactiveToggle.addEventListener('change', function () {
+        loadTree();
     });
 
-    // 저장 버튼 클릭 이벤트
-    $('#btnSave').on('click', function() {
-        // 저장 로직 구현
-        console.log('Save clicked');
-    });
-
-    // 삭제 버튼 클릭 이벤트
-    $('#btnDelete').on('click', function() {
-        // 삭제 로직 구현
-        console.log('Delete clicked');
-    });
-
-    // 초기화 버튼 클릭 이벤트
-    $('#btnReset').on('click', function() {
-        $('#menuForm')[0].reset();
-    });
+    loadTree();
 });
 </script>
 
 </body>
-</html> 
+</html>
