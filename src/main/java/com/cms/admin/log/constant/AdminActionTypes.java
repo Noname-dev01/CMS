@@ -10,9 +10,14 @@ public final class AdminActionTypes {
 
     public static final String ADMIN_CREATE    = "ADMIN_CREATE";
     public static final String PASSWORD_CHANGE = "PASSWORD_CHANGE";
+    public static final String MENU_CREATE     = "MENU_CREATE";
+    public static final String MENU_UPDATE     = "MENU_UPDATE";
+    public static final String MENU_DEACTIVATE = "MENU_DEACTIVATE";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
-    public static final List<String> ALL = List.of(ADMIN_CREATE, PASSWORD_CHANGE);
+    public static final List<String> ALL = List.of(
+            ADMIN_CREATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE
+    );
 
     private AdminActionTypes() {}
 }
