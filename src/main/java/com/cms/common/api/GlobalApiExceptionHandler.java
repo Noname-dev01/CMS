@@ -1,5 +1,6 @@
 package com.cms.common.api;
 
+import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -153,6 +154,24 @@ public class GlobalApiExceptionHandler {
         ApiErrorResponse response = ApiErrorResponse.of(
                 request.getRequestURI(),
                 "DUPLICATE_RESOURCE",
+                e.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    /**
+     * 상태 충돌 (중복 리소스가 아닌 그 외 409 상황)
+     */
+    @ExceptionHandler(ConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleConflict(
+            ConflictException e,
+            HttpServletRequest request
+    ) {
+
+        ApiErrorResponse response = ApiErrorResponse.of(
+                request.getRequestURI(),
+                "RESOURCE_CONFLICT",
                 e.getMessage()
         );
 
