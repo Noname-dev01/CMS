@@ -9,7 +9,8 @@ spring:
     driver-class-name: org.mariadb.jdbc.Driver
   jpa:
     hibernate:
-      ddl-auto: update
+      # Flyway 도입으로 validate 전환 — 스키마 변경은 마이그레이션 파일로만 한다
+      ddl-auto: validate
     show-sql: true
 
   mail:
