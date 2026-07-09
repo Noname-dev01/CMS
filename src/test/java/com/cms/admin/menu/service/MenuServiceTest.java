@@ -11,6 +11,7 @@ import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
+import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -450,6 +451,77 @@ class MenuServiceTest {
     @DisplayName("트리 조회: 허용되지 않은 useYn 값은 InvalidRequestException")
     void getMenuTree_invalidFilter_rejected() {
         assertThrows(InvalidRequestException.class, () -> menuService.getMenuTree("false"));
+    }
+
+    // ── 사이드바 조회 ──────────────────────────────────────
+
+    @Test
+    @DisplayName("사이드바 조회: ADMIN은 ADMIN 전용 메뉴를 포함한 전체 활성 메뉴를 본다")
+    void getSidebarMenus_admin_seesAll() {
+        Menu dashboard = menuWithAccessRole(1L, "대시보드", null, MenuAccessRole.ALL);
+        Menu menuManage = menuWithAccessRole(2L, "메뉴 관리", null, MenuAccessRole.ADMIN);
+        Menu memberGroup = menuWithAccessRole(3L, "회원 관리", null, MenuAccessRole.ALL);
+        Menu myInfo = menuWithAccessRole(4L, "내 정보", 3L, MenuAccessRole.ALL);
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(dashboard, menuManage, memberGroup, myInfo));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(true);
+
+        assertEquals(3, sidebar.size());
+        assertEquals("메뉴 관리", sidebar.get(1).getMenuName());
+        assertEquals(1, sidebar.get(2).getChildren().size());
+        assertEquals("내 정보", sidebar.get(2).getChildren().get(0).getMenuName());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: ADMIN이 아니면 ADMIN 전용 메뉴(최상위·하위 모두)가 제외된다")
+    void getSidebarMenus_nonAdmin_adminOnlyExcluded() {
+        Menu dashboard = menuWithAccessRole(1L, "대시보드", null, MenuAccessRole.ALL);
+        Menu menuManage = menuWithAccessRole(2L, "메뉴 관리", null, MenuAccessRole.ADMIN);
+        Menu memberGroup = menuWithAccessRole(3L, "회원 관리", null, MenuAccessRole.ALL);
+        Menu memberList = menuWithAccessRole(4L, "관리자 조회", 3L, MenuAccessRole.ADMIN);
+        Menu myInfo = menuWithAccessRole(5L, "내 정보", 3L, MenuAccessRole.ALL);
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(dashboard, menuManage, memberGroup, memberList, myInfo));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(false);
+
+        assertEquals(2, sidebar.size());
+        assertEquals("대시보드", sidebar.get(0).getMenuName());
+        assertEquals("회원 관리", sidebar.get(1).getMenuName());
+        assertEquals(1, sidebar.get(1).getChildren().size());
+        assertEquals("내 정보", sidebar.get(1).getChildren().get(0).getMenuName());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: accessRole이 null인 레거시 행은 공용(ALL)으로 간주되어 노출된다")
+    void getSidebarMenus_nullAccessRole_treatedAsAll() {
+        Menu legacy = menu(1L, "레거시 메뉴", null, true, 0); // accessRole 미지정(null)
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(legacy));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(false);
+
+        assertEquals(1, sidebar.size());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: 2단까지만 조립되고 3단(손자) 메뉴는 포함되지 않는다")
+    void getSidebarMenus_limitedToTwoLevels() {
+        Menu root = menuWithAccessRole(1L, "루트", null, MenuAccessRole.ALL);
+        Menu child = menuWithAccessRole(2L, "자식", 1L, MenuAccessRole.ALL);
+        Menu grandchild = menuWithAccessRole(3L, "손자", 2L, MenuAccessRole.ALL);
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(root, child, grandchild));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(true);
+
+        assertEquals(1, sidebar.size());
+        assertEquals(1, sidebar.get(0).getChildren().size());
+        assertTrue(sidebar.get(0).getChildren().get(0).getChildren().isEmpty());
     }
 
     // ── 순환/미방문 노드 방어 ──────────────────────────────
