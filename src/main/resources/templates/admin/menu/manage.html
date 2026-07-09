@@ -258,6 +258,13 @@
                                             <textarea class="form-control" id="menuDesc" name="menuDesc" rows="3"></textarea>
                                         </div>
                                         <div class="form-group">
+                                            <label for="menuAccessRole">노출 범위</label>
+                                            <select class="form-control" id="menuAccessRole" name="menuAccessRole">
+                                                <option value="ALL">공용 (ADMIN·MANAGER)</option>
+                                                <option value="ADMIN">관리자 전용 (ADMIN)</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
                                             <div class="custom-control custom-switch">
                                                 <input type="checkbox" class="custom-control-input" id="menuUseYn" name="menuUseYn">
                                                 <label class="custom-control-label" for="menuUseYn">사용 여부</label>
@@ -309,6 +316,7 @@ $(document).ready(function () {
     const menuOrderInput = document.getElementById('menuOrder');
     const menuIconInput = document.getElementById('menuIcon');
     const menuDescInput = document.getElementById('menuDesc');
+    const menuAccessRoleInput = document.getElementById('menuAccessRole');
     const menuUseYnInput = document.getElementById('menuUseYn');
 
     const btnSave = document.getElementById('btnSave');
@@ -364,6 +372,7 @@ $(document).ready(function () {
         menuOrderInput.value = menu.ord != null ? menu.ord : '';
         menuIconInput.value = menu.menuIcon || '';
         menuDescInput.value = menu.menuDesc || '';
+        menuAccessRoleInput.value = menu.accessRole || 'ALL';
         menuUseYnInput.checked = !!menu.useYn;
     }
 
@@ -508,6 +517,7 @@ $(document).ready(function () {
             menuUrl: menuUrlInput.value.trim(),
             menuIcon: menuIconInput.value.trim(),
             menuDesc: menuDescInput.value.trim(),
+            accessRole: menuAccessRoleInput.value,
             useYn: menuUseYnInput.checked,
             ord: ordRaw === '' ? null : Number(ordRaw)
         };

@@ -1,6 +1,7 @@
 package com.cms.admin.menu.dto.response;
 
 import com.cms.admin.menu.Menu;
+import com.cms.admin.menu.MenuAccessRole;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -37,6 +38,7 @@ public class MenuTreeResponse {
                         .menuUrl(menu.getMenuUrl())
                         .menuIcon(menu.getMenuIcon())
                         .useYn(menu.getUseYn())
+                        .accessRole(menu.getAccessRole())
                         .ord(menu.getOrd())
                         .upMenuNo(menu.getUpMenuNo())
                         .menuLevel(menuLevel)
@@ -63,6 +65,7 @@ public class MenuTreeResponse {
         private String menuUrl;
         private String menuIcon;
         private Boolean useYn;
+        private MenuAccessRole accessRole;
         private Integer ord;
         private Long upMenuNo;
         private Integer menuLevel;

@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.cms.admin.menu.Menu;
+import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
@@ -63,6 +64,17 @@ class MenuServiceTest {
                 .useYn(useYn)
                 .ord(ord)
                 .upMenuNo(upMenuNo)
+                .build();
+    }
+
+    private Menu menuWithAccessRole(Long menuNo, String menuName, Long upMenuNo, MenuAccessRole accessRole) {
+        return Menu.builder()
+                .menuNo(menuNo)
+                .menuName(menuName)
+                .useYn(true)
+                .ord(0)
+                .upMenuNo(upMenuNo)
+                .accessRole(accessRole)
                 .build();
     }
 
@@ -168,6 +180,37 @@ class MenuServiceTest {
         assertEquals(3, captor.getValue().getOrd());
     }
 
+    @Test
+    @DisplayName("생성 시 accessRole 누락은 ALL(공용)로 기본화")
+    void createMenu_accessRoleDefaultsToAll() {
+        MenuCreateRequest request = MenuCreateRequest.builder()
+                .menuName("메뉴")
+                .build();
+
+        ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
+        given(menuRepository.save(captor.capture())).willAnswer(invocation -> invocation.getArgument(0));
+
+        menuService.createMenu(request);
+
+        assertEquals(MenuAccessRole.ALL, captor.getValue().getAccessRole());
+    }
+
+    @Test
+    @DisplayName("생성 시 accessRole=ADMIN이 그대로 저장된다")
+    void createMenu_accessRoleAdminPersisted() {
+        MenuCreateRequest request = MenuCreateRequest.builder()
+                .menuName("메뉴 관리")
+                .accessRole(MenuAccessRole.ADMIN)
+                .build();
+
+        ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
+        given(menuRepository.save(captor.capture())).willAnswer(invocation -> invocation.getArgument(0));
+
+        menuService.createMenu(request);
+
+        assertEquals(MenuAccessRole.ADMIN, captor.getValue().getAccessRole());
+    }
+
     // ── 수정 ──────────────────────────────────────────
 
     @Test
@@ -252,6 +295,32 @@ class MenuServiceTest {
         MenuResponse response = menuService.updateMenu(1L, request);
 
         assertEquals(5, response.getOrd());
+    }
+
+    @Test
+    @DisplayName("PATCH 시 accessRole 누락/null은 기존값을 유지")
+    void updateMenu_accessRoleNullKeepsExisting() {
+        Menu existing = menuWithAccessRole(1L, "메뉴 관리", null, MenuAccessRole.ADMIN);
+        given(menuRepository.findById(1L)).willReturn(Optional.of(existing));
+
+        MenuUpdateRequest request = MenuUpdateRequest.builder().menuName("변경된 이름").build();
+
+        MenuResponse response = menuService.updateMenu(1L, request);
+
+        assertEquals(MenuAccessRole.ADMIN, response.getAccessRole());
+    }
+
+    @Test
+    @DisplayName("PATCH로 accessRole=ALL을 보내면 ADMIN 전용 메뉴를 공용으로 되돌릴 수 있다")
+    void updateMenu_accessRoleRevertsToAll() {
+        Menu existing = menuWithAccessRole(1L, "메뉴 관리", null, MenuAccessRole.ADMIN);
+        given(menuRepository.findById(1L)).willReturn(Optional.of(existing));
+
+        MenuUpdateRequest request = MenuUpdateRequest.builder().accessRole(MenuAccessRole.ALL).build();
+
+        MenuResponse response = menuService.updateMenu(1L, request);
+
+        assertEquals(MenuAccessRole.ALL, response.getAccessRole());
     }
 
     // ── 비활성화(삭제) ──────────────────────────────────

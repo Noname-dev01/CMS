@@ -3,6 +3,7 @@ package com.cms.admin.menu.service;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.admin.menu.Menu;
+import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
@@ -37,6 +38,7 @@ public class MenuService {
     public MenuResponse createMenu(MenuCreateRequest request) {
         String menuName = requireNonBlank(request.getMenuName(), "메뉴명은 공백일 수 없습니다.");
         boolean useYn = request.getUseYn() == null || request.getUseYn();
+        MenuAccessRole accessRole = request.getAccessRole() != null ? request.getAccessRole() : MenuAccessRole.ALL;
 
         Long upMenuNo = request.getUpMenuNo();
         if (upMenuNo != null) {
@@ -57,6 +59,7 @@ public class MenuService {
                         .menuIcon(request.getMenuIcon())
                         .menuDesc(request.getMenuDesc())
                         .useYn(useYn)
+                        .accessRole(accessRole)
                         .ord(ord)
                         .upMenuNo(upMenuNo)
                         .createDate(now)
@@ -87,6 +90,7 @@ public class MenuService {
         String effectiveMenuUrl = request.getMenuUrl() != null ? request.getMenuUrl() : target.getMenuUrl();
         String effectiveMenuIcon = request.getMenuIcon() != null ? request.getMenuIcon() : target.getMenuIcon();
         String effectiveMenuDesc = request.getMenuDesc() != null ? request.getMenuDesc() : target.getMenuDesc();
+        MenuAccessRole effectiveAccessRole = request.getAccessRole() != null ? request.getAccessRole() : target.getAccessRole();
         Integer effectiveOrd = request.getOrd() != null ? request.getOrd() : target.getOrd();
 
         boolean wasActive = Boolean.TRUE.equals(target.getUseYn());
@@ -109,7 +113,7 @@ public class MenuService {
         }
 
         target.update(effectiveMenuName, effectiveMenuUrl, effectiveMenuIcon, effectiveMenuDesc,
-                effectiveUseYn, effectiveOrd);
+                effectiveUseYn, effectiveAccessRole, effectiveOrd);
 
         return MenuResponse.from(target);
     }

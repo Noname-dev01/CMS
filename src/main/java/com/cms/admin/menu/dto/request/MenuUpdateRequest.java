@@ -1,5 +1,6 @@
 package com.cms.admin.menu.dto.request;
 
+import com.cms.admin.menu.MenuAccessRole;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
@@ -42,6 +43,9 @@ public class MenuUpdateRequest {
 
     @Schema(description = "사용 여부. null이면 기존값 유지. false→true 재활성화 시 활성 부모 검증 적용", example = "true")
     private Boolean useYn;
+
+    @Schema(description = "사이드바 노출 범위. null이면 기존값 유지. ALL로 공용 복귀 가능", example = "ADMIN")
+    private MenuAccessRole accessRole;
 
     @Min(0)
     @Schema(description = "정렬 순서. null이면 기존값 유지", example = "1")
