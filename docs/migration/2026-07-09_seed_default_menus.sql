@@ -1,3 +1,11 @@
+-- =====================================================================
+-- [이관됨 — 2026-07-10 Flyway 도입]
+-- V3__seed_default_menus.sql로 이관됐다. 단 의미가 다르다: 이 파일의
+-- 행 단위 NOT EXISTS 보충 방식은 커스터마이즈된 운영 메뉴를 재생성할
+-- 위험이 있어(Codex 2차 리뷰), V3는 MenuDataLoader(현재 삭제됨)와 동일한
+-- "빈 테이블일 때만 전체 시드" 가드로 작성됐다. 기본 메뉴 보충 기능은
+-- 제공하지 않는다. 이 파일은 이력 보존용이며 직접 실행하지 않는다.
+-- =====================================================================
 -- 기본 사이드바 메뉴 시드 (dev 외 환경용)
 --
 -- 배경: 사이드바가 정적 HTML에서 menu 테이블 기반 동적 렌더링으로 전환됐다.
@@ -6,7 +14,8 @@
 -- 이 스크립트는 그런 환경에서 기본 메뉴를 시드한다. 구조는 MenuDataLoader와 동일하게 유지할 것.
 --
 -- 멱등성: menu_url(그룹은 menu_name) 기준 NOT EXISTS 가드로 재실행에 안전하다.
--- Flyway 도입 시 repeatable migration(R__seed_default_menus.sql)으로 이관한다.
+-- ~~Flyway 도입 시 repeatable migration(R__seed_default_menus.sql)으로 이관한다.~~
+-- → 위 계획은 V3 versioned + 빈 테이블 가드로 대체됨 (상단 이관 헤더 참고)
 
 -- 최상위 단일 메뉴
 INSERT INTO menu (menu_name, menu_url, menu_icon, use_yn, access_role, ord, up_menu_no, create_date, update_date)
