@@ -10,6 +10,7 @@ import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.service.AdminMemberService;
+import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
@@ -88,6 +89,12 @@ class AdminMemberControllerTest {
         @Bean
         public AdminSecurityService adminSecurityService() {
             return Mockito.mock(AdminSecurityService.class);
+        }
+
+        // AdminSidebarAdvice(@ControllerAdvice)가 슬라이스 컨텍스트에 포함되므로 의존 빈이 필요하다.
+        @Bean
+        public MenuService menuService() {
+            return Mockito.mock(MenuService.class);
         }
     }
 

@@ -4,6 +4,7 @@ import com.cms.admin.log.domain.AdminActionResult;
 import com.cms.admin.log.dto.request.AdminActionLogSearchRequest;
 import com.cms.admin.log.dto.response.AdminActionLogPageResponse;
 import com.cms.admin.log.service.AdminActionLogQueryService;
+import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.config.MethodSecurityTestConfig;
 import com.cms.config.auth.AdminSecurityService;
@@ -68,6 +69,12 @@ class AdminActionLogControllerTest {
         @Bean
         public AdminSecurityService adminSecurityService() {
             return Mockito.mock(AdminSecurityService.class);
+        }
+
+        // AdminSidebarAdvice(@ControllerAdvice)가 슬라이스 컨텍스트에 포함되므로 의존 빈이 필요하다.
+        @Bean
+        public MenuService menuService() {
+            return Mockito.mock(MenuService.class);
         }
     }
 

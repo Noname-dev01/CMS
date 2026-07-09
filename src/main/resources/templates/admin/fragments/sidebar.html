@@ -1,8 +1,13 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org"
-      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<html xmlns:th="http://www.thymeleaf.org">
 <body th:fragment="adminSidebar">
 
+<!--
+  Menu 데이터 기반 동적 사이드바.
+  - 노출 대상: AdminSidebarAdvice가 주입하는 sidebarMenus (활성 메뉴 + 역할 필터 적용 완료)
+  - SB Admin 2 UI 제약에 따라 2단(최상위 + 하위 그룹)까지만 렌더링한다.
+  - active 하이라이트: currentUri(AdminSidebarAdvice 주입)와 menuUrl 비교
+-->
 <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
 
     <!-- Sidebar - Brand -->
@@ -13,155 +18,42 @@
         <div class="sidebar-brand-text mx-3">ADMIN 페이지</div>
     </a>
 
-    <!-- Divider -->
     <hr class="sidebar-divider my-0">
 
-    <!-- Nav Item - Dashboard -->
-    <li class="nav-item active">
-        <a class="nav-link" th:href="@{/admin}">
-            <i class="fas fa-fw fa-tachometer-alt"></i>
-            <span>대시보드</span></a>
-    </li>
+    <th:block th:each="menu : ${sidebarMenus ?: {}}">
 
-    <!-- Divider -->
-    <hr class="sidebar-divider">
-
-    <th:block sec:authorize="hasRole('ROLE_ADMIN')">
-        <li class="nav-item">
-            <a class="nav-link" th:href="@{/admin/menu/manage}">
-                <i class="fas fa-fw fa-bars"></i>
-                <span>메뉴 관리</span></a>
+        <!-- 하위 메뉴 없음: 단일 링크 -->
+        <li class="nav-item" th:if="${#lists.isEmpty(menu.children)}"
+            th:classappend="${menu.menuUrl == currentUri} ? 'active'">
+            <a class="nav-link" th:href="${menu.menuUrl != null} ? @{${menu.menuUrl}} : '#'">
+                <i th:class="${menu.menuIcon ?: 'fas fa-fw fa-circle'}"></i>
+                <span th:text="${menu.menuName}">메뉴</span></a>
         </li>
+
+        <!-- 하위 메뉴 있음: collapse 그룹 (현재 페이지가 그룹 안에 있으면 펼침 유지) -->
+        <li class="nav-item" th:unless="${#lists.isEmpty(menu.children)}"
+            th:with="groupActive=${#lists.contains(menu.children.![menuUrl], currentUri)}"
+            th:classappend="${groupActive} ? 'active'">
+            <a class="nav-link" th:classappend="${!groupActive} ? 'collapsed'"
+               href="#" data-toggle="collapse"
+               th:attr="data-target='#collapseMenu' + ${menu.menuNo},aria-controls='collapseMenu' + ${menu.menuNo},aria-expanded=${groupActive}">
+                <i th:class="${menu.menuIcon ?: 'fas fa-fw fa-folder'}"></i>
+                <span th:text="${menu.menuName}">메뉴 그룹</span>
+            </a>
+            <div th:id="'collapseMenu' + ${menu.menuNo}" class="collapse"
+                 th:classappend="${groupActive} ? 'show'" data-parent="#accordionSidebar">
+                <div class="bg-white py-2 collapse-inner rounded">
+                    <a class="collapse-item" th:each="child : ${menu.children}"
+                       th:href="${child.menuUrl != null} ? @{${child.menuUrl}} : '#'"
+                       th:classappend="${child.menuUrl == currentUri} ? 'active'">
+                        <i th:class="${child.menuIcon ?: 'fas fa-fw fa-circle'}"></i>
+                        <span class="ml-2" th:text="${child.menuName}">하위 메뉴</span></a>
+                </div>
+            </div>
+        </li>
+
     </th:block>
 
-    <!-- Divider -->
-    <hr class="sidebar-divider">
-
-    <div class="sidebar-heading">
-        회원 관리
-    </div>
-
-    <li class="nav-item">
-        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseMember"
-           aria-expanded="true" aria-controls="collapseTwo">
-            <i class="fas fa-fw fa-user-shield"></i>
-            <span>관리자</span>
-        </a>
-        <div id="collapseMember" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
-            <div class="bg-white py-2 collapse-inner rounded">
-                <!-- 관리자 조회·추가는 ADMIN 전용 -->
-                <th:block sec:authorize="hasRole('ROLE_ADMIN')">
-                    <a class="collapse-item" th:href="@{/admin/member/manage}"><i class="fas fa-fw fa-users"></i><span class="ml-2">관리자 조회</span></a>
-                    <a class="collapse-item" th:href="@{/admin/member/new}"><i class="fas fa-fw fa-user-plus"></i><span class="ml-2">관리자 추가</span></a>
-                </th:block>
-                <!-- 내 정보는 ADMIN·MANAGER 모두 접근 가능 -->
-                <a class="collapse-item" th:href="@{/admin/member/info}"><i class="fas fa-fw fa-id-badge"></i><span class="ml-2">내 정보</span></a>
-            </div>
-        </div>
-    </li>
-
-    <!-- 시스템 섹션은 ADMIN 전용 -->
-    <th:block sec:authorize="hasRole('ROLE_ADMIN')">
-        <hr class="sidebar-divider">
-
-        <!-- 시스템 -->
-        <div class="sidebar-heading">
-            시스템
-        </div>
-
-        <li class="nav-item">
-            <a class="nav-link" th:href="@{/admin/log/manage}">
-                <i class="fas fa-fw fa-clipboard-list"></i>
-                <span>활동 로그</span></a>
-        </li>
-    </th:block>
-
-    <hr class="sidebar-divider">
-
-    <!-- Heading -->
-    <div class="sidebar-heading">
-        Interface
-    </div>
-
-    <!-- Nav Item - Pages Collapse Menu -->
-    <li class="nav-item">
-        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseTwo"
-           aria-expanded="true" aria-controls="collapseTwo">
-            <i class="fas fa-fw fa-cog"></i>
-            <span>Components</span>
-        </a>
-        <div id="collapseTwo" class="collapse" aria-labelledby="headingTwo" data-parent="#accordionSidebar">
-            <div class="bg-white py-2 collapse-inner rounded">
-                <h6 class="collapse-header">Custom Components:</h6>
-                <a class="collapse-item" href="buttons.html">Buttons</a>
-                <a class="collapse-item" href="cards.html">Cards</a>
-            </div>
-        </div>
-    </li>
-
-    <!-- Nav Item - Utilities Collapse Menu -->
-    <li class="nav-item">
-        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapseUtilities"
-           aria-expanded="true" aria-controls="collapseUtilities">
-            <i class="fas fa-fw fa-wrench"></i>
-            <span>Utilities</span>
-        </a>
-        <div id="collapseUtilities" class="collapse" aria-labelledby="headingUtilities"
-             data-parent="#accordionSidebar">
-            <div class="bg-white py-2 collapse-inner rounded">
-                <h6 class="collapse-header">Custom Utilities:</h6>
-                <a class="collapse-item" href="utilities-color.html">Colors</a>
-                <a class="collapse-item" href="utilities-border.html">Borders</a>
-                <a class="collapse-item" href="utilities-animation.html">Animations</a>
-                <a class="collapse-item" href="utilities-other.html">Other</a>
-            </div>
-        </div>
-    </li>
-
-    <!-- Divider -->
-    <hr class="sidebar-divider">
-
-    <!-- Heading -->
-    <div class="sidebar-heading">
-        Addons
-    </div>
-
-    <!-- Nav Item - Pages Collapse Menu -->
-    <li class="nav-item">
-        <a class="nav-link collapsed" href="#" data-toggle="collapse" data-target="#collapsePages"
-           aria-expanded="true" aria-controls="collapsePages">
-            <i class="fas fa-fw fa-folder"></i>
-            <span>Pages</span>
-        </a>
-        <div id="collapsePages" class="collapse" aria-labelledby="headingPages" data-parent="#accordionSidebar">
-            <div class="bg-white py-2 collapse-inner rounded">
-                <h6 class="collapse-header">Login Screens:</h6>
-                <a class="collapse-item" href="login.html">Login</a>
-                <a class="collapse-item" href="register.html">Register</a>
-                <a class="collapse-item" href="forgot-password.html">Forgot Password</a>
-                <div class="collapse-divider"></div>
-                <h6 class="collapse-header">Other Pages:</h6>
-                <a class="collapse-item" href="404.html">404 Page</a>
-                <a class="collapse-item" href="blank.html">Blank Page</a>
-            </div>
-        </div>
-    </li>
-
-    <!-- Nav Item - Charts -->
-    <li class="nav-item">
-        <a class="nav-link" href="charts.html">
-            <i class="fas fa-fw fa-chart-area"></i>
-            <span>Charts</span></a>
-    </li>
-
-    <!-- Nav Item - Tables -->
-    <li class="nav-item">
-        <a class="nav-link" href="tables.html">
-            <i class="fas fa-fw fa-table"></i>
-            <span>Tables</span></a>
-    </li>
-
-    <!-- Divider -->
     <hr class="sidebar-divider d-none d-md-block">
 
     <!-- Sidebar Toggler (Sidebar) -->
