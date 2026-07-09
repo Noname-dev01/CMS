@@ -7,6 +7,13 @@ spring:
     serialization:
       write-dates-as-timestamps: false
     default-property-inclusion: non_null
+  flyway:
+    # 빈 DB(CI·신규 환경)는 V1부터 전체 실행된다.
+    # 기존 DB 전환 시에만 일회성으로 SPRING_FLYWAY_BASELINE_ON_MIGRATE=true를
+    # 붙여 기동한다 (docs/migration-guide.md 사전 점검 체크리스트 필수).
+    # baseline-on-migrate를 상시 설정하지 않는 이유: 점검을 건너뛴 기존 DB가
+    # 조용히 영구 baseline되는 것을 막기 위함.
+    baseline-version: 1
 
 server:
   error:
