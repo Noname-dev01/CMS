@@ -5,11 +5,13 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.cms.admin.menu.Menu;
+import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
+import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -63,6 +65,17 @@ class MenuServiceTest {
                 .useYn(useYn)
                 .ord(ord)
                 .upMenuNo(upMenuNo)
+                .build();
+    }
+
+    private Menu menuWithAccessRole(Long menuNo, String menuName, Long upMenuNo, MenuAccessRole accessRole) {
+        return Menu.builder()
+                .menuNo(menuNo)
+                .menuName(menuName)
+                .useYn(true)
+                .ord(0)
+                .upMenuNo(upMenuNo)
+                .accessRole(accessRole)
                 .build();
     }
 
@@ -168,6 +181,37 @@ class MenuServiceTest {
         assertEquals(3, captor.getValue().getOrd());
     }
 
+    @Test
+    @DisplayName("생성 시 accessRole 누락은 ALL(공용)로 기본화")
+    void createMenu_accessRoleDefaultsToAll() {
+        MenuCreateRequest request = MenuCreateRequest.builder()
+                .menuName("메뉴")
+                .build();
+
+        ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
+        given(menuRepository.save(captor.capture())).willAnswer(invocation -> invocation.getArgument(0));
+
+        menuService.createMenu(request);
+
+        assertEquals(MenuAccessRole.ALL, captor.getValue().getAccessRole());
+    }
+
+    @Test
+    @DisplayName("생성 시 accessRole=ADMIN이 그대로 저장된다")
+    void createMenu_accessRoleAdminPersisted() {
+        MenuCreateRequest request = MenuCreateRequest.builder()
+                .menuName("메뉴 관리")
+                .accessRole(MenuAccessRole.ADMIN)
+                .build();
+
+        ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
+        given(menuRepository.save(captor.capture())).willAnswer(invocation -> invocation.getArgument(0));
+
+        menuService.createMenu(request);
+
+        assertEquals(MenuAccessRole.ADMIN, captor.getValue().getAccessRole());
+    }
+
     // ── 수정 ──────────────────────────────────────────
 
     @Test
@@ -252,6 +296,32 @@ class MenuServiceTest {
         MenuResponse response = menuService.updateMenu(1L, request);
 
         assertEquals(5, response.getOrd());
+    }
+
+    @Test
+    @DisplayName("PATCH 시 accessRole 누락/null은 기존값을 유지")
+    void updateMenu_accessRoleNullKeepsExisting() {
+        Menu existing = menuWithAccessRole(1L, "메뉴 관리", null, MenuAccessRole.ADMIN);
+        given(menuRepository.findById(1L)).willReturn(Optional.of(existing));
+
+        MenuUpdateRequest request = MenuUpdateRequest.builder().menuName("변경된 이름").build();
+
+        MenuResponse response = menuService.updateMenu(1L, request);
+
+        assertEquals(MenuAccessRole.ADMIN, response.getAccessRole());
+    }
+
+    @Test
+    @DisplayName("PATCH로 accessRole=ALL을 보내면 ADMIN 전용 메뉴를 공용으로 되돌릴 수 있다")
+    void updateMenu_accessRoleRevertsToAll() {
+        Menu existing = menuWithAccessRole(1L, "메뉴 관리", null, MenuAccessRole.ADMIN);
+        given(menuRepository.findById(1L)).willReturn(Optional.of(existing));
+
+        MenuUpdateRequest request = MenuUpdateRequest.builder().accessRole(MenuAccessRole.ALL).build();
+
+        MenuResponse response = menuService.updateMenu(1L, request);
+
+        assertEquals(MenuAccessRole.ALL, response.getAccessRole());
     }
 
     // ── 비활성화(삭제) ──────────────────────────────────
@@ -381,6 +451,77 @@ class MenuServiceTest {
     @DisplayName("트리 조회: 허용되지 않은 useYn 값은 InvalidRequestException")
     void getMenuTree_invalidFilter_rejected() {
         assertThrows(InvalidRequestException.class, () -> menuService.getMenuTree("false"));
+    }
+
+    // ── 사이드바 조회 ──────────────────────────────────────
+
+    @Test
+    @DisplayName("사이드바 조회: ADMIN은 ADMIN 전용 메뉴를 포함한 전체 활성 메뉴를 본다")
+    void getSidebarMenus_admin_seesAll() {
+        Menu dashboard = menuWithAccessRole(1L, "대시보드", null, MenuAccessRole.ALL);
+        Menu menuManage = menuWithAccessRole(2L, "메뉴 관리", null, MenuAccessRole.ADMIN);
+        Menu memberGroup = menuWithAccessRole(3L, "회원 관리", null, MenuAccessRole.ALL);
+        Menu myInfo = menuWithAccessRole(4L, "내 정보", 3L, MenuAccessRole.ALL);
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(dashboard, menuManage, memberGroup, myInfo));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(true);
+
+        assertEquals(3, sidebar.size());
+        assertEquals("메뉴 관리", sidebar.get(1).getMenuName());
+        assertEquals(1, sidebar.get(2).getChildren().size());
+        assertEquals("내 정보", sidebar.get(2).getChildren().get(0).getMenuName());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: ADMIN이 아니면 ADMIN 전용 메뉴(최상위·하위 모두)가 제외된다")
+    void getSidebarMenus_nonAdmin_adminOnlyExcluded() {
+        Menu dashboard = menuWithAccessRole(1L, "대시보드", null, MenuAccessRole.ALL);
+        Menu menuManage = menuWithAccessRole(2L, "메뉴 관리", null, MenuAccessRole.ADMIN);
+        Menu memberGroup = menuWithAccessRole(3L, "회원 관리", null, MenuAccessRole.ALL);
+        Menu memberList = menuWithAccessRole(4L, "관리자 조회", 3L, MenuAccessRole.ADMIN);
+        Menu myInfo = menuWithAccessRole(5L, "내 정보", 3L, MenuAccessRole.ALL);
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(dashboard, menuManage, memberGroup, memberList, myInfo));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(false);
+
+        assertEquals(2, sidebar.size());
+        assertEquals("대시보드", sidebar.get(0).getMenuName());
+        assertEquals("회원 관리", sidebar.get(1).getMenuName());
+        assertEquals(1, sidebar.get(1).getChildren().size());
+        assertEquals("내 정보", sidebar.get(1).getChildren().get(0).getMenuName());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: accessRole이 null인 레거시 행은 공용(ALL)으로 간주되어 노출된다")
+    void getSidebarMenus_nullAccessRole_treatedAsAll() {
+        Menu legacy = menu(1L, "레거시 메뉴", null, true, 0); // accessRole 미지정(null)
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(legacy));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(false);
+
+        assertEquals(1, sidebar.size());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: 2단까지만 조립되고 3단(손자) 메뉴는 포함되지 않는다")
+    void getSidebarMenus_limitedToTwoLevels() {
+        Menu root = menuWithAccessRole(1L, "루트", null, MenuAccessRole.ALL);
+        Menu child = menuWithAccessRole(2L, "자식", 1L, MenuAccessRole.ALL);
+        Menu grandchild = menuWithAccessRole(3L, "손자", 2L, MenuAccessRole.ALL);
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(root, child, grandchild));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(true);
+
+        assertEquals(1, sidebar.size());
+        assertEquals(1, sidebar.get(0).getChildren().size());
+        assertTrue(sidebar.get(0).getChildren().get(0).getChildren().isEmpty());
     }
 
     // ── 순환/미방문 노드 방어 ──────────────────────────────

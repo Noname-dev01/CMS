@@ -2,6 +2,8 @@ package com.cms.admin.menu;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -38,6 +40,14 @@ public class Menu {
     @Column(nullable = false)
     private Boolean useYn;
 
+    /**
+     * 사이드바 노출 범위. ddl-auto가 기존 행에 null을 남길 수 있으므로
+     * getter에서 null을 ALL(공용)로 정규화한다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private MenuAccessRole accessRole;
+
     private Integer ord;
 
     private Long upMenuNo;
@@ -46,16 +56,22 @@ public class Menu {
 
     private LocalDateTime updateDate;
 
+    /** null(레거시 행)은 공용(ALL)으로 간주한다. Lombok @Getter보다 이 메서드가 우선한다. */
+    public MenuAccessRole getAccessRole() {
+        return accessRole != null ? accessRole : MenuAccessRole.ALL;
+    }
+
     /**
      * 수정 가능 필드 일괄 반영. upMenuNo(부모)는 변경 대상이 아니다.
      */
     public void update(String menuName, String menuUrl, String menuIcon, String menuDesc,
-                        Boolean useYn, Integer ord) {
+                        Boolean useYn, MenuAccessRole accessRole, Integer ord) {
         this.menuName = menuName;
         this.menuUrl = menuUrl;
         this.menuIcon = menuIcon;
         this.menuDesc = menuDesc;
         this.useYn = useYn;
+        this.accessRole = accessRole;
         this.ord = ord;
         this.updateDate = LocalDateTime.now();
     }

@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 @Controller
+@AdminPage
 @RequiredArgsConstructor
 @RequestMapping("/admin")
 public class AdminMainController {

@@ -1,6 +1,7 @@
 package com.cms.admin.menu.dto.response;
 
 import com.cms.admin.menu.Menu;
+import com.cms.admin.menu.MenuAccessRole;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,6 +23,7 @@ public class MenuResponse {
     private String menuIcon;
     private String menuDesc;
     private Boolean useYn;
+    private MenuAccessRole accessRole;
     private Integer ord;
     private Long upMenuNo;
     private LocalDateTime createDate;
@@ -35,6 +37,7 @@ public class MenuResponse {
                 .menuIcon(menu.getMenuIcon())
                 .menuDesc(menu.getMenuDesc())
                 .useYn(menu.getUseYn())
+                .accessRole(menu.getAccessRole())
                 .ord(menu.getOrd())
                 .upMenuNo(menu.getUpMenuNo())
                 .createDate(menu.getCreateDate())

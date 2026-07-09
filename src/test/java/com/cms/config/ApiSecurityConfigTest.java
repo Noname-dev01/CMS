@@ -1,5 +1,6 @@
 package com.cms.config;
 
+import com.cms.admin.menu.service.MenuService;
 import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
@@ -43,6 +44,12 @@ class ApiSecurityConfigTest {
         @Bean
         public AdminSecurityService adminSecurityService() {
             return Mockito.mock(AdminSecurityService.class);
+        }
+
+        // AdminSidebarAdvice(@ControllerAdvice)가 슬라이스 컨텍스트에 포함되므로 의존 빈이 필요하다.
+        @Bean
+        public MenuService menuService() {
+            return Mockito.mock(MenuService.class);
         }
 
         @Bean

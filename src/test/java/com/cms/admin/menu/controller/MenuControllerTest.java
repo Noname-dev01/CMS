@@ -1,5 +1,6 @@
 package com.cms.admin.menu.controller;
 
+import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
 import com.cms.admin.menu.dto.response.MenuResponse;
@@ -15,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -28,6 +30,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
@@ -178,6 +181,52 @@ class MenuControllerTest {
         mockMvc.perform(get("/admin/api/menus/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    // ===================== accessRole =====================
+
+    @Test
+    @DisplayName("메뉴 생성 시 accessRole이 서비스로 전달되고 응답에 포함된다")
+    @WithMockUser(roles = "ADMIN")
+    void createMenu_accessRoleRoundTrip() throws Exception {
+        MenuCreateRequest request = MenuCreateRequest.builder()
+                .menuName("메뉴 관리")
+                .menuUrl("/admin/menu/manage")
+                .accessRole(MenuAccessRole.ADMIN)
+                .build();
+        MenuResponse response = MenuResponse.builder()
+                .menuNo(1L)
+                .menuName("메뉴 관리")
+                .accessRole(MenuAccessRole.ADMIN)
+                .useYn(true)
+                .build();
+
+        ArgumentCaptor<MenuCreateRequest> captor = ArgumentCaptor.forClass(MenuCreateRequest.class);
+        given(menuService.createMenu(captor.capture())).willReturn(response);
+
+        mockMvc.perform(post("/admin/api/menus")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.accessRole").value("ADMIN"));
+
+        assertEquals(MenuAccessRole.ADMIN, captor.getValue().getAccessRole());
+    }
+
+    @Test
+    @DisplayName("허용되지 않은 accessRole 값은 400 (enum 바인딩 실패)")
+    @WithMockUser(roles = "ADMIN")
+    void createMenu_invalidAccessRole_badRequest() throws Exception {
+        String body = "{\"menuName\":\"메뉴\",\"accessRole\":\"MANAGER\"}";
+
+        mockMvc.perform(post("/admin/api/menus")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(menuService);
     }
 
     // ===================== createMenu =====================

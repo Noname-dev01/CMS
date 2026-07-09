@@ -2,6 +2,8 @@ package com.cms.admin;
 
 import com.cms.admin.dashboard.dto.response.DashboardStatsResponse;
 import com.cms.admin.dashboard.service.DashboardService;
+import com.cms.admin.menu.dto.response.SidebarMenuResponse;
+import com.cms.admin.menu.service.MenuService;
 import com.cms.config.auth.AdminSecurityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,9 +17,14 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.List;
+
+import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
@@ -37,9 +44,12 @@ class AdminMainControllerTest {
     @Autowired
     AdminSecurityService adminSecurityService;
 
+    @Autowired
+    MenuService menuService;
+
     @BeforeEach
     void setUp() {
-        reset(dashboardService, adminSecurityService);
+        reset(dashboardService, adminSecurityService, menuService);
         // AdminViewAdvice가 com.cms.admin 전체에 적용되므로 기본 스텁이 필요하다.
         given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
         given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
@@ -56,6 +66,12 @@ class AdminMainControllerTest {
         @Bean
         public AdminSecurityService adminSecurityService() {
             return Mockito.mock(AdminSecurityService.class);
+        }
+
+        // AdminSidebarAdvice(@ControllerAdvice)가 슬라이스 컨텍스트에 포함되므로 의존 빈이 필요하다.
+        @Bean
+        public MenuService menuService() {
+            return Mockito.mock(MenuService.class);
         }
     }
 
@@ -95,5 +111,46 @@ class AdminMainControllerTest {
     void main_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/admin"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("사이드바는 AdminSidebarAdvice가 주입한 메뉴 데이터로 렌더링된다")
+    @WithMockUser(roles = "ADMIN")
+    void main_rendersSidebarFromMenuData() throws Exception {
+        given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
+        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
+        given(menuService.getSidebarMenus(anyBoolean())).willReturn(List.of(
+                SidebarMenuResponse.builder()
+                        .menuNo(1L).menuName("대시보드").menuUrl("/admin")
+                        .menuIcon("fas fa-fw fa-tachometer-alt").children(List.of())
+                        .build(),
+                SidebarMenuResponse.builder()
+                        .menuNo(2L).menuName("회원 관리").menuIcon("fas fa-fw fa-user-shield")
+                        .children(List.of(SidebarMenuResponse.builder()
+                                .menuNo(3L).menuName("내 정보").menuUrl("/admin/member/info").children(List.of())
+                                .build()))
+                        .build()))
+                ;
+
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().isOk())
+                .andExpect(model().attributeExists("sidebarMenus"))
+                .andExpect(model().attribute("currentUri", "/admin"))
+                .andExpect(content().string(containsString("대시보드")))
+                .andExpect(content().string(containsString("내 정보")))
+                .andExpect(content().string(containsString("collapseMenu2")));
+    }
+
+    @Test
+    @DisplayName("사이드바 메뉴 조회는 인증 정보가 없으면(DB 조회 생략) 빈 목록으로 렌더링된다")
+    @WithMockUser(roles = "ADMIN")
+    void main_sidebarEmptyWhenNoCurrentAdmin() throws Exception {
+        given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
+        given(adminSecurityService.getCurrentAdminId()).willReturn(null);
+
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("sidebarMenus", List.of()));
     }
 }

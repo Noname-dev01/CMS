@@ -1,5 +1,6 @@
 package com.cms.admin.log.controller;
 
+import com.cms.admin.AdminPage;
 import com.cms.admin.log.constant.AdminActionTypes;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import java.time.LocalDate;
 
 @Controller
+@AdminPage
 @RequiredArgsConstructor
 @RequestMapping("/admin/log")
 public class AdminActionLogPageController {

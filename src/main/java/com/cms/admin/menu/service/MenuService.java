@@ -3,11 +3,13 @@ package com.cms.admin.menu.service;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.admin.menu.Menu;
+import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
+import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -37,6 +39,7 @@ public class MenuService {
     public MenuResponse createMenu(MenuCreateRequest request) {
         String menuName = requireNonBlank(request.getMenuName(), "메뉴명은 공백일 수 없습니다.");
         boolean useYn = request.getUseYn() == null || request.getUseYn();
+        MenuAccessRole accessRole = request.getAccessRole() != null ? request.getAccessRole() : MenuAccessRole.ALL;
 
         Long upMenuNo = request.getUpMenuNo();
         if (upMenuNo != null) {
@@ -57,6 +60,7 @@ public class MenuService {
                         .menuIcon(request.getMenuIcon())
                         .menuDesc(request.getMenuDesc())
                         .useYn(useYn)
+                        .accessRole(accessRole)
                         .ord(ord)
                         .upMenuNo(upMenuNo)
                         .createDate(now)
@@ -87,6 +91,7 @@ public class MenuService {
         String effectiveMenuUrl = request.getMenuUrl() != null ? request.getMenuUrl() : target.getMenuUrl();
         String effectiveMenuIcon = request.getMenuIcon() != null ? request.getMenuIcon() : target.getMenuIcon();
         String effectiveMenuDesc = request.getMenuDesc() != null ? request.getMenuDesc() : target.getMenuDesc();
+        MenuAccessRole effectiveAccessRole = request.getAccessRole() != null ? request.getAccessRole() : target.getAccessRole();
         Integer effectiveOrd = request.getOrd() != null ? request.getOrd() : target.getOrd();
 
         boolean wasActive = Boolean.TRUE.equals(target.getUseYn());
@@ -109,7 +114,7 @@ public class MenuService {
         }
 
         target.update(effectiveMenuName, effectiveMenuUrl, effectiveMenuIcon, effectiveMenuDesc,
-                effectiveUseYn, effectiveOrd);
+                effectiveUseYn, effectiveAccessRole, effectiveOrd);
 
         return MenuResponse.from(target);
     }
@@ -148,6 +153,33 @@ public class MenuService {
                 : menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc();
 
         return assembleTree(menus);
+    }
+
+    /**
+     * 사이드바 렌더링용 메뉴 목록. 활성(useYn=true) 메뉴만 대상으로,
+     * ADMIN 권한이 없으면 ADMIN 전용 메뉴를 제외한다.
+     *
+     * <p>SB Admin 2 사이드바 UI 제약에 따라 2단(최상위 + 직계 하위)까지만 조립한다.
+     * 3단 이하 메뉴와, 부모가 노출 대상에서 빠진 하위 메뉴는 렌더링되지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public List<SidebarMenuResponse> getSidebarMenus(boolean isAdmin) {
+        List<Menu> menus = menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc().stream()
+                .filter(menu -> isAdmin || menu.getAccessRole() != MenuAccessRole.ADMIN)
+                .toList();
+
+        Map<Long, List<Menu>> childrenByParent = new LinkedHashMap<>();
+        for (Menu menu : menus) {
+            childrenByParent.computeIfAbsent(menu.getUpMenuNo(), key -> new ArrayList<>()).add(menu);
+        }
+
+        return childrenByParent.getOrDefault(null, List.of()).stream()
+                .map(root -> SidebarMenuResponse.of(
+                        root,
+                        childrenByParent.getOrDefault(root.getMenuNo(), List.of()).stream()
+                                .map(child -> SidebarMenuResponse.of(child, List.of()))
+                                .toList()))
+                .toList();
     }
 
     private Integer resolveNextOrd(Long upMenuNo) {
