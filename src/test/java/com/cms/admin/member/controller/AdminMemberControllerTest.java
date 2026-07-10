@@ -3,6 +3,7 @@ package com.cms.admin.member.controller;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
+import com.cms.admin.member.dto.request.AdminMemberUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
@@ -12,6 +13,7 @@ import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.service.AdminMemberService;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
+import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -385,6 +387,206 @@ class AdminMemberControllerTest {
                 .andExpect(status().isForbidden());
 
         verifyNoInteractions(adminMemberService);
+    }
+
+    // ===================== updateAdminMember (PATCH /members/{id}) =====================
+
+    @Test
+    @DisplayName("타 관리자 수정 성공 — 현재 관리자 id와 대상 id가 서비스에 전달된다")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_success() throws Exception {
+        AdminMemberResponse response = AdminMemberResponse.builder()
+                .id(2L)
+                .userId("manager01")
+                .userName("김매니저")
+                .email("manager01@test.com")
+                .userType(Role.ROLE_MANAGER)
+                .status(MemberStatus.LOCKED)
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
+                .build();
+        given(adminMemberService.updateAdminMember(anyLong(), anyLong(), any())).willReturn(response);
+
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"LOCKED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(2))
+                .andExpect(jsonPath("$.status").value("LOCKED"));
+
+        verify(adminMemberService).updateAdminMember(eq(1L), eq(2L), any(AdminMemberUpdateRequest.class));
+    }
+
+    @Test
+    @DisplayName("전부 null인 요청은 400 VALIDATION_ERROR — 서비스 미호출")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_allNull_returns400() throws Exception {
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("status=DELETED 요청은 @AllowedStatuses 검증 실패 → 400")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_statusDeleted_returns400() throws Exception {
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"DELETED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("status=PASSWORD_EXPIRED 요청도 400 — 시스템 전이 상태는 수동 지정 불가")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_statusPasswordExpired_returns400() throws Exception {
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"PASSWORD_EXPIRED\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("userType=ROLE_USER 요청은 @AllowedRoles 검증 실패 → 400")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_roleUser_returns400() throws Exception {
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userType\":\"ROLE_USER\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("이메일이 빈 문자열/공백뿐이면 400 VALIDATION_ERROR — 빈 이메일 저장 차단 (Codex 리뷰 P2)")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_blankEmail_returns400() throws Exception {
+        for (String blankEmail : new String[]{"\"\"", "\"   \""}) {
+            mockMvc.perform(patch("/admin/api/members/2")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"email\":" + blankEmail + "}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("이름이 공백뿐이면 400 VALIDATION_ERROR")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_blankUserName_returns400() throws Exception {
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userName\":\"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("본인 계정 대상이면 서비스가 InvalidRequestException → 400 INVALID_REQUEST")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_selfTarget_returns400() throws Exception {
+        given(adminMemberService.updateAdminMember(anyLong(), anyLong(), any()))
+                .willThrow(new InvalidRequestException("본인 계정은 내 정보 수정을 이용해주세요."));
+
+        mockMvc.perform(patch("/admin/api/members/1")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userName\":\"변경\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.message").value("본인 계정은 내 정보 수정을 이용해주세요."));
+    }
+
+    @Test
+    @DisplayName("DELETED 계정·최후 활성 ADMIN 등 상태 충돌은 409 RESOURCE_CONFLICT")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_conflict_returns409() throws Exception {
+        given(adminMemberService.updateAdminMember(anyLong(), anyLong(), any()))
+                .willThrow(new ConflictException("최소 1명의 활성 관리자가 유지되어야 합니다."));
+
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"LOCKED\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("비관적 락 실패(락 타임아웃·데드락)는 500이 아닌 409 RESOURCE_CONFLICT로 변환된다")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_pessimisticLockFailure_returns409() throws Exception {
+        given(adminMemberService.updateAdminMember(anyLong(), anyLong(), any()))
+                .willThrow(new org.springframework.dao.CannotAcquireLockException("deadlock detected"));
+
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"LOCKED\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"))
+                .andExpect(jsonPath("$.message").value("동시 변경과 충돌했습니다. 다시 시도해주세요."));
+    }
+
+    @Test
+    @DisplayName("없는 대상·ROLE_USER 대상이면 404 RESOURCE_NOT_FOUND")
+    @WithMockUser(roles = "ADMIN")
+    void updateAdminMember_notFound_returns404() throws Exception {
+        given(adminMemberService.updateAdminMember(anyLong(), anyLong(), any()))
+                .willThrow(new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
+
+        mockMvc.perform(patch("/admin/api/members/99")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userName\":\"변경\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("MANAGER는 타 관리자 수정을 할 수 없다(403)")
+    @WithMockUser(roles = "MANAGER")
+    void updateAdminMember_manager_forbidden() throws Exception {
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"LOCKED\"}"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("인증 없이 타 관리자 수정하면 401")
+    void updateAdminMember_unauthenticated() throws Exception {
+        mockMvc.perform(patch("/admin/api/members/2")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"LOCKED\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     // ===================== getMyInfo =====================

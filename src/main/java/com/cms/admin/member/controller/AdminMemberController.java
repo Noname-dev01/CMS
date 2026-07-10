@@ -1,6 +1,7 @@
 package com.cms.admin.member.controller;
 
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
+import com.cms.admin.member.dto.request.AdminMemberUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
@@ -68,6 +69,27 @@ public class AdminMemberController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> getAdminMember(@PathVariable Long id) {
         return ResponseEntity.ok(adminMemberService.getAdminMember(id));
+    }
+
+    @Operation(summary = "타 관리자 계정 수정",
+            description = "부분 수정 — null 필드는 기존값 유지, userId는 변경 불가. "
+                    + "상태·권한 변경(또는 LOCKED/DISABLED 동일값 재저장) 시 대상자의 기존 로그인 세션을 만료 처리한다. "
+                    + "단, 이는 즉시 접근 차단 수단이 아니며 극단적인 커밋 경합 시 기존 세션이 "
+                    + "세션 타임아웃(기본 30분) 또는 재잠금 시점까지 유효할 수 있다. "
+                    + "본인 계정은 수정할 수 없다(내 정보 수정 사용).")
+    @ApiResponse(responseCode = "200", description = "수정 성공")
+    @ApiResponse(responseCode = "400", description = "검증 실패, 본인 계정 대상, 전체 필드 누락")
+    @ApiResponse(responseCode = "403", description = "권한 없음")
+    @ApiResponse(responseCode = "404", description = "관리자 없음(ROLE_USER 대상 포함)")
+    @ApiResponse(responseCode = "409", description = "이메일 중복, 삭제된 계정, 최후 활성 ADMIN 제거 시도, 동시 변경 충돌")
+    @PatchMapping("members/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<AdminMemberResponse> updateAdminMember(
+            @PathVariable Long id,
+            @Valid @RequestBody AdminMemberUpdateRequest request
+    ) {
+        Long currentAdminId = requireCurrentAdminId();
+        return ResponseEntity.ok(adminMemberService.updateAdminMember(currentAdminId, id, request));
     }
 
     @Operation(summary = "내 관리자 정보 조회")

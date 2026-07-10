@@ -6,6 +6,7 @@ import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -173,6 +174,25 @@ public class GlobalApiExceptionHandler {
                 request.getRequestURI(),
                 "RESOURCE_CONFLICT",
                 e.getMessage()
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    /**
+     * 비관적 락 획득 실패 (락 대기 타임아웃, 데드락 감지 롤백 등 — CannotAcquireLockException 포함).
+     * flush/커밋 시점에도 발생할 수 있어 서비스 try-catch로는 안정적으로 잡을 수 없으므로
+     * 전역 핸들러에서 409로 변환한다. 정상적인 동시성 충돌이며 재시도로 해소된다.
+     */
+    @ExceptionHandler(PessimisticLockingFailureException.class)
+    public ResponseEntity<ApiErrorResponse> handlePessimisticLockingFailure(
+            PessimisticLockingFailureException e,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = ApiErrorResponse.of(
+                request.getRequestURI(),
+                "RESOURCE_CONFLICT",
+                "동시 변경과 충돌했습니다. 다시 시도해주세요."
         );
 
         return ResponseEntity.status(HttpStatus.CONFLICT).body(response);

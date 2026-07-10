@@ -6,6 +6,7 @@ import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
+import com.cms.admin.member.dto.request.AdminMemberUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
@@ -13,10 +14,13 @@ import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.repository.MemberRepository;
+import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
+import com.cms.config.auth.AdminSessionRevokeEvent;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -43,6 +47,7 @@ public class AdminMemberService {
 
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.ADMIN_CREATE, targetType = "MEMBER", targetIdExpression = "id")
@@ -132,6 +137,87 @@ public class AdminMemberService {
         member.updateInfo(normalizedUserName, normalizedEmail);
 
         return toResponse(member, true);
+    }
+
+    /**
+     * 타 관리자 계정 수정 (부분 수정 — null 필드는 기존값 유지).
+     *
+     * <p>동시성 제어 2중 잠금:
+     * <ul>
+     *   <li>대상 행 잠금(findByIdForUpdate): 같은 대상에 대한 동시 PATCH의 lost update 차단</li>
+     *   <li>최후 활성 ADMIN 가드(findActiveAdminIdsForUpdate): 동시 상호 강등/잠금으로
+     *       활성 ADMIN이 0명이 되는 것을 차단 — 변경 후 활성 ADMIN이 1명 미만이면 409</li>
+     * </ul>
+     * 두 잠금의 교차로 데드락이 나면 InnoDB가 감지·롤백하고 전역 핸들러가 409로 변환한다.
+     *
+     * <p>상태·권한 실변경 또는 멱등 재잠금(LOCKED/DISABLED 동일값 재저장) 시
+     * {@link AdminSessionRevokeEvent}를 발행해 커밋 후 대상자의 기존 세션을 만료 처리한다(best-effort).
+     */
+    @Transactional
+    @AdminActionLogged(actionType = AdminActionTypes.ADMIN_UPDATE, targetType = "MEMBER", targetIdExpression = "id")
+    public AdminMemberResponse updateAdminMember(Long currentAdminId, Long targetId, AdminMemberUpdateRequest request) {
+        if (targetId.equals(currentAdminId)) {
+            throw new InvalidRequestException("본인 계정은 내 정보 수정을 이용해주세요.");
+        }
+
+        Member target = memberRepository.findByIdForUpdate(targetId)
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
+
+        validateAdminTarget(target);
+
+        if (target.getStatus() == MemberStatus.DELETED) {
+            throw new ConflictException("삭제된 계정은 수정할 수 없습니다.");
+        }
+
+        Role beforeRole = target.getUserType();
+        MemberStatus beforeStatus = target.getStatus();
+        Role effectiveRole = request.getUserType() != null ? request.getUserType() : beforeRole;
+        MemberStatus effectiveStatus = request.getStatus() != null ? request.getStatus() : beforeStatus;
+
+        // 최후 활성 ADMIN 가드: 이번 변경으로 대상이 활성 ADMIN 자격을 잃는 경우에만 잠금 조회
+        boolean wasActiveAdmin = beforeRole == Role.ROLE_ADMIN && beforeStatus == MemberStatus.ACTIVE;
+        boolean staysActiveAdmin = effectiveRole == Role.ROLE_ADMIN && effectiveStatus == MemberStatus.ACTIVE;
+        if (wasActiveAdmin && !staysActiveAdmin) {
+            long remainingActiveAdmins = memberRepository.findActiveAdminIdsForUpdate().stream()
+                    .filter(id -> !id.equals(targetId))
+                    .count();
+            if (remainingActiveAdmins < 1) {
+                throw new ConflictException("최소 1명의 활성 관리자가 유지되어야 합니다.");
+            }
+        }
+
+        if (request.getUserName() != null || request.getEmail() != null) {
+            String effectiveUserName = request.getUserName() != null
+                    ? normalizeUserName(request.getUserName())
+                    : target.getUserName();
+            String effectiveEmail = target.getEmail();
+            if (request.getEmail() != null) {
+                effectiveEmail = normalizeEmail(request.getEmail());
+                validateDuplicatedEmail(effectiveEmail, target.getId());
+            }
+            target.updateInfo(effectiveUserName, effectiveEmail);
+        }
+
+        boolean roleChanged = effectiveRole != beforeRole;
+        if (roleChanged) {
+            target.changeRole(effectiveRole);
+        }
+
+        boolean statusChanged = effectiveStatus != beforeStatus;
+        if (statusChanged) {
+            target.changeStatus(effectiveStatus);
+        }
+
+        // 세션 만료 트리거: ① status 실변경(→ACTIVE 복귀 포함) ② userType 실변경(승격·강등)
+        // ③ 요청 status가 LOCKED/DISABLED면 동일값이어도 만료(멱등 재잠금 — 만료 실패 시 운영 복구 경로).
+        // 같은 값 재저장(ACTIVE·동일 role)이나 이름·이메일만 변경 시에는 발행하지 않는다(강제 로그아웃 남용 차단).
+        boolean idempotentRelock = request.getStatus() == MemberStatus.LOCKED
+                || request.getStatus() == MemberStatus.DISABLED;
+        if (statusChanged || roleChanged || idempotentRelock) {
+            eventPublisher.publishEvent(new AdminSessionRevokeEvent(target.getId()));
+        }
+
+        return toResponse(target, true);
     }
 
     @Transactional
