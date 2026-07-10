@@ -147,11 +147,48 @@
             </div>
             <div class="modal-body">
                 <div id="detailAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="detailSuccess" class="alert alert-success d-none" role="alert"></div>
                 <div id="detailLoading" class="detail-loading">상세 정보를 불러오는 중입니다.</div>
                 <div id="detailSummary" class="detail-summary d-none"></div>
                 <div id="detailContent" class="detail-grid d-none"></div>
+                <form id="detailEditForm" class="d-none">
+                    <div class="form-group">
+                        <label class="form-label" for="editUserName">이름</label>
+                        <input type="text" class="form-control" id="editUserName" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="editEmail">이메일</label>
+                        <input type="email" class="form-control" id="editEmail" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="editUserType">권한</label>
+                        <select class="form-control" id="editUserType">
+                            <option value="ROLE_ADMIN">관리자</option>
+                            <option value="ROLE_MANAGER">매니저</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="editStatus">상태</label>
+                        <select class="form-control" id="editStatus">
+                            <option value="ACTIVE">활성</option>
+                            <option value="LOCKED">잠김</option>
+                            <option value="DISABLED">비활성</option>
+                        </select>
+                    </div>
+                    <div class="alert alert-warning mb-0" role="alert">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        권한·상태를 변경하면 대상자의 기존 로그인 세션은 만료 처리됩니다.
+                        (드물게 세션 타임아웃 시점까지 지연될 수 있습니다)
+                    </div>
+                </form>
             </div>
             <div class="modal-footer">
+                <span id="editHint" class="text-muted small mr-auto d-none"></span>
+                <button type="button" class="btn btn-primary d-none" id="btnEditMode">
+                    <i class="fas fa-pen fa-sm mr-1"></i>수정
+                </button>
+                <button type="button" class="btn btn-primary d-none" id="btnSaveEdit">저장</button>
+                <button type="button" class="btn btn-light border d-none" id="btnCancelEdit">취소</button>
                 <button type="button" class="btn btn-secondary" data-dismiss="modal">닫기</button>
             </div>
         </div>
@@ -173,15 +210,40 @@
     const emptyState = document.getElementById("emptyState");
 
     const detailAlert = document.getElementById("detailAlert");
+    const detailSuccess = document.getElementById("detailSuccess");
     const detailLoading = document.getElementById("detailLoading");
     const detailSummary = document.getElementById("detailSummary");
     const detailContent = document.getElementById("detailContent");
+    const detailEditForm = document.getElementById("detailEditForm");
+    const editHint = document.getElementById("editHint");
+    const btnEditMode = document.getElementById("btnEditMode");
+    const btnSaveEdit = document.getElementById("btnSaveEdit");
+    const btnCancelEdit = document.getElementById("btnCancelEdit");
+    const editUserName = document.getElementById("editUserName");
+    const editEmail = document.getElementById("editEmail");
+    const editUserType = document.getElementById("editUserType");
+    const editStatus = document.getElementById("editStatus");
 
     const pageState = {
         page: 0,
         size: 20,
         totalPages: 0
     };
+
+    // 본인 계정 판별용 — 페이지 로드 시 1회 조회 (쟁점 4: 본인은 내 정보 수정으로 유도)
+    let currentAdminId = null;
+    // 모달에 표시 중인 상세 데이터 (수정 모드 초기값·변경분 diff 계산에 사용)
+    let currentDetail = null;
+
+    function getCsrfHeaders() {
+        const token = document.querySelector('meta[name="_csrf"]');
+        const header = document.querySelector('meta[name="_csrf_header"]');
+        const headers = { "Content-Type": "application/json" };
+        if (token && header) {
+            headers[header.content || "X-CSRF-TOKEN"] = token.content;
+        }
+        return headers;
+    }
 
     function showPageError(message) {
         pageAlert.textContent = message;
@@ -201,6 +263,16 @@
     function hideDetailError() {
         detailAlert.classList.add("d-none");
         detailAlert.textContent = "";
+    }
+
+    function showDetailSuccess(message) {
+        detailSuccess.textContent = message;
+        detailSuccess.classList.remove("d-none");
+    }
+
+    function hideDetailSuccess() {
+        detailSuccess.classList.add("d-none");
+        detailSuccess.textContent = "";
     }
 
     async function extractErrorMessage(response, fallbackMessage) {
@@ -389,11 +461,151 @@
 
     function resetDetailModal() {
         hideDetailError();
+        hideDetailSuccess();
+        exitEditMode();
+        currentDetail = null;
+        btnEditMode.classList.add("d-none");
+        editHint.classList.add("d-none");
+        editHint.innerHTML = "";
         detailLoading.classList.remove("d-none");
         detailSummary.classList.add("d-none");
         detailSummary.innerHTML = "";
         detailContent.classList.add("d-none");
         detailContent.innerHTML = "";
+    }
+
+    /** 상세 데이터 기준으로 수정 진입 가능 여부와 푸터 버튼 상태를 결정한다 */
+    function configureEditAccess(data) {
+        btnEditMode.classList.add("d-none");
+        editHint.classList.add("d-none");
+        editHint.innerHTML = "";
+
+        if (currentAdminId !== null && data.id === currentAdminId) {
+            editHint.innerHTML = "본인 계정은 <a href=\"/admin/member/info\">내 정보</a>에서 수정해주세요.";
+            editHint.classList.remove("d-none");
+            return;
+        }
+        if (data.status === "DELETED") {
+            editHint.textContent = "삭제된 계정은 수정할 수 없습니다.";
+            editHint.classList.remove("d-none");
+            return;
+        }
+        btnEditMode.classList.remove("d-none");
+    }
+
+    function enterEditMode() {
+        if (!currentDetail) {
+            return;
+        }
+        hideDetailError();
+        hideDetailSuccess();
+        editUserName.value = currentDetail.userName || "";
+        editEmail.value = currentDetail.email || "";
+        editUserType.value = currentDetail.userType;
+        // 현재 상태가 선택지에 없으면(PASSWORD_EXPIRED 등) 표시용 옵션을 임시 추가해
+        // 의도치 않은 상태 변경 전송을 방지한다 (변경분만 전송하므로 그대로 두면 미전송)
+        ensureStatusOption(currentDetail.status);
+        editStatus.value = currentDetail.status;
+
+        detailContent.classList.add("d-none");
+        detailEditForm.classList.remove("d-none");
+        btnEditMode.classList.add("d-none");
+        btnSaveEdit.classList.remove("d-none");
+        btnCancelEdit.classList.remove("d-none");
+    }
+
+    function ensureStatusOption(status) {
+        // 임시 옵션 정리 후 필요 시 재추가
+        detailEditForm.querySelectorAll("#editStatus option[data-transient]").forEach(opt => opt.remove());
+        if (status && !Array.from(editStatus.options).some(opt => opt.value === status)) {
+            const option = document.createElement("option");
+            option.value = status;
+            option.textContent = getStatusLabel(status);
+            option.dataset.transient = "true";
+            editStatus.appendChild(option);
+        }
+    }
+
+    function exitEditMode() {
+        detailEditForm.classList.add("d-none");
+        btnSaveEdit.classList.add("d-none");
+        btnCancelEdit.classList.add("d-none");
+        if (currentDetail) {
+            detailContent.classList.remove("d-none");
+            configureEditAccess(currentDetail);
+        }
+    }
+
+    /** 기존 값과 달라진 필드만 담은 PATCH 페이로드를 만든다 (null 필드는 기존값 유지 시맨틱) */
+    function buildEditPayload() {
+        const payload = {};
+        const userName = editUserName.value.trim();
+        const email = editEmail.value.trim();
+
+        if (userName && userName !== (currentDetail.userName || "")) {
+            payload.userName = userName;
+        }
+        if (email && email !== (currentDetail.email || "")) {
+            payload.email = email;
+        }
+        if (editUserType.value !== currentDetail.userType) {
+            payload.userType = editUserType.value;
+        }
+        if (editStatus.value !== currentDetail.status) {
+            payload.status = editStatus.value;
+        }
+        return payload;
+    }
+
+    async function saveEdit() {
+        if (!currentDetail) {
+            return;
+        }
+
+        const payload = buildEditPayload();
+        if (Object.keys(payload).length === 0) {
+            showDetailError("변경된 내용이 없습니다.");
+            return;
+        }
+
+        hideDetailError();
+        hideDetailSuccess();
+        btnSaveEdit.disabled = true;
+
+        try {
+            const response = await fetch("/admin/api/members/" + encodeURIComponent(currentDetail.id), {
+                method: "PATCH",
+                headers: getCsrfHeaders(),
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "관리자 수정에 실패했습니다."));
+            }
+
+            const data = await response.json();
+            currentDetail = data;
+            renderDetail(data);
+            exitEditMode();
+            showDetailSuccess("저장되었습니다."
+                + ((payload.status || payload.userType) ? " 대상자의 기존 로그인 세션은 만료 처리됩니다." : ""));
+            loadAdminMembers(pageState.page);
+        } catch (error) {
+            showDetailError(getRequestErrorMessage(error, "관리자 수정 중 오류가 발생했습니다."));
+        } finally {
+            btnSaveEdit.disabled = false;
+        }
+    }
+
+    async function loadCurrentAdminId() {
+        try {
+            const response = await fetch("/admin/api/members/me");
+            if (response.ok) {
+                const me = await response.json();
+                currentAdminId = me.id;
+            }
+        } catch (error) {
+            // 판별 실패 시 수정 버튼은 노출되지만 서버가 본인 수정을 400으로 차단한다
+        }
     }
 
     function renderDetail(data) {
@@ -458,7 +670,9 @@
             }
 
             const data = await response.json();
+            currentDetail = data;
             renderDetail(data);
+            configureEditAccess(data);
         } catch (error) {
             detailLoading.classList.add("d-none");
             showDetailError(getRequestErrorMessage(error, "관리자 상세 조회 중 오류가 발생했습니다."));
@@ -522,6 +736,19 @@
         }
     });
 
+    btnEditMode.addEventListener("click", enterEditMode);
+    btnCancelEdit.addEventListener("click", function () {
+        hideDetailError();
+        exitEditMode();
+    });
+    btnSaveEdit.addEventListener("click", saveEdit);
+
+    detailEditForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        saveEdit();
+    });
+
+    loadCurrentAdminId();
     loadAdminMembers(0);
 </script>
 

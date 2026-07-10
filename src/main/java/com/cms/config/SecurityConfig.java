@@ -1,6 +1,7 @@
 package com.cms.config;
 
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
+import com.cms.config.security.AdminSessionExpiredStrategy;
 import com.cms.config.security.ApiAccessDeniedHandler;
 import com.cms.config.security.ApiAuthenticationEntryPoint;
 import org.springframework.context.annotation.Bean;
@@ -12,12 +13,15 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
 @Configuration
@@ -32,7 +36,8 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
-                                           VisitLoggingAuthenticationSuccessHandler successHandler) throws Exception {
+                                           VisitLoggingAuthenticationSuccessHandler successHandler,
+                                           SessionRegistry sessionRegistry) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> auth
                         .requestMatchers("/admin/login", "/admin/login-error").permitAll()
@@ -56,6 +61,13 @@ public class SecurityConfig {
                         .logoutUrl("/admin/logout")
                         .logoutSuccessUrl("/admin/login")
                         .permitAll())
+                // 타 관리자 상태·권한 변경 시 대상자 세션 강제 만료를 위한 세션 등록·추적.
+                // maximumSessions(-1): 동시 세션 수를 제한하지 않아(로그인 정책 무변경)
+                // SessionRegistry 등록과 만료 추적만 활성화한다.
+                .sessionManagement((session) -> session
+                        .maximumSessions(-1)
+                        .sessionRegistry(sessionRegistry)
+                        .expiredSessionStrategy(new AdminSessionExpiredStrategy()))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
                             if (API_MATCHER.matches(request)) {
@@ -81,6 +93,20 @@ public class SecurityConfig {
                         })
                 );
         return http.build();
+    }
+
+    @Bean
+    public SessionRegistry sessionRegistry() {
+        return new SessionRegistryImpl();
+    }
+
+    /**
+     * 세션 소멸(로그아웃·타임아웃) 이벤트를 SessionRegistry에 전달해
+     * 레지스트리의 세션 정보가 실제 세션 수명과 동기화되도록 한다.
+     */
+    @Bean
+    public HttpSessionEventPublisher httpSessionEventPublisher() {
+        return new HttpSessionEventPublisher();
     }
 
     @Bean

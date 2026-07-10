@@ -4,6 +4,7 @@ import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
+import com.cms.admin.member.dto.request.AdminMemberUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.dto.request.AdminSignupRequest;
@@ -11,9 +12,11 @@ import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.repository.MemberRepository;
+import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
+import com.cms.config.auth.AdminSessionRevokeEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +24,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -43,6 +47,9 @@ class AdminMemberServiceTest {
 
     @Mock
     PasswordEncoder passwordEncoder;
+
+    @Mock
+    ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     AdminMemberService adminMemberService;
@@ -332,6 +339,217 @@ class AdminMemberServiceTest {
 
         assertEquals("관리자를 찾을 수 없습니다.", exception.getMessage());
         verify(passwordEncoder, never()).encode(any());
+    }
+
+    // ===================== updateAdminMember (타 관리자 수정) =====================
+
+    private Member targetManager(Long id, MemberStatus status) {
+        return Member.builder()
+                .id(id)
+                .userId("manager" + id)
+                .pwd("encoded")
+                .userName("김매니저")
+                .email("manager" + id + "@test.com")
+                .userType(Role.ROLE_MANAGER)
+                .status(status)
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
+                .build();
+    }
+
+    private Member targetAdmin(Long id, MemberStatus status) {
+        return Member.builder()
+                .id(id)
+                .userId("admin" + id)
+                .pwd("encoded")
+                .userName("타관리자")
+                .email("admin" + id + "@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .status(status)
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
+                .build();
+    }
+
+    @Test
+    @DisplayName("타 관리자 부분 수정 — status만 보내면 이름·이메일·권한은 유지된다")
+    void updateAdminMember_partialUpdate_keepsOtherFields() {
+        Member target = targetManager(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        AdminMemberUpdateRequest request = AdminMemberUpdateRequest.builder()
+                .status(MemberStatus.LOCKED)
+                .build();
+
+        AdminMemberResponse response = adminMemberService.updateAdminMember(1L, 2L, request);
+
+        assertEquals("김매니저", response.getUserName());
+        assertEquals("manager2@test.com", response.getEmail());
+        assertEquals(Role.ROLE_MANAGER, response.getUserType());
+        assertEquals(MemberStatus.LOCKED, response.getStatus());
+        // MANAGER 대상은 활성 ADMIN 자격과 무관 — 가드 잠금 조회가 나가지 않아야 한다
+        verify(memberRepository, never()).findActiveAdminIdsForUpdate();
+    }
+
+    @Test
+    @DisplayName("본인 계정을 대상으로 하면 InvalidRequestException")
+    void updateAdminMember_selfTarget_rejected() {
+        AdminMemberUpdateRequest request = AdminMemberUpdateRequest.builder()
+                .userName("변경")
+                .build();
+
+        InvalidRequestException exception = assertThrows(InvalidRequestException.class,
+                () -> adminMemberService.updateAdminMember(1L, 1L, request));
+
+        assertEquals("본인 계정은 내 정보 수정을 이용해주세요.", exception.getMessage());
+        verify(memberRepository, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    @DisplayName("대상이 없으면 ResourceNotFoundException")
+    void updateAdminMember_notFound() {
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> adminMemberService.updateAdminMember(1L, 2L,
+                        AdminMemberUpdateRequest.builder().userName("변경").build()));
+    }
+
+    @Test
+    @DisplayName("ROLE_USER 대상은 404 (관리 대상 아님)")
+    void updateAdminMember_roleUserTarget_notFound() {
+        Member roleUser = Member.builder()
+                .id(3L).userId("user01").userName("일반유저").email("user01@test.com")
+                .userType(Role.ROLE_USER).status(MemberStatus.ACTIVE)
+                .createDate(LocalDateTime.now()).updateDate(LocalDateTime.now())
+                .build();
+        given(memberRepository.findByIdForUpdate(3L)).willReturn(Optional.of(roleUser));
+
+        assertThrows(ResourceNotFoundException.class,
+                () -> adminMemberService.updateAdminMember(1L, 3L,
+                        AdminMemberUpdateRequest.builder().userName("변경").build()));
+    }
+
+    @Test
+    @DisplayName("DELETED 계정 수정 시도는 ConflictException(409)")
+    void updateAdminMember_deletedTarget_conflict() {
+        given(memberRepository.findByIdForUpdate(2L))
+                .willReturn(Optional.of(targetManager(2L, MemberStatus.DELETED)));
+
+        ConflictException exception = assertThrows(ConflictException.class,
+                () -> adminMemberService.updateAdminMember(1L, 2L,
+                        AdminMemberUpdateRequest.builder().status(MemberStatus.ACTIVE).build()));
+
+        assertEquals("삭제된 계정은 수정할 수 없습니다.", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("타인 이메일과 중복이면 DuplicateResourceException")
+    void updateAdminMember_duplicateEmail_conflict() {
+        Member target = targetManager(2L, MemberStatus.ACTIVE);
+        Member other = targetManager(9L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+        given(memberRepository.findByEmail("dup@test.com")).willReturn(Optional.of(other));
+
+        assertThrows(DuplicateResourceException.class,
+                () -> adminMemberService.updateAdminMember(1L, 2L,
+                        AdminMemberUpdateRequest.builder().email("dup@test.com").build()));
+    }
+
+    @Test
+    @DisplayName("유일한 활성 ADMIN을 강등/잠금하려 하면 ConflictException(최후 활성 ADMIN 가드)")
+    void updateAdminMember_lastActiveAdmin_guarded() {
+        Member target = targetAdmin(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+        // 잠금 조회 결과에 대상 자신만 존재 — 변경 후 활성 ADMIN 0명
+        given(memberRepository.findActiveAdminIdsForUpdate()).willReturn(List.of(2L));
+
+        ConflictException exception = assertThrows(ConflictException.class,
+                () -> adminMemberService.updateAdminMember(1L, 2L,
+                        AdminMemberUpdateRequest.builder().status(MemberStatus.LOCKED).build()));
+
+        assertEquals("최소 1명의 활성 관리자가 유지되어야 합니다.", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("다른 활성 ADMIN이 존재하면 강등이 허용된다")
+    void updateAdminMember_demoteWithRemainingAdmin_allowed() {
+        Member target = targetAdmin(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+        given(memberRepository.findActiveAdminIdsForUpdate()).willReturn(List.of(1L, 2L));
+
+        AdminMemberResponse response = adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().userType(Role.ROLE_MANAGER).build());
+
+        assertEquals(Role.ROLE_MANAGER, response.getUserType());
+        verify(eventPublisher).publishEvent(new AdminSessionRevokeEvent(2L));
+    }
+
+    @Test
+    @DisplayName("status 실변경(→ACTIVE 복귀 포함) 시 세션 만료 이벤트가 발행된다")
+    void updateAdminMember_statusChangeToActive_publishesRevokeEvent() {
+        Member target = targetManager(2L, MemberStatus.LOCKED);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().status(MemberStatus.ACTIVE).build());
+
+        verify(eventPublisher).publishEvent(new AdminSessionRevokeEvent(2L));
+    }
+
+    @Test
+    @DisplayName("멱등 재잠금(LOCKED 동일값 재저장)도 세션 만료 이벤트를 발행한다 — 만료 실패 운영 복구 경로")
+    void updateAdminMember_idempotentRelock_publishesRevokeEvent() {
+        Member target = targetManager(2L, MemberStatus.LOCKED);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().status(MemberStatus.LOCKED).build());
+
+        verify(eventPublisher).publishEvent(new AdminSessionRevokeEvent(2L));
+    }
+
+    @Test
+    @DisplayName("status=ACTIVE 동일값 재저장은 이벤트를 발행하지 않는다 — 활성 관리자 강제 로그아웃 남용 차단")
+    void updateAdminMember_sameActiveStatus_noEvent() {
+        Member target = targetManager(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().status(MemberStatus.ACTIVE).build());
+
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("이름·이메일만 변경하면 이벤트를 발행하지 않고 정규화가 적용된다")
+    void updateAdminMember_nameEmailOnly_noEvent_normalized() {
+        Member target = targetManager(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+        given(memberRepository.findByEmail("new@test.com")).willReturn(Optional.empty());
+
+        AdminMemberResponse response = adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder()
+                        .userName("  새이름  ")
+                        .email(" NEW@TEST.COM ")
+                        .build());
+
+        assertEquals("새이름", response.getUserName());
+        assertEquals("new@test.com", response.getEmail());
+        assertEquals(MemberStatus.ACTIVE, response.getStatus());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    @DisplayName("userType 동일값 재저장은 이벤트를 발행하지 않는다")
+    void updateAdminMember_sameRole_noEvent() {
+        Member target = targetManager(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().userType(Role.ROLE_MANAGER).build());
+
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test

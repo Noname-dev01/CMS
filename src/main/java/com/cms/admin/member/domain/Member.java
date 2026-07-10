@@ -81,4 +81,20 @@ public class Member {
         this.updateDate = LocalDateTime.now();
     }
 
+    /**
+     * 권한(역할) 변경. 수정 시각을 함께 갱신한다.
+     */
+    public void changeRole(Role userType) {
+        this.userType = userType;
+        this.updateDate = LocalDateTime.now();
+    }
+
+    /**
+     * 계정 상태 변경. 수정 시각을 함께 갱신한다.
+     */
+    public void changeStatus(MemberStatus status) {
+        this.status = status;
+        this.updateDate = LocalDateTime.now();
+    }
+
 }
