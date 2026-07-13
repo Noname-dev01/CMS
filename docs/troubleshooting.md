@@ -98,6 +98,40 @@ row가 0건이므로 데이터 손실 우려 없이 `menu` 테이블 drop 후 �
 
 ---
 
+### Codex 코드 리뷰가 "닫히지 않은 문자열/컴파일 불가"를 대량 오탐 (PowerShell 5.1 인코딩)
+
+#### 오류 메시지
+
+`/codex:review` 실행 시 실제로는 `./gradlew test` 전체 통과 상태인데, 한글 리터럴이 있는 줄마다 P1으로 아래와 같은 지적이 발생:
+
+> `summary` 문자열이 닫히지 않아 이 컨트롤러가 컴파일되지 않습니다 / `log.debug` 문자열이 닫히지 않아 ... / placeholder 속성의 따옴표가 닫히지 않아 ...
+
+#### 원인
+
+Codex CLI는 Windows에서 파일 읽기를 `powershell.exe -Command 'Get-Content -Raw ...'`(Windows PowerShell 5.1)로 수행한다. PS 5.1의 `Get-Content`는 인코딩 미지정 시 시스템 ANSI(**CP949**)로 읽으므로, UTF-8 소스의 한글 주석·문자열이 모지바케로 깨진다. 깨진 바이트가 따옴표를 삼키면 리뷰어가 "닫히지 않은 문자열 → 빌드 실패"로 오판한다. 지적된 위치가 전부 한글 리터럴 줄이라는 것이 특징적 신호다.
+
+#### 해결 방법
+
+이중 방어를 적용 (2026-07-13):
+
+1. **PowerShell 사용자 프로필** (`$PROFILE` = `Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1`)에 읽기 기본 인코딩 고정 — Codex가 `-NoProfile` 없이 powershell.exe를 띄우므로 적용된다:
+
+```powershell
+$PSDefaultParameterValues['Get-Content:Encoding'] = 'utf8'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+```
+
+2. **`AGENTS.md`에 "파일 인코딩 지침" 절 추가** — 한글 모지바케는 인코딩 문제로 간주하고 UTF-8로 재독해할 것, 빌드 실패 주장 전 `./gradlew compileJava compileTestJava`로 검증할 것 (다른 머신·CI에서 실행돼도 판단 오류 방지).
+
+검증 명령 (자식 powershell.exe에서 기본 읽기와 UTF-8 명시 읽기가 일치하면 정상):
+
+```bash
+powershell.exe -Command "\$a = Get-Content -Raw <한글 포함 파일>; \$b = Get-Content -Raw <같은 파일> -Encoding UTF8; \$a -ceq \$b"   # True 기대
+```
+
+---
+
 ## 빌드 / 의존성
 
 Gradle 빌드, QueryDSL Q클래스 생성, 라이브러리 호환성 등 빌드·의존성 관련 문제를 기록한다.
