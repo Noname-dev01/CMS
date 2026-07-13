@@ -31,4 +31,14 @@ public class AdminMainController {
         model.addAttribute("error", "아이디 또는 비밀번호가 올바르지 않습니다.");
         return "admin/login";
     }
+
+    @GetMapping("/password-reset")
+    public String passwordReset() {
+        return "admin/password-reset";
+    }
+
+    @GetMapping("/password-reset/confirm")
+    public String passwordResetConfirm() {
+        return "admin/password-reset-confirm";
+    }
 }

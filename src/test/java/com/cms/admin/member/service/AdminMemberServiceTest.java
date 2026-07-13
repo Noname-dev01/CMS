@@ -266,6 +266,59 @@ class AdminMemberServiceTest {
         verify(memberRepository).findByEmail("admin02@test.com");
     }
 
+    private Member adminMemberWithResetToken() {
+        return Member.builder()
+                .id(1L)
+                .userId("admin01")
+                .pwd("encoded")
+                .userName("홍길동")
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.ACTIVE)
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
+                .resetToken("a".repeat(64))
+                .resetTokenExpiryAt(LocalDateTime.now().plusMinutes(10))
+                .build();
+    }
+
+    @Test
+    @DisplayName("내 정보 수정으로 이메일이 바뀌면 발급돼 있던 재설정 토큰이 클리어된다 (이전 주소 메일함의 링크 무효화)")
+    void updateMyInfo_emailChange_clearsOutstandingResetToken() {
+        Member member = adminMemberWithResetToken();
+        AdminMyInfoUpdateRequest request = AdminMyInfoUpdateRequest.builder()
+                .userName("홍길동")
+                .email("changed@test.com")
+                .build();
+
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByEmail("changed@test.com")).willReturn(Optional.empty());
+
+        adminMemberService.updateMyInfo(1L, request);
+
+        assertNull(member.getResetToken());
+        assertNull(member.getResetTokenExpiryAt());
+    }
+
+    @Test
+    @DisplayName("이름만 바꾸고 이메일이 동일하면 재설정 토큰은 유지된다")
+    void updateMyInfo_sameEmail_keepsResetToken() {
+        Member member = adminMemberWithResetToken();
+        AdminMyInfoUpdateRequest request = AdminMyInfoUpdateRequest.builder()
+                .userName("새이름")
+                .email("admin01@test.com")
+                .build();
+
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        // 본인 소유 이메일 → 중복 검증 통과
+        given(memberRepository.findByEmail("admin01@test.com")).willReturn(Optional.of(member));
+
+        adminMemberService.updateMyInfo(1L, request);
+
+        assertEquals("a".repeat(64), member.getResetToken());
+        assertNotNull(member.getResetTokenExpiryAt());
+    }
+
     @Test
     @DisplayName("비밀번호 변경 성공")
     void changeMyPassword_success() {
@@ -285,6 +338,38 @@ class AdminMemberServiceTest {
         assertEquals(1L, response.getId());
         verify(passwordEncoder).matches("Admin1234!", "encoded");
         verify(passwordEncoder).encode("NewAdmin1234!");
+    }
+
+    @Test
+    @DisplayName("비밀번호 변경 성공 시 발급돼 있던 재설정 토큰이 클리어된다 (메일함의 기존 링크 무효화)")
+    void changeMyPassword_clearsOutstandingResetToken() {
+        Member member = Member.builder()
+                .id(1L)
+                .userId("admin01")
+                .pwd("encoded")
+                .userName("홍길동")
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.ACTIVE)
+                .createDate(LocalDateTime.now())
+                .updateDate(LocalDateTime.now())
+                .resetToken("a".repeat(64))
+                .resetTokenExpiryAt(LocalDateTime.now().plusMinutes(10))
+                .build();
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.matches("Admin1234!", member.getPwd())).willReturn(true);
+        given(passwordEncoder.encode("NewAdmin1234!")).willReturn("encodedNewPassword");
+
+        adminMemberService.changeMyPassword(1L, request);
+
+        assertNull(member.getResetToken());
+        assertNull(member.getResetTokenExpiryAt());
     }
 
     @Test

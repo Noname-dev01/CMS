@@ -41,6 +41,9 @@ public class SecurityConfig {
         http
                 .authorizeHttpRequests((auth) -> auth
                         .requestMatchers("/admin/login", "/admin/login-error").permitAll()
+                        // 비밀번호 재설정 — 비로그인 사용자의 유일한 복구 경로 (2026-07-13 인가 정책 변경 승인)
+                        .requestMatchers("/admin/password-reset", "/admin/password-reset/confirm").permitAll()
+                        .requestMatchers("/admin/api/password-reset-requests", "/admin/api/password-resets").permitAll()
                         .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").hasRole("ADMIN")
                         // MANAGER 허용 범위: 대시보드 + 자기 자신 내 정보(페이지 + self API)
                         .requestMatchers("/admin").hasAnyRole("ADMIN", "MANAGER")
