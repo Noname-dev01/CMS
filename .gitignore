@@ -46,15 +46,15 @@ out/
 src/main/generated/
 
 ### Claude Code ###
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/commands/
+!.claude/settings.json
 .mcp.json
 
 /.playwright-mcp
 /adversarial-review
-/AGENTS.md
-/bash.exe.stackdump
-/CLAUDE.md
-/scripts/codex-discord-notify.ps1
+*.stackdump
 
 ### UI 검증 스크린샷 (루트에만 생성됨) ###
 /*.png

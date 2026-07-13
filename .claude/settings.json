@@ -1,0 +1,35 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest", "--output-dir", "C:/Users/user/IdeaProjects/CMS/.playwright-mcp"]
+    }
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "if [ -n \"$DISCORD_WEBHOOK_URL\" ]; then BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"unknown\") && printf '%s' \"{\\\"content\\\":\\\"🔔 Claude Code 입력 대기 중\\nProject: CMS\\nBranch: $BRANCH\\nClaude가 사용자 확인 또는 추가 입력을 기다리고 있습니다.\\\"}\" | curl -s -H \"Content-Type: application/json\" --data-binary @- \"$DISCORD_WEBHOOK_URL\"; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "if [ -n \"$DISCORD_WEBHOOK_URL\" ]; then BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"unknown\") && DIR=$(pwd -W 2>/dev/null || pwd) && printf '%s' \"{\\\"content\\\":\\\"✅ Claude Code 작업 종료\\nProject: CMS\\nBranch: $BRANCH\\nDirectory: $DIR\\n결과를 확인하세요.\\\"}\" | curl -s -H \"Content-Type: application/json\" --data-binary @- \"$DISCORD_WEBHOOK_URL\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
+
