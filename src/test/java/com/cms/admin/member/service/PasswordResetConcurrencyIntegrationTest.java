@@ -23,6 +23,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HexFormat;
@@ -66,6 +67,14 @@ class PasswordResetConcurrencyIntegrationTest {
     @Autowired
     PasswordEncoder passwordEncoder;
 
+    /**
+     * 토큰 만료 시각은 반드시 서비스와 같은 Clock(KST 고정 빈)으로 만들어야 한다.
+     * 시스템 기본 타임존의 LocalDateTime.now()를 쓰면 UTC 러너(CI)에서 9시간 차이로
+     * 만료 판정돼 두 스레드 모두 거부된다 (로컬 KST에서만 통과하는 함정).
+     */
+    @Autowired
+    Clock clock;
+
     // 실제 SMTP 발송을 차단하고 발송 횟수를 검증한다
     @MockitoBean
     JavaMailSender mailSender;
@@ -107,7 +116,7 @@ class PasswordResetConcurrencyIntegrationTest {
     }
 
     private Member createMember(String tokenHash, LocalDateTime tokenExpiryAt) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         String unique = "pwreset-" + System.nanoTime();
         Member saved = memberRepository.save(Member.builder()
                 .userId(unique.substring(0, Math.min(50, unique.length())))
@@ -130,7 +139,7 @@ class PasswordResetConcurrencyIntegrationTest {
     void concurrentResetWithSameToken_onlyOneSucceeds() throws Exception {
         String plainToken = HexFormat.of().formatHex(
                 java.security.SecureRandom.getInstanceStrong().generateSeed(32));
-        Member member = createMember(sha256Hex(plainToken), LocalDateTime.now().plusMinutes(30));
+        Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plusMinutes(30));
 
         CyclicBarrier barrier = new CyclicBarrier(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
