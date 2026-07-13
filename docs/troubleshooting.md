@@ -280,6 +280,43 @@ Actually, there were zero interactions with this mock.
 
 ---
 
+### KST 고정 Clock 빈과 테스트의 `LocalDateTime.now()` 혼용 — 로컬(KST)만 통과하고 CI(UTC)에서 실패
+
+#### 오류 메시지
+
+```
+PasswordResetConcurrencyIntegrationTest > 같은 토큰 동시 제출 2건 중 정확히 1건만 성공한다 FAILED
+org.opentest4j.AssertionFailedError: 같은 토큰 동시 제출은 정확히 1건만 성공해야 한다 ==> expected: <1> but was: <0>
+```
+
+로컬에서는 통과하는데 GitHub Actions(UTC 러너) CI에서만 실패.
+
+#### 원인
+
+`AppConfig`의 `Clock` 빈은 `Clock.system(ZoneId.of("Asia/Seoul"))`(KST 고정)이고, `PasswordResetService`는 토큰 만료 판정에 `LocalDateTime.now(clock)`(KST)를 쓴다. 그런데 테스트는 만료 시각을 **시스템 기본 타임존**의 `LocalDateTime.now().plusMinutes(30)`으로 생성했다.
+
+- 로컬(KST 머신): 테스트 now = 서비스 clock now → 통과
+- CI(UTC 러너): 테스트가 UTC 기준 naive 시각으로 저장(예: 17:02+30분) ↔ 서비스는 KST now(다음날 02:02)와 비교 → `expiryAt.isAfter(now)`가 거짓 → **발급 직후인데 만료 판정** → 두 스레드 모두 잠금 후 재검증에서 거부
+
+진단 단서: CI 테스트 리포트(아티팩트)의 Hibernate SQL 로그에서 두 스레드 모두 `SELECT ... FOR UPDATE`까지 도달했지만 `UPDATE`문과 에러 로그가 전혀 없음 — 수정 없는 조용한 거부는 잠금 후 재검증(만료/불일치/무자격) 경로뿐이다.
+
+#### 해결 방법
+
+시간 비교 로직(만료 판정 등)을 검증하는 테스트에서 기준 시각을 만들 때는 반드시 **서비스와 같은 `Clock` 빈을 주입**받아 사용한다.
+
+```java
+@Autowired
+Clock clock; // AppConfig의 KST 고정 Clock
+
+Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plusMinutes(30));
+```
+
+검증(CI 재현): `JAVA_TOOL_OPTIONS=-Duser.timezone=UTC ./gradlew test --tests "...PasswordResetConcurrencyIntegrationTest"` — 수정 전 동일 실패 재현, 수정 후 통과. (`JAVA_TOOL_OPTIONS`는 Gradle이 포크하는 테스트 JVM까지 전달된다)
+
+단순 `createDate`/`updateDate`처럼 서비스가 시각 비교를 하지 않는 필드는 시스템 기본 `LocalDateTime.now()`여도 무방하다.
+
+---
+
 # 정리
 
 본 프로젝트는 단순 기능 구현뿐 아니라  
