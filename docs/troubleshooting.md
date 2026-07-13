@@ -98,6 +98,40 @@ row가 0건이므로 데이터 손실 우려 없이 `menu` 테이블 drop 후 �
 
 ---
 
+### Codex 코드 리뷰가 "닫히지 않은 문자열/컴파일 불가"를 대량 오탐 (PowerShell 5.1 인코딩)
+
+#### 오류 메시지
+
+`/codex:review` 실행 시 실제로는 `./gradlew test` 전체 통과 상태인데, 한글 리터럴이 있는 줄마다 P1으로 아래와 같은 지적이 발생:
+
+> `summary` 문자열이 닫히지 않아 이 컨트롤러가 컴파일되지 않습니다 / `log.debug` 문자열이 닫히지 않아 ... / placeholder 속성의 따옴표가 닫히지 않아 ...
+
+#### 원인
+
+Codex CLI는 Windows에서 파일 읽기를 `powershell.exe -Command 'Get-Content -Raw ...'`(Windows PowerShell 5.1)로 수행한다. PS 5.1의 `Get-Content`는 인코딩 미지정 시 시스템 ANSI(**CP949**)로 읽으므로, UTF-8 소스의 한글 주석·문자열이 모지바케로 깨진다. 깨진 바이트가 따옴표를 삼키면 리뷰어가 "닫히지 않은 문자열 → 빌드 실패"로 오판한다. 지적된 위치가 전부 한글 리터럴 줄이라는 것이 특징적 신호다.
+
+#### 해결 방법
+
+이중 방어를 적용 (2026-07-13):
+
+1. **PowerShell 사용자 프로필** (`$PROFILE` = `Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1`)에 읽기 기본 인코딩 고정 — Codex가 `-NoProfile` 없이 powershell.exe를 띄우므로 적용된다:
+
+```powershell
+$PSDefaultParameterValues['Get-Content:Encoding'] = 'utf8'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+```
+
+2. **`AGENTS.md`에 "파일 인코딩 지침" 절 추가** — 한글 모지바케는 인코딩 문제로 간주하고 UTF-8로 재독해할 것, 빌드 실패 주장 전 `./gradlew compileJava compileTestJava`로 검증할 것 (다른 머신·CI에서 실행돼도 판단 오류 방지).
+
+검증 명령 (자식 powershell.exe에서 기본 읽기와 UTF-8 명시 읽기가 일치하면 정상):
+
+```bash
+powershell.exe -Command "\$a = Get-Content -Raw <한글 포함 파일>; \$b = Get-Content -Raw <같은 파일> -Encoding UTF8; \$a -ceq \$b"   # True 기대
+```
+
+---
+
 ## 빌드 / 의존성
 
 Gradle 빌드, QueryDSL Q클래스 생성, 라이브러리 호환성 등 빌드·의존성 관련 문제를 기록한다.
@@ -208,6 +242,78 @@ function initTree(data) {
 ```
 
 검증: 트리를 한 번 이상 새로고침(비활성 포함 토글 등)한 뒤 노드를 클릭해도 상세 폼이 정상적으로 채워지는지 playwright로 확인한다.
+
+---
+
+### `@SpringBootTest(classes = ...)` 명시 시 중첩 `@TestConfiguration`이 조용히 무시됨
+
+#### 오류 메시지
+
+```
+Wanted but not invoked:
+mailSender.send(<any org.springframework.mail.SimpleMailMessage>);
+Actually, there were zero interactions with this mock.
+```
+
+`PasswordResetConcurrencyIntegrationTest.concurrentRequestWithSameEmail_onlyOneMailSent`가 간헐 실패 (플레이키).
+
+#### 원인
+
+테스트 안에 메일 발송 executor를 동기(`SyncTaskExecutor`)로 교체하는 중첩 `@TestConfiguration`(`SyncMailExecutorConfig`)을 두었지만, `@SpringBootTest(classes = CmsTestApplication.class)`처럼 **`classes` 속성을 명시하면 중첩 `@TestConfiguration` 자동 감지가 비활성화**된다(자동 감지는 classes/locations 미지정일 때만 동작). 그 결과 테스트 빈은 등록되지 않고 Boot 자동 구성 `applicationTaskExecutor`(비동기)가 `PasswordResetService`에 주입돼, `verify(mailSender)` 시점과 백그라운드 발송이 경합했다.
+
+로그의 스레드명으로 원인을 특정했다: 발송 성공 로그가 `[task-1]`(applicationTaskExecutor 기본 접두사)에서 찍혀 있어 동기 교체가 적용되지 않았음을 확인.
+
+#### 해결 방법
+
+중첩 `@TestConfiguration` 클래스를 `classes` 배열에 **명시적으로 함께 나열**한다.
+
+```java
+@SpringBootTest(classes = {
+        CmsTestApplication.class,
+        PasswordResetConcurrencyIntegrationTest.SyncMailExecutorConfig.class
+})
+```
+
+`applicationTaskExecutor` 자동 구성은 `@ConditionalOnMissingBean(Executor.class)`라(Boot 3.5.16 기준), 테스트 Executor 빈이 등록되면 물러나서 컨텍스트에 executor가 하나만 남는다 — 빈 이름 충돌·모호성 걱정 없이 동기 executor가 주입된다.
+
+검증: 테스트 실행 후 리포트 XML에서 발송 성공 로그의 스레드가 executor 스레드(`task-1`)가 아니라 호출자 스레드(`pool-N-thread-M`)인지 확인한다.
+
+---
+
+### KST 고정 Clock 빈과 테스트의 `LocalDateTime.now()` 혼용 — 로컬(KST)만 통과하고 CI(UTC)에서 실패
+
+#### 오류 메시지
+
+```
+PasswordResetConcurrencyIntegrationTest > 같은 토큰 동시 제출 2건 중 정확히 1건만 성공한다 FAILED
+org.opentest4j.AssertionFailedError: 같은 토큰 동시 제출은 정확히 1건만 성공해야 한다 ==> expected: <1> but was: <0>
+```
+
+로컬에서는 통과하는데 GitHub Actions(UTC 러너) CI에서만 실패.
+
+#### 원인
+
+`AppConfig`의 `Clock` 빈은 `Clock.system(ZoneId.of("Asia/Seoul"))`(KST 고정)이고, `PasswordResetService`는 토큰 만료 판정에 `LocalDateTime.now(clock)`(KST)를 쓴다. 그런데 테스트는 만료 시각을 **시스템 기본 타임존**의 `LocalDateTime.now().plusMinutes(30)`으로 생성했다.
+
+- 로컬(KST 머신): 테스트 now = 서비스 clock now → 통과
+- CI(UTC 러너): 테스트가 UTC 기준 naive 시각으로 저장(예: 17:02+30분) ↔ 서비스는 KST now(다음날 02:02)와 비교 → `expiryAt.isAfter(now)`가 거짓 → **발급 직후인데 만료 판정** → 두 스레드 모두 잠금 후 재검증에서 거부
+
+진단 단서: CI 테스트 리포트(아티팩트)의 Hibernate SQL 로그에서 두 스레드 모두 `SELECT ... FOR UPDATE`까지 도달했지만 `UPDATE`문과 에러 로그가 전혀 없음 — 수정 없는 조용한 거부는 잠금 후 재검증(만료/불일치/무자격) 경로뿐이다.
+
+#### 해결 방법
+
+시간 비교 로직(만료 판정 등)을 검증하는 테스트에서 기준 시각을 만들 때는 반드시 **서비스와 같은 `Clock` 빈을 주입**받아 사용한다.
+
+```java
+@Autowired
+Clock clock; // AppConfig의 KST 고정 Clock
+
+Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plusMinutes(30));
+```
+
+검증(CI 재현): `JAVA_TOOL_OPTIONS=-Duser.timezone=UTC ./gradlew test --tests "...PasswordResetConcurrencyIntegrationTest"` — 수정 전 동일 실패 재현, 수정 후 통과. (`JAVA_TOOL_OPTIONS`는 Gradle이 포크하는 테스트 JVM까지 전달된다)
+
+단순 `createDate`/`updateDate`처럼 서비스가 시각 비교를 하지 않는 필드는 시스템 기본 `LocalDateTime.now()`여도 무방하다.
 
 ---
 
