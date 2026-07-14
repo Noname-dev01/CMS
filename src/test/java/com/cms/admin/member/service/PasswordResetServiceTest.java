@@ -471,4 +471,139 @@ class PasswordResetServiceTest {
         assertTrue(captor.getValue().getText().contains("http://localhost:8080/admin/password-reset/confirm#token="));
         assertFalse(captor.getValue().getText().contains("8080//admin"));
     }
+
+    // ==================== 자동 잠금 lazy 해제 (로그인 실패 잠금 연동) ====================
+
+    private Member autoLockedMember(LocalDateTime lockedAt) {
+        return Member.builder()
+                .id(1L)
+                .userId("admin01")
+                .pwd("encoded")
+                .userName("홍길동")
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.LOCKED)
+                .failedLoginCount(5)
+                .lockedAt(lockedAt)
+                .createDate(NOW.minusDays(1))
+                .updateDate(NOW.minusDays(1))
+                .build();
+    }
+
+    @Test
+    @DisplayName("만료된 자동 잠금(30분 경과) 계정은 발급 경로에서 해제되어 메일이 발송된다")
+    void requestReset_expiredAutoLock_releasedAndIssued() {
+        Member member = autoLockedMember(NOW.minusMinutes(31));
+        given(memberRepository.findByEmailForUpdate("admin01@test.com")).willReturn(Optional.of(member));
+
+        passwordResetService.requestReset("admin01@test.com", "127.0.0.1");
+
+        assertEquals(MemberStatus.ACTIVE, member.getStatus());
+        assertEquals(0, member.getFailedLoginCount());
+        assertNull(member.getLockedAt());
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    @DisplayName("미만료 자동 잠금 계정은 발급되지 않는다 (여전히 부적격)")
+    void requestReset_unexpiredAutoLock_notIssued() {
+        Member member = autoLockedMember(NOW.minusMinutes(29));
+        given(memberRepository.findByEmailForUpdate("admin01@test.com")).willReturn(Optional.of(member));
+
+        passwordResetService.requestReset("admin01@test.com", "127.0.0.1");
+
+        assertEquals(MemberStatus.LOCKED, member.getStatus());
+        verify(mailSender, never()).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    @DisplayName("수동 잠금(lockedAt null) 계정은 30분과 무관하게 발급되지 않는다")
+    void requestReset_manualLock_notIssued() {
+        Member member = autoLockedMember(null);
+        given(memberRepository.findByEmailForUpdate("admin01@test.com")).willReturn(Optional.of(member));
+
+        passwordResetService.requestReset("admin01@test.com", "127.0.0.1");
+
+        assertEquals(MemberStatus.LOCKED, member.getStatus());
+        verify(mailSender, never()).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    @DisplayName("해제 직후 쿨다운으로 발급이 조기 반환돼도 상태·updateDate는 함께 갱신된다")
+    void requestReset_releasedButCooldown_statusAndUpdateDateStillCommitted() {
+        Member member = Member.builder()
+                .id(1L).userId("admin01").pwd("encoded").userName("홍길동")
+                .email("admin01@test.com").userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.LOCKED)
+                .failedLoginCount(5)
+                .lockedAt(NOW.minusMinutes(31))
+                // 30초 전 발급된 유효 토큰 — 60초 쿨다운에 걸린다 (issuedAt = expiryAt - TTL)
+                .resetToken("a".repeat(64))
+                .resetTokenExpiryAt(NOW.plusMinutes(30).minusSeconds(30))
+                .createDate(NOW.minusDays(1)).updateDate(NOW.minusDays(1))
+                .build();
+        given(memberRepository.findByEmailForUpdate("admin01@test.com")).willReturn(Optional.of(member));
+
+        passwordResetService.requestReset("admin01@test.com", "127.0.0.1");
+
+        verify(mailSender, never()).send(any(SimpleMailMessage.class)); // 쿨다운 — 재발급 없음
+        assertEquals(MemberStatus.ACTIVE, member.getStatus());          // 해제는 유지
+        assertEquals(NOW, member.getUpdateDate());                      // 이력도 함께 갱신
+    }
+
+    @Test
+    @DisplayName("만료된 자동 잠금 + 유효 토큰이면 재설정이 성공하고 ACTIVE로 전이된다")
+    void resetPassword_expiredAutoLock_releasedAndReset() {
+        String hashed = sha256Hex(PLAIN_TOKEN);
+        Member member = autoLockedMember(NOW.minusMinutes(31));
+        member.issueResetToken(hashed, NOW.plusMinutes(10));
+
+        given(memberRepository.findIdsByResetToken(hashed)).willReturn(List.of(1L));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.encode("NewPassword1!")).willReturn("newEncoded");
+
+        passwordResetService.resetPassword(PLAIN_TOKEN, "NewPassword1!", "NewPassword1!");
+
+        assertEquals(MemberStatus.ACTIVE, member.getStatus());
+        assertEquals("newEncoded", member.getPwd());
+        assertEquals(0, member.getFailedLoginCount());
+        verify(eventPublisher).publishEvent(new AdminSessionRevokeEvent(1L));
+    }
+
+    @Test
+    @DisplayName("미만료 자동 잠금 계정의 유효 토큰은 여전히 거부된다 (비구분 400)")
+    void resetPassword_unexpiredAutoLock_rejected() {
+        String hashed = sha256Hex(PLAIN_TOKEN);
+        Member member = autoLockedMember(NOW.minusMinutes(29));
+        member.issueResetToken(hashed, NOW.plusMinutes(10));
+
+        given(memberRepository.findIdsByResetToken(hashed)).willReturn(List.of(1L));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
+
+        assertThrows(InvalidRequestException.class,
+                () -> passwordResetService.resetPassword(PLAIN_TOKEN, "NewPassword1!", "NewPassword1!"));
+        assertEquals(MemberStatus.LOCKED, member.getStatus());
+    }
+
+    @Test
+    @DisplayName("재설정 성공 시 로그인 실패 카운트가 리셋된다 (실패 연쇄 단절)")
+    void resetPassword_success_resetsFailedLoginCount() {
+        String hashed = sha256Hex(PLAIN_TOKEN);
+        Member member = Member.builder()
+                .id(1L).userId("admin01").pwd("encoded").userName("홍길동")
+                .email("admin01@test.com").userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.ACTIVE)
+                .failedLoginCount(4)
+                .createDate(NOW.minusDays(1)).updateDate(NOW.minusDays(1))
+                .build();
+        member.issueResetToken(hashed, NOW.plusMinutes(10));
+
+        given(memberRepository.findIdsByResetToken(hashed)).willReturn(List.of(1L));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.encode("NewPassword1!")).willReturn("newEncoded");
+
+        passwordResetService.resetPassword(PLAIN_TOKEN, "NewPassword1!", "NewPassword1!");
+
+        assertEquals(0, member.getFailedLoginCount());
+    }
 }

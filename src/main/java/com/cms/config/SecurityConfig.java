@@ -1,5 +1,6 @@
 package com.cms.config;
 
+import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import com.cms.config.security.AdminSessionExpiredStrategy;
 import com.cms.config.security.ApiAccessDeniedHandler;
@@ -37,6 +38,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            VisitLoggingAuthenticationSuccessHandler successHandler,
+                                           LockingAuthenticationFailureHandler failureHandler,
                                            SessionRegistry sessionRegistry) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> auth
@@ -57,7 +59,7 @@ public class SecurityConfig {
                         .loginPage("/admin/login")
                         .loginProcessingUrl("/admin/login")
                         .successHandler(successHandler)
-                        .failureUrl("/admin/login-error")
+                        .failureHandler(failureHandler)
                         .permitAll()
                 )
                 .logout((logout) -> logout

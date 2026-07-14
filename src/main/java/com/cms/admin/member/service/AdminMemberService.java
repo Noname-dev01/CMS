@@ -206,6 +206,11 @@ public class AdminMemberService {
         boolean statusChanged = effectiveStatus != beforeStatus;
         if (statusChanged) {
             target.changeStatus(effectiveStatus);
+            if (effectiveStatus == MemberStatus.ACTIVE) {
+                // 비ACTIVE→ACTIVE 복구는 실패 연쇄 단절 — 리셋 없이는 해제 직후 1회 실패로 재잠금되고,
+                // 상태 전이 경합으로 비ACTIVE 계정에 숨어 있던 카운트도 여기서 정리된다.
+                target.resetFailedLoginCount();
+            }
         }
 
         // 세션 만료 트리거: ① status 실변경(→ACTIVE 복귀 포함) ② userType 실변경(승격·강등)
@@ -264,7 +269,9 @@ public class AdminMemberService {
             throw new InvalidRequestException("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.");
         }
 
-        Member member = memberRepository.findById(adminId)
+        // 행 잠금 조회 — 자동 잠금(벌크 UPDATE)과 직렬화해, 잠금 전이와 비밀번호 변경의
+        // 더티체킹이 서로의 필드를 되쓰는 경합을 차단한다.
+        Member member = memberRepository.findByIdForUpdate(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         if (!passwordEncoder.matches(request.getCurrentPassword(), member.getPwd())) {
@@ -272,6 +279,10 @@ public class AdminMemberService {
         }
 
         member.changePassword(passwordEncoder.encode(request.getNewPassword()));
+
+        // 커밋 후 대상 계정의 모든 세션 만료(본인 포함 — 재로그인 필요).
+        // 변경 직전 이전 비밀번호로 인증을 통과한 세션이 살아남는 경합을 닫는다.
+        eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));
 
         return toResponse(member, false);
     }

@@ -22,10 +22,19 @@ import java.util.Collections;
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final MemberRepository memberRepository;
+    private final LoginFailureService loginFailureService;
 
+    /**
+     * 쓰기 가능 트랜잭션인 이유: 진입부의 만료 자동 잠금 해제(벌크 UPDATE)가 같은 트랜잭션에
+     * 참여한다 — REQUIRES_NEW 분리는 요청당 커넥션 2개를 잡아 병렬 로그인 폭주 시 풀 고갈 위험.
+     * 이 메서드는 비밀번호 검증 전에 커밋되므로, 틀린 비밀번호여도 해제는 유지된다.
+     */
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public UserDetails loadUserByUsername(String userId) throws UsernameNotFoundException {
+        // 만료된 자동 잠금(30분 경과)을 회원 조회 전에 해제 — 같은 트랜잭션에서 해제 후 fresh 조회
+        loginFailureService.unlockIfLockExpired(userId);
+
         Member member = memberRepository.findByUserId(userId)
                 .orElseThrow(() -> new UsernameNotFoundException("존재하지 않는 사용자입니다."));
 

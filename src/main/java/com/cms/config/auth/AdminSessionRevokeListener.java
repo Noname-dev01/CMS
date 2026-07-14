@@ -2,12 +2,17 @@ package com.cms.config.auth;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+// @Order(10): 자동 잠금 감사 리스너(@Order(20))보다 먼저 — 세션 만료(인메모리)가
+// 감사 저장(DB) 지연에 막히지 않는다. (서로 다른 이벤트 타입 간 실제 순서는 발행 순서가
+// 결정하므로 LoginFailureService가 세션 폐기 이벤트를 먼저 발행한다 — @Order는 계약 명시용)
 @Slf4j
 @Component
+@Order(10)
 @RequiredArgsConstructor
 public class AdminSessionRevokeListener {
 
