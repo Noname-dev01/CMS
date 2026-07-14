@@ -53,8 +53,12 @@ src/main/generated/
 .mcp.json
 
 /.playwright-mcp
-/adversarial-review
 *.stackdump
+
+### 적대적 리뷰 워크플로우 문서는 git 추적 — 캡처 이미지류만 제외 ###
+/adversarial-review/**/*.jpg
+/adversarial-review/**/*.JPG
+/adversarial-review/**/*.png
 
 ### UI 검증 스크린샷 (루트에만 생성됨) ###
 /*.png
