@@ -6,6 +6,7 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.config.auth.AdminSessionRevokeEvent;
+import com.cms.config.auth.LoginFailureService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -148,13 +149,17 @@ public class PasswordResetService {
         }
         Member member = found.get();
 
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        // 만료된 자동 잠금(30분 경과)은 재설정 경로에서도 해제 — 로그인 폼 제출 없이 바로
+        // "비밀번호 찾기"를 눌러도 동작해야 한다. 행 잠금 하라 경합 안전, 수동 잠금(lockedAt null)은 부적격 유지.
+        member.releaseExpiredAutoLock(now.minus(LoginFailureService.LOCK_DURATION), now);
+
         // allowlist — 새 역할 추가·데이터 오염 시 발송 대상이 넓어지지 않도록 denylist 금지
         if (!isEligible(member)) {
             log.debug("비밀번호 재설정: 무자격 계정 memberId={}", member.getId());
             return Optional.empty();
         }
-
-        LocalDateTime now = LocalDateTime.now(clock);
 
         // 쿨다운 — 발급 시각은 expiryAt에서 TTL 역산 (새 컬럼 불필요)
         LocalDateTime expiryAt = member.getResetTokenExpiryAt();
@@ -254,7 +259,9 @@ public class PasswordResetService {
         if (member.getResetTokenExpiryAt() == null || !member.getResetTokenExpiryAt().isAfter(now)) {
             throw new InvalidRequestException(INVALID_TOKEN_MESSAGE);
         }
-        // 토큰 발급 후 잠긴/삭제된/강등된 계정 차단
+        // 만료된 자동 잠금은 토큰 확인 경로에서도 해제 (발급 경로와 동일 계약 — 행 잠금 하)
+        member.releaseExpiredAutoLock(now.minus(LoginFailureService.LOCK_DURATION), now);
+        // 토큰 발급 후 잠긴(미만료·수동)/삭제된/강등된 계정 차단
         if (!isEligible(member)) {
             throw new InvalidRequestException(INVALID_TOKEN_MESSAGE);
         }

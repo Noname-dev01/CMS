@@ -176,7 +176,7 @@ com.cms/
 | `/actuator/health`, `/actuator/info` | 공개 (별도 `requestMatchers` 없음 — `anyRequest().permitAll()`에 포함) |
 | 그 외 모든 경로 | 공개 (`anyRequest().permitAll()`) |
 
-- `ACTIVE` 상태 계정만 로그인 가능 (`CustomUserDetailsService`)
+- `ACTIVE` 상태 계정만 로그인 가능 (`CustomUserDetailsService`). 연속 5회 로그인 실패 시 자동 잠금(30분 해제) — 정책 상세는 "핵심 도메인 모델 > Member" 참조 (2026-07-14 승인)
 - **세션 등록·강제 만료**: `sessionManagement(maximumSessions(-1))` + `SessionRegistry` + `HttpSessionEventPublisher` 활성 (동시 로그인 제한 없음 — 세션 추적만). 타 관리자 수정으로 상태·권한이 실변경되면(멱등 재잠금 LOCKED/DISABLED 동일값 포함) `AdminSessionRevokeEvent`가 발행되고 커밋 후 `AdminSessionRevokeListener`(AFTER_COMMIT)가 대상자 세션을 만료 처리한다. 만료된 세션의 다음 요청은 `AdminSessionExpiredStrategy`가 API는 JSON 401, 페이지는 `/admin/login` 리다이렉트로 응답. **계약은 best-effort** — 즉시 접근 차단 수단이 아니며, 극단적 커밋 경합 시 기존 세션이 세션 타임아웃(기본 30분) 또는 재잠금까지 유효할 수 있다.
 - CSRF는 **모든 경로에 활성**이다. `/admin/api/**`를 포함한 상태 변경 요청(POST/PATCH/PUT/DELETE)은 반드시 CSRF 토큰을 포함해야 한다. Thymeleaf 페이지는 `head.html` 프래그먼트가 `<meta name="_csrf">` 태그로 토큰을 렌더링하며, JS에서 이 값을 읽어 `X-CSRF-TOKEN` 헤더로 전송한다. 신규 상태 변경 fetch 호출 작성 시 CSRF 헤더를 누락하지 않는다.
 - 메서드 레벨 보안: `MethodSecurityConfig`에서 활성화
@@ -190,7 +190,8 @@ com.cms/
 **Member** (관리자 계정)
 - `Role`: `ROLE_ADMIN`, `ROLE_MANAGER`, `ROLE_USER` / `MemberStatus`: `ACTIVE`, `LOCKED`, `DISABLED`, `DELETED`, `PASSWORD_EXPIRED`
 - **비밀번호 재설정 구현 완료** (`PasswordResetService`): 이메일로 재설정 링크 발송(토큰은 URL fragment `#token=`) → 토큰 검증 → 재설정. 토큰은 SHA-256 해시로만 저장(평문·해시 모두 **로그 출력 금지** — 예외 객체 통째 로깅도 금지), 30분 TTL·일회용·60초 재발급 쿨다운(발급 시 계정 행 잠금으로 원자성 보장). 계정 존재 여부와 무관하게 항상 200 응답(열거 방지), 대상은 `ACTIVE`/`PASSWORD_EXPIRED` + `ROLE_ADMIN`/`ROLE_MANAGER` allowlist. 재설정 성공 시 기존 세션 만료(`AdminSessionRevokeEvent`) + `PASSWORD_EXPIRED`는 `ACTIVE` 복귀. **모든 비밀번호 변경 경로(`Member.changePassword()`)가 outstanding reset 토큰을 함께 클리어**한다. 상세 설계 결정은 `adversarial-review/plan/PLAN-password-reset.md` 참조
-- `LOCKED`·`PASSWORD_EXPIRED`로의 자동 전이 로직(로그인 실패 잠금, 비번 만료)은 미구현 — 상태값만 존재
+- **로그인 실패 잠금 구현 완료** (`LoginFailureService`, 2026-07-14): 연속 5회 실패(`BadCredentialsException`만 카운트) 시 `LOCKED` 자동 전이 + **30분 후 lazy 자동 해제**(로그인·비밀번호 재설정 진입점에서 조건부 벌크 UPDATE). 대상은 `ROLE_ADMIN`/`ROLE_MANAGER` allowlist — `ROLE_USER`는 오잠금되지 않는다. `locked_at null = 수동 잠금(영구)`, `locked_at 존재 = 자동 잠금(30분 해제)`로 구분되며, `changeStatus()`는 항상 `locked_at`을 정리한다. 잠금 전이는 `AdminAccountAutoLockEvent`(AFTER_COMMIT)로 `AdminActionLog`(`ACCOUNT_AUTO_LOCK`) 감사 기록 + 기존 세션 만료(`AdminSessionRevokeEvent`, 발행 순서상 세션 만료가 감사보다 먼저). 성공 핸들러(`VisitLoggingAuthenticationSuccessHandler`)는 인증 완료 직전 fresh 상태·역할·비밀번호 해시를 재확인해 불일치·예외 시 **fail-closed 거부**(경합으로 잠긴/강등된/구 비밀번호 세션 차단). **내 비밀번호 변경 성공 시 전 세션 폐기**(본인 포함 — 재로그인 필요). `Member`에 `@DynamicUpdate` 부착(더티체킹 경합의 잠금 소실 차단). 최후 ADMIN 잠금 복구는 `docs/troubleshooting.md` 참조. 상세 설계 결정은 `adversarial-review/plan/PLAN-login-failure-lockout.md` 참조
+- `PASSWORD_EXPIRED`로의 자동 전이 로직(비번 90일 만료)은 미구현 — 상태값만 존재 (`plan/PLAN-password-expiry.md` 예정)
 
 **Menu**
 - `MenuAccessRole`: `ALL`(공용, ADMIN·MANAGER 노출) / `ADMIN`(ADMIN 전용 노출). DB 컬럼 null은 ALL로 정규화(레거시 행 호환)

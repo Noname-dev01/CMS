@@ -2,11 +2,19 @@ package com.cms.admin.member.domain;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
 
+/*
+ * @DynamicUpdate: 변경된 컬럼만 UPDATE한다.
+ * 행 잠금 없는 더티체킹 쓰기 경로(내 정보·프로필 수정 등)가 동시 자동 잠금(벌크 UPDATE)과
+ * 경합할 때, 전체 컬럼 UPDATE가 stale status/failedLoginCount/lockedAt을 되써서
+ * 잠금을 소실시키는 것을 차단한다. 같은 필드 경합은 여전히 findByIdForUpdate 행 잠금이 담당.
+ */
 @Entity
+@DynamicUpdate
 @Table(
         name = "member",
         uniqueConstraints = {
@@ -57,6 +65,14 @@ public class Member {
     @Column(name = "profile_image_url", columnDefinition = "LONGTEXT")
     private String profileImageUrl;
 
+    /** 로그인 연속 실패 카운트. 5회 도달 시 LOCKED 자동 전이 (증가·잠금은 벌크 UPDATE — LoginFailureService) */
+    @Column(name = "failed_login_count", nullable = false)
+    private int failedLoginCount;
+
+    /** 자동 잠금 시각. null이면 수동 잠금(영구) — 30분 자동 해제 판정 기준 */
+    @Column(name = "locked_at")
+    private LocalDateTime lockedAt;
+
     /**
      * 내 정보(이름, 이메일) 수정. 수정 시각을 함께 갱신한다.
      * 이메일이 실제로 바뀌면 발급돼 있던 재설정 토큰도 무효화한다 —
@@ -89,6 +105,10 @@ public class Member {
         this.pwd = encodedPwd;
         this.resetToken = null;
         this.resetTokenExpiryAt = null;
+        // 비밀번호가 바뀌면 이전 실패 연쇄는 단절된다 — 카운트만 리셋.
+        // lockedAt은 보존한다: 경합으로 LOCKED 상태에서 실행돼도 자동 잠금(30분 해제)이
+        // 영구 잠금(lockedAt null)으로 변질되지 않아야 한다.
+        this.failedLoginCount = 0;
         this.updateDate = LocalDateTime.now();
     }
 
@@ -120,10 +140,42 @@ public class Member {
 
     /**
      * 계정 상태 변경. 수정 시각을 함께 갱신한다.
+     * 자동 잠금 시각(lockedAt)도 항상 정리한다 — 수동 →LOCKED는 영구 잠금이 되고,
+     * 자동 잠금에서 다른 상태로 나갈 때(LOCKED→DISABLED 등) 잔존 시각이
+     * 이후 수동 잠금을 자동 해제시키는 회귀(LOCKED→DISABLED→LOCKED)를 막는다.
      */
     public void changeStatus(MemberStatus status) {
         this.status = status;
+        this.lockedAt = null;
         this.updateDate = LocalDateTime.now();
+    }
+
+    /**
+     * 로그인 실패 카운트·자동 잠금 시각 리셋. 관리자 수동 해제(비ACTIVE→ACTIVE) 전용.
+     * updateDate는 갱신하지 않는다 — 상태 변경 경로(changeStatus)가 함께 갱신한다.
+     */
+    public void resetFailedLoginCount() {
+        this.failedLoginCount = 0;
+        this.lockedAt = null;
+    }
+
+    /**
+     * 만료된 자동 잠금을 해제한다 — 비밀번호 재설정 경로 전용 (행 잠금 하에서 호출).
+     * 수동 잠금(lockedAt null)은 대상이 아니다. 로그인 경로의 벌크 UPDATE
+     * (MemberRepository.unlockIfLockExpired)와 동일한 필드 계약을 유지한다.
+     *
+     * @param cutoff 이 시각 이전(포함)에 잠긴 자동 잠금만 해제
+     * @param now    updateDate에 기록할 현재 시각 (앱 Clock 기준)
+     */
+    public boolean releaseExpiredAutoLock(LocalDateTime cutoff, LocalDateTime now) {
+        if (this.status != MemberStatus.LOCKED || this.lockedAt == null || this.lockedAt.isAfter(cutoff)) {
+            return false;
+        }
+        this.status = MemberStatus.ACTIVE;
+        this.failedLoginCount = 0;
+        this.lockedAt = null;
+        this.updateDate = now;
+        return true;
     }
 
 }

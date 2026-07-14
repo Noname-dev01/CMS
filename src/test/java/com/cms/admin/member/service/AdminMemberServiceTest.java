@@ -329,7 +329,7 @@ class AdminMemberServiceTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.matches("Admin1234!", member.getPwd())).willReturn(true);
         given(passwordEncoder.encode("NewAdmin1234!")).willReturn("encodedNewPassword");
 
@@ -338,6 +338,8 @@ class AdminMemberServiceTest {
         assertEquals(1L, response.getId());
         verify(passwordEncoder).matches("Admin1234!", "encoded");
         verify(passwordEncoder).encode("NewAdmin1234!");
+        // 변경 직전 이전 비밀번호로 인증을 통과한 세션이 살아남지 않도록 전 세션 폐기 이벤트 발행
+        verify(eventPublisher).publishEvent(new AdminSessionRevokeEvent(1L));
     }
 
     @Test
@@ -362,7 +364,7 @@ class AdminMemberServiceTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.matches("Admin1234!", member.getPwd())).willReturn(true);
         given(passwordEncoder.encode("NewAdmin1234!")).willReturn("encodedNewPassword");
 
@@ -382,7 +384,7 @@ class AdminMemberServiceTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.matches("WrongPassword!", member.getPwd())).willReturn(false);
 
         InvalidRequestException exception = assertThrows(InvalidRequestException.class,
@@ -405,7 +407,7 @@ class AdminMemberServiceTest {
                 () -> adminMemberService.changeMyPassword(1L, request));
 
         assertEquals("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.", exception.getMessage());
-        verify(memberRepository, never()).findById(any());
+        verify(memberRepository, never()).findByIdForUpdate(any());
     }
 
     @Test
@@ -417,7 +419,7 @@ class AdminMemberServiceTest {
                 .confirmPassword("NewAdmin1234!")
                 .build();
 
-        given(memberRepository.findById(1L)).willReturn(Optional.empty());
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.empty());
 
         ResourceNotFoundException exception = assertThrows(ResourceNotFoundException.class,
                 () -> adminMemberService.changeMyPassword(1L, request));
@@ -474,6 +476,62 @@ class AdminMemberServiceTest {
         assertEquals(MemberStatus.LOCKED, response.getStatus());
         // MANAGER 대상은 활성 ADMIN 자격과 무관 — 가드 잠금 조회가 나가지 않아야 한다
         verify(memberRepository, never()).findActiveAdminIdsForUpdate();
+    }
+
+    @Test
+    @DisplayName("LOCKED→ACTIVE 해제 시 실패 카운트·잠금 시각이 리셋된다 (해제 직후 1회 실패 재잠금 방지)")
+    void updateAdminMember_unlockToActive_resetsFailedLoginCount() {
+        Member target = Member.builder()
+                .id(2L).userId("manager2").pwd("encoded").userName("김매니저")
+                .email("manager2@test.com").userType(Role.ROLE_MANAGER)
+                .status(MemberStatus.LOCKED)
+                .failedLoginCount(5).lockedAt(LocalDateTime.now())
+                .createDate(LocalDateTime.now()).updateDate(LocalDateTime.now())
+                .build();
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().status(MemberStatus.ACTIVE).build());
+
+        assertEquals(0, target.getFailedLoginCount());
+        assertNull(target.getLockedAt());
+        assertEquals(MemberStatus.ACTIVE, target.getStatus());
+    }
+
+    @Test
+    @DisplayName("DISABLED→ACTIVE 복구도 실패 카운트를 리셋한다 (상태 전이 경합으로 숨은 카운트 정리)")
+    void updateAdminMember_disabledToActive_resetsFailedLoginCount() {
+        Member target = Member.builder()
+                .id(2L).userId("manager2").pwd("encoded").userName("김매니저")
+                .email("manager2@test.com").userType(Role.ROLE_MANAGER)
+                .status(MemberStatus.DISABLED)
+                .failedLoginCount(3)
+                .createDate(LocalDateTime.now()).updateDate(LocalDateTime.now())
+                .build();
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().status(MemberStatus.ACTIVE).build());
+
+        assertEquals(0, target.getFailedLoginCount());
+    }
+
+    @Test
+    @DisplayName("이름만 변경하면 실패 카운트는 보존된다 (리셋은 비ACTIVE→ACTIVE 실변경에만)")
+    void updateAdminMember_nameOnlyChange_keepsFailedLoginCount() {
+        Member target = Member.builder()
+                .id(2L).userId("manager2").pwd("encoded").userName("김매니저")
+                .email("manager2@test.com").userType(Role.ROLE_MANAGER)
+                .status(MemberStatus.ACTIVE)
+                .failedLoginCount(4)
+                .createDate(LocalDateTime.now()).updateDate(LocalDateTime.now())
+                .build();
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().userName("변경").build());
+
+        assertEquals(4, target.getFailedLoginCount());
     }
 
     @Test

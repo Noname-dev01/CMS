@@ -142,6 +142,35 @@ Gradle 빌드, QueryDSL Q클래스 생성, 라이브러리 호환성 등 빌드�
 
 Spring Security 필터, AOP 로깅, 트랜잭션 경계, JPA/QueryDSL 동작 등 런타임 문제를 기록한다.
 
+### 최후 활성 ADMIN 계정이 로그인 실패 자동 잠금(LOCKED)으로 잠긴 경우 복구
+
+#### 오류 메시지
+
+```
+로그인 화면에서 올바른 비밀번호를 입력해도 /admin/login-error로 거부됨
+(서버 로그: "로그인 5회 연속 실패로 계정 잠금" WARN, admin_action_log에 ACCOUNT_AUTO_LOCK 기록)
+```
+
+#### 원인
+
+연속 5회 로그인 실패 시 계정이 `LOCKED`로 자동 전이된다 (2026-07-14 도입, `LoginFailureService`).
+활성 ADMIN이 1명뿐인 환경에서 그 계정이 잠기면, 화면(PATCH)으로 해제해 줄 다른 ADMIN이 없어
+애플리케이션 차원의 즉시 복구 경로가 사라진다.
+
+#### 해결 방법
+
+1. **기본 복구 (권장)**: 자동 잠금은 **30분 후 자동 해제**된다 — 잠금 시각(`locked_at`)에서 30분이
+   지난 뒤 올바른 비밀번호로 다시 로그인하면 된다. "비밀번호 찾기"(재설정 메일) 경로도 30분 경과 후엔 동작한다.
+2. **즉시 복구 (비상)**: DB에서 직접 해제한다.
+   ```sql
+   UPDATE member SET status='ACTIVE', failed_login_count=0, locked_at=NULL WHERE user_id='<잠긴 계정>';
+   ```
+   dev 환경 실행 예: `docker exec cms-db-dev mariadb -uadmin -p1234 cms -e "<위 SQL>"`
+3. 참고: `locked_at`이 `NULL`인 LOCKED는 관리자가 화면에서 **수동 잠금**한 계정이다 — 자동 해제되지
+   않으며(의도된 영구 잠금), 다른 ADMIN의 PATCH 또는 위 SQL로만 해제된다.
+
+검증: 해제 후 올바른 비밀번호로 로그인 성공, `failed_login_count`가 0으로 리셋됐는지 확인.
+
 ### @DataJpaTest 슬라이스에서 JPAQueryFactory 빈을 찾지 못해 컨텍스트 로딩 실패
 
 #### 오류 메시지

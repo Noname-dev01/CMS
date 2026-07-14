@@ -9,6 +9,8 @@ import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.config.SecurityConfig;
 import com.cms.config.auth.AdminSecurityService;
+import com.cms.config.auth.LockingAuthenticationFailureHandler;
+import com.cms.config.auth.LoginFailureService;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -88,10 +90,24 @@ class PasswordResetControllerTest {
             return Mockito.mock(MenuService.class);
         }
 
+        // SecurityConfig.filterChain의 성공·실패 핸들러 의존 빈 — 이 슬라이스는 formLogin
+        // 성공 경로를 타지 않으므로 LoginFailureService는 순수 mock으로 충분하다.
         @Bean
-        public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler() {
+        public LoginFailureService loginFailureService() {
+            return Mockito.mock(LoginFailureService.class);
+        }
+
+        @Bean
+        public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler(
+                LoginFailureService loginFailureService) {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
-            return new VisitLoggingAuthenticationSuccessHandler(mockRepo);
+            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService);
+        }
+
+        @Bean
+        public LockingAuthenticationFailureHandler lockingAuthenticationFailureHandler(
+                LoginFailureService loginFailureService) {
+            return new LockingAuthenticationFailureHandler(loginFailureService);
         }
     }
 
