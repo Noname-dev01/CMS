@@ -104,6 +104,7 @@ class AdminMemberUpdateConcurrencyIntegrationTest {
                 .status(status)
                 .createDate(now)
                 .updateDate(now)
+                .passwordChangedAt(now)
                 .build());
         createdMemberIds.add(saved.getId());
         return saved;

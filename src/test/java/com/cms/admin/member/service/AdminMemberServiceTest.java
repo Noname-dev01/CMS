@@ -23,13 +23,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,6 +54,10 @@ class AdminMemberServiceTest {
 
     @Mock
     ApplicationEventPublisher eventPublisher;
+
+    /** 서비스와 같은 KST 고정 시계 — LocalDateTime.now() 직접 호출 금지 계약 유지 */
+    @Spy
+    Clock clock = Clock.fixed(Instant.parse("2026-07-17T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     @InjectMocks
     AdminMemberService adminMemberService;

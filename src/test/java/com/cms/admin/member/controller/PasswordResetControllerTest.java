@@ -11,6 +11,7 @@ import com.cms.config.SecurityConfig;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.LoginFailureService;
+import com.cms.config.auth.PasswordExpiryService;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -101,7 +102,8 @@ class PasswordResetControllerTest {
         public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler(
                 LoginFailureService loginFailureService) {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
-            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService);
+            PasswordExpiryService mockExpiry = Mockito.mock(PasswordExpiryService.class);
+            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService, mockExpiry);
         }
 
         @Bean

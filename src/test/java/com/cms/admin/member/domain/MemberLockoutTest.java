@@ -32,13 +32,37 @@ class MemberLockoutTest {
     @DisplayName("changePassword는 실패 카운트만 리셋하고 lockedAt은 보존한다 — 자동 잠금이 영구 잠금으로 변질되지 않는다")
     void changePassword_resetsCount_preservesLockedAt() {
         LocalDateTime lockedAt = LocalDateTime.of(2026, 7, 14, 12, 0);
+        LocalDateTime now = LocalDateTime.of(2026, 7, 17, 12, 0);
         Member member = lockedMember(lockedAt, 5);
 
-        member.changePassword("newEncoded");
+        member.changePassword("newEncoded", now);
 
         assertThat(member.getFailedLoginCount()).isZero();
         assertThat(member.getLockedAt()).isEqualTo(lockedAt); // 보존 — 30분 자동 해제 유지
-        assertThat(member.getStatus()).isEqualTo(MemberStatus.LOCKED);
+        assertThat(member.getStatus()).isEqualTo(MemberStatus.LOCKED); // 잠금은 만료 복귀 대상이 아니다
+        assertThat(member.getPasswordChangedAt()).isEqualTo(now);
+        assertThat(member.getUpdateDate()).isEqualTo(now); // 같은 now — 시간원 통일
+    }
+
+    @Test
+    @DisplayName("changePassword는 PASSWORD_EXPIRED를 ACTIVE로 복귀시킨다 — 비밀번호 변경이 만료 해소의 정의")
+    void changePassword_revivesPasswordExpired() {
+        LocalDateTime now = LocalDateTime.of(2026, 7, 17, 12, 0);
+        Member member = Member.builder()
+                .id(1L)
+                .userId("admin01")
+                .pwd("encoded")
+                .userName("홍길동")
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.PASSWORD_EXPIRED)
+                .passwordChangedAt(LocalDateTime.of(2026, 4, 1, 0, 0))
+                .build();
+
+        member.changePassword("newEncoded", now);
+
+        assertThat(member.getStatus()).isEqualTo(MemberStatus.ACTIVE);
+        assertThat(member.getPasswordChangedAt()).isEqualTo(now);
     }
 
     // ==================== changeStatus ====================

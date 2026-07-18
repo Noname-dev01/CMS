@@ -23,17 +23,24 @@ public class CustomUserDetailsService implements UserDetailsService {
 
     private final MemberRepository memberRepository;
     private final LoginFailureService loginFailureService;
+    private final PasswordExpiryService passwordExpiryService;
 
     /**
-     * 쓰기 가능 트랜잭션인 이유: 진입부의 만료 자동 잠금 해제(벌크 UPDATE)가 같은 트랜잭션에
-     * 참여한다 — REQUIRES_NEW 분리는 요청당 커넥션 2개를 잡아 병렬 로그인 폭주 시 풀 고갈 위험.
-     * 이 메서드는 비밀번호 검증 전에 커밋되므로, 틀린 비밀번호여도 해제는 유지된다.
+     * 쓰기 가능 트랜잭션인 이유: 진입부의 만료 자동 잠금 해제·비밀번호 만료 전이(벌크 UPDATE)가
+     * 같은 트랜잭션에 참여한다 — REQUIRES_NEW 분리는 요청당 커넥션 2개를 잡아 병렬 로그인 폭주 시
+     * 풀 고갈 위험. 이 메서드는 비밀번호 검증 전에 커밋되므로, 틀린 비밀번호여도 해제는 유지된다.
+     *
+     * <p>noRollbackFor: 만료 전이 직후 validateMemberStatus()가 던지는 CredentialsExpiredException
+     * (unchecked)이 기본 롤백 규칙으로 전이 커밋을 되돌리지 않도록 한다.
      */
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = CredentialsExpiredException.class)
     public UserDetails loadUserByUsername(String userId) throws UsernameNotFoundException {
         // 만료된 자동 잠금(30분 경과)을 회원 조회 전에 해제 — 같은 트랜잭션에서 해제 후 fresh 조회
         loginFailureService.unlockIfLockExpired(userId);
+
+        // 비밀번호 90일 도달 계정을 PASSWORD_EXPIRED로 전이 — 아래 fresh 조회가 만료 반영된 상태를 읽는다
+        passwordExpiryService.expireIfPasswordOutdated(userId);
 
         Member member = memberRepository.findByUserId(userId)
                 .orElseThrow(() -> new UsernameNotFoundException("존재하지 않는 사용자입니다."));

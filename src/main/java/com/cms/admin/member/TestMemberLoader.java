@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 
 @Component
@@ -19,10 +20,12 @@ public class TestMemberLoader implements CommandLineRunner {
 
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final Clock clock;
 
     @Override
     public void run(String... args) throws Exception {
         if (memberRepository.count() == 0) {
+            LocalDateTime now = LocalDateTime.now(clock);
             memberRepository.save(Member.builder()
                             .userId("admin")
                             .userName("admin")
@@ -30,8 +33,8 @@ public class TestMemberLoader implements CommandLineRunner {
                             .pwd(passwordEncoder.encode("1234"))
                             .userType(Role.ROLE_ADMIN)
                             .status(MemberStatus.ACTIVE)
-                            .createDate(LocalDateTime.now())
-                            .status(MemberStatus.ACTIVE)
+                            .createDate(now)
+                            .passwordChangedAt(now)
                     .build());
         }
     }

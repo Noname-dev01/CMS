@@ -127,6 +127,21 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
                             @Param("now") LocalDateTime now);
 
     /**
+     * 비밀번호가 90일에 도달한 ACTIVE 관리자 계정을 PASSWORD_EXPIRED로 전이한다.
+     * 조건부 벌크 UPDATE라 잠금·재설정 경합에서 최신 상태를 덮어쓰지 않고 동시 감지에도 멱등.
+     * 역할 조건은 재설정 자격이 없는 ROLE_USER가 자가 복구 불가 상태에 빠지는 것을 차단한다.
+     * cutoff·now 모두 앱 시계에서 계산해 전달한다(잠금 쿼리들과 동일 계약 — DB 시계 사용 금지).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("update Member m set m.status = com.cms.admin.member.domain.MemberStatus.PASSWORD_EXPIRED, "
+            + "m.updateDate = :now "
+            + "where m.userId = :userId and m.status = com.cms.admin.member.domain.MemberStatus.ACTIVE "
+            + "and m.passwordChangedAt <= :cutoff "
+            + "and m.userType in (com.cms.admin.member.domain.Role.ROLE_ADMIN, com.cms.admin.member.domain.Role.ROLE_MANAGER)")
+    int expirePasswordIfOutdated(@Param("userId") String userId, @Param("cutoff") LocalDateTime cutoff,
+                                 @Param("now") LocalDateTime now);
+
+    /**
      * 지정 역할·상태 제외 조건으로 이번 달 가입 회원 수를 반환한다.
      * 대시보드 신규회원 카운트에 사용한다(ROLE_ADMIN·ROLE_MANAGER, DELETED 제외).
      * 반열린구간 [start, end)으로 경계 중복을 방지한다.

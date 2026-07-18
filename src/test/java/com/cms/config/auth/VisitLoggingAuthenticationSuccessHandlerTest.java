@@ -35,13 +35,15 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
 
     private VisitLogRepository visitLogRepository;
     private LoginFailureService loginFailureService;
+    private PasswordExpiryService passwordExpiryService;
     private VisitLoggingAuthenticationSuccessHandler handler;
 
     @BeforeEach
     void setUp() {
         visitLogRepository = mock(VisitLogRepository.class);
         loginFailureService = mock(LoginFailureService.class);
-        handler = new VisitLoggingAuthenticationSuccessHandler(visitLogRepository, loginFailureService);
+        passwordExpiryService = mock(PasswordExpiryService.class);
+        handler = new VisitLoggingAuthenticationSuccessHandler(visitLogRepository, loginFailureService, passwordExpiryService);
         // super 클래스의 리다이렉트를 방지하기 위해 DispatcherServlet 없이 동작하도록 설정
         handler.setDefaultTargetUrl("/admin");
         handler.setAlwaysUseDefaultTargetUrl(true);

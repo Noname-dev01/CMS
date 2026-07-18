@@ -40,6 +40,7 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
 
     private final VisitLogRepository visitLogRepository;
     private final LoginFailureService loginFailureService;
+    private final PasswordExpiryService passwordExpiryService;
 
     @PostConstruct
     public void init() {
@@ -74,6 +75,10 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
      */
     private boolean verifyFreshMemberState(Authentication authentication) {
         try {
+            // 인증 처리(BCrypt 검증 등) 중 90일 경계를 넘은 계정을 여기서 전이 —
+            // 직후 fresh 조회가 PASSWORD_EXPIRED를 읽어 아래 ACTIVE 검사가 거부한다.
+            passwordExpiryService.expireIfPasswordOutdated(authentication.getName());
+
             Optional<MemberSnapshot> found = loginFailureService.resetFailuresAndCheckActive(authentication.getName());
             if (found.isEmpty()) {
                 return false;

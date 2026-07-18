@@ -142,6 +142,7 @@ class VisitLogRepositoryDataJpaTest {
                 .status(status)
                 .createDate(createDate)
                 .updateDate(createDate)
+                .passwordChangedAt(createDate)
                 .build();
     }
 }

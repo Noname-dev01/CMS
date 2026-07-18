@@ -72,6 +72,7 @@ class LoginFailureServiceTest {
                 .status(status)
                 .createDate(FIXED_NOW)
                 .updateDate(FIXED_NOW)
+                .passwordChangedAt(FIXED_NOW)
                 .build());
     }
 

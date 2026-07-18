@@ -127,6 +127,7 @@ class PasswordResetConcurrencyIntegrationTest {
                 .status(MemberStatus.ACTIVE)
                 .createDate(now)
                 .updateDate(now)
+                .passwordChangedAt(now)
                 .resetToken(tokenHash)
                 .resetTokenExpiryAt(tokenExpiryAt)
                 .build());
