@@ -1,5 +1,6 @@
 package com.cms.admin.dashboard.service;
 
+import com.cms.admin.dashboard.dto.response.DailyVisitorCountResponse;
 import com.cms.admin.dashboard.dto.response.DashboardStatsResponse;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
@@ -12,7 +13,10 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 대시보드 통계를 집계하는 서비스.
@@ -72,5 +76,58 @@ public class DashboardService {
             log.error("대시보드 통계 조회 실패 — 전체 폴백(null) 반환", e);
             return DashboardStatsResponse.builder().build(); // 모든 필드 null
         }
+    }
+
+    /** 방문자 추이 차트의 집계 구간 길이(일) — 오늘 포함 최근 7일 */
+    private static final int VISITOR_TREND_DAYS = 7;
+
+    /**
+     * 최근 7일(오늘 포함) 일별 방문자 수. 방문 없는 날은 0으로 채워 항상 7개 요소를 보장한다.
+     * 실패 시 빈 리스트를 반환한다(화면에서 오류 문구 처리 — 전체 페이지 500 금지).
+     * null은 어떤 경로에서도 반환하지 않는다.
+     */
+    public List<DailyVisitorCountResponse> getDailyVisitorCounts() {
+        try {
+            LocalDate today = LocalDate.now(clock);
+            LocalDate firstDay = today.minusDays(VISITOR_TREND_DAYS - 1);
+
+            List<Object[]> rows = visitLogRepository.countDailyVisits(
+                    firstDay.atStartOfDay(), today.plusDays(1).atStartOfDay());
+
+            Map<LocalDate, Long> countsByDate = new HashMap<>();
+            for (Object[] row : rows) {
+                countsByDate.put(toLocalDate(row[0]), ((Number) row[1]).longValue());
+            }
+
+            List<DailyVisitorCountResponse> result = new ArrayList<>(VISITOR_TREND_DAYS);
+            for (LocalDate date = firstDay; !date.isAfter(today); date = date.plusDays(1)) {
+                result.add(new DailyVisitorCountResponse(
+                        date.toString(), countsByDate.getOrDefault(date, 0L)));
+            }
+            return result;
+
+        } catch (Exception e) {
+            log.error("방문자 추이 집계 실패 — 빈 리스트 폴백", e);
+            return List.of();
+        }
+    }
+
+    /**
+     * function('date', ...) 결과를 LocalDate로 변환한다.
+     * 반환 타입은 JDBC 드라이버·Hibernate 함수 타입 해석에 좌우되므로 3분기로 방어하고,
+     * 그 외 타입은 실제 클래스명을 남기며 실패시킨다(호출부 폴백).
+     */
+    private LocalDate toLocalDate(Object value) {
+        if (value instanceof LocalDate localDate) {
+            return localDate;
+        }
+        if (value instanceof java.sql.Date sqlDate) {
+            return sqlDate.toLocalDate();
+        }
+        if (value instanceof String text) {
+            return LocalDate.parse(text);
+        }
+        throw new IllegalStateException("지원하지 않는 일별 집계 날짜 타입: "
+                + (value == null ? "null" : value.getClass().getName()));
     }
 }

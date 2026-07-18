@@ -103,7 +103,8 @@ class PasswordResetControllerTest {
                 LoginFailureService loginFailureService) {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
             PasswordExpiryService mockExpiry = Mockito.mock(PasswordExpiryService.class);
-            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService, mockExpiry);
+            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService, mockExpiry,
+                    java.time.Clock.systemDefaultZone());
         }
 
         @Bean

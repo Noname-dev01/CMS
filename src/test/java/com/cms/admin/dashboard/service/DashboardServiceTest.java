@@ -1,5 +1,6 @@
 package com.cms.admin.dashboard.service;
 
+import com.cms.admin.dashboard.dto.response.DailyVisitorCountResponse;
 import com.cms.admin.dashboard.dto.response.DashboardStatsResponse;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
@@ -254,5 +255,81 @@ class DashboardServiceTest {
         assertThat(stats.getTodayVisitors()).isNull();
         assertThat(stats.getMonthVisitors()).isNull();
         assertThat(stats.getTotalVisitors()).isNull();
+    }
+
+    // ==================== getDailyVisitorCounts ====================
+
+    @Test
+    @DisplayName("최근 7일 방문자: 방문 없는 날은 0으로 채워 항상 7개 요소, [start, end) 구간으로 조회한다")
+    void getDailyVisitorCounts_fillsGapsWithZero_andQueriesHalfOpenInterval() {
+        Clock clock = fixedKst(LocalDate.of(2024, 6, 15));
+        dashboardService = serviceWithClock(clock);
+
+        // 6/13, 6/15에만 방문 존재 — 나머지 5일은 0으로 채워져야 한다
+        given(visitLogRepository.countDailyVisits(any(), any())).willReturn(List.<Object[]>of(
+                new Object[]{LocalDate.of(2024, 6, 13), 2L},
+                new Object[]{LocalDate.of(2024, 6, 15), 5L}
+        ));
+
+        List<DailyVisitorCountResponse> result = dashboardService.getDailyVisitorCounts();
+
+        assertThat(result).hasSize(7);
+        assertThat(result).extracting(DailyVisitorCountResponse::date).containsExactly(
+                "2024-06-09", "2024-06-10", "2024-06-11", "2024-06-12", "2024-06-13", "2024-06-14", "2024-06-15");
+        assertThat(result).extracting(DailyVisitorCountResponse::count)
+                .containsExactly(0L, 0L, 0L, 0L, 2L, 0L, 5L);
+
+        ArgumentCaptor<LocalDateTime> startCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        ArgumentCaptor<LocalDateTime> endCaptor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(visitLogRepository).countDailyVisits(startCaptor.capture(), endCaptor.capture());
+        assertThat(startCaptor.getValue()).isEqualTo(LocalDate.of(2024, 6, 9).atStartOfDay());
+        assertThat(endCaptor.getValue()).isEqualTo(LocalDate.of(2024, 6, 16).atStartOfDay()); // 오늘 다음날 0시 (미포함 상한)
+    }
+
+    @Test
+    @DisplayName("날짜 타입 방어: java.sql.Date·String·Number count도 정상 변환된다 (드라이버/Hibernate 타입 해석 차이)")
+    void getDailyVisitorCounts_convertsSqlDateStringAndNumber() {
+        Clock clock = fixedKst(LocalDate.of(2024, 6, 15));
+        dashboardService = serviceWithClock(clock);
+
+        given(visitLogRepository.countDailyVisits(any(), any())).willReturn(List.<Object[]>of(
+                new Object[]{java.sql.Date.valueOf("2024-06-14"), java.math.BigInteger.valueOf(3)},
+                new Object[]{"2024-06-15", 7}
+        ));
+
+        List<DailyVisitorCountResponse> result = dashboardService.getDailyVisitorCounts();
+
+        assertThat(result).hasSize(7);
+        assertThat(result.get(5)).isEqualTo(new DailyVisitorCountResponse("2024-06-14", 3L));
+        assertThat(result.get(6)).isEqualTo(new DailyVisitorCountResponse("2024-06-15", 7L));
+    }
+
+    @Test
+    @DisplayName("예상하지 못한 날짜 타입이 오면 빈 리스트로 폴백한다 (null 반환 금지)")
+    void getDailyVisitorCounts_unexpectedDateType_fallsBackToEmptyList() {
+        Clock clock = fixedKst(LocalDate.of(2024, 6, 15));
+        dashboardService = serviceWithClock(clock);
+
+        given(visitLogRepository.countDailyVisits(any(), any())).willReturn(List.<Object[]>of(
+                new Object[]{12345L, 3L} // 지원하지 않는 타입
+        ));
+
+        List<DailyVisitorCountResponse> result = dashboardService.getDailyVisitorCounts();
+
+        assertThat(result).isNotNull().isEmpty();
+    }
+
+    @Test
+    @DisplayName("집계 쿼리 실패 시 빈 리스트로 폴백한다 — 대시보드 500 금지, null 반환 금지")
+    void getDailyVisitorCounts_queryFails_fallsBackToEmptyList() {
+        Clock clock = fixedKst(LocalDate.of(2024, 6, 15));
+        dashboardService = serviceWithClock(clock);
+
+        given(visitLogRepository.countDailyVisits(any(), any()))
+                .willThrow(new RuntimeException("DB 연결 오류"));
+
+        List<DailyVisitorCountResponse> result = dashboardService.getDailyVisitorCounts();
+
+        assertThat(result).isNotNull().isEmpty();
     }
 }
