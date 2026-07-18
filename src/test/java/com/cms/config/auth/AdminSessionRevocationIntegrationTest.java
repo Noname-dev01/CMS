@@ -90,6 +90,7 @@ class AdminSessionRevocationIntegrationTest {
                 .status(MemberStatus.ACTIVE)
                 .createDate(now)
                 .updateDate(now)
+                .passwordChangedAt(now)
                 .build());
         createdMemberIds.add(saved.getId());
         return saved;

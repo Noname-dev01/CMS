@@ -266,10 +266,8 @@ public class PasswordResetService {
             throw new InvalidRequestException(INVALID_TOKEN_MESSAGE);
         }
 
-        member.changePassword(passwordEncoder.encode(newPassword)); // reset 토큰 클리어 포함
-        if (member.getStatus() == MemberStatus.PASSWORD_EXPIRED) {
-            member.changeStatus(MemberStatus.ACTIVE);
-        }
+        // reset 토큰 클리어·passwordChangedAt 갱신·PASSWORD_EXPIRED → ACTIVE 복귀 포함 (도메인 단일 관문)
+        member.changePassword(passwordEncoder.encode(newPassword), now);
 
         // 커밋 성공 후 AFTER_COMMIT 리스너가 대상 세션을 만료한다 — 롤백 시 미소비
         eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));

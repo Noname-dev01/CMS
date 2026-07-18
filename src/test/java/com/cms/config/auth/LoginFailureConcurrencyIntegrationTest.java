@@ -74,6 +74,7 @@ class LoginFailureConcurrencyIntegrationTest {
                 .status(MemberStatus.ACTIVE)
                 .createDate(LocalDateTime.now())
                 .updateDate(LocalDateTime.now())
+                .passwordChangedAt(LocalDateTime.now())
                 .build());
         createdMemberIds.add(saved.getId());
         return saved;

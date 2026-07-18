@@ -130,6 +130,25 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 powershell.exe -Command "\$a = Get-Content -Raw <한글 포함 파일>; \$b = Get-Content -Raw <같은 파일> -Encoding UTF8; \$a -ceq \$b"   # True 기대
 ```
 
+### Flyway 이전 세대 로컬 dev DB에서 통합 테스트 전체가 컨텍스트 로드 실패 (2026-07-18)
+
+**오류 메시지**:
+
+```
+FlywayException: Found non-empty schema(s) `cms` but no schema history table. Use baseline() ...
+IllegalStateException: ApplicationContext failure threshold (1) exceeded (이후 테스트 전부 도미노 실패)
+```
+
+**원인**: 로컬 `cms-db-dev` 컨테이너의 `cms` 스키마가 Flyway 도입(#7, V1 baseline) 이전 세대로 남아 있었다 — `flyway_schema_history` 없음, `visit_log` 테이블 없음, V4 잠금 컬럼 없음. Flyway는 "비어 있지 않은데 이력 없는" 스키마에서 기동을 거부하고, 첫 컨텍스트 로드 실패가 threshold에 걸려 이후 모든 `@SpringBootTest`/`@DataJpaTest`가 같은 메시지로 스킵된다(진짜 원인은 첫 실패 클래스 리포트의 `Caused by`에만 있음). `docs/migration-guide.md`의 일회성 baseline 절차는 "기존 스키마 = V1"일 때만 허용되는데, 이 DB는 V1보다 오래된 드리프트라 체크리스트 기준 중단 대상이었다.
+
+**해결 방법**: dev 데이터가 폐기 가능함을 확인(사용자 승인)한 뒤 스키마를 재생성해 빈 DB 경로로 V1~V7 전체를 실행시켰다. 부수 확인: 테스트를 호스트에서 돌릴 때 `.env.dev`를 그대로 source하면 `DB_URL`이 컨테이너 내부 호스트명(`db`) 기준이라 접속 실패한다 — `DB_URL`은 unset해서 `application-dev.yml` 기본값(`localhost:3307`)을 쓰게 한다.
+
+```bash
+docker exec cms-db-dev mariadb -uroot -p"$MYSQL_ROOT_PASSWORD" \
+  -e "DROP DATABASE cms; CREATE DATABASE cms CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+set -a; source .env.dev; set +a; unset DB_URL; ./gradlew test   # V1~V7 자동 적용 + 전체 통과 확인
+```
+
 ---
 
 ## 빌드 / 의존성

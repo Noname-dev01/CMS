@@ -84,6 +84,7 @@ class LoginFailureLockoutIntegrationTest {
                 .status(MemberStatus.ACTIVE)
                 .createDate(LocalDateTime.now())
                 .updateDate(LocalDateTime.now())
+                .passwordChangedAt(LocalDateTime.now())
                 .build());
         createdMemberIds.add(saved.getId());
         createdUserIds.add(saved.getUserId());

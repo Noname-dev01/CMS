@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
@@ -48,6 +49,7 @@ public class AdminMemberService {
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
+    private final Clock clock;
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.ADMIN_CREATE, targetType = "MEMBER", targetIdExpression = "id")
@@ -61,7 +63,8 @@ public class AdminMemberService {
             throw new DuplicateResourceException("이미 사용 중인 이메일입니다.");
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        // 앱 KST Clock 단일 시간원 — 한 행의 createDate·passwordChangedAt이 다른 시간원을 갖지 않게 통일
+        LocalDateTime now = LocalDateTime.now(clock);
 
         Member saved = memberRepository.save(
                 Member.builder()
@@ -73,6 +76,7 @@ public class AdminMemberService {
                         .status(MemberStatus.ACTIVE)
                         .createDate(now)
                         .updateDate(now)
+                        .passwordChangedAt(now)
                         .resetToken(null)
                         .build()
         );
@@ -278,7 +282,7 @@ public class AdminMemberService {
             throw new InvalidRequestException("현재 비밀번호가 올바르지 않습니다.");
         }
 
-        member.changePassword(passwordEncoder.encode(request.getNewPassword()));
+        member.changePassword(passwordEncoder.encode(request.getNewPassword()), LocalDateTime.now(clock));
 
         // 커밋 후 대상 계정의 모든 세션 만료(본인 포함 — 재로그인 필요).
         // 변경 직전 이전 비밀번호로 인증을 통과한 세션이 살아남는 경합을 닫는다.
