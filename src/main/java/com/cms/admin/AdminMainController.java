@@ -18,6 +18,7 @@ public class AdminMainController {
     @GetMapping
     public String main(Model model) {
         model.addAttribute("stats", dashboardService.getDashboardStats());
+        model.addAttribute("dailyVisitors", dashboardService.getDailyVisitorCounts());
         return "admin/index";
     }
 

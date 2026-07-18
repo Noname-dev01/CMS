@@ -33,6 +33,13 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     /** 인증 당시 비밀번호 해시 — 정상 경로 스냅샷과 일치시킨다 */
     private static final String AUTH_HASH = "{bcrypt}hash-at-authentication";
 
+    /**
+     * UTC 날짜(07-17)와 KST 날짜(07-18)가 갈리는 시각의 고정 Clock —
+     * visitAt이 LocalDateTime.now() 직접 호출로 남아 있으면(UTC CI) 날짜 단언이 실패한다.
+     */
+    private static final java.time.Clock FIXED_KST_CLOCK = java.time.Clock.fixed(
+            java.time.Instant.parse("2026-07-17T20:00:00Z"), java.time.ZoneId.of("Asia/Seoul"));
+
     private VisitLogRepository visitLogRepository;
     private LoginFailureService loginFailureService;
     private PasswordExpiryService passwordExpiryService;
@@ -43,7 +50,8 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
         visitLogRepository = mock(VisitLogRepository.class);
         loginFailureService = mock(LoginFailureService.class);
         passwordExpiryService = mock(PasswordExpiryService.class);
-        handler = new VisitLoggingAuthenticationSuccessHandler(visitLogRepository, loginFailureService, passwordExpiryService);
+        handler = new VisitLoggingAuthenticationSuccessHandler(visitLogRepository, loginFailureService,
+                passwordExpiryService, FIXED_KST_CLOCK);
         // super 클래스의 리다이렉트를 방지하기 위해 DispatcherServlet 없이 동작하도록 설정
         handler.setDefaultTargetUrl("/admin");
         handler.setAlwaysUseDefaultTargetUrl(true);
@@ -141,6 +149,24 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
         handler.onAuthenticationSuccess(req, res, auth);
 
         verifyNoInteractions(visitLogRepository);
+    }
+
+    // ==================== 방문 시각 시간원 검증 ====================
+
+    @Test
+    @DisplayName("visitAt은 주입된 KST Clock 기준으로 기록된다 — UTC JVM에서 LocalDateTime.now() 직접 호출이면 날짜가 달라져 실패")
+    void onAuthSuccess_visitAt_usesInjectedKstClock() throws Exception {
+        Authentication auth = authWith("ROLE_ADMIN");
+
+        ArgumentCaptor<VisitLog> captor = ArgumentCaptor.forClass(VisitLog.class);
+        given(visitLogRepository.save(captor.capture())).willReturn(mock(VisitLog.class));
+
+        handler.onAuthenticationSuccess(requestWithIp("127.0.0.1"), new MockHttpServletResponse(), auth);
+
+        // 고정 Clock의 KST 시각(2026-07-18T05:00) — UTC 기준(07-17T20:00)과 날짜가 다르다
+        assertThat(captor.getValue().getVisitAt())
+                .isEqualTo(java.time.LocalDateTime.now(FIXED_KST_CLOCK))
+                .isEqualTo(java.time.LocalDateTime.of(2026, 7, 18, 5, 0, 0));
     }
 
     // ==================== IP 추출 검증 ====================

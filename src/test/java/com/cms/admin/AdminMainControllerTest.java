@@ -1,5 +1,6 @@
 package com.cms.admin;
 
+import com.cms.admin.dashboard.dto.response.DailyVisitorCountResponse;
 import com.cms.admin.dashboard.dto.response.DashboardStatsResponse;
 import com.cms.admin.dashboard.service.DashboardService;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
@@ -104,6 +105,33 @@ class AdminMainControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("admin/index"))
                 .andExpect(model().attributeExists("stats"));
+    }
+
+    @Test
+    @DisplayName("대시보드 요청 시 서비스가 반환한 방문자 추이 리스트가 dailyVisitors 모델로 그대로 전달된다")
+    @WithMockUser(roles = "ADMIN")
+    void main_passesDailyVisitorsToModel() throws Exception {
+        given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
+        List<DailyVisitorCountResponse> dailyVisitors = List.of(
+                new DailyVisitorCountResponse("2026-07-17", 2L),
+                new DailyVisitorCountResponse("2026-07-18", 5L));
+        given(dashboardService.getDailyVisitorCounts()).willReturn(dailyVisitors);
+
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("dailyVisitors", dailyVisitors));
+    }
+
+    @Test
+    @DisplayName("dailyVisitors가 null이어도 200 렌더링된다 — 타 @WebMvcTest 목 기본값 호환용 방어 케이스 (운영 계약은 서비스 non-null)")
+    @WithMockUser(roles = "ADMIN")
+    void main_nullDailyVisitors_returnsOk() throws Exception {
+        given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
+        given(dashboardService.getDailyVisitorCounts()).willReturn(null);
+
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/index"));
     }
 
     @Test

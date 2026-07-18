@@ -18,6 +18,7 @@ import org.springframework.security.web.authentication.SavedRequestAwareAuthenti
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Optional;
@@ -41,6 +42,7 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
     private final VisitLogRepository visitLogRepository;
     private final LoginFailureService loginFailureService;
     private final PasswordExpiryService passwordExpiryService;
+    private final Clock clock;
 
     @PostConstruct
     public void init() {
@@ -136,10 +138,12 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
     private void tryLogVisit(HttpServletRequest request, Authentication authentication) {
         try {
             String ip = extractClientIp(request);
+            // 앱 KST Clock으로 기록 — 대시보드 집계(오늘 카운트·일별 추이)와 같은 시간원.
+            // JVM 기본 시간대 직접 호출은 UTC 환경에서 자정 전후 방문이 다른 날짜로 집계된다.
             VisitLog visitLog = VisitLog.builder()
                     .visitorUserId(authentication.getName())
                     .requestIp(truncateIp(ip))
-                    .visitAt(LocalDateTime.now())
+                    .visitAt(LocalDateTime.now(clock))
                     .build();
             visitLogRepository.save(visitLog);
         } catch (Exception e) {
