@@ -13,7 +13,7 @@
 | 1 | [PLAN-password-reset.md](PLAN-password-reset.md) — 비밀번호 재설정 메일 발송·토큰 검증 | feat | 없음 | **필요** (공개 경로 4개 추가 = 인가 정책 변경) |
 | 2 | ✅ **완료 (2026-07-14)** [PLAN-login-failure-lockout.md](PLAN-login-failure-lockout.md) — 로그인 연속 실패 시 LOCKED 자동 전이 (+30분 자동 해제) | feat | 없음 (1과 독립) | 승인 완료 (2026-07-14, 로그인 정책 변경) |
 | 3 | ✅ **완료 (2026-07-18)** [PLAN-password-expiry.md](PLAN-password-expiry.md) — 비밀번호 90일 만료(PASSWORD_EXPIRED) 자동 전이 | feat | 1번 완료 필수 (2026-07-14 해소) | 승인 완료 (2026-07-17, 로그인 정책·스키마 변경) |
-| 4 | [PLAN-dashboard-demo-cleanup.md](PLAN-dashboard-demo-cleanup.md) — 대시보드 잔여 SB Admin 2 데모 위젯 정리 | feat/chore | 없음 (언제든 가능) | 불필요 |
+| 4 | ✅ **완료 (2026-07-19)** [PLAN-dashboard-demo-cleanup.md](PLAN-dashboard-demo-cleanup.md) — 대시보드 잔여 SB Admin 2 데모 위젯 정리 + 최근 7일 방문자 차트 | feat/chore | 없음 (언제든 가능) | 불필요 |
 
 ## 공통 규칙 (모든 계획에 적용)
 

@@ -74,7 +74,7 @@ Cross-cutting →  Security, AOP 로깅, 전역 예외 처리
 ```
 com.cms/
 ├── admin/                   # 도메인별 기능 + 공통 페이지 컨트롤러
-│   ├── AdminMainController  # /admin, /admin/login, /admin/login-error 페이지 서빙
+│   ├── AdminMainController  # /admin(대시보드: 통계 카드 4종 + 최근 7일 방문자 차트), /admin/login, /admin/login-error 페이지 서빙
 │   ├── AdminViewAdvice      # admin 패키지 전체에 공통 모델 속성 주입 (currentAdminName, currentAdminProfileImageUrl)
 │   ├── AdminPage            # Thymeleaf 페이지 컨트롤러 마커 어노테이션 — 새 페이지 컨트롤러에 필수 부착 (누락은 AdminPageAnnotationConventionTest가 감지)
 │   ├── AdminSidebarAdvice   # @AdminPage 컨트롤러에만 사이드바 모델 주입 (sidebarMenus, currentUri) — REST API 요청에 메뉴 DB 조회가 나가지 않도록 범위 제한
@@ -200,6 +200,8 @@ com.cms/
 - `accessRole`은 사이드바 **노출** 제어일 뿐이며, 실제 접근 차단은 Security(`@PreAuthorize` 등)가 담당한다
 
 **AdminActionLog**: 관리자 행위 감사 로그. `@AdminActionLogged`가 붙은 메서드 호출 시 성공/실패·요청 IP·URI가 자동 기록된다 (상세는 "AOP 기반 액션 로깅" 참조)
+
+**VisitLog / 대시보드**: ADMIN·MANAGER 로그인 성공 1회 = 방문 1건 (`VisitLoggingAuthenticationSuccessHandler`가 기록 — 저장·집계 모두 KST `Clock` 단일 시간원, 2026-07-18 통일). 대시보드는 통계 카드 4종 + 최근 7일 방문자 라인 차트(`DashboardService.getDailyVisitorCounts()` — 방문 없는 날 0 채움, 집계 실패 시 빈 리스트 폴백으로 500 없이 오류 문구 표시, 페이지 모델 주입 방식이라 REST API 없음). 카드·차트는 개별 조회라 순간 불일치 허용(의도된 eventual consistency). SB Admin 2 데모 위젯은 2026-07-18 전부 제거됨
 
 ## API 문서
 
