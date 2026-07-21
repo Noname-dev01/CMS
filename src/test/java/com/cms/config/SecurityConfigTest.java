@@ -17,15 +17,19 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class})
 @Import({
         SecurityConfig.class,
         SecurityConfigTest.MockConfig.class
@@ -142,6 +146,73 @@ class SecurityConfigTest {
         mockMvc.perform(get("/admin/member/manage"))
                 .andExpect(status().isForbidden());
     }
+
+    // ==================== 공지사항 인가 범위 검증 (adversarial-review/plan/PLAN-notice-board.md 설계 결정 1) ====================
+
+    @Test
+    @DisplayName("MANAGER는 공지사항 관리 페이지(/admin/notice/manage)에 접근이 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_noticeManagePage_ok() throws Exception {
+        mockMvc.perform(get("/admin/notice/manage"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("MANAGER는 공지사항 목록 API(/admin/api/notices)에 접근이 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_noticesApi_ok() throws Exception {
+        mockMvc.perform(get("/admin/api/notices"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("USER는 공지사항 관리 페이지에 접근할 수 없다(403)")
+    @WithMockUser(roles = "USER")
+    void user_noticeManagePage_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/notice/manage"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("USER는 공지사항 목록 API에 접근할 수 없다(403)")
+    @WithMockUser(roles = "USER")
+    void user_noticesApi_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/notices"))
+                .andExpect(status().isForbidden())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    @DisplayName("미인증 사용자의 공지사항 목록 API 호출은 JSON 401")
+    void unauthenticated_noticesApi_json401() throws Exception {
+        mockMvc.perform(get("/admin/api/notices"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    @DisplayName("미인증 사용자의 공지사항 관리 페이지 접근은 로그인 페이지로 리다이렉트")
+    void unauthenticated_noticeManagePage_redirectsToLogin() throws Exception {
+        mockMvc.perform(get("/admin/notice/manage"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
+    @Test
+    @DisplayName("CSRF 토큰 없이 공지사항 생성 POST 시 403")
+    @WithMockUser(roles = "ADMIN")
+    void createNotice_missingCsrf_forbidden() throws Exception {
+        mockMvc.perform(post("/admin/api/notices").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("CSRF 토큰 포함 시 공지사항 생성 POST가 인가를 통과한다(ADMIN)")
+    @WithMockUser(roles = "ADMIN")
+    void createNotice_withCsrf_passesAuthorization() throws Exception {
+        mockMvc.perform(post("/admin/api/notices").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isCreated());
+    }
 }
 
 // ==================== 슬라이스 테스트 전용 스텁 컨트롤러 ====================
@@ -194,5 +265,24 @@ class AdminMemberManageStubController {
     @GetMapping("/admin/member/manage")
     String memberManage() {
         return "manage";
+    }
+}
+
+@TestStubController
+class AdminNoticeStubController {
+
+    @GetMapping("/admin/notice/manage")
+    String noticeManage() {
+        return "notice-manage";
+    }
+
+    @GetMapping("/admin/api/notices")
+    String noticesList() {
+        return "[]";
+    }
+
+    @PostMapping("/admin/api/notices")
+    ResponseEntity<String> noticesCreate() {
+        return ResponseEntity.status(201).body("{}");
     }
 }

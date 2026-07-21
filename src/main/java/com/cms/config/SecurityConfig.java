@@ -51,6 +51,10 @@ public class SecurityConfig {
                         .requestMatchers("/admin").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/admin/member/info").hasAnyRole("ADMIN", "MANAGER")
                         .requestMatchers("/admin/api/members/me", "/admin/api/members/me/**").hasAnyRole("ADMIN", "MANAGER")
+                        // 공지사항 관리: ADMIN·MANAGER 모두 CRUD 가능 (2026-07-20 승인,
+                        // adversarial-review/plan/PLAN-notice-board.md 설계 결정 1)
+                        .requestMatchers("/admin/notice/manage", "/admin/notice/**").hasAnyRole("ADMIN", "MANAGER")
+                        .requestMatchers("/admin/api/notices", "/admin/api/notices/**").hasAnyRole("ADMIN", "MANAGER")
                         // 그 외 admin 전부 ADMIN 전용
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .anyRequest().permitAll()
