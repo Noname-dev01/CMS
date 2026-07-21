@@ -82,7 +82,10 @@ com.cms/
 │   │   └── controller/      #   - AdminMemberController (REST API, /admin/api/*)
 │   │                        #   - AdminMemberPageController (Thymeleaf: /admin/member/{new,manage,info})
 │   ├── log/                 # 관리자 활동 로그 (AOP 기반, `AdminActionLogRepository`)
-│   └── menu/                # 메뉴 도메인 (CRUD·트리 API + 관리 화면 + 동적 사이드바 완성. 기본 메뉴 시드는 Flyway V3 담당)
+│   ├── menu/                # 메뉴 도메인 (CRUD·트리 API + 관리 화면 + 동적 사이드바 완성. 기본 메뉴 시드는 Flyway V3 담당)
+│   └── notice/               # 공지사항 도메인 (첫 콘텐츠 도메인, 관리 화면 CRUD만 — 첨부파일·공개 프론트 제외)
+│       └── controller/      #   - NoticeController (REST API, /admin/api/notices) — ADMIN·MANAGER 공용
+│                            #   - NoticePageController (Thymeleaf: /admin/notice/manage)
 ├── common/         # 공통 API 응답, 예외 클래스
 ├── config/         # Spring Security, QueryDSL 설정
 │   ├── auth/       # 인증·인가 컴포넌트 (AdminSecurityService, CustomUserDetailsService, CustomUserDetails)
@@ -172,6 +175,7 @@ com.cms/
 | `/admin/password-reset`, `/admin/password-reset/confirm` | 공개 (비밀번호 재설정 페이지, 2026-07-13 승인) |
 | `/admin/api/password-reset-requests`, `/admin/api/password-resets` | 공개 (비밀번호 재설정 API — CSRF 토큰은 필요) |
 | `/swagger-ui.html`, `/swagger-ui/**`, `/v3/api-docs`, `/v3/api-docs/**` | `ROLE_ADMIN` 필수 |
+| `/admin/notice/**`, `/admin/api/notices`, `/admin/api/notices/**` | `ROLE_ADMIN`·`ROLE_MANAGER` (공지사항 관리, 2026-07-20 승인) |
 | `/admin/**` | `ROLE_ADMIN` 필수 |
 | `/actuator/health`, `/actuator/info` | 공개 (별도 `requestMatchers` 없음 — `anyRequest().permitAll()`에 포함) |
 | 그 외 모든 경로 | 공개 (`anyRequest().permitAll()`) |
@@ -199,6 +203,15 @@ com.cms/
 - 기본 메뉴 시드는 Flyway `V3__seed_default_menus.sql`이 담당한다 — menu 테이블이 **완전히 비었을 때만** 전체 시드하며, 행이 하나라도 있으면 건드리지 않는다 (보충 기능 없음)
 - `accessRole`은 사이드바 **노출** 제어일 뿐이며, 실제 접근 차단은 Security(`@PreAuthorize` 등)가 담당한다
 
+**Notice** (공지사항, 2026-07-20 구현 완료 — 첫 콘텐츠 도메인)
+- 필드: `title`(200자)·`content`(TEXT, 최대 10,000자)·`useYn`(노출 여부)·`deleted`(소프트 삭제)·`authorId`(작성 시점 로그인 userId 문자열 스냅샷, member FK 아님) — 5개 컬럼 모두 NOT NULL
+- `useYn`(노출)과 `deleted`(소프트 삭제)는 **별도 컬럼**이다 — 메뉴처럼 하나로 겸치지 않는다. 목록·상세·수정·삭제는 항상 `deleted=false` 필터
+- **PATCH·DELETE는 비관적 락**(`NoticeRepository.findByIdAndDeletedFalseForUpdate` — 명시적 `@Query` + `@Lock(PESSIMISTIC_WRITE)`, `MenuRepository.findByIdForUpdate`와 동일 패턴)으로 직렬화한다. 락 없이는 DELETE 커밋 후 먼저 읽은 PATCH가 삭제 상태를 되돌리는 lost update가 발생한다. `DELETE`도 `NoticeResponse`를 반환(컨트롤러가 버리고 204) — `AdminActionLogAspect`가 반환 객체 getter에서만 targetId를 추출하므로 `void`면 감사 로그 targetId가 항상 null이 된다(`MenuService.deactivateMenu()`와 동일 이유)
+- 목록(`GET /admin/api/notices`)은 `NoticeSummaryResponse`(본문 제외), 상세·생성·수정·삭제는 `NoticeResponse`(본문 포함) — 목록 응답의 JSON 직렬화·전송량만 줄이며, QueryDSL 조회 자체(DB에서 content 읽기)는 줄지 않는다
+- 목록 페이지 크기는 100으로 clamp(`NoticeService.MAX_PAGE_SIZE`, `AdminActionLogQueryService`와 동일 패턴)
+- 인가는 `ROLE_ADMIN`·`ROLE_MANAGER` 공용(작성자별 소유권 없음 — 누구나 서로 수정·삭제 가능). 사이드바 메뉴는 `V9__seed_notice_menu.sql`로 **멱등(WHERE NOT EXISTS) 자동 등록** — 다른 메뉴처럼 API 수동 등록이 아님(신규 환경마다 등록을 빠뜨리는 결함 방지)
+- 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-notice-board.md` 참조
+
 **AdminActionLog**: 관리자 행위 감사 로그. `@AdminActionLogged`가 붙은 메서드 호출 시 성공/실패·요청 IP·URI가 자동 기록된다 (상세는 "AOP 기반 액션 로깅" 참조)
 
 **VisitLog / 대시보드**: ADMIN·MANAGER 로그인 성공 1회 = 방문 1건 (`VisitLoggingAuthenticationSuccessHandler`가 기록 — 저장·집계 모두 KST `Clock` 단일 시간원, 2026-07-18 통일). 대시보드는 통계 카드 4종 + 최근 7일 방문자 라인 차트(`DashboardService.getDailyVisitorCounts()` — 방문 없는 날 0 채움, 집계 실패 시 빈 리스트 폴백으로 500 없이 오류 문구 표시, 페이지 모델 주입 방식이라 REST API 없음). 카드·차트는 개별 조회라 순간 불일치 허용(의도된 eventual consistency). SB Admin 2 데모 위젯은 2026-07-18 전부 제거됨
@@ -225,6 +238,11 @@ com.cms/
 - `POST /admin/api/menus` — 메뉴 생성 (201 Created); `accessRole` 누락 시 `ALL` 기본화
 - `PATCH /admin/api/menus/{id}` — 메뉴 부분 수정 (null 필드는 기존값 유지, `upMenuNo` 변경 불가)
 - `DELETE /admin/api/menus/{id}` — 메뉴 비활성화 (소프트 삭제, 204 No Content)
+- `GET /admin/api/notices` — 공지사항 목록 (페이징/검색, `keyword`·`useYn` 필터, size는 100으로 clamp)
+- `GET /admin/api/notices/{id}` — 공지사항 상세 (본문 포함)
+- `POST /admin/api/notices` — 공지사항 생성 (201 Created); 작성자는 로그인 사용자로 자동 채움
+- `PATCH /admin/api/notices/{id}` — 공지사항 부분 수정 (null 필드는 기존값 유지, 값이 오면 공백 거부, 전체 null은 400)
+- `DELETE /admin/api/notices/{id}` — 공지사항 소프트 삭제 (204 No Content)
 
 ## 테스트 규칙
 

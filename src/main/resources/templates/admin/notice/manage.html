@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>공지사항 관리</title>
+</head>
+<body id="page-top">
+<link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
+<style>
+    /* 본문(content)은 줄바꿈이 있는 긴 텍스트라 상세 뷰에서 pre-wrap으로 표시한다. */
+    .notice-content-view {
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+</style>
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">공지사항 관리</h1>
+                    <div class="page-actions">
+                        <button type="button" class="btn btn-primary btn-sm shadow-sm" id="btnNewNotice">
+                            <i class="fas fa-plus fa-sm mr-1"></i>새 공지
+                        </button>
+                    </div>
+                </div>
+
+                <div class="admin-manage-shell">
+                    <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+
+                    <div class="card shadow mb-0 admin-panel">
+                        <div class="card-header">
+                            <div>
+                                <h6>검색 조건</h6>
+                                <p>제목, 노출 여부로 공지사항을 조회합니다.</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <form id="searchForm">
+                                <div class="filter-grid">
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchKeyword">제목</label>
+                                        <input type="text" class="form-control" id="searchKeyword" name="keyword" maxlength="200">
+                                    </div>
+                                    <div class="form-group mb-0">
+                                        <label class="form-label" for="searchUseYn">노출 여부</label>
+                                        <select class="form-control" id="searchUseYn" name="useYn">
+                                            <option value="">전체</option>
+                                            <option value="true">노출</option>
+                                            <option value="false">비노출</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="filter-actions mt-4">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-search fa-sm mr-1"></i>조회
+                                    </button>
+                                    <button type="button" class="btn btn-light border" id="btnReset">
+                                        초기화
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="card shadow mb-0 admin-panel">
+                        <div class="card-header">
+                            <div>
+                                <h6>공지사항 목록</h6>
+                                <p>제목을 클릭하면 상세 정보를 모달에서 확인할 수 있습니다.</p>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="summary-bar">
+                                <div class="summary-text" id="summaryText">총 <strong>0</strong>건</div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>제목</th>
+                                        <th>작성자</th>
+                                        <th>노출 여부</th>
+                                        <th>작성일</th>
+                                        <th class="text-center">상세</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="noticeTableBody">
+                                    <tr>
+                                        <td colspan="6" class="text-center text-muted py-4">조회 중입니다.</td>
+                                    </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div id="emptyState" class="empty-state d-none mt-3">
+                                조회 결과가 없습니다.
+                            </div>
+
+                            <div class="pagination-bar">
+                                <nav aria-label="공지사항 페이지 목록">
+                                    <ul class="pagination mb-0" id="pagination"></ul>
+                                </nav>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<div class="modal fade admin-detail-modal" id="noticeDetailModal" tabindex="-1" role="dialog" aria-labelledby="noticeDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="detail-hero">
+                    <div class="detail-hero-copy">
+                        <h5 class="modal-title" id="noticeDetailModalLabel">공지사항</h5>
+                        <p id="modalModeLabel">공지사항 정보를 확인·수정합니다.</p>
+                    </div>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="detailAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="detailSuccess" class="alert alert-success d-none" role="alert"></div>
+                <div id="detailLoading" class="detail-loading d-none">상세 정보를 불러오는 중입니다.</div>
+
+                <div id="detailContent" class="detail-grid d-none">
+                    <div class="detail-item">
+                        <span class="label">제목</span>
+                        <div class="value" id="viewTitle"></div>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">작성자</span>
+                        <div class="value" id="viewAuthor"></div>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">노출 여부</span>
+                        <div class="value" id="viewUseYn"></div>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">작성일</span>
+                        <div class="value" id="viewCreateDate"></div>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">수정일</span>
+                        <div class="value" id="viewUpdateDate"></div>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">본문</span>
+                        <div class="value notice-content-view" id="viewContent"></div>
+                    </div>
+                </div>
+
+                <form id="noticeForm">
+                    <div class="form-group">
+                        <label class="form-label" for="formTitle">제목</label>
+                        <input type="text" class="form-control" id="formTitle" maxlength="200">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="formContent">본문</label>
+                        <textarea class="form-control" id="formContent" rows="8" maxlength="10000"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="formUseYn">
+                            <label class="custom-control-label" for="formUseYn">노출</label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger d-none" id="btnDelete">삭제</button>
+                <button type="button" class="btn btn-primary d-none" id="btnEditMode">
+                    <i class="fas fa-pen fa-sm mr-1"></i>수정
+                </button>
+                <button type="button" class="btn btn-primary d-none" id="btnSave">저장</button>
+                <button type="button" class="btn btn-light border d-none" id="btnCancelEdit">취소</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+
+<script>
+    const searchForm = document.getElementById("searchForm");
+    const resetButton = document.getElementById("btnReset");
+    const tableBody = document.getElementById("noticeTableBody");
+    const pageAlert = document.getElementById("pageAlert");
+    const summaryText = document.getElementById("summaryText");
+    const pagination = document.getElementById("pagination");
+    const emptyState = document.getElementById("emptyState");
+    const btnNewNotice = document.getElementById("btnNewNotice");
+
+    const modalEl = document.getElementById("noticeDetailModal");
+    const modalModeLabel = document.getElementById("modalModeLabel");
+    const detailAlert = document.getElementById("detailAlert");
+    const detailSuccess = document.getElementById("detailSuccess");
+    const detailLoading = document.getElementById("detailLoading");
+    const detailContent = document.getElementById("detailContent");
+    const noticeForm = document.getElementById("noticeForm");
+
+    const viewTitle = document.getElementById("viewTitle");
+    const viewAuthor = document.getElementById("viewAuthor");
+    const viewUseYn = document.getElementById("viewUseYn");
+    const viewCreateDate = document.getElementById("viewCreateDate");
+    const viewUpdateDate = document.getElementById("viewUpdateDate");
+    const viewContent = document.getElementById("viewContent");
+
+    const formTitle = document.getElementById("formTitle");
+    const formContent = document.getElementById("formContent");
+    const formUseYn = document.getElementById("formUseYn");
+
+    const btnDelete = document.getElementById("btnDelete");
+    const btnEditMode = document.getElementById("btnEditMode");
+    const btnSave = document.getElementById("btnSave");
+    const btnCancelEdit = document.getElementById("btnCancelEdit");
+
+    const pageState = { page: 0, size: 20, totalPages: 0 };
+
+    // mode: 'view'(상세 조회) | 'edit'(기존 공지 수정) | 'create'(신규 생성)
+    let mode = null;
+    let currentDetail = null;
+    // 진행 중인 목록 조회 요청 — 검색·페이지 이동·저장 후 재조회가 겹칠 때 늦게 도착한
+    // 오래된 응답이 최신 상태를 덮어쓰지 않도록 이전 요청을 취소한다.
+    let currentLoadController = null;
+    // 진행 중인 상세 조회 요청 — 모달을 닫고 다른 공지를 열거나 새 공지 작성으로 전환할 때,
+    // 늦게 도착한 이전 상세 응답이 currentDetail을 오염시켜 엉뚱한 공지가 수정·삭제되는
+    // 것을 막는다(단순 UI 오류가 아니라 잘못된 리소스에 쓰기 작업이 나갈 수 있는 위험).
+    // 저장(POST/PATCH)·삭제(DELETE) 요청은 이 컨트롤러의 signal로 중단하지 않는다 — abort는
+    // 클라이언트의 응답 대기만 멈출 뿐 이미 서버에 도달한 트랜잭션은 계속 커밋될 수 있어,
+    // 중단 직후 목록을 재조회하면 커밋보다 먼저 끝나 오래된 목록이 남는 경쟁 상태가 생긴다.
+    // 대신 요청 시작 시점의 이 값을 identity 토큰으로 캡처해두고, 응답이 실제로 도착한 뒤
+    // 컨텍스트가 바뀌었는지(토큰 불일치) 판단해 화면 반영 여부만 가른다.
+    let currentDetailController = null;
+
+    function getCsrfHeaders() {
+        const token = document.querySelector('meta[name="_csrf"]');
+        const header = document.querySelector('meta[name="_csrf_header"]');
+        const headers = { "Content-Type": "application/json" };
+        if (token && header) {
+            headers[header.content || "X-CSRF-TOKEN"] = token.content;
+        }
+        return headers;
+    }
+
+    function showPageError(message) {
+        pageAlert.textContent = message;
+        pageAlert.classList.remove("d-none");
+    }
+
+    function hidePageError() {
+        pageAlert.classList.add("d-none");
+        pageAlert.textContent = "";
+    }
+
+    function showDetailError(message) {
+        detailAlert.textContent = message;
+        detailAlert.classList.remove("d-none");
+    }
+
+    function hideDetailError() {
+        detailAlert.classList.add("d-none");
+        detailAlert.textContent = "";
+    }
+
+    function showDetailSuccess(message) {
+        // message는 호출부에서 이미 escapeHtml() 처리된 값만 전달한다.
+        detailSuccess.innerHTML = message;
+        detailSuccess.classList.remove("d-none");
+    }
+
+    function hideDetailSuccess() {
+        detailSuccess.classList.add("d-none");
+        detailSuccess.innerHTML = "";
+    }
+
+    async function extractErrorMessage(response, fallbackMessage) {
+        try {
+            const body = await response.json();
+            return body.message || fallbackMessage;
+        } catch (e) {
+            return fallbackMessage;
+        }
+    }
+
+    function getRequestErrorMessage(error, fallbackMessage) {
+        if (error && error.name === "AbortError") {
+            return "요청이 취소되었습니다.";
+        }
+        if (error instanceof TypeError) {
+            return "네트워크 연결을 확인해주세요.";
+        }
+        return error && error.message ? error.message : fallbackMessage;
+    }
+
+    // 목록 테이블(innerHTML)에 삽입하는 값은 반드시 이 함수로 이스케이프한다.
+    // 상세 모달 값은 textContent를 사용하므로 별도 이스케이프가 불필요하다.
+    function escapeHtml(value) {
+        return String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function formatDate(value) {
+        if (!value) {
+            return "-";
+        }
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return value;
+        }
+        return new Intl.DateTimeFormat("ko-KR", {
+            year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"
+        }).format(date);
+    }
+
+    function buildQueryString(page) {
+        const params = new URLSearchParams();
+        const formData = new FormData(searchForm);
+
+        formData.forEach((value, key) => {
+            const trimmed = typeof value === "string" ? value.trim() : value;
+            if (trimmed) {
+                params.append(key, trimmed);
+            }
+        });
+
+        params.set("page", String(page));
+        params.set("size", String(pageState.size));
+        return params.toString();
+    }
+
+    function renderSummary(data) {
+        const currentPage = data.totalPages === 0 ? 0 : data.page + 1;
+        summaryText.innerHTML = "총 <strong>" + data.totalElements + "</strong>건 · " +
+            currentPage + " / " + Math.max(data.totalPages, 1) + " 페이지";
+    }
+
+    function renderTable(items) {
+        if (!items || items.length === 0) {
+            tableBody.innerHTML = "";
+            emptyState.classList.remove("d-none");
+            return;
+        }
+
+        emptyState.classList.add("d-none");
+
+        // title·authorId는 사용자 입력값이므로 innerHTML 삽입 전 반드시 escapeHtml()을 거친다
+        // (저장형 XSS 방어 — 설계 결정 5).
+        tableBody.innerHTML = items.map(item => {
+            return "<tr>" +
+                "<td>" + escapeHtml(item.id) + "</td>" +
+                "<td><button type=\"button\" class=\"btn btn-link p-0 cell-link js-detail\" data-id=\"" + escapeHtml(item.id) + "\">" + escapeHtml(item.title) + "</button></td>" +
+                "<td>" + escapeHtml(item.authorId || "-") + "</td>" +
+                "<td>" + (item.useYn ? "<span class=\"badge-status badge-status-active\">노출</span>" : "<span class=\"badge-status badge-status-disabled\">비노출</span>") + "</td>" +
+                "<td>" + escapeHtml(formatDate(item.createDate)) + "</td>" +
+                "<td class=\"text-center\"><button type=\"button\" class=\"btn btn-outline-primary btn-sm js-detail\" data-id=\"" + escapeHtml(item.id) + "\">상세</button></td>" +
+                "</tr>";
+        }).join("");
+    }
+
+    function renderPagination(data) {
+        pagination.innerHTML = "";
+        if (!data.totalPages || data.totalPages <= 1) {
+            return;
+        }
+
+        const fragment = [];
+        const startPage = Math.max(0, data.page - 2);
+        const endPage = Math.min(data.totalPages - 1, startPage + 4);
+
+        fragment.push(
+            "<li class=\"page-item " + (data.page === 0 ? "disabled" : "") + "\">" +
+            "<button type=\"button\" class=\"page-link\" data-page=\"" + Math.max(data.page - 1, 0) + "\">이전</button></li>"
+        );
+        for (let i = startPage; i <= endPage; i += 1) {
+            fragment.push(
+                "<li class=\"page-item " + (i === data.page ? "active" : "") + "\">" +
+                "<button type=\"button\" class=\"page-link\" data-page=\"" + i + "\">" + (i + 1) + "</button></li>"
+            );
+        }
+        fragment.push(
+            "<li class=\"page-item " + (data.last ? "disabled" : "") + "\">" +
+            "<button type=\"button\" class=\"page-link\" data-page=\"" + Math.min(data.page + 1, data.totalPages - 1) + "\">다음</button></li>"
+        );
+
+        pagination.innerHTML = fragment.join("");
+    }
+
+    function setLoadingRow() {
+        emptyState.classList.add("d-none");
+        tableBody.innerHTML = "<tr><td colspan=\"6\" class=\"text-center text-muted py-4\">조회 중입니다.</td></tr>";
+    }
+
+    async function loadNotices(page) {
+        hidePageError();
+        setLoadingRow();
+
+        // 이전 목록 조회가 아직 진행 중이면 취소한다 — 그렇지 않으면 늦게 도착한 오래된
+        // 응답이 이후 요청(예: 삭제 후 재조회)의 결과를 덮어쓸 수 있다.
+        if (currentLoadController) {
+            currentLoadController.abort();
+        }
+        const controller = new AbortController();
+        currentLoadController = controller;
+
+        try {
+            const response = await fetch("/admin/api/notices?" + buildQueryString(page), { signal: controller.signal });
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "공지사항 목록 조회에 실패했습니다."));
+            }
+
+            const data = await response.json();
+
+            // 삭제 등으로 총 페이지 수가 줄어 요청한 페이지가 범위를 벗어나면
+            // 마지막 유효 페이지로 재조회한다(빈 페이지 표시 방지).
+            if (data.totalPages > 0 && data.page >= data.totalPages) {
+                await loadNotices(data.totalPages - 1);
+                return;
+            }
+
+            pageState.page = data.page;
+            pageState.totalPages = data.totalPages;
+
+            renderSummary(data);
+            renderTable(data.content || []);
+            renderPagination(data);
+        } catch (error) {
+            if (error && error.name === "AbortError") {
+                // 사용자가 새 요청(검색·페이지 이동 등)을 트리거해 이전 요청을 취소한 것 —
+                // 정상 동작이므로 오류로 표시하지 않는다.
+                return;
+            }
+            tableBody.innerHTML = "<tr><td colspan=\"6\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
+            pagination.innerHTML = "";
+            showPageError(getRequestErrorMessage(error, "공지사항 목록 조회 중 오류가 발생했습니다."));
+        }
+    }
+
+    function resetModalAlerts() {
+        hideDetailError();
+        hideDetailSuccess();
+    }
+
+    function showViewMode() {
+        // 상세 조회가 abort된 채로 남아있던 로딩 문구가 다음 화면과 겹쳐 보이지 않도록
+        // 뷰 전환 시점에 항상 정리한다.
+        detailLoading.classList.add("d-none");
+        detailContent.classList.remove("d-none");
+        noticeForm.classList.add("d-none");
+        btnEditMode.classList.remove("d-none");
+        btnDelete.classList.remove("d-none");
+        btnSave.classList.add("d-none");
+        btnCancelEdit.classList.add("d-none");
+    }
+
+    function showFormMode() {
+        // 상세 조회가 abort된 채로 남아있던 로딩 문구가 작성/수정 폼과 겹쳐 보이지 않도록 정리하고,
+        // 이전 저장 요청이 남겨둔 disabled 상태와 무관하게 버튼을 항상 새로 사용 가능하게 만든다
+        // (토큰이 불일치해 finally가 재활성화를 건너뛴 경우의 안전장치).
+        detailLoading.classList.add("d-none");
+        detailContent.classList.add("d-none");
+        noticeForm.classList.remove("d-none");
+        btnEditMode.classList.add("d-none");
+        btnDelete.classList.add("d-none");
+        btnSave.classList.remove("d-none");
+        btnSave.disabled = false;
+        btnCancelEdit.classList.remove("d-none");
+    }
+
+    // 상세 뷰는 textContent만 사용한다 — HTML로 해석되지 않으므로 별도 이스케이프가
+    // 필요 없다(innerHTML을 절대 쓰지 않는다). 저장형 XSS 방어 — 설계 결정 5.
+    function renderView(data) {
+        viewTitle.textContent = data.title || "-";
+        viewAuthor.textContent = data.authorId || "-";
+        viewUseYn.textContent = data.useYn ? "노출" : "비노출";
+        viewCreateDate.textContent = formatDate(data.createDate);
+        viewUpdateDate.textContent = formatDate(data.updateDate);
+        viewContent.textContent = data.content || "";
+    }
+
+    // 폼 필드는 .value 대입만 사용한다 — HTML로 해석되지 않는다.
+    function fillForm(data) {
+        formTitle.value = data ? (data.title || "") : "";
+        formContent.value = data ? (data.content || "") : "";
+        formUseYn.checked = data ? !!data.useYn : true;
+    }
+
+    function abortPendingDetailRequest() {
+        if (currentDetailController) {
+            currentDetailController.abort();
+            currentDetailController = null;
+        }
+    }
+
+    function openCreateModal() {
+        resetModalAlerts();
+        abortPendingDetailRequest();
+        // 생성 모드는 모달을 열 때 fetch가 없지만, 저장(POST) 완료 시 이 컨트롤러를 identity
+        // 토큰으로 비교해 모달이 그대로인지 판단하기 위해 미리 만들어둔다.
+        currentDetailController = new AbortController();
+        mode = "create";
+        currentDetail = null;
+        modalModeLabel.textContent = "새 공지사항을 작성합니다.";
+        fillForm(null);
+        showFormMode();
+        $(modalEl).modal("show");
+    }
+
+    async function openDetailModal(id) {
+        resetModalAlerts();
+        abortPendingDetailRequest();
+        const controller = new AbortController();
+        currentDetailController = controller;
+
+        mode = "view";
+        currentDetail = null;
+        detailContent.classList.add("d-none");
+        noticeForm.classList.add("d-none");
+        detailLoading.classList.remove("d-none");
+        btnEditMode.classList.add("d-none");
+        btnDelete.classList.add("d-none");
+        btnSave.classList.add("d-none");
+        btnCancelEdit.classList.add("d-none");
+        modalModeLabel.textContent = "공지사항 정보를 확인·수정합니다.";
+
+        $(modalEl).modal("show");
+
+        try {
+            const response = await fetch("/admin/api/notices/" + encodeURIComponent(id), { signal: controller.signal });
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "공지사항 상세 조회에 실패했습니다."));
+            }
+
+            const data = await response.json();
+            // 응답을 받는 사이 사용자가 다른 공지를 열거나 새 공지 작성으로 전환했다면
+            // (컨트롤러가 이미 교체됨) 이 오래된 응답을 화면·상태에 반영하지 않는다.
+            if (controller !== currentDetailController) {
+                return;
+            }
+            currentDetail = data;
+            detailLoading.classList.add("d-none");
+            renderView(data);
+            showViewMode();
+        } catch (error) {
+            if (error && error.name === "AbortError") {
+                return;
+            }
+            detailLoading.classList.add("d-none");
+            showDetailError(getRequestErrorMessage(error, "공지사항 상세 조회 중 오류가 발생했습니다."));
+        }
+    }
+
+    btnNewNotice.addEventListener("click", openCreateModal);
+
+    tableBody.addEventListener("click", function (event) {
+        const button = event.target.closest(".js-detail");
+        if (!button) {
+            return;
+        }
+        openDetailModal(button.dataset.id);
+    });
+
+    btnEditMode.addEventListener("click", function () {
+        mode = "edit";
+        hideDetailError();
+        hideDetailSuccess();
+        fillForm(currentDetail);
+        showFormMode();
+    });
+
+    btnCancelEdit.addEventListener("click", function () {
+        hideDetailError();
+        if (mode === "edit" && currentDetail) {
+            mode = "view";
+            renderView(currentDetail);
+            showViewMode();
+        } else {
+            $(modalEl).modal("hide");
+        }
+    });
+
+    async function saveCreate() {
+        const payload = {
+            title: formTitle.value.trim(),
+            content: formContent.value.trim(),
+            useYn: formUseYn.checked
+        };
+
+        const response = await fetch("/admin/api/notices", {
+            method: "POST",
+            headers: getCsrfHeaders(),
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            throw new Error(await extractErrorMessage(response, "공지사항 생성에 실패했습니다."));
+        }
+        return response.json();
+    }
+
+    /** 기존 값과 달라진 필드만 담은 PATCH 페이로드를 만든다 (null 필드는 기존값 유지 시맨틱) */
+    function buildEditPayload() {
+        const payload = {};
+        const title = formTitle.value.trim();
+        const content = formContent.value.trim();
+
+        if (title !== (currentDetail.title || "")) {
+            payload.title = title;
+        }
+        if (content !== (currentDetail.content || "")) {
+            payload.content = content;
+        }
+        if (formUseYn.checked !== !!currentDetail.useYn) {
+            payload.useYn = formUseYn.checked;
+        }
+        return payload;
+    }
+
+    async function saveEdit() {
+        const payload = buildEditPayload();
+        if (Object.keys(payload).length === 0) {
+            throw new Error("변경된 내용이 없습니다.");
+        }
+
+        const response = await fetch("/admin/api/notices/" + encodeURIComponent(currentDetail.id), {
+            method: "PATCH",
+            headers: getCsrfHeaders(),
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            throw new Error(await extractErrorMessage(response, "공지사항 수정에 실패했습니다."));
+        }
+        return response.json();
+    }
+
+    btnSave.addEventListener("click", async function () {
+        hideDetailError();
+        hideDetailSuccess();
+        btnSave.disabled = true;
+        // 응답이 도착했을 때 모달이 그대로인지 판단하기 위한 identity 토큰 —
+        // 쓰기 요청 자체는 중단하지 않고 끝까지 서버 응답을 기다린다.
+        const requestToken = currentDetailController;
+
+        try {
+            const data = mode === "create" ? await saveCreate() : await saveEdit();
+            loadNotices(pageState.page);
+            if (requestToken !== currentDetailController) {
+                // 응답을 기다리는 사이 모달이 닫히거나 다른 공지로 전환됨 — 이미 무관해진
+                // 화면이므로 뷰 갱신·성공 메시지는 건너뛴다. 목록은 위에서 이미 최신화했다.
+                return;
+            }
+            currentDetail = data;
+            mode = "view";
+            renderView(data);
+            showViewMode();
+            showDetailSuccess("저장되었습니다. (" + escapeHtml(data.title) + ")");
+        } catch (error) {
+            if (requestToken !== currentDetailController) {
+                // 이미 전환된 화면에는 오류를 표시하지 않는다 — 저장 실패는 서버에 반영되지
+                // 않았으므로 목록 재조회도 필요 없다.
+                return;
+            }
+            showDetailError(getRequestErrorMessage(error, "저장 중 오류가 발생했습니다."));
+        } finally {
+            // btnSave는 모달 컨텍스트와 무관하게 공유되는 버튼이다 — 이전 요청의 finally가
+            // 무조건 재활성화하면, 그 사이 다른 공지로 전환해 새로 시작된 저장 요청이 아직
+            // 진행 중인데도 버튼이 눌려 중복 제출될 수 있다.
+            if (requestToken === currentDetailController) {
+                btnSave.disabled = false;
+            }
+        }
+    });
+
+    btnDelete.addEventListener("click", async function () {
+        if (!currentDetail) {
+            return;
+        }
+        if (!confirm("선택한 공지사항을 삭제하시겠습니까?")) {
+            return;
+        }
+
+        hideDetailError();
+        hideDetailSuccess();
+        // save와 동일한 identity 토큰 — 삭제 요청도 중단하지 않고 끝까지 기다린 뒤 모달이
+        // 그대로인지 비교한다.
+        const requestToken = currentDetailController;
+        const noticeId = currentDetail.id;
+
+        try {
+            const response = await fetch("/admin/api/notices/" + encodeURIComponent(noticeId), {
+                method: "DELETE",
+                headers: getCsrfHeaders()
+            });
+            if (!response.ok && response.status !== 204) {
+                throw new Error(await extractErrorMessage(response, "공지사항 삭제에 실패했습니다."));
+            }
+
+            loadNotices(pageState.page);
+            if (requestToken === currentDetailController) {
+                $(modalEl).modal("hide");
+            }
+        } catch (error) {
+            if (requestToken !== currentDetailController) {
+                // 이미 전환된 화면에는 오류를 표시하지 않는다.
+                return;
+            }
+            showDetailError(getRequestErrorMessage(error, "공지사항 삭제 중 오류가 발생했습니다."));
+        }
+    });
+
+    // formTitle은 단일 텍스트 입력이고 btnSave는 type="button"이라 폼 내 submit 버튼이
+    // 없다 — 이 경우 HTML 스펙상 Enter가 암시적 제출을 유발해 현재 페이지로 이동하며
+    // 작성·수정 중인 입력을 날려버릴 수 있으므로 명시적으로 막는다.
+    noticeForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+    });
+
+    searchForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        loadNotices(0);
+    });
+
+    resetButton.addEventListener("click", function () {
+        searchForm.reset();
+        loadNotices(0);
+    });
+
+    pagination.addEventListener("click", function (event) {
+        const button = event.target.closest("button[data-page]");
+        if (!button || button.parentElement.classList.contains("disabled") || button.parentElement.classList.contains("active")) {
+            return;
+        }
+        loadNotices(Number(button.dataset.page));
+    });
+
+    $(modalEl).on("hidden.bs.modal", function () {
+        abortPendingDetailRequest();
+        mode = null;
+        currentDetail = null;
+        resetModalAlerts();
+    });
+
+    loadNotices(0);
+</script>
+
+</body>
+</html>
