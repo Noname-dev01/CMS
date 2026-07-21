@@ -147,7 +147,7 @@ class SecurityConfigTest {
                 .andExpect(status().isForbidden());
     }
 
-    // ==================== 공지사항 인가 범위 검증 (adversarial-review/plan/PLAN-notice-board.md 설계 결정 1) ====================
+    // ==================== 공지사항 인가 범위 검증 ====================
 
     @Test
     @DisplayName("MANAGER는 공지사항 관리 페이지(/admin/notice/manage)에 접근이 가능하다")

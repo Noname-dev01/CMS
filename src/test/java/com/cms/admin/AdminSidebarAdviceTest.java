@@ -32,7 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * AdminSidebarAdvice가 @AdminPage 페이지 컨트롤러 전체에 sidebarMenus·currentUri를
- * 주입하는지 대표 페이지 4곳으로 검증한다. (Codex 리뷰 지적 반영: advice 적용 누락 회귀 감지)
+ * 주입하는지 대표 페이지 4곳으로 검증한다.
  */
 @WebMvcTest(controllers = {
         AdminMainController.class,

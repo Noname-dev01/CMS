@@ -53,17 +53,14 @@ public class CustomUserDetailsService implements UserDetailsService {
     private void validateMemberStatus(Member member) {
         MemberStatus status = member.getStatus();
 
-        //비활성화 또는 삭제된 계정
         if (status == MemberStatus.DISABLED || status == MemberStatus.DELETED){
             throw new DisabledException("비활성화된 계정입니다.");
         }
 
-        //잠긴 계정
         if (status == MemberStatus.LOCKED){
             throw new LockedException("잠긴 계정입니다.");
         }
 
-        //비밀번호 만료 계정
         if (status == MemberStatus.PASSWORD_EXPIRED) {
             throw new CredentialsExpiredException("비밀번호가 만료된 계정입니다.");
         }
