@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 비관적 락(PESSIMISTIC_WRITE)이 실제 트랜잭션에서 부모 row를 잠가 경쟁 조건을 직렬화하는지
  * 검증하는 통합 테스트. Mockito 기반 서비스 테스트는 findByIdForUpdate 호출 여부만 확인할 뿐
- * 실제 직렬화를 증명하지 못하므로(Codex 적대적 리뷰 지적) 실제 MariaDB로 검증한다.
+ * 실제 직렬화를 증명하지 못하므로 실제 MariaDB로 검증한다.
  *
  * 두 스레드가 각자 독립 트랜잭션과 비관적 락을 획득해야 하므로 이 테스트 클래스/메서드에는
  * {@code @Transactional}을 붙이지 않는다. 롤백이 없으므로 생성한 row는 {@link #cleanUp()}에서

@@ -475,7 +475,7 @@ class AdminMemberControllerTest {
     }
 
     @Test
-    @DisplayName("이메일이 빈 문자열/공백뿐이면 400 VALIDATION_ERROR — 빈 이메일 저장 차단 (Codex 리뷰 P2)")
+    @DisplayName("이메일이 빈 문자열/공백뿐이면 400 VALIDATION_ERROR — 빈 이메일 저장 차단")
     @WithMockUser(roles = "ADMIN")
     void updateAdminMember_blankEmail_returns400() throws Exception {
         for (String blankEmail : new String[]{"\"\"", "\"   \""}) {

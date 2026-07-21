@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 컨벤션 검증: com.cms.admin의 모든 페이지 컨트롤러(@Controller, @RestController 제외)는
  * {@link AdminPage}를 가져야 한다. 누락 시 AdminSidebarAdvice가 적용되지 않아
  * 해당 페이지의 사이드바가 조용히 비어 보이는 회귀를 컴파일/런타임 오류 없이 놓치게 된다.
- * (Codex 리뷰 지적 반영: assignableTypes 수동 열거 → 마커 어노테이션 + 이 테스트)
+ * (개별 컨트롤러를 수동 열거하는 대신 마커 어노테이션과 이 컨벤션 테스트로 전수 검증한다)
  */
 class AdminPageAnnotationConventionTest {
 

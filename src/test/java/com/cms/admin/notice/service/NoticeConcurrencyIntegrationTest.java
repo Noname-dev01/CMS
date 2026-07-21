@@ -35,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * PATCH·DELETE 비관적 락(findByIdAndDeletedFalseForUpdate)을 실제 MariaDB로 검증하는
- * 통합 테스트 (adversarial-review/plan/PLAN-notice-board.md 설계 결정 3).
+ * 통합 테스트.
  *
  * <p>두 가지를 각각 별도로 검증한다:
  * <ul>
