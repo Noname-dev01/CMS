@@ -149,6 +149,8 @@ docker exec cms-db-dev mariadb -uroot -p"$MYSQL_ROOT_PASSWORD" \
 set -a; source .env.dev; set +a; unset DB_URL; ./gradlew test   # V1~V7 자동 적용 + 전체 통과 확인
 ```
 
+**후기 (2026-07-27)**: Testcontainers 전환(`com.cms.support.MariaDbContainerSupport`, `adversarial-review/plan/PLAN-testcontainers.md`) 이후 이 문제 자체가 원천 해소됐다. DB 접속 테스트가 매 실행마다 빈 컨테이너에서 V1부터 전체 마이그레이션을 새로 적용하므로 "로컬 DB가 이전 세대로 드리프트된 상태"라는 전제 자체가 성립하지 않는다. 다만 이 항목은 Flyway의 "비어 있지 않은데 이력 없는 스키마" 거부 동작과 컨텍스트 로드 실패 도미노의 원리를 보여주는 사례로 보존한다.
+
 ---
 
 ## 빌드 / 의존성
@@ -249,9 +251,10 @@ class VisitLogRepositoryDataJpaTest { ... }
 ./gradlew test --tests "com.cms.admin.visit.repository.VisitLogRepositoryDataJpaTest"
 ```
 
-> 참고: 로컬 `./gradlew test`는 `.env.dev`를 자동 주입하지 않으므로 `DB_PASS` 미설정 시
-> `Access denied for user 'admin'`(인증 실패)이 먼저 발생한다. 위 컨텍스트 문제와 별개이며,
-> CI는 MariaDB service container에 env를 주입하므로 정상 동작한다.
+> 참고 (2026-07-27 갱신): Testcontainers 전환 이후 `VisitLogRepositoryDataJpaTest`는
+> `MariaDbContainerSupport`를 상속해 `DB_PASS` 등 환경변수 없이도 실행된다 — 위 컨텍스트 문제만
+> 재현하면 된다. (Testcontainers 전환 전에는 `.env.dev` 미주입 시 `Access denied for user 'admin'`이
+> 먼저 발생해 컨텍스트 문제와 혼동하기 쉬웠다.)
 
 ---
 
