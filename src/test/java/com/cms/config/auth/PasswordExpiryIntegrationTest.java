@@ -7,6 +7,7 @@ import com.cms.admin.member.dto.request.AdminMyPasswordChangeRequest;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.service.AdminMemberService;
 import com.cms.support.CmsTestApplication;
+import com.cms.support.MariaDbContainerSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,11 +43,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>MockMvc 로그인은 실제 트랜잭션을 커밋하므로 {@code @Transactional}을 붙이지 않고,
  * 생성한 회원·방문 로그를 {@link #cleanUp()}에서 대상 한정 삭제한다 (공유 dev DB — deleteAll() 금지).
  *
- * <p>로컬 실행: DB(make dev-db) 기동 + DB_PASS/MAIL_USER/MAIL_PASS 환경변수 설정 필요.
+ * <p>Testcontainers가 띄우는 일회용 MariaDB로 실행된다 — 로컬 DB 기동·환경변수 주입 불필요,
+ * Docker만 있으면 된다({@link MariaDbContainerSupport}).
  */
 @SpringBootTest(classes = CmsTestApplication.class)
 @AutoConfigureMockMvc
-class PasswordExpiryIntegrationTest {
+class PasswordExpiryIntegrationTest extends MariaDbContainerSupport {
 
     private static final String RAW_PASSWORD = "Expiry1234!";
     private static final String NEW_RAW_PASSWORD = "NewExpiry1234!";

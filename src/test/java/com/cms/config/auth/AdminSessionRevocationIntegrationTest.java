@@ -7,6 +7,7 @@ import com.cms.admin.member.dto.request.AdminMemberUpdateRequest;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.service.AdminMemberService;
 import com.cms.support.CmsTestApplication;
+import com.cms.support.MariaDbContainerSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,11 +36,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * → 대상자의 다음 요청이 ConcurrentSessionFilter에서 거부되는 전 체인을 관통한다.
  * 리스너 미등록·SessionRegistry 미적재·principal 매칭 버그는 이 테스트가 잡는다.
  *
- * <p>로컬 실행: DB(make dev-db) 기동 + DB_PASS/MAIL_USER/MAIL_PASS 환경변수 설정 필요.
+ * <p>Testcontainers가 띄우는 일회용 MariaDB로 실행된다 — 로컬 DB 기동·환경변수 주입 불필요,
+ * Docker만 있으면 된다({@link MariaDbContainerSupport}).
  */
 @SpringBootTest(classes = CmsTestApplication.class)
 @AutoConfigureMockMvc
-class AdminSessionRevocationIntegrationTest {
+class AdminSessionRevocationIntegrationTest extends MariaDbContainerSupport {
 
     private static final String TARGET_RAW_PASSWORD = "Target1234!";
 

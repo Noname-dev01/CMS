@@ -10,22 +10,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      mariadb:
-        image: mariadb:10.11
-        ports:
-          - 3306:3306
-        env:
-          MARIADB_ROOT_PASSWORD: ci_root
-          MARIADB_DATABASE: cms
-          MARIADB_USER: admin
-          MARIADB_PASSWORD: ci_pass
-        options: >-
-          --health-cmd="healthcheck.sh --connect --innodb_initialized"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,12 +37,6 @@ jobs:
         run: ./gradlew test
         env:
           SPRING_PROFILES_ACTIVE: dev
-          DB_URL: jdbc:mariadb://localhost:3306/cms
-          DB_USER: admin
-          DB_PASS: ci_pass
-          MAIL_USER: ci@example.com
-          MAIL_PASS: dummy_for_ci
-          APP_BASE_URL: http://localhost:8080
 
       - name: Upload test report
         uses: actions/upload-artifact@v4

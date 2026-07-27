@@ -4,6 +4,7 @@ import com.cms.admin.menu.Menu;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
 import com.cms.support.CmsTestApplication;
+import com.cms.support.MariaDbContainerSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,11 +29,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code @Transactional}을 붙이지 않는다. 롤백이 없으므로 생성한 row는 {@link #cleanUp()}에서
  * 수동 삭제한다.
  *
- * 로컬 실행: DB(make dev-db) 기동 + DB_PASS/MAIL_USER/MAIL_PASS 환경변수 설정 필요.
- * CI는 ci.yml에서 자동 주입되어 별도 조치 없이 통과한다.
+ * Testcontainers가 띄우는 일회용 MariaDB로 실행된다 — 로컬 DB 기동·환경변수 주입 불필요,
+ * Docker만 있으면 된다({@link MariaDbContainerSupport}).
  */
 @SpringBootTest(classes = CmsTestApplication.class)
-class MenuConcurrencyIntegrationTest {
+class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     @Autowired
     MenuService menuService;

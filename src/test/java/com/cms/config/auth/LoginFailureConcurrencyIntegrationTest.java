@@ -5,6 +5,7 @@ import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.support.CmsTestApplication;
+import com.cms.support.MariaDbContainerSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,10 +32,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 않는다 — @DataJpaTest의 테스트 관리 트랜잭션은 미커밋 준비 데이터를 자식 스레드가
  * 볼 수 없어 vacuous pass가 된다. 생성한 회원·감사 로그는 수동으로 대상 한정 삭제한다.
  *
- * <p>로컬 실행: DB(make dev-db) 기동 + DB_PASS/MAIL_USER/MAIL_PASS 환경변수 설정 필요.
+ * <p>Testcontainers가 띄우는 일회용 MariaDB로 실행된다 — 로컬 DB 기동·환경변수 주입 불필요,
+ * Docker만 있으면 된다({@link MariaDbContainerSupport}).
  */
 @SpringBootTest(classes = CmsTestApplication.class)
-class LoginFailureConcurrencyIntegrationTest {
+class LoginFailureConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     @Autowired
     LoginFailureService loginFailureService;
