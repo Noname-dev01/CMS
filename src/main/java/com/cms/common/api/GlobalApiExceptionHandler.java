@@ -18,6 +18,8 @@ import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 
 @RestControllerAdvice
 public class GlobalApiExceptionHandler {
@@ -142,6 +144,46 @@ public class GlobalApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+
+    /**
+     * multipart 업로드 크기 초과(spring.servlet.multipart.max-file-size/max-request-size).
+     * MultipartException의 하위 타입이라 Exception 폴백보다 먼저 구체적으로 처리해야 한다 —
+     * 처리하지 않으면 500 INTERNAL_ERROR로 떨어진다(PLAN-notice-attachment.md 쟁점 8).
+     * 10MB 초과는 413이 더 정확할 수 있으나, 프로젝트가 좁게 유지하는 상태 코드 팔레트(CLAUDE.md
+     * 상태 코드 규칙 표에 413 없음, 기존 크기 검증도 400으로 통일)와의 일관성을 위해 400을 유지한다.
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleMaxUploadSizeExceeded(
+            MaxUploadSizeExceededException e,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = ApiErrorResponse.of(
+                request.getRequestURI(),
+                "INVALID_REQUEST",
+                "첨부파일이 허용 크기를 초과했습니다."
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    /**
+     * multipart 요청에 필수 파트(예: 파일 첨부의 "file")가 아예 빠진 경우.
+     * 서비스 검증에 도달하기 전 서블릿 레벨에서 발생하므로 Exception 폴백보다 먼저
+     * 구체적으로 처리해야 한다 — 처리하지 않으면 요청 오류가 500 INTERNAL_ERROR로 떨어진다.
+     */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ApiErrorResponse> handleMissingServletRequestPart(
+            MissingServletRequestPartException e,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse response = ApiErrorResponse.of(
+                request.getRequestURI(),
+                "INVALID_REQUEST",
+                "필수 요청 파트가 누락되었습니다: " + e.getRequestPartName()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
 
     /**
      * 중복 리소스

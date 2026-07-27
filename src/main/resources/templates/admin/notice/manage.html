@@ -11,6 +11,48 @@
         white-space: pre-wrap;
         word-break: break-word;
     }
+
+    .attachment-section {
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid #e3e6f0;
+    }
+
+    .attachment-section-title {
+        margin-bottom: 0.75rem;
+    }
+
+    .attachment-list {
+        list-style: none;
+        padding-left: 0;
+        margin-bottom: 0.75rem;
+    }
+
+    .attachment-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0;
+    }
+
+    .attachment-name {
+        word-break: break-all;
+    }
+
+    .attachment-size {
+        color: #858796;
+        font-size: 0.85rem;
+    }
+
+    .attachment-upload {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .attachment-upload input[type="file"] {
+        flex: 1;
+    }
 </style>
 
 <div id="wrapper">
@@ -181,6 +223,20 @@
                         </div>
                     </div>
                 </form>
+
+                <!-- 첨부는 notice가 실제 생성된 뒤(view·edit 모드)에만 다룰 수 있다 — create 모드는
+                     아직 notice ID가 없어 업로드 대상 URL을 구성할 수 없으므로 숨긴다. -->
+                <div id="attachmentSection" class="attachment-section d-none">
+                    <h6 class="attachment-section-title">첨부파일</h6>
+                    <ul id="attachmentList" class="attachment-list"></ul>
+                    <div class="attachment-upload">
+                        <input type="file" class="form-control-file" id="attachmentFileInput">
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="btnUploadAttachment">
+                            <i class="fas fa-upload fa-sm mr-1"></i>업로드
+                        </button>
+                    </div>
+                    <div id="attachmentAlert" class="alert alert-danger d-none mt-2" role="alert"></div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-danger d-none" id="btnDelete">삭제</button>
@@ -234,6 +290,12 @@
     const btnSave = document.getElementById("btnSave");
     const btnCancelEdit = document.getElementById("btnCancelEdit");
 
+    const attachmentSection = document.getElementById("attachmentSection");
+    const attachmentList = document.getElementById("attachmentList");
+    const attachmentFileInput = document.getElementById("attachmentFileInput");
+    const btnUploadAttachment = document.getElementById("btnUploadAttachment");
+    const attachmentAlert = document.getElementById("attachmentAlert");
+
     const pageState = { page: 0, size: 20, totalPages: 0 };
 
     // mode: 'view'(상세 조회) | 'edit'(기존 공지 수정) | 'create'(신규 생성)
@@ -251,11 +313,27 @@
     // 대신 요청 시작 시점의 이 값을 identity 토큰으로 캡처해두고, 응답이 실제로 도착한 뒤
     // 컨텍스트가 바뀌었는지(토큰 불일치) 판단해 화면 반영 여부만 가른다.
     let currentDetailController = null;
+    // 첨부 목록 재조회(loadAttachments) 요청 세대 카운터 — 같은 공지 안에서도 초기 조회와
+    // 업로드·삭제 후 재조회가 겹칠 수 있어(둘 다 currentDetailController는 동일), 항목
+    // 하나가 아니라 매 호출마다 증가시켜 "마지막으로 시작된 요청의 응답만" 반영한다.
+    let attachmentRequestSeq = 0;
 
     function getCsrfHeaders() {
         const token = document.querySelector('meta[name="_csrf"]');
         const header = document.querySelector('meta[name="_csrf_header"]');
         const headers = { "Content-Type": "application/json" };
+        if (token && header) {
+            headers[header.content || "X-CSRF-TOKEN"] = token.content;
+        }
+        return headers;
+    }
+
+    // multipart 업로드에는 Content-Type을 직접 지정하면 안 된다 — 브라우저가 boundary를 포함해
+    // 자동으로 설정해야 하므로, CSRF 헤더만 담은 별도 헤더 빌더를 쓴다.
+    function getCsrfHeaderOnly() {
+        const token = document.querySelector('meta[name="_csrf"]');
+        const header = document.querySelector('meta[name="_csrf_header"]');
+        const headers = {};
         if (token && header) {
             headers[header.content || "X-CSRF-TOKEN"] = token.content;
         }
@@ -515,6 +593,90 @@
         }
     }
 
+    function showAttachmentError(message) {
+        attachmentAlert.textContent = message;
+        attachmentAlert.classList.remove("d-none");
+    }
+
+    function hideAttachmentError() {
+        attachmentAlert.classList.add("d-none");
+        attachmentAlert.textContent = "";
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === null || bytes === undefined) {
+            return "-";
+        }
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024 * 1024) {
+            return (bytes / 1024).toFixed(1) + " KB";
+        }
+        return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    // originalFilename은 사용자 입력값이므로 innerHTML 삽입 전 반드시 escapeHtml()을 거친다
+    // (목록 테이블과 동일한 저장형 XSS 방어 원칙 — 설계 결정 5).
+    // noticeId는 호출 시점의 currentDetail.id가 아니라 이 목록을 조회한 요청이 속한 notice의
+    // id를 명시적으로 받는다 — 응답이 늦게 도착했을 때 이미 전환된 currentDetail로 잘못된
+    // 다운로드·삭제 링크가 만들어지는 것을 막는다.
+    function renderAttachments(items, noticeId) {
+        if (!items || items.length === 0) {
+            attachmentList.innerHTML = "<li class=\"attachment-empty text-muted\">첨부된 파일이 없습니다.</li>";
+            return;
+        }
+        attachmentList.innerHTML = items.map(item => {
+            const downloadUrl = "/admin/api/notices/" + encodeURIComponent(noticeId) +
+                "/attachments/" + encodeURIComponent(item.id) + "/content";
+            return "<li class=\"attachment-item\" data-id=\"" + escapeHtml(item.id) + "\">" +
+                "<a href=\"" + escapeHtml(downloadUrl) + "\" class=\"attachment-name\">" + escapeHtml(item.originalFilename) + "</a>" +
+                "<span class=\"attachment-size\">(" + escapeHtml(formatFileSize(item.fileSize)) + ")</span>" +
+                "<button type=\"button\" class=\"btn btn-link text-danger btn-sm ml-auto js-delete-attachment\" data-id=\"" + escapeHtml(item.id) + "\">삭제</button>" +
+                "</li>";
+        }).join("");
+    }
+
+    async function loadAttachments() {
+        if (!currentDetail || !currentDetail.id) {
+            return;
+        }
+        // 같은 공지 안에서 초기 조회와 업로드·삭제 후 재조회가 겹쳐도(currentDetailController는
+        // 둘 다 동일) 세대 번호가 다르므로, 나중에 시작된 요청의 응답만 최종 반영된다.
+        const requestSeq = ++attachmentRequestSeq;
+        const noticeId = currentDetail.id;
+        try {
+            const response = await fetch("/admin/api/notices/" + encodeURIComponent(noticeId) + "/attachments");
+            if (requestSeq !== attachmentRequestSeq) {
+                return;
+            }
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "첨부파일 목록 조회에 실패했습니다."));
+            }
+            renderAttachments(await response.json(), noticeId);
+        } catch (error) {
+            if (requestSeq !== attachmentRequestSeq) {
+                return;
+            }
+            renderAttachments([], noticeId);
+            showAttachmentError(getRequestErrorMessage(error, "첨부파일 목록 조회 중 오류가 발생했습니다."));
+        }
+    }
+
+    function showAttachmentSection() {
+        hideAttachmentError();
+        attachmentFileInput.value = "";
+        attachmentSection.classList.remove("d-none");
+        loadAttachments();
+    }
+
+    function hideAttachmentSection() {
+        attachmentSection.classList.add("d-none");
+        attachmentList.innerHTML = "";
+        hideAttachmentError();
+        attachmentFileInput.value = "";
+    }
+
     function openCreateModal() {
         resetModalAlerts();
         abortPendingDetailRequest();
@@ -526,6 +688,7 @@
         modalModeLabel.textContent = "새 공지사항을 작성합니다.";
         fillForm(null);
         showFormMode();
+        hideAttachmentSection();
         $(modalEl).modal("show");
     }
 
@@ -545,6 +708,7 @@
         btnSave.classList.add("d-none");
         btnCancelEdit.classList.add("d-none");
         modalModeLabel.textContent = "공지사항 정보를 확인·수정합니다.";
+        hideAttachmentSection();
 
         $(modalEl).modal("show");
 
@@ -564,6 +728,7 @@
             detailLoading.classList.add("d-none");
             renderView(data);
             showViewMode();
+            showAttachmentSection();
         } catch (error) {
             if (error && error.name === "AbortError") {
                 return;
@@ -663,8 +828,10 @@
         // 쓰기 요청 자체는 중단하지 않고 끝까지 서버 응답을 기다린다.
         const requestToken = currentDetailController;
 
+        const wasCreate = mode === "create";
+
         try {
-            const data = mode === "create" ? await saveCreate() : await saveEdit();
+            const data = wasCreate ? await saveCreate() : await saveEdit();
             loadNotices(pageState.page);
             if (requestToken !== currentDetailController) {
                 // 응답을 기다리는 사이 모달이 닫히거나 다른 공지로 전환됨 — 이미 무관해진
@@ -675,6 +842,11 @@
             mode = "view";
             renderView(data);
             showViewMode();
+            if (wasCreate) {
+                // 생성 직후에는 이전까지 notice ID가 없어 숨겨뒀던 첨부 섹션을 이제야 보여준다 —
+                // 수정 저장은 이미 상세 조회 시점에 표시돼 있었으므로 다시 부를 필요 없다.
+                showAttachmentSection();
+            }
             showDetailSuccess("저장되었습니다. (" + escapeHtml(data.title) + ")");
         } catch (error) {
             if (requestToken !== currentDetailController) {
@@ -760,6 +932,85 @@
         mode = null;
         currentDetail = null;
         resetModalAlerts();
+        hideAttachmentSection();
+    });
+
+    btnUploadAttachment.addEventListener("click", async function () {
+        if (!currentDetail || !currentDetail.id) {
+            return;
+        }
+        const file = attachmentFileInput.files[0];
+        if (!file) {
+            showAttachmentError("업로드할 파일을 선택해주세요.");
+            return;
+        }
+        hideAttachmentError();
+        btnUploadAttachment.disabled = true;
+        // btnSave/btnDelete와 동일한 identity 토큰 패턴 — 업로드 중 모달을 닫고 다른 공지를
+        // 열면, 완료 후 입력 초기화·목록 재조회·오류 표시가 이미 전환된 화면에 적용되는 것을
+        // 막는다.
+        const requestToken = currentDetailController;
+        const noticeId = currentDetail.id;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const response = await fetch(
+                "/admin/api/notices/" + encodeURIComponent(noticeId) + "/attachments",
+                { method: "POST", headers: getCsrfHeaderOnly(), body: formData }
+            );
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "첨부파일 업로드에 실패했습니다."));
+            }
+            if (requestToken !== currentDetailController) {
+                return;
+            }
+            attachmentFileInput.value = "";
+            await loadAttachments();
+        } catch (error) {
+            if (requestToken !== currentDetailController) {
+                return;
+            }
+            showAttachmentError(getRequestErrorMessage(error, "첨부파일 업로드 중 오류가 발생했습니다."));
+        } finally {
+            if (requestToken === currentDetailController) {
+                btnUploadAttachment.disabled = false;
+            }
+        }
+    });
+
+    attachmentList.addEventListener("click", async function (event) {
+        const button = event.target.closest(".js-delete-attachment");
+        if (!button || !currentDetail || !currentDetail.id) {
+            return;
+        }
+        if (!confirm("선택한 첨부파일을 삭제하시겠습니까?")) {
+            return;
+        }
+        hideAttachmentError();
+        // 업로드와 동일한 identity 토큰 패턴 — 삭제 중 모달이 전환돼도 이미 무관해진 화면에
+        // 목록 재조회·오류 표시가 반영되지 않도록 한다.
+        const requestToken = currentDetailController;
+        const noticeId = currentDetail.id;
+        try {
+            const response = await fetch(
+                "/admin/api/notices/" + encodeURIComponent(noticeId) + "/attachments/" + encodeURIComponent(button.dataset.id),
+                { method: "DELETE", headers: getCsrfHeaderOnly() }
+            );
+            if (!response.ok && response.status !== 204) {
+                throw new Error(await extractErrorMessage(response, "첨부파일 삭제에 실패했습니다."));
+            }
+            if (requestToken !== currentDetailController) {
+                return;
+            }
+            await loadAttachments();
+        } catch (error) {
+            if (requestToken !== currentDetailController) {
+                return;
+            }
+            showAttachmentError(getRequestErrorMessage(error, "첨부파일 삭제 중 오류가 발생했습니다."));
+        }
     });
 
     loadNotices(0);

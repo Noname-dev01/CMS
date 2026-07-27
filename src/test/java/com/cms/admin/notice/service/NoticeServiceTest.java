@@ -6,7 +6,9 @@ import com.cms.admin.notice.dto.request.NoticeSearchRequest;
 import com.cms.admin.notice.dto.request.NoticeUpdateRequest;
 import com.cms.admin.notice.dto.response.NoticePageResponse;
 import com.cms.admin.notice.dto.response.NoticeResponse;
+import com.cms.admin.notice.repository.NoticeAttachmentRepository;
 import com.cms.admin.notice.repository.NoticeRepository;
+import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.auth.AdminSecurityService;
@@ -40,6 +42,9 @@ class NoticeServiceTest {
 
     @Mock
     NoticeRepository noticeRepository;
+
+    @Mock
+    NoticeAttachmentRepository noticeAttachmentRepository;
 
     @Mock
     AdminSecurityService adminSecurityService;
@@ -178,6 +183,17 @@ class NoticeServiceTest {
         given(noticeRepository.findByIdAndDeletedFalseForUpdate(99L)).willReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class, () -> noticeService.deleteNotice(99L));
+    }
+
+    @Test
+    @DisplayName("첨부파일이 남아있으면 409 ConflictException — 오펀 방지(쟁점 14)")
+    void deleteNotice_hasAttachments_conflict() {
+        Notice target = existingNotice();
+        given(noticeRepository.findByIdAndDeletedFalseForUpdate(1L)).willReturn(Optional.of(target));
+        given(noticeAttachmentRepository.countByNoticeId(1L)).willReturn(2L);
+
+        assertThrows(ConflictException.class, () -> noticeService.deleteNotice(1L));
+        assertFalse(target.getDeleted());
     }
 
     // ===================== getNotice =====================

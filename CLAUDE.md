@@ -83,10 +83,12 @@ com.cms/
 │   │                        #   - AdminMemberPageController (Thymeleaf: /admin/member/{new,manage,info})
 │   ├── log/                 # 관리자 활동 로그 (AOP 기반, `AdminActionLogRepository`)
 │   ├── menu/                # 메뉴 도메인 (CRUD·트리 API + 관리 화면 + 동적 사이드바 완성. 기본 메뉴 시드는 Flyway V3 담당)
-│   └── notice/               # 공지사항 도메인 (첫 콘텐츠 도메인, 관리 화면 CRUD만 — 첨부파일·공개 프론트 제외)
+│   └── notice/               # 공지사항 도메인 (첫 콘텐츠 도메인, 관리 화면 CRUD + 첨부파일 CRUD 완성 — 공개 프론트만 제외)
 │       └── controller/      #   - NoticeController (REST API, /admin/api/notices) — ADMIN·MANAGER 공용
+│                            #   - NoticeAttachmentController (REST API, /admin/api/notices/{noticeId}/attachments)
 │                            #   - NoticePageController (Thymeleaf: /admin/notice/manage)
 ├── common/         # 공통 API 응답, 예외 클래스
+│   └── storage/    # 파일 스토리지 추상화 — FileStorage 인터페이스 + LocalDiskFileStorage 구현 (공지 첨부파일의 첫 소비자)
 ├── config/         # Spring Security, QueryDSL 설정
 │   ├── auth/       # 인증·인가 컴포넌트 (AdminSecurityService, CustomUserDetailsService, CustomUserDetails)
 │   │               #   + 세션 강제 만료 (AdminSessionService, AdminSessionRevokeEvent/Listener — AFTER_COMMIT)
@@ -107,7 +109,7 @@ com.cms/
 
 ### 프로필 이미지
 
-업로드한 이미지는 `data:<mime>;base64,...` 형태의 Base64 데이터 URI로 DB의 `LONGTEXT` 컬럼(`profile_image_url`)에 저장된다(2MB 이하, `image/*` 파일만 허용). 기본 프리셋 4종(`profile-default`, `profile-1`, `profile-2`, `profile-3`)은 Base64가 아니라 정적 리소스 경로(`/img/undraw_profile*.svg`)로 저장된다. 별도 파일 스토리지 없음.
+업로드한 이미지는 `data:<mime>;base64,...` 형태의 Base64 데이터 URI로 DB의 `LONGTEXT` 컬럼(`profile_image_url`)에 저장된다(2MB 이하, `image/*` 파일만 허용). 기본 프리셋 4종(`profile-default`, `profile-1`, `profile-2`, `profile-3`)은 Base64가 아니라 정적 리소스 경로(`/img/undraw_profile*.svg`)로 저장된다. `com.cms.common.storage.FileStorage`(공지 첨부파일용, 2026-07-22 도입)를 재사용하는 실파일 이관은 별도 후속 작업 — 현재는 검증·변환 로직이 이 서비스 메서드에 그대로 인라인되어 있다.
 
 ## 코딩 컨벤션
 
@@ -211,6 +213,7 @@ com.cms/
 - 목록 페이지 크기는 100으로 clamp(`NoticeService.MAX_PAGE_SIZE`, `AdminActionLogQueryService`와 동일 패턴)
 - 인가는 `ROLE_ADMIN`·`ROLE_MANAGER` 공용(작성자별 소유권 없음 — 누구나 서로 수정·삭제 가능). 사이드바 메뉴는 `V9__seed_notice_menu.sql`로 **멱등(WHERE NOT EXISTS) 자동 등록** — 다른 메뉴처럼 API 수동 등록이 아님(신규 환경마다 등록을 빠뜨리는 결함 방지)
 - 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-notice-board.md` 참조
+- **첨부파일 구현 완료** (`NoticeAttachment`, `NoticeAttachmentService`, 2026-07-22): 첨부는 `deleted` 컬럼 없이 하드 삭제(개별 DELETE = 행+파일 제거). 첨부 업로드·삭제는 모두 notice의 기존 비관적 락(`findByIdAndDeletedFalseForUpdate`)을 재사용해 동일 notice의 첨부 개수 상한(5개)·동시 삭제 경합을 직렬화한다. **notice 삭제 시 첨부가 남아있으면 409로 차단**된다(`NoticeService.deleteNotice()`) — 관리자가 첨부를 먼저 모두 삭제해야 notice를 소프트 삭제할 수 있어, 소프트 삭제된(=API로 영원히 도달 불가능해지는) notice에 딸린 첨부가 영구 오펀이 되는 상황을 원천 차단한다. 허용 확장자 pdf/doc(x)/xls(x)/ppt(x)/hwp/txt/csv/zip/png/jpg/jpeg/gif, 파일당 10MB·공지당 5개 상한. 확장자+선언 Content-Type 화이트리스트 검증(매직바이트 검사 없음 — Tika 등 신규 의존성 도입 안 함, 스푸핑 방어 수단이 아님을 인지하고 저장 루트를 웹 루트 밖에 두고 다운로드를 `octet-stream`+`attachment`+`nosniff`로 강제하는 것으로 보완). 파일 I/O는 `TransactionSynchronizationManager`로 DB 트랜잭션과 동기화(업로드 실패/롤백 시 파일 정리, 삭제는 커밋 후에만 파일 제거). 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-notice-attachment.md` 참조
 
 **AdminActionLog**: 관리자 행위 감사 로그. `@AdminActionLogged`가 붙은 메서드 호출 시 성공/실패·요청 IP·URI가 자동 기록된다 (상세는 "AOP 기반 액션 로깅" 참조)
 
@@ -242,7 +245,11 @@ com.cms/
 - `GET /admin/api/notices/{id}` — 공지사항 상세 (본문 포함)
 - `POST /admin/api/notices` — 공지사항 생성 (201 Created); 작성자는 로그인 사용자로 자동 채움
 - `PATCH /admin/api/notices/{id}` — 공지사항 부분 수정 (null 필드는 기존값 유지, 값이 오면 공백 거부, 전체 null은 400)
-- `DELETE /admin/api/notices/{id}` — 공지사항 소프트 삭제 (204 No Content)
+- `DELETE /admin/api/notices/{id}` — 공지사항 소프트 삭제 (204 No Content); 첨부파일이 남아있으면 409 (`RESOURCE_CONFLICT`, 첨부를 먼저 삭제해야 함)
+- `POST /admin/api/notices/{noticeId}/attachments` — 공지 첨부파일 업로드 (multipart, 201 Created); 확장자 위반 400, 5개 초과 409
+- `GET /admin/api/notices/{noticeId}/attachments` — 공지 첨부파일 목록 (메타만, 파일 내용 제외)
+- `GET /admin/api/notices/{noticeId}/attachments/{attachmentId}/content` — 첨부파일 다운로드 (`application/octet-stream` 강제, 다른 notice의 attachmentId는 404)
+- `DELETE /admin/api/notices/{noticeId}/attachments/{attachmentId}` — 첨부파일 삭제 (204 No Content, 행+실파일 함께 제거)
 
 ## 테스트 규칙
 

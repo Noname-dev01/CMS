@@ -19,11 +19,18 @@ services:
     container_name: cms-app-dev
     restart: unless-stopped
     env_file: .env.dev
+    environment:
+      # 컨테이너 전용 절대경로 — application.yml의 기본값(./data/attachments)을 오버라이드한다.
+      # named volume 마운트 지점과 동일해야 한다(PLAN-notice-attachment.md 쟁점 10).
+      APP_FILE_STORAGE_ROOT: /app/data/attachments
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8080:8080"
+    volumes:
+      - notice_attachments_dev:/app/data/attachments
 
 volumes:
   db_data_dev:
+  notice_attachments_dev:

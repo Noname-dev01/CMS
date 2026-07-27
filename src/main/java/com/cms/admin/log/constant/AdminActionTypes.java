@@ -19,11 +19,14 @@ public final class AdminActionTypes {
     public static final String NOTICE_CREATE     = "NOTICE_CREATE";
     public static final String NOTICE_UPDATE     = "NOTICE_UPDATE";
     public static final String NOTICE_DELETE     = "NOTICE_DELETE";
+    public static final String NOTICE_ATTACHMENT_UPLOAD = "NOTICE_ATTACHMENT_UPLOAD";
+    public static final String NOTICE_ATTACHMENT_DELETE = "NOTICE_ATTACHMENT_DELETE";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
             ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE,
-            ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE
+            ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE,
+            NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE
     );
 
     private AdminActionTypes() {}
