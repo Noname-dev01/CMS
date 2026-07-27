@@ -2,8 +2,8 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-07-21 — ① 공지사항(notice) 관리 완료 표기 정정 (`feat/notice-board` → `6c5ca4c` #16, 모순되는 구 문구 삭제) + `./gradlew test` 전체 통과 재확인
-> 이전 갱신: 2026-07-20 — ④ 대시보드 정리 완료 반영 (`3e652e6` #15) + 전수 재분석으로 **Top 5 재선정** (2단계 콘텐츠 도메인 중심)
+> 최근 갱신: 2026-07-27 — ② 파일 스토리지 추상화 + 공지 첨부파일 완료 반영 (`174e925` #18, 첨부 CRUD·경로 탈출 방지·확장자 검증·감사 로그 사실확인) + `./gradlew test` 전체 통과 재확인
+> 이전 갱신: 2026-07-21 — ① 공지사항(notice) 관리 완료 표기 정정 (`feat/notice-board` → `6c5ca4c` #16, 모순되는 구 문구 삭제) + `./gradlew test` 전체 통과 재확인
 
 ## 현재 상태 진단
 
@@ -107,8 +107,9 @@
 - **완료 기준**: `./gradlew test` 통과 / 빈 DB `bootRun` 기동(`validate` 통과) / ADMIN·MANAGER 각각 로그인해 CRUD 골든 패스 + 목록 검색·페이징 playwright 확인 / 소프트 삭제 후 목록 미노출 / 감사 로그(`AdminActionLog`)에 생성·수정·삭제 기록 확인 / 사이드바에 메뉴 노출
 - **착수 게이트**: 스키마 변경 수반 — 계획서 승인 시 함께 고지.
 
-### ② 파일 스토리지 추상화 + 공지 첨부파일
+### ② 파일 스토리지 추상화 + 공지 첨부파일 — ✅ 완료 (2026-07-27 · `174e925` #18)
 - **유형**: 기능 추가 / **선정 이유**: 첨부파일이 강제하는 스토리지 추상화는 프로필 이미지 Base64-in-DB 방식의 탈출구도 함께 열어주는 구조적 투자.
+- **완료 근거**: `com.cms.common.storage`(`FileStorage`·`LocalDiskFileStorage`·`FileStorageProperties`·`StorageFileNotFoundException`) + `com.cms.admin.notice`의 `NoticeAttachment`·`NoticeAttachmentService`·`NoticeAttachmentController` 구현 확인, `V10__create_notice_attachment.sql` 마이그레이션 확인. `LocalDiskFileStorageTest`(경로 탈출 `../` 차단 포함)·`NoticeAttachmentServiceTest`(확장자/Content-Type/10MB 초과/빈 파일 400)·`NoticeAttachmentControllerTest`·`NoticeAttachmentTransactionIntegrationTest`(업로드 롤백 시 파일 정리, 삭제는 커밋 후 파일 제거) 전부 통과 확인. `NoticeAttachmentService`에 업로드·삭제 `@AdminActionLogged` 부착 확인. `./gradlew test`(dev DB 기동 상태) 전체 통과 재확인.
 - **실행 원본**: 없음 — 착수 시 `/plan-review-loop`로 계획서 작성·검증.
 - **목표**: 로컬 디스크 구현의 파일 스토리지 인터페이스를 도입하고, 공지사항에 첨부파일 업로드·다운로드·삭제를 추가한다. 완료 시 "DB에 Base64로 넣을 수 없는" 실파일을 다루는 첫 경로가 생기고, 이후 프로필 이미지 이관(별도 후속)도 같은 인터페이스를 재사용할 수 있다.
 - **수정해야 할 정확한 파일** (실측 기준):
@@ -168,4 +169,4 @@
 
 ## 요약
 
-갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)는 마감됐다. **공지사항 도메인(①)으로 2단계를 열고, 첨부파일·공개 페이지(②③)로 "콘텐츠를 내보내는 CMS"를 완성한 뒤, prod 부활(⑤)로 실배포까지 마무리**하는 순서를 추천한다. Testcontainers(④)는 독립 작업이라 어느 틈에든 끼워 넣을 수 있다.
+갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)는 마감됐다. **공지사항 도메인(①)과 파일 스토리지·첨부파일(②)이 완료되어 2단계 절반이 마감됐다.** 남은 공개 페이지(③)로 "콘텐츠를 내보내는 CMS"를 완성한 뒤, prod 부활(⑤)로 실배포까지 마무리하는 순서를 추천한다. Testcontainers(④)는 독립 작업이라 어느 틈에든 끼워 넣을 수 있다.
