@@ -63,3 +63,6 @@ src/main/generated/
 ### UI 검증 스크린샷 (루트에만 생성됨) ###
 /*.png
 /docs/snapshot
+
+### 공지사항 첨부파일 로컬 저장 경로(app.file-storage.root 기본값) ###
+/data/attachments

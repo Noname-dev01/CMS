@@ -7,6 +7,13 @@ spring:
     serialization:
       write-dates-as-timestamps: false
     default-property-inclusion: non_null
+  servlet:
+    multipart:
+      # 공지사항 첨부파일(파일당 10MB 상한)에 맞춘 값. 업로드 API는 요청당 파일 1개만 받으므로
+      # max-request-size는 파일 5개 합산이 아니라 파일 1개 + multipart 오버헤드만 커버하면 된다
+      # (PLAN-notice-attachment.md 쟁점 8).
+      max-file-size: 10MB
+      max-request-size: 15MB
   flyway:
     # 빈 DB(CI·신규 환경)는 V1부터 전체 실행된다.
     # 기존 DB 전환 시에만 일회성으로 SPRING_FLYWAY_BASELINE_ON_MIGRATE=true를
@@ -23,6 +30,11 @@ server:
 
 app:
   base-url: ${APP_BASE_URL:http://localhost:8080}
+  file-storage:
+    # 기본값은 프로젝트 상대 경로 — 컨테이너 전용 절대경로는 docker-compose.dev.yml의
+    # environment에서만 APP_FILE_STORAGE_ROOT로 주입한다(application-dev.yml은 건드리지 않음).
+    # 그래야 로컬 bootRun과 컨테이너 실행이 서로 다른 실제 경로를 쓴다(PLAN-notice-attachment.md 쟁점 10).
+    root: ${APP_FILE_STORAGE_ROOT:./data/attachments}
 
 springdoc:
   api-docs:

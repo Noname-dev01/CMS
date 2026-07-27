@@ -155,6 +155,30 @@ set -a; source .env.dev; set +a; unset DB_URL; ./gradlew test   # V1~V7 자동 �
 
 Gradle 빌드, QueryDSL Q클래스 생성, 라이브러리 호환성 등 빌드·의존성 관련 문제를 기록한다.
 
+### `./gradlew bootRun` 실행 중 템플릿(리소스) 파일만 수정하면 devtools가 재시작을 감지하지 못함 (2026-07-22)
+
+#### 증상
+
+`bootRun`을 이미 띄운 상태에서 `src/main/resources/templates/**/*.html`을 수정한 뒤 브라우저를 새로고침해도 변경 사항이 전혀 반영되지 않는다. `spring-boot-devtools`가 붙어 있고 로그에 "Devtools property defaults active!"가 찍혀 있어 자동 재시작이 되고 있다고 착각하기 쉽다.
+
+#### 원인
+
+`bootRun`은 `build/resources/main`을 classpath로 사용한다. IDE(IntelliJ 등)에서 저장 시 자동으로 리소스를 컴파일 출력 디렉터리에 복사해주는 것과 달리, `src/main/resources`의 소스 파일을 텍스트 에디터나 CLI 도구로 직접 수정하는 것만으로는 `build/resources/main`이 갱신되지 않는다. `spring-boot-devtools`의 재시작 트리거는 classpath 디렉터리(`build/classes`, `build/resources`)의 변경을 감시하는 것이지, `src/main/resources` 원본을 감시하지 않는다 — 즉 devtools가 감지할 대상 자체가 갱신되지 않아 재시작이 아예 트리거되지 않는다.
+
+#### 해결 방법
+
+리소스(템플릿·정적 파일)를 수정한 뒤 별도 프로세스에서 다음을 실행한다:
+
+```bash
+./gradlew processResources
+```
+
+이 명령이 `src/main/resources`를 `build/resources/main`으로 복사하면, devtools가 그 변경을 감지해 자동으로 애플리케이션을 재시작한다(수 초 내). `bootRun`을 매번 처음부터 재시작할 필요는 없다.
+
+**주의**: devtools 재시작은 인메모리 세션(로그인 상태 등)을 초기화한다 — 재시작 후에는 다시 로그인해야 한다.
+
+IDE로 개발할 때는 저장 시 자동 컴파일(Build project automatically)이 켜져 있으면 이 문제가 발생하지 않는다. CLI/에이전트로 파일만 직접 편집하는 워크플로우에서만 겪는 함정이다.
+
 ---
 
 ## 애플리케이션 / 런타임

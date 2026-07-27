@@ -9,7 +9,9 @@ import com.cms.admin.notice.dto.request.NoticeUpdateRequest;
 import com.cms.admin.notice.dto.response.NoticePageResponse;
 import com.cms.admin.notice.dto.response.NoticeResponse;
 import com.cms.admin.notice.dto.response.NoticeSummaryResponse;
+import com.cms.admin.notice.repository.NoticeAttachmentRepository;
 import com.cms.admin.notice.repository.NoticeRepository;
+import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.auth.AdminSecurityService;
@@ -31,6 +33,7 @@ public class NoticeService {
     private static final int MAX_PAGE_SIZE = 100;
 
     private final NoticeRepository noticeRepository;
+    private final NoticeAttachmentRepository noticeAttachmentRepository;
     private final AdminSecurityService adminSecurityService;
 
     @Transactional
@@ -84,6 +87,13 @@ public class NoticeService {
     public NoticeResponse deleteNotice(Long id) {
         Notice target = noticeRepository.findByIdAndDeletedFalseForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException("공지사항을 찾을 수 없습니다."));
+
+        // 첨부가 남아있으면 삭제를 차단한다 — notice 소프트 삭제는 API로 도달 불가능해지므로,
+        // 그 상태에서 첨부만 남으면 영구 오펀이 된다(PLAN-notice-attachment.md 쟁점 14).
+        // 관리자가 첨부를 먼저 모두 삭제해야 notice를 삭제할 수 있다.
+        if (noticeAttachmentRepository.countByNoticeId(id) > 0) {
+            throw new ConflictException("첨부파일이 남아있어 삭제할 수 없습니다. 첨부를 먼저 삭제해주세요.");
+        }
 
         target.softDelete();
 
