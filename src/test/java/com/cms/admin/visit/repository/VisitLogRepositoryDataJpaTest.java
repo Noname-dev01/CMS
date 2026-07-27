@@ -6,6 +6,7 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.visit.domain.VisitLog;
 import com.cms.config.QuerydslConfig;
+import com.cms.support.MariaDbContainerSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,15 +21,16 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 실제 MariaDB(CI service container 또는 로컬 DB)를 사용하는 JPA 슬라이스 테스트.
+ * Testcontainers가 띄우는 일회용 MariaDB를 사용하는 JPA 슬라이스 테스트({@link MariaDbContainerSupport}).
  *
- * <p>@AutoConfigureTestDatabase(replace = NONE): 내장 DB 대신 dev 프로필의 MariaDB 설정을 사용한다.
+ * <p>@AutoConfigureTestDatabase(replace = NONE): 내장 DB 대신 {@code @ServiceConnection}이
+ * 연결한 MariaDB 컨테이너를 사용한다.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(QuerydslConfig.class) // *RepositoryImpl이 의존하는 JPAQueryFactory 빈을 슬라이스 컨텍스트에 포함
 @ActiveProfiles("dev")
-class VisitLogRepositoryDataJpaTest {
+class VisitLogRepositoryDataJpaTest extends MariaDbContainerSupport {
 
     @Autowired
     VisitLogRepository visitLogRepository;
@@ -36,11 +38,11 @@ class VisitLogRepositoryDataJpaTest {
     @Autowired
     MemberRepository memberRepository;
 
-    // ==================== visit_log DDL 자동 생성 검증 ====================
+    // ==================== visit_log 테이블 존재 검증 ====================
 
     @Test
-    @DisplayName("visit_log 테이블이 ddl-auto:update로 자동 생성되어 저장이 성공한다")
-    void visitLog_tableDdlAutoCreate_saveSucceeds() {
+    @DisplayName("visit_log 테이블이 Flyway 마이그레이션으로 생성되어 저장이 성공한다")
+    void visitLog_tableCreatedByFlyway_saveSucceeds() {
         VisitLog log = VisitLog.builder()
                 .visitorUserId("testAdmin")
                 .requestIp("127.0.0.1")

@@ -9,6 +9,7 @@ import com.cms.common.exception.ConflictException;
 import com.cms.config.auth.AdminSessionRevokeEvent;
 import com.cms.config.auth.AdminSessionService;
 import com.cms.support.CmsTestApplication;
+import com.cms.support.MariaDbContainerSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -45,11 +46,11 @@ import static org.mockito.Mockito.verify;
  * <p>두 스레드가 독립 트랜잭션과 비관적 락을 획득해야 하므로 {@code @Transactional}을 붙이지
  * 않는다. 생성/변경한 row는 {@link #cleanUp()}에서 수동 복원한다.
  *
- * <p>로컬 실행: DB(make dev-db) 기동 + DB_PASS/MAIL_USER/MAIL_PASS 환경변수 설정 필요.
- * CI는 ci.yml에서 자동 주입된다.
+ * <p>Testcontainers가 띄우는 일회용 MariaDB로 실행된다 — 로컬 DB 기동·환경변수 주입 불필요,
+ * Docker만 있으면 된다({@link MariaDbContainerSupport}).
  */
 @SpringBootTest(classes = CmsTestApplication.class)
-class AdminMemberUpdateConcurrencyIntegrationTest {
+class AdminMemberUpdateConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     @Autowired
     AdminMemberService adminMemberService;

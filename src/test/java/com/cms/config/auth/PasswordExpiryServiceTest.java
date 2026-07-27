@@ -5,6 +5,7 @@ import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.config.QuerydslConfig;
+import com.cms.support.MariaDbContainerSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.DisplayName;
@@ -36,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({PasswordExpiryService.class, QuerydslConfig.class, PasswordExpiryServiceTest.FixedClockConfig.class})
 @ActiveProfiles("dev")
-class PasswordExpiryServiceTest {
+class PasswordExpiryServiceTest extends MariaDbContainerSupport {
 
     static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
     static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 7, 17, 12, 0, 0);

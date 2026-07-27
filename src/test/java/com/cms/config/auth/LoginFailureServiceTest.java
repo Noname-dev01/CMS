@@ -6,6 +6,7 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.config.QuerydslConfig;
 import com.cms.config.auth.LoginFailureService.MemberSnapshot;
+import com.cms.support.MariaDbContainerSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.DisplayName;
@@ -39,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import({LoginFailureService.class, QuerydslConfig.class, LoginFailureServiceTest.FixedClockConfig.class})
 @RecordApplicationEvents
 @ActiveProfiles("dev")
-class LoginFailureServiceTest {
+class LoginFailureServiceTest extends MariaDbContainerSupport {
 
     static final ZoneId ZONE = ZoneId.of("Asia/Seoul");
     static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 7, 14, 12, 0, 0);

@@ -3,6 +3,7 @@ package com.cms.admin.notice.repository;
 import com.cms.admin.notice.domain.Notice;
 import com.cms.admin.notice.dto.request.NoticeSearchRequest;
 import com.cms.config.QuerydslConfig;
+import com.cms.support.MariaDbContainerSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,7 +20,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 실제 MariaDB(CI service container 또는 로컬 DB)를 사용하는 JPA 슬라이스 테스트.
+ * Testcontainers가 띄우는 일회용 MariaDB를 사용하는 JPA 슬라이스 테스트({@link MariaDbContainerSupport}).
  * 소프트 삭제 필터·검색 조합·락 조회 메서드의 실제 동작을 검증한다.
  * 정렬 변환 로직 자체(순수 단위)는 NoticeRepositoryImplSortTest가 담당한다.
  *
@@ -30,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(QuerydslConfig.class)
 @ActiveProfiles("dev")
-class NoticeRepositoryDataJpaTest {
+class NoticeRepositoryDataJpaTest extends MariaDbContainerSupport {
 
     @Autowired
     NoticeRepository noticeRepository;
