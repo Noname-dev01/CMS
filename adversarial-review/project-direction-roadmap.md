@@ -2,7 +2,9 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-07-27 — ② 파일 스토리지 추상화 + 공지 첨부파일 완료 반영 (`174e925` #18, 첨부 CRUD·경로 탈출 방지·확장자 검증·감사 로그 사실확인) + `./gradlew test` 전체 통과 재확인
+> 최근 갱신: 2026-07-28 — ③ 공개 공지 페이지 완료 반영 (`7ab80a5` #21, `com.cms.publicweb` 신규 패키지·`/notices` GET/HEAD permitAll+denyAll·Playwright 실기 검증·PR #21 CI success 사실확인)
+> 이전 갱신: 2026-07-27 — ④ Testcontainers 전환 완료 반영 (`04b8121` #20, `MariaDbContainerSupport`·CI service container 제거·PR #20 CI success 사실확인)
+> 이전 갱신: 2026-07-27 — ② 파일 스토리지 추상화 + 공지 첨부파일 완료 반영 (`174e925` #18, 첨부 CRUD·경로 탈출 방지·확장자 검증·감사 로그 사실확인) + `./gradlew test` 전체 통과 재확인
 > 이전 갱신: 2026-07-21 — ① 공지사항(notice) 관리 완료 표기 정정 (`feat/notice-board` → `6c5ca4c` #16, 모순되는 구 문구 삭제) + `./gradlew test` 전체 통과 재확인
 
 ## 현재 상태 진단
@@ -50,7 +52,7 @@
 
 ### 지속 항목 (급하지 않지만 방향은 정해둘 것)
 
-- **Testcontainers 검토**: 현재 테스트가 로컬 MariaDB 기동에 의존 — Testcontainers로 바꾸면 CI/로컬 환경 차이가 사라진다.
+- ~~**Testcontainers 검토**: 현재 테스트가 로컬 MariaDB 기동에 의존 — Testcontainers로 바꾸면 CI/로컬 환경 차이가 사라진다.~~ → **해소됨** (`04b8121`, #20): Testcontainers 전환 완료.
 - **QueryDSL 원본(5.1.0)은 사실상 개발 중단 상태.** 당장 문제는 없지만 Boot 4.x 이행 시 OpenFeign 포크(`io.github.openfeign.querydsl`) 전환을 염두에 둘 것.
 - 메뉴 3단계 확장, 메뉴-권한 실제 연동(`accessRole`을 노출뿐 아니라 인가에 반영)은 콘텐츠 도메인이 생겨 메뉴가 실제로 늘어난 뒤 판단해도 늦지 않다.
 
@@ -122,9 +124,10 @@
 - **완료 기준**: `./gradlew test` 통과 / 업로드→목록 표시→다운로드→삭제 골든 패스 playwright 확인 / 허용 외 확장자·크기 초과 400 응답 확인 / 경로 조작(`../`) 차단 테스트 통과 / 감사 로그에 업로드·삭제 기록
 - **착수 게이트**: **① 완료 필수** + 스키마 변경 수반. 파일 검증 정책(허용 확장자·최대 크기)은 계획서에서 사용자 확인.
 
-### ③ 공개 공지 페이지 (첫 비관리자 화면)
+### ③ 공개 공지 페이지 (첫 비관리자 화면) — ✅ 완료 (2026-07-28 · `7ab80a5` #21)
 - **유형**: 기능 추가 / **선정 이유**: "관리 화면만 있는 CMS"에서 "콘텐츠를 내보내는 CMS"로 — 2단계 정체성의 완성이자 3단계(⑤ 실배포)의 배포 대상을 만든다.
-- **실행 원본**: 없음 — 착수 시 `/plan-review-loop`로 계획서 작성·검증.
+- **완료 근거**: `com.cms.publicweb.notice`(`PublicNoticeController`·`PublicNoticeService`·`PublicNoticeSummary`/`PublicNoticeDetail`) + `com.cms.publicweb.support.PublicWebExceptionAdvice` origin/master에 실존 확인. `SecurityConfig.java`에 `/notices`·`/notices/**` GET/HEAD `permitAll` + 나머지 `denyAll` 명시 확인(diff 실측). `NoticeRepository`에 `findByDeletedFalseAndUseYnTrue`·`findByIdAndDeletedFalseAndUseYnTrue` 파생 쿼리 확인. `PublicNoticeControllerTest`·`PublicNoticeServiceTest`·`PublicNoticeTemplateConventionTest`·`SecurityConfigTest`/`NoticeRepositoryDataJpaTest` 추가분 존재 확인. Playwright 실기 검증 기록: 비로그인 목록·상세 열람, 미노출·삭제·비숫자·없는 ID 전부 404(JSON 아님), `page` malformed 값 0 보정, XSS payload(`<script>`/`onerror`) 텍스트로만 렌더링(실행 안 됨), 404 홈 링크 정상화, 관리 화면(대시보드·공지 관리·회원 관리) 회귀 없음 확인. `./gradlew test` 로컬 전체 통과 + PR #21 GitHub Actions CI(`test`) `pass`(1m15s, run 30354208868) 확인. 적대적 리뷰 4라운드(ship) 거침. 스키마 변경 없음(Flyway 최대 버전 V10 유지).
+- **실행 원본**: [`plan/PLAN-public-notice.md`](plan/PLAN-public-notice.md) (4라운드 적대적 리뷰 후 ship, 구현·검증 결과 기록됨)
 - **목표**: 비로그인 사용자가 노출(`useYn`) 상태의 공지 목록·상세를 볼 수 있는 공개 Thymeleaf 페이지를 추가한다. 기존 로드맵의 "공개 프론트 vs headless" 갈림길에서 **공개 프론트(Thymeleaf)** 방안을 실행하는 것.
 - **수정해야 할 정확한 파일** (실측 기준):
     - 신규: `src/main/java/com/cms/publicweb/` (신규 패키지 — 관리자 `admin` 패키지와 분리) 공개 페이지 컨트롤러 (`@AdminPage` 부착 금지 — `AdminPageAnnotationConventionTest`·`AdminSidebarAdvice` 범위는 admin 패키지 한정)
@@ -135,9 +138,10 @@
 - **완료 기준**: `./gradlew test` 통과 / 비로그인 브라우저로 공지 목록·상세 열람 playwright 확인 / 미노출·소프트 삭제 공지 404 / 관리 화면 회귀 없음 / XSS 방어(본문 이스케이프 정책) 테스트 통과
 - **착수 게이트**: **① 완료 필수** + 공개 경로 신설 = **인가 정책 협의 필수** (CLAUDE.md 보안 규칙).
 
-### ④ Testcontainers 전환 — 테스트 DB 격리
+### ④ Testcontainers 전환 — 테스트 DB 격리 — ✅ 완료 (2026-07-27 · `04b8121` #20)
 - **유형**: 테스트·인프라 / **선정 이유**: 테스트 파일이 43개(동시성·통합 테스트 다수)로 늘어 "⑤ 이후가 적기"라던 기존 유보 사유가 이미 해소됨. 로컬 MariaDB(3307) 기동 의존과 CI service container 이중 구성을 단일화한다.
-- **실행 원본**: 없음 — 착수 시 `/plan-review-loop`로 계획서 작성·검증.
+- **완료 근거**: `src/test/java/com/cms/support/MariaDbContainerSupport.java`(`@ServiceConnection` + static 싱글턴) 신규 확인, DB 접속 테스트 14개 전부 `extends MariaDbContainerSupport` 전환 확인. `build.gradle`에 `spring-boot-testcontainers`·`org.testcontainers:mariadb` 의존성 + `maxParallelForks=1`·`forkEvery=0`·`testLogging.showStandardStreams=true` 설정 확인. `.github/workflows/ci.yml`에서 MariaDB service container + DB/MAIL env 전부 제거 확인(diff 실측). `adversarial-review/plan/PLAN-testcontainers.md` 구현·검증 결과 기록(로컬 DB 내린 상태 연속 2회 통과·서로 다른 컨테이너 ID·Ryuk 30초 이내 정리·지연 시작(단위 테스트 단독 실행 시 컨테이너 미기동) 확인, 성능 중앙값 37초→50초(1.35배, 2배 이내), 474개 테스트 누락 없음, `bootRun` 무회귀). PR #20 GitHub Actions CI 실행(`run 30267775992`) `success`(1m38s) 확인 — 계획서 후속 항목이던 "CI 실제 통과"까지 사실확인 완료.
+- **실행 원본**: [`plan/PLAN-testcontainers.md`](plan/PLAN-testcontainers.md) (5라운드 적대적 리뷰 후 ship, 구현·검증 결과 기록됨)
 - **목표**: 테스트가 로컬 MariaDB 기동·환경변수 주입 없이 `./gradlew test` 단독으로 도는 상태. CI/로컬 환경 차이(포트 점유·시드 오염 함정 포함)가 사라진다.
 - **수정해야 할 정확한 파일** (실측 기준):
     - 수정: `build.gradle` (`org.testcontainers:mariadb`·`junit-jupiter` 테스트 의존성 추가 — 신규 의존성이므로 착수 시 제안·승인)
@@ -169,4 +173,4 @@
 
 ## 요약
 
-갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)는 마감됐다. **공지사항 도메인(①)과 파일 스토리지·첨부파일(②)이 완료되어 2단계 절반이 마감됐다.** 남은 공개 페이지(③)로 "콘텐츠를 내보내는 CMS"를 완성한 뒤, prod 부활(⑤)로 실배포까지 마무리하는 순서를 추천한다. Testcontainers(④)는 독립 작업이라 어느 틈에든 끼워 넣을 수 있다.
+갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)는 마감됐다. **공지사항 도메인(①)·파일 스토리지·첨부파일(②)·공개 공지 페이지(③)가 모두 완료되어 2단계(정체성 확보)가 마감됐고, 독립 작업이던 Testcontainers 전환(④)도 완료됐다.** 남은 것은 prod 부활(⑤)뿐이며, 완료된 ③으로 "배포할 대상"이 확보됐으니 이어서 실배포까지 마무리하는 것을 추천한다.
