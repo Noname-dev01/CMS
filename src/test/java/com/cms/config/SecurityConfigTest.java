@@ -26,10 +26,11 @@ import org.springframework.web.bind.annotation.PostMapping;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class})
 @Import({
         SecurityConfig.class,
         SecurityConfigTest.MockConfig.class
@@ -213,6 +214,45 @@ class SecurityConfigTest {
         mockMvc.perform(post("/admin/api/notices").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isCreated());
     }
+
+    // ==================== 공개 공지 페이지 인가 범위 검증 (2026-07-28 승인) ====================
+
+    @Test
+    @DisplayName("비인증 GET /notices는 200 (permitAll, 로그인 리다이렉트 아님)")
+    void publicNotices_unauthenticatedGet_ok() throws Exception {
+        mockMvc.perform(get("/notices"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비인증 HEAD /notices는 200 — v3에서 추가한 HEAD 허용 규칙의 회귀 테스트")
+    void publicNotices_unauthenticatedHead_ok() throws Exception {
+        mockMvc.perform(head("/notices"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("CSRF 없는 비인증 POST /notices는 CsrfFilter가 먼저 차단해 403")
+    void publicNotices_unauthenticatedPost_missingCsrf_forbidden() throws Exception {
+        mockMvc.perform(post("/notices"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("CSRF 포함 비인증 POST /notices는 denyAll+익명 판별로 /admin/login 302 리다이렉트 (405/401이 아님)")
+    void publicNotices_unauthenticatedPost_withCsrf_redirectsToLogin() throws Exception {
+        mockMvc.perform(post("/notices").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
+    @Test
+    @DisplayName("CSRF 포함 ADMIN POST /notices는 denyAll+인증 사용자 판별로 정확히 403 (denyAll이 역할 불문임을 확인)")
+    @WithMockUser(roles = "ADMIN")
+    void publicNotices_adminPost_withCsrf_forbidden() throws Exception {
+        mockMvc.perform(post("/notices").with(csrf()))
+                .andExpect(status().isForbidden());
+    }
 }
 
 // ==================== 슬라이스 테스트 전용 스텁 컨트롤러 ====================
@@ -284,5 +324,20 @@ class AdminNoticeStubController {
     @PostMapping("/admin/api/notices")
     ResponseEntity<String> noticesCreate() {
         return ResponseEntity.status(201).body("{}");
+    }
+}
+
+@TestStubController
+class PublicNoticeStubController {
+
+    @GetMapping("/notices")
+    String list() {
+        return "public-notices-list";
+    }
+
+    @PostMapping("/notices")
+    ResponseEntity<String> create() {
+        // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
+        return ResponseEntity.ok("{}");
     }
 }

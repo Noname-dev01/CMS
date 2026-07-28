@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오류가 발생했습니다</title>
+    <link rel="stylesheet" th:href="@{/css/error.css}">
+</head>
+<body>
+<div class="error-container">
+    <h1>오류</h1>
+    <p class="error-message">일시적인 오류가 발생했습니다.</p>
+    <p class="error-description">잠시 후 다시 시도해주세요.</p>
+    <a th:href="@{/notices}" class="home-button">공지사항으로 돌아가기</a>
+</div>
+</body>
+</html>

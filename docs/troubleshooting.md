@@ -390,6 +390,28 @@ Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plu
 
 단순 `createDate`/`updateDate`처럼 서비스가 시각 비교를 하지 않는 필드는 시스템 기본 `LocalDateTime.now()`여도 무방하다.
 
+### 비관리자(공개) Thymeleaf 페이지 컨트롤러의 예외가 HTML이 아니라 JSON으로 응답됨
+
+#### 오류 메시지
+
+```
+비로그인 사용자가 접근하는 페이지 컨트롤러에서 예외가 나면 브라우저에
+{"timestamp":"...","path":"/notices/abc","code":"INTERNAL_ERROR","message":"서버 오류가 발생했습니다."}
+같은 JSON이 그대로 뿌려짐 (404/500 HTML 페이지가 아님)
+```
+
+#### 원인
+
+`GlobalApiExceptionHandler`는 `@RestControllerAdvice`다. Spring의 `@ControllerAdvice`/`@RestControllerAdvice`는 기본적으로 **모든 컨트롤러**(`@RestController`뿐 아니라 `@Controller` 페이지 컨트롤러도 포함)에 적용된다 — `basePackages`나 `assignableTypes` 같은 selector를 지정하지 않으면 admin API 전용으로 설계한 전역 예외 처리기가 새로 추가한 공개 페이지 컨트롤러(`com.cms.publicweb`)의 예외까지 가로채 JSON으로 바꿔버린다. `@PathVariable Long id`처럼 Spring이 자동 타입 변환을 시도하는 파라미터는 변환 실패 시 `MethodArgumentTypeMismatchException`이 **컨트롤러 진입 전**에 발생하므로, 컨트롤러 안에서 `Optional`/try-catch로 방어해도 이 경로는 흡수되지 않는다.
+
+#### 해결 방법
+
+1. `@PathVariable`/`@RequestParam`을 `Long`/`Integer` 대신 `String`으로 받아 컨트롤러가 직접 파싱한다 — 파싱 실패를 404 등 원하는 응답으로 직접 제어할 수 있고, Spring이 타입 변환 예외를 던질 여지 자체가 없어진다.
+2. 남는 예외(Service/DB 장애 등)를 위해 문제 되는 패키지에만 적용되는 별도 `@ControllerAdvice(basePackages = "...")`를 신설하고 `@Order(Ordered.HIGHEST_PRECEDENCE)`를 붙인다 — advice 빈은 대상 컨트롤러에 selector가 일치하는 빈들 중 `@Order`로 우선순위가 갈리므로, 범위를 좁힌 advice가 전역 advice보다 먼저 매칭된다. 전역 `GlobalApiExceptionHandler`는 selector가 다른 패키지 컨트롤러에는 애초에 적용 후보가 되지 않으므로 admin API 동작에는 영향이 없다.
+3. 이 범위 한정 advice의 보장 범위는 **컨트롤러·Service 실행 중 예외**로 한정된다 — Thymeleaf 렌더링(뷰 반환 이후) 단계 예외는 `DispatcherServlet.doDispatch()`가 핸들러 실행만 try/catch로 감싸고 `render()`는 별도로 감싸지 않아 이 advice가 잡지 못하고 컨테이너 `/error` 경로로 전파된다. 신규 템플릿이 항상 유효한 모델로만 렌더링되도록 테스트로 보증해 이 경로가 실제로 트리거되지 않게 하는 것으로 보완한다.
+
+참고: `com.cms.publicweb.notice.controller.PublicNoticeController`(파싱 안전성) + `com.cms.publicweb.support.PublicWebExceptionAdvice`(범위 한정 advice) 구현. 상세 설계 결정은 `adversarial-review/plan/PLAN-public-notice.md` 결정 3-1·3-2 참조.
+
 ---
 
 # 정리
