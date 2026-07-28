@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${notice.title}">공지사항</title>
+    <link rel="stylesheet" th:href="@{/css/public/notice.css}">
+</head>
+<body>
+<div class="public-notice-container">
+    <div class="public-notice-header">
+        <h1><a th:href="@{/notices}">공지사항</a></h1>
+    </div>
+
+    <div class="notice-detail">
+        <h2 class="notice-detail-title" th:text="${notice.title}"></h2>
+        <div class="notice-detail-meta" th:text="${#temporals.format(notice.createDate, 'yyyy-MM-dd HH:mm')}"></div>
+        <div class="notice-detail-content" th:text="${notice.content}"></div>
+    </div>
+
+    <a class="notice-back-link" th:href="@{/notices}">&larr; 목록으로</a>
+</div>
+</body>
+</html>

@@ -16,6 +16,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.core.session.SessionRegistryImpl;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -56,6 +57,12 @@ public class SecurityConfig {
                         .requestMatchers("/admin/api/notices", "/admin/api/notices/**").hasAnyRole("ADMIN", "MANAGER")
                         // 그 외 admin 전부 ADMIN 전용
                         .requestMatchers("/admin/**").hasRole("ADMIN")
+                        // 공개 공지 페이지: GET/HEAD만 공개, 그 외 메서드는 명시적으로 차단
+                        // (2026-07-28 승인 — anyRequest().permitAll()에 기대지 않고 지금 당장
+                        // 비-GET/HEAD를 막는다. denyAll()은 인증 여부·역할과 무관하게 전부 거부한다)
+                        .requestMatchers(HttpMethod.GET, "/notices", "/notices/**").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/notices", "/notices/**").permitAll()
+                        .requestMatchers("/notices", "/notices/**").denyAll()
                         .anyRequest().permitAll()
                 )
                 .formLogin((form) -> form

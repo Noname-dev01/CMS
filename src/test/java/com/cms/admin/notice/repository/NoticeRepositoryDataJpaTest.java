@@ -12,6 +12,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.LocalDateTime;
@@ -138,5 +139,79 @@ class NoticeRepositoryDataJpaTest extends MariaDbContainerSupport {
 
         assertThat(result).isPresent();
         assertThat(result.get().getId()).isEqualTo(active.getId());
+    }
+
+    @Test
+    @DisplayName("findByDeletedFalseAndUseYnTrue는 삭제되었거나 비노출인 공지를 제외한다 (공개 목록 전용)")
+    void findByDeletedFalseAndUseYnTrue_excludesDeletedAndHidden() {
+        String marker = "공개목록필터검증" + System.nanoTime();
+        Notice published = saveNotice(marker + "-published", "본문", true, false);
+        saveNotice(marker + "-hidden", "본문", false, false);
+        saveNotice(marker + "-deleted", "본문", true, true);
+
+        Page<Notice> result = noticeRepository.findByDeletedFalseAndUseYnTrue(
+                PageRequest.of(0, 20, Sort.by(Sort.Order.desc("id"))));
+
+        assertThat(result.getContent())
+                .extracting(Notice::getId)
+                .contains(published.getId());
+        assertThat(result.getContent())
+                .extracting(Notice::getTitle)
+                .noneMatch(title -> title.endsWith("-hidden") || title.endsWith("-deleted"));
+    }
+
+    @Test
+    @DisplayName("findByIdAndDeletedFalseAndUseYnTrue는 비노출 공지를 반환하지 않는다")
+    void findByIdAndDeletedFalseAndUseYnTrue_excludesHidden() {
+        Notice hidden = saveNotice("공개상세비노출검증" + System.nanoTime(), "본문", false, false);
+
+        Optional<Notice> result = noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(hidden.getId());
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findByIdAndDeletedFalseAndUseYnTrue는 삭제된 공지를 반환하지 않는다")
+    void findByIdAndDeletedFalseAndUseYnTrue_excludesDeleted() {
+        Notice deleted = saveNotice("공개상세삭제검증" + System.nanoTime(), "본문", true, true);
+
+        Optional<Notice> result = noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(deleted.getId());
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findByIdAndDeletedFalseAndUseYnTrue는 노출·미삭제 공지를 반환한다")
+    void findByIdAndDeletedFalseAndUseYnTrue_returnsPublished() {
+        Notice published = saveNotice("공개상세노출검증" + System.nanoTime(), "본문", true, false);
+
+        Optional<Notice> result = noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(published.getId());
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getId()).isEqualTo(published.getId());
+    }
+
+    @Test
+    @DisplayName("findByDeletedFalseAndUseYnTrue는 동률 createDate에서 id desc로 tie-break한다")
+    void findByDeletedFalseAndUseYnTrue_tieBreaksById() {
+        String marker = "타이브레이크검증" + System.nanoTime();
+        LocalDateTime sameInstant = LocalDateTime.now();
+        Notice first = noticeRepository.save(Notice.builder()
+                .title(marker + "-first").content("본문").useYn(true).deleted(false)
+                .authorId("admin01").createDate(sameInstant).updateDate(sameInstant).build());
+        Notice second = noticeRepository.save(Notice.builder()
+                .title(marker + "-second").content("본문").useYn(true).deleted(false)
+                .authorId("admin01").createDate(sameInstant).updateDate(sameInstant).build());
+
+        Page<Notice> result = noticeRepository.findByDeletedFalseAndUseYnTrue(
+                PageRequest.of(0, 20, Sort.by(Sort.Order.desc("createDate"), Sort.Order.desc("id"))));
+
+        int firstIndex = indexOfId(result, first.getId());
+        int secondIndex = indexOfId(result, second.getId());
+        assertThat(firstIndex).isGreaterThan(secondIndex);
+    }
+
+    private int indexOfId(Page<Notice> page, Long id) {
+        return page.getContent().stream().map(Notice::getId).toList().indexOf(id);
     }
 }

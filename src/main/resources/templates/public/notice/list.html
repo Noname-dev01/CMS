@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>공지사항</title>
+    <link rel="stylesheet" th:href="@{/css/public/notice.css}">
+</head>
+<body>
+<div class="public-notice-container">
+    <div class="public-notice-header">
+        <h1><a th:href="@{/notices}">공지사항</a></h1>
+    </div>
+
+    <ul class="notice-list" th:if="${not #lists.isEmpty(notices)}">
+        <li class="notice-list-item" th:each="notice : ${notices}">
+            <a th:href="@{/notices/{id}(id=${notice.id})}">
+                <span class="notice-title" th:text="${notice.title}"></span>
+                <span class="notice-date" th:text="${#temporals.format(notice.createDate, 'yyyy-MM-dd')}"></span>
+            </a>
+        </li>
+    </ul>
+
+    <div class="notice-empty" th:if="${#lists.isEmpty(notices)}">
+        등록된 공지사항이 없습니다.
+    </div>
+
+    <div class="notice-pagination" th:if="${totalPages > 1}">
+        <a th:if="${hasPrevious}" th:href="@{/notices(page=${page - 1})}">이전</a>
+        <span th:unless="${hasPrevious}" class="disabled">이전</span>
+        <span th:text="${(page + 1) + ' / ' + totalPages}"></span>
+        <a th:if="${hasNext}" th:href="@{/notices(page=${page + 1})}">다음</a>
+        <span th:unless="${hasNext}" class="disabled">다음</span>
+    </div>
+</div>
+</body>
+</html>

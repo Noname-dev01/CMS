@@ -2,6 +2,8 @@ package com.cms.admin.notice.repository;
 
 import com.cms.admin.notice.domain.Notice;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -13,6 +15,15 @@ public interface NoticeRepository extends JpaRepository<Notice, Long>, NoticeRep
 
     /** 단건 조회용 — 락 없음. 삭제된 공지는 대상에서 제외한다. */
     Optional<Notice> findByIdAndDeletedFalse(Long id);
+
+    /**
+     * 공개(비로그인) 목록·상세 조회 전용. admin 검색({@link NoticeRepositoryCustom#searchNotices})과
+     * 달리 조건이 고정(노출·미삭제)이라 QueryDSL 동적 쿼리가 필요 없다 — 메서드명 자체가
+     * 조건을 강제해 공개 조회 불변식(노출+미삭제)이 실수로 깨지지 않는다.
+     */
+    Page<Notice> findByDeletedFalseAndUseYnTrue(Pageable pageable);
+
+    Optional<Notice> findByIdAndDeletedFalseAndUseYnTrue(Long id);
 
     /**
      * PATCH·DELETE·첨부 업로드·첨부 삭제 전용 — 비관적 락으로 대상 row를 잠근다.
