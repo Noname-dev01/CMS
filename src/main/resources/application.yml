@@ -2,7 +2,9 @@ spring:
   application:
     name: CMS
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    # 기본값 없음(의도) — 프로파일 미지정 기동은 fail-fast한다(PLAN-prod-profile.md 결정 1).
+    # dev+prod 동시 활성화·활성 프로파일 0개는 ProfileGuardEnvironmentPostProcessor가 추가로 차단한다.
+    active: ${SPRING_PROFILES_ACTIVE}
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -21,12 +23,30 @@ spring:
     # baseline-on-migrate를 상시 설정하지 않는 이유: 점검을 건너뛴 기존 DB가
     # 조용히 영구 baseline되는 것을 막기 위함.
     baseline-version: 1
+  jpa:
+    hibernate:
+      # Flyway 전용 정책이라 전 프로파일 공통(PLAN-prod-profile.md 결정 2) — 스키마 변경은 마이그레이션 파일로만 한다
+      ddl-auto: validate
 
 server:
   error:
     whitelabel:
       enabled: false
     path: /error
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # 안전한 기본을 전 프로파일 공통으로 둔다 — 노출 설정과 SecurityConfig의
+        # /actuator/** denyAll이 항상 일치하도록(PLAN-prod-profile.md 결정 2·3).
+        include: health
+  endpoint:
+    health:
+      show-details: never
+  health:
+    mail:
+      enabled: false
 
 app:
   base-url: ${APP_BASE_URL:http://localhost:8080}

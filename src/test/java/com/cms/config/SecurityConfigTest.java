@@ -30,7 +30,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         SecurityConfigTest.MockConfig.class
@@ -253,6 +253,31 @@ class SecurityConfigTest {
         mockMvc.perform(post("/notices").with(csrf()))
                 .andExpect(status().isForbidden());
     }
+
+    // ==================== actuator 인가 범위 검증 (PLAN-prod-profile.md 결정 3, 2026-07-29 승인) ====================
+
+    @Test
+    @DisplayName("비인증 GET /actuator/health는 200 (permitAll, 무인증 공개 유지)")
+    void actuatorHealth_unauthenticatedGet_ok() throws Exception {
+        mockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비인증 GET /actuator/env는 denyAll+익명 판별로 /admin/login 302 리다이렉트 (JSON 아님)")
+    void actuatorEnv_unauthenticatedGet_redirectsToLogin() throws Exception {
+        mockMvc.perform(get("/actuator/env"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
+    @Test
+    @DisplayName("ADMIN GET /actuator/env는 denyAll+인증 사용자 판별로 정확히 403 (역할 불문 차단)")
+    @WithMockUser(roles = "ADMIN")
+    void actuatorEnv_adminGet_forbidden() throws Exception {
+        mockMvc.perform(get("/actuator/env"))
+                .andExpect(status().isForbidden());
+    }
 }
 
 // ==================== 슬라이스 테스트 전용 스텁 컨트롤러 ====================
@@ -324,6 +349,27 @@ class AdminNoticeStubController {
     @PostMapping("/admin/api/notices")
     ResponseEntity<String> noticesCreate() {
         return ResponseEntity.status(201).body("{}");
+    }
+}
+
+@TestStubController
+class ActuatorHealthStubController {
+
+    @GetMapping("/actuator/health")
+    String health() {
+        return "{\"status\":\"UP\"}";
+    }
+}
+
+@TestStubController
+class ActuatorEnvStubController {
+
+    @GetMapping("/actuator/env")
+    String env() {
+        // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 —
+        // 실제 /actuator/env 핸들러가 없어도(exposure=health only) denyAll 규칙은
+        // 별도로 실제 등록 여부를 신경 쓰지 않고 경로 자체를 막아야 한다.
+        return "{}";
     }
 }
 
