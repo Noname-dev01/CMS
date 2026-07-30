@@ -1,0 +1,66 @@
+# 명시적 프로젝트 이름 — docker-compose.dev.yml과 완전히 분리된 프로젝트가 되도록 고정한다
+# (PLAN-prod-profile.md 검증 중 실측: 이름을 명시하지 않으면 두 compose 파일이 디렉터리명
+# 기준 같은 암묵적 프로젝트로 묶여 db/app 서비스 이름이 충돌 — dev 컨테이너가 prod 서비스로
+# 교체되는 사고가 재현됨).
+name: cms-prod
+
+services:
+  db:
+    image: mariadb:10.11
+    container_name: cms-db-prod
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?필수 환경변수입니다}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?필수 환경변수입니다}
+      MYSQL_USER: ${MYSQL_USER:?필수 환경변수입니다}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?필수 환경변수입니다}
+    volumes:
+      - db_data_prod:/var/lib/mysql
+    healthcheck:
+      # 공식 이미지 내장 스크립트 — 명령줄에 비밀번호를 넣지 않아 프로세스 목록 노출이 없다
+      # (PLAN-prod-profile.md 결정 8, mariadb:10.11 이미지 실존 확인 완료).
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build: .
+    container_name: cms-app-prod
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # DB 이름은 MYSQL_DATABASE에서 직접 조합 — 별도 키로 두면 db 서비스와 값이
+      # 어긋날 수 있다(PLAN-prod-profile.md 결정 7, v5).
+      DB_URL: jdbc:mariadb://db:3306/${MYSQL_DATABASE:?필수 환경변수입니다}
+      # db 서비스와 동일 소스를 직접 매핑 — 앱 계정과 root 계정은 분리하되 값 drift는 차단.
+      DB_USER: ${MYSQL_USER:?필수 환경변수입니다}
+      DB_PASS: ${MYSQL_PASSWORD:?필수 환경변수입니다}
+      MAIL_USER: ${MAIL_USER:?필수 환경변수입니다}
+      MAIL_PASS: ${MAIL_PASS:?필수 환경변수입니다}
+      APP_BASE_URL: ${APP_BASE_URL:?필수 환경변수입니다}
+      # 컨테이너 내부 절대경로 — named volume 마운트 지점과 동일해야 한다(dev compose와 동일 패턴).
+      APP_FILE_STORAGE_ROOT: /app/data/attachments
+      # 부트스트랩 3변수는 선택 입력이다 — ACTIVE ROLE_ADMIN이 이미 있는 정상 운영 환경에서는
+      # 이 값들이 없어도 기동돼야 하므로 Compose가 무조건 요구하지 않는다(결정 4·7).
+      ADMIN_BOOTSTRAP_USER_ID: ${ADMIN_BOOTSTRAP_USER_ID-}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD-}
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL-}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # 루프백에만 바인딩 — 검증용이며 그대로 인터넷에 노출하면 안 된다(docs/deployment.md 참조).
+      # 실제 인터넷 노출은 리버스 프록시·TLS가 갖춰진 뒤(이번 범위 밖)의 일이다.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - notice_attachments_prod:/app/data/attachments
+
+volumes:
+  # 실제 볼륨 이름을 project-prefix 없이 고정한다 — 위 name: 필드로 프로젝트명을 못박아도,
+  # 향후 프로젝트명을 다시 바꾸는 실수가 있으면 볼륨 접두사가 바뀌어 운영 데이터가 담긴
+  # 볼륨과 다른 새 빈 볼륨을 만들게 된다. 이름을 데이터 자체에 고정해 이런 사고를 막는다.
+  db_data_prod:
+    name: cms_db_data_prod
+  notice_attachments_prod:
+    name: cms_notice_attachments_prod

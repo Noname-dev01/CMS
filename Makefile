@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help dev-db dev-up dev-down logs logs-app logs-db ps rebuild prune
+.PHONY: help dev-db dev-up dev-down logs logs-app logs-db ps rebuild prune prod-up prod-down logs-prod
 
 help:
 	@echo ""
@@ -15,6 +15,9 @@ help:
 	@echo "make ps          → Show running containers"
 	@echo "make rebuild     → Rebuild dev images (no cache)"
 	@echo "make prune       → Clean docker build cache"
+	@echo "make prod-up     → Start prod stack (app + db, 검증용 — 실배포 아님)"
+	@echo "make prod-down   → Stop prod stack (데이터 볼륨 보존)"
+	@echo "make logs-prod   → Show prod logs"
 	@echo ""
 
 dev-db:
@@ -43,3 +46,12 @@ rebuild:
 
 prune:
 	@docker builder prune -af
+
+prod-up:
+	@bash scripts/prod-up.sh
+
+prod-down:
+	@bash scripts/prod-down.sh
+
+logs-prod:
+	@bash scripts/prod-logs.sh
