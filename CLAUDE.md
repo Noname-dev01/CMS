@@ -48,6 +48,10 @@ make dev-down
 # 앱/DB 로그 확인
 make logs-app
 make logs-db
+
+# prod 프로파일 배포 가능 상태 검증(실배포 아님 — docs/deployment.md 참고)
+make prod-up
+make prod-down
 ```
 
 ## 아키텍처 개요
@@ -79,6 +83,8 @@ com.cms/
 │   ├── AdminPage            # Thymeleaf 페이지 컨트롤러 마커 어노테이션 — 새 페이지 컨트롤러에 필수 부착 (누락은 AdminPageAnnotationConventionTest가 감지)
 │   ├── AdminSidebarAdvice   # @AdminPage 컨트롤러에만 사이드바 모델 주입 (sidebarMenus, currentUri) — REST API 요청에 메뉴 DB 조회가 나가지 않도록 범위 제한
 │   ├── member/              # 관리자 계정 관리 (핵심 도메인) — 생성·조회·자기수정·타 관리자 수정
+│   │   ├── AdminBootstrapLoader        # prod 초기 관리자 부트스트랩(@Profile("prod"), 2026-07-29)
+│   │   ├── AdminBootstrapCredentials   #   부트스트랩 전용 검증 계약(일반 클래스 — record 아님, toString에 userId만 노출)
 │   │   └── controller/      #   - AdminMemberController (REST API, /admin/api/*)
 │   │                        #   - AdminMemberPageController (Thymeleaf: /admin/member/{new,manage,info})
 │   ├── log/                 # 관리자 활동 로그 (AOP 기반, `AdminActionLogRepository`)
@@ -94,6 +100,7 @@ com.cms/
 ├── common/         # 공통 API 응답, 예외 클래스
 │   └── storage/    # 파일 스토리지 추상화 — FileStorage 인터페이스 + LocalDiskFileStorage 구현 (공지 첨부파일의 첫 소비자)
 ├── config/         # Spring Security, QueryDSL 설정
+│   ├── ProfileGuardEnvironmentPostProcessor  # dev+prod 동시 활성화·활성 프로파일 0개 차단(META-INF/spring.factories 등록, 2026-07-29)
 │   ├── auth/       # 인증·인가 컴포넌트 (AdminSecurityService, CustomUserDetailsService, CustomUserDetails)
 │   │               #   + 세션 강제 만료 (AdminSessionService, AdminSessionRevokeEvent/Listener — AFTER_COMMIT)
 │   └── security/   # Security 필터 핸들러 (ApiAuthenticationEntryPoint, ApiAccessDeniedHandler, AdminSessionExpiredStrategy)
@@ -166,10 +173,12 @@ com.cms/
 ## 환경 설정
 
 - **개발**: `application-dev.yml` + `.env.dev`, MariaDB 포트 3307
-- 기본 프로파일: `dev` (환경변수 `SPRING_PROFILES_ACTIVE`로 오버라이드 가능)
-- **스키마 관리는 Flyway** (`src/main/resources/db/migration/`, `ddl-auto: validate`): 엔티티 변경만으로는 스키마가 바뀌지 않는다 — 컬럼/인덱스 추가·변경 시 반드시 마이그레이션 파일을 함께 작성한다. 머지된 마이그레이션 파일은 수정 금지(체크섬 불일치로 기동 실패). 기존 DB 전환·새 마이그레이션 작성 규칙은 `docs/migration-guide.md` 참고.
-- 기본 관리자 계정: `dev` 프로파일에서 회원이 없으면 `TestMemberLoader`가 `userId=admin` / `pwd=1234`(BCrypt) ROLE_ADMIN 계정을 자동 생성한다. 최초 계정이 이미 있는 경우에는 `POST /admin/api/members`(관리자 인증 필요)로 추가 생성한다.
-- 민감 정보(DB 비밀번호, 메일 계정, 시크릿)는 코드에 하드코딩하지 않고 프로파일/환경변수로 분리한다.
+- **운영(prod, 배포 가능 상태 검증 완료 — 2026-07-29)**: `application-prod.yml` + `.env.prod`(커밋 금지). 절차·필수 환경변수는 `docs/deployment.md` 참고. 실제 인터넷 배포(호스트·도메인·TLS)는 별도 범위.
+- **프로파일 기본값 없음(의도)**: `spring.profiles.active: ${SPRING_PROFILES_ACTIVE}` — 미지정 시 기동 자체가 실패한다(placeholder 해석 실패로 fail-fast). `com.cms.config.ProfileGuardEnvironmentPostProcessor`가 추가로 `dev`+`prod` 동시 활성화와 활성 프로파일 0개(빈 문자열)를 컨텍스트 생성 전에 차단한다. 로컬 `./gradlew test`·CI 모두 `SPRING_PROFILES_ACTIVE=dev`를 명시 주입한다(`build.gradle`의 `test` 태스크, `.github/workflows/ci.yml`).
+- **스키마 관리는 Flyway** (`src/main/resources/db/migration/`, `ddl-auto: validate` — 공통값, 전 프로파일 적용): 엔티티 변경만으로는 스키마가 바뀌지 않는다 — 컬럼/인덱스 추가·변경 시 반드시 마이그레이션 파일을 함께 작성한다. 머지된 마이그레이션 파일은 수정 금지(체크섬 불일치로 기동 실패). 기존 DB 전환·새 마이그레이션 작성 규칙은 `docs/migration-guide.md` 참고.
+- **초기 관리자 계정**: dev는 회원이 없으면 `TestMemberLoader`(`@Profile("dev")`)가 `userId=admin` / `pwd=1234`(BCrypt) ROLE_ADMIN 계정을 자동 생성한다. prod는 `AdminBootstrapLoader`(`@Profile("prod")`, `com.cms.admin.member`)가 ACTIVE 상태 ROLE_ADMIN이 하나도 없을 때만 `ADMIN_BOOTSTRAP_USER_ID`·`_PASSWORD`·`_EMAIL` 환경변수로 계정을 생성한다 — 셋 중 하나라도 없거나 값이 유효하지 않으면(검증 계약은 `AdminBootstrapCredentials`) 기동을 실패시킨다(관리자 없이 조용히 뜨는 것보다 안전하다는 결정). ACTIVE ROLE_ADMIN이 이미 있으면 환경변수를 검사하지 않는다. 저장·동시성 재조회는 `PasswordResetService`와 동일하게 `TransactionTemplate`으로 트랜잭션 경계를 명시한다(같은 클래스 내부 호출은 `@Transactional` 프록시를 타지 않으므로). 최초 계정이 이미 있는 경우에는 `POST /admin/api/members`(관리자 인증 필요)로 추가 생성한다. 상세 설계 결정은 `adversarial-review/plan/PLAN-prod-profile.md` 참조.
+- **actuator**: `management.endpoints.web.exposure.include: health`(공통, 전 프로파일)+`show-details: never`. `SecurityConfig`가 `/actuator/health`만 `permitAll()`, `/actuator/**`는 `denyAll()`로 이중 방어한다(설정이 실수로 넓어져도 Security 레이어가 막음).
+- 민감 정보(DB 비밀번호, 메일 계정, 시크릿)는 코드에 하드코딩하지 않고 프로파일/환경변수로 분리한다. `.env.dev`·`.env.prod` 모두 git 추적 대상 아님(`.gitignore`의 `.env*` 규칙, `.env.example`만 예외).
 
 ## 보안 규칙
 
@@ -184,7 +193,8 @@ com.cms/
 | `/admin/notice/**`, `/admin/api/notices`, `/admin/api/notices/**` | `ROLE_ADMIN`·`ROLE_MANAGER` (공지사항 관리, 2026-07-20 승인) |
 | `/admin/**` | `ROLE_ADMIN` 필수 |
 | `/notices`, `/notices/**` | GET·HEAD만 공개 (`permitAll`), 그 외 메서드는 `denyAll`로 명시 차단 (공개 공지 페이지, 2026-07-28 승인) |
-| `/actuator/health`, `/actuator/info` | 공개 (별도 `requestMatchers` 없음 — `anyRequest().permitAll()`에 포함) |
+| `/actuator/health` | 공개 (`permitAll`, 로드밸런서 헬스체크용) |
+| `/actuator/**`(health 제외) | `denyAll` 명시 차단 (2026-07-29 승인 — env/beans/metrics 등 노출 설정이 넓어져도 뚫리지 않도록 이중 방어) |
 | 그 외 모든 경로 | 공개 (`anyRequest().permitAll()`) |
 
 - `ACTIVE` 상태 계정만 로그인 가능 (`CustomUserDetailsService`). 연속 5회 로그인 실패 시 자동 잠금(30분 해제) — 정책 상세는 "핵심 도메인 모델 > Member" 참조 (2026-07-14 승인)
@@ -227,7 +237,7 @@ com.cms/
 
 ## API 문서
 
-- Swagger UI: `http://localhost:8080/swagger-ui.html` (SpringDoc OpenAPI 2.8.14, `ROLE_ADMIN` 로그인 필요, **dev 전용**)
+- Swagger UI: `http://localhost:8080/swagger-ui.html` (SpringDoc OpenAPI 2.8.14, `ROLE_ADMIN` 로그인 필요, **dev 전용** — prod는 `application-prod.yml`의 `springdoc.api-docs.enabled=false`+`swagger-ui.enabled=false`로 핸들러 자체가 등록되지 않는다. 다만 이 경로에 접근하면 404가 아니라 500이 반환된다 — 기존 결함, `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조)
 - API 문서는 SpringDoc Swagger(OpenAPI 3)로 단일화한다. Spring REST Docs는 사용하지 않는다.
 
 현재 구현된 주요 엔드포인트(RESTful 규칙 정렬 완료):

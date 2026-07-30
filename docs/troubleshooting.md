@@ -412,6 +412,24 @@ Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plu
 
 참고: `com.cms.publicweb.notice.controller.PublicNoticeController`(파싱 안전성) + `com.cms.publicweb.support.PublicWebExceptionAdvice`(범위 한정 advice) 구현. 상세 설계 결정은 `adversarial-review/plan/PLAN-public-notice.md` 결정 3-1·3-2 참조.
 
+### 핸들러가 아예 없는 경로(정적 리소스 미존재 등)가 404가 아니라 500으로 응답됨 (2026-07-30)
+
+#### 오류 메시지
+
+```
+매핑되는 컨트롤러·정적 리소스가 전혀 없는 경로에 접근하면 404 대신
+{"timestamp":"...","path":"/swagger-ui.html","code":"INTERNAL_ERROR","message":"서버 오류가 발생했습니다."}
+같은 JSON 500이 응답됨
+```
+
+#### 원인
+
+바로 위 항목("비관리자 페이지 컨트롤러의 예외가 JSON으로 응답됨")과 같은 근본 원인(`GlobalApiExceptionHandler`가 selector 없는 전역 `@RestControllerAdvice`)이지만, 이번엔 컨트롤러 예외가 아니라 **핸들러 자체가 없는 요청**이 대상이다. Spring MVC는 매핑되는 핸들러·정적 리소스를 못 찾으면 `NoResourceFoundException`(또는 유사 예외)을 던지는데, 이 예외도 `@ExceptionHandler(Exception.class)` catch-all에 그대로 잡혀 500으로 바뀐다. prod 프로파일에서 `springdoc.swagger-ui.enabled=false`·`springdoc.api-docs.enabled=false`로 springdoc 핸들러 자체를 껐을 때 `/swagger-ui.html`·`/v3/api-docs`에서 이 현상이 재현됨을 실측 확인했다(PLAN-prod-profile.md Docker 실기 검증, 2026-07-30). `GET /admin/logout`(POST 전용 설계)·`GET /favicon.ico`도 `PLAN-public-notice.md` 실기 검증 당시 같은 증상으로 이미 발견된 바 있다.
+
+#### 해결 방법
+
+**아직 고치지 않음** — 위 항목의 해결책(패키지 범위 한정 advice)은 `com.cms.publicweb`처럼 컨트롤러가 있는 패키지에 적용하는 방식이라, "컨트롤러가 아예 없는 요청"에는 적용되지 않는다. 근본적으로 고치려면 `GlobalApiExceptionHandler`(또는 신규 최상위 advice)에 `NoResourceFoundException`/`NoHandlerFoundException` 전용 핸들러를 추가해 404로 응답하게 해야 하는데, 이는 앱 전체(admin API 포함)의 예외 처리 범위를 건드리는 변경이라 특정 기능 PR에서 다루지 않고 별도 작업으로 미뤄왔다(prod 프로파일 부활 PR에서도 동일하게 범위 밖으로 판단). 보안상 실질 피해는 없다(502/500이 나올 뿐 정보가 새지 않음) — 다만 정상적인 404 대신 500이 나오는 것은 사용자 경험·모니터링(500 알림이 실제 장애가 아닌 것과 섞임) 관점에서 개선 여지가 있다. 다음에 이 문제를 다룰 때는 `GlobalApiExceptionHandler`에 `NoResourceFoundException` 핸들러를 추가하는 것으로 세 사례(swagger-ui/v3-api-docs, /admin/logout GET, /favicon.ico) 전부가 한 번에 해소될 것으로 예상된다.
+
 ---
 
 # 정리
