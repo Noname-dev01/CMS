@@ -18,6 +18,7 @@
 | 6 | ✅ **완료 (2026-07-27)** [PLAN-testcontainers.md](PLAN-testcontainers.md) — Testcontainers 전환: 테스트 DB 격리 (로드맵 2026-07-20 재선정 Top 5 ④) | test/infra | 없음 (언제든 가능) | 승인 완료 (2026-07-27, 신규 의존성 2개 + CI service container 제거) |
 | 7 | ✅ **완료 (2026-07-22)** [PLAN-notice-attachment.md](PLAN-notice-attachment.md) — 파일 스토리지 추상화 + 공지 첨부파일 (로드맵 2026-07-20 재선정 Top 5 ②) | feat | 5번 완료 필수 | 승인 완료 (신규 의존성 없음, 스키마 변경) |
 | 8 | ✅ **완료 (2026-07-28)** [PLAN-public-notice.md](PLAN-public-notice.md) — 공개 공지 페이지: 첫 비관리자 화면 (로드맵 2026-07-20 재선정 Top 5 ③) | feat | 5번 완료 필수 | 승인 완료 (2026-07-28, `/notices` GET/HEAD `permitAll`+나머지 `denyAll` 명시 — 인가 정책 변경) |
+| 9 | ✅ **완료 (2026-07-30)** [PLAN-prod-profile.md](PLAN-prod-profile.md) — prod 프로파일 부활 + 배포 준비 (로드맵 2026-07-29 선정 Top 3 ①) | infra/security | 8번 완료 권장(배포할 콘텐츠 확보) | 승인 완료 (2026-07-29, `/actuator/health` permitAll + `/actuator/**` denyAll 명시 — 인가 정책 변경) |
 
 ## 공통 규칙 (모든 계획에 적용)
 

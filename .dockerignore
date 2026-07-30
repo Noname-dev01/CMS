@@ -1,0 +1,13 @@
+# 시크릿 — 빌더 레이어에 절대 올라가면 안 된다(PLAN-prod-profile.md 결정 6)
+.env*
+!.env.example
+
+.git
+build/
+out/
+.gradle/
+.idea/
+data/
+/*.png
+adversarial-review/
+.claude/

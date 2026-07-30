@@ -55,6 +55,10 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // application.yml의 spring.profiles.active가 기본값 없이 ${SPRING_PROFILES_ACTIVE}로
+    // 바뀌어(PLAN-prod-profile.md 결정 1) 프로파일 미지정 기동이 fail-fast하므로,
+    // 로컬 실행도 CI(.github/workflows/ci.yml)와 동일하게 dev를 명시한다.
+    environment 'SPRING_PROFILES_ACTIVE', 'dev'
     // MariaDbContainerSupport는 static 필드로 컨테이너를 시작하는 진짜 싱글턴이다 —
     // "테스트 JVM(워커)당 컨테이너 1개"라는 계약이 성립하려면 프로세스가 여러 개
     // 뜨거나 하나의 프로세스가 순차적으로 재기동되지 않아야 한다. maxParallelForks는

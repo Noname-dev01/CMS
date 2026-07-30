@@ -1,3 +1,10 @@
+# 명시적 프로젝트 이름 — docker-compose.prod.yml과 같은 디렉터리에서 실행되므로,
+# 이름을 명시하지 않으면 둘 다 디렉터리명("CMS")으로 같은 암묵적 프로젝트가 되어
+# 서비스 이름(db/app)이 충돌한다. 실제로 이 문제 없이 prod compose를 먼저 실행했더니
+# Compose가 기존 dev db 컨테이너를 prod db 서비스로 교체해버린 사고가 있었다
+# (named volume은 보존되어 데이터 유실은 없었음 — 컨테이너만 대체됨).
+name: cms-dev
+
 services:
   db:
     image: mariadb:10.11
@@ -32,5 +39,11 @@ services:
       - notice_attachments_dev:/app/data/attachments
 
 volumes:
+  # 실제 볼륨 이름을 project-prefix 없이 고정한다 — name: 필드 추가(위) 전에는
+  # 프로젝트명이 암묵적으로 "cms"였기 때문에 기존 데이터가 cms_db_data_dev에 있다.
+  # name:을 고정하지 않으면 볼륨 접두사가 cms-dev_로 바뀌어 기존 데이터가 담긴
+  # 볼륨과 다른, 새 빈 볼륨을 만들게 된다.
   db_data_dev:
+    name: cms_db_data_dev
   notice_attachments_dev:
+    name: cms_notice_attachments_dev

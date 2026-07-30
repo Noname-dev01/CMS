@@ -119,6 +119,20 @@ make prune       # docker build 캐시 정리
 
 ---
 
+# 🚢 배포 (prod 프로파일)
+
+`SPRING_PROFILES_ACTIVE=prod`로 기동하면 Swagger 비활성·시크릿 전량 환경변수 주입·actuator 최소 노출이 보장된다. 실제 인터넷 배포(호스트·도메인·TLS)는 별도 사안이며, 아래 명령은 로컬/서버에서 "배포 가능한 상태"를 검증하는 용도다.
+
+```bash
+make prod-up     # .env.prod 필요 (.env.example 참고) — 기동 후 /actuator/health 폴링까지 자동 수행
+make prod-down   # 데이터 볼륨 보존하며 중지
+make logs-prod   # prod 로그
+```
+
+자세한 절차·필수 환경변수·초기 관리자 계정 생성 규칙은 [docs/deployment.md](docs/deployment.md) 참고.
+
+---
+
 ## 개발환경 (IntelliJ + Docker DB)
 
 1. DB 실행

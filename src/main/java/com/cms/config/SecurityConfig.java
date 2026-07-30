@@ -63,6 +63,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/notices", "/notices/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/notices", "/notices/**").permitAll()
                         .requestMatchers("/notices", "/notices/**").denyAll()
+                        // actuator: health만 무인증 공개(로드밸런서 헬스체크용), 나머지는 명시 차단.
+                        // management.endpoints.web.exposure.include(설정 레벨 제한)에 더해
+                        // Security 레이어에서 이중으로 막아, 노출 설정이 실수로 넓어져도
+                        // 뚫리지 않게 한다(PLAN-prod-profile.md 결정 3, 2026-07-29 승인).
+                        .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/actuator/**").denyAll()
                         .anyRequest().permitAll()
                 )
                 .formLogin((form) -> form

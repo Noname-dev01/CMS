@@ -1,0 +1,36 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASS}
+    driver-class-name: org.mariadb.jdbc.Driver
+  jpa:
+    show-sql: false
+
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USER}
+    password: ${MAIL_PASS}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+app:
+  # 공통(application.yml)의 기본값(localhost/상대경로)을 compose 없이 prod 프로파일을
+  # 직접 실행하는 경우에도 강제로 무효화한다 — 값이 없으면 fail-fast(PLAN-prod-profile.md 결정 10).
+  base-url: ${APP_BASE_URL}
+  file-storage:
+    root: ${APP_FILE_STORAGE_ROOT}
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

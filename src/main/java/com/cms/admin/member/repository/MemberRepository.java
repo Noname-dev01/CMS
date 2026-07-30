@@ -24,6 +24,13 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
     boolean existsByEmail(String email);
 
     /**
+     * prod 초기 관리자 부트스트랩 트리거 판정 전용(단순 존재 확인 — 잠금 불필요).
+     * 진짜 직렬화가 필요한 지점(동시 부트스트랩 저장 경합)은 {@code uk_member_user_id}
+     * 유니크 제약이 맡는다(PLAN-prod-profile.md 결정 4).
+     */
+    boolean existsByUserTypeAndStatus(Role userType, MemberStatus status);
+
+    /**
      * 타 관리자 수정(PATCH) 시 대상 row를 PESSIMISTIC_WRITE로 잠근 뒤 조회한다.
      * Member에 @Version이 없고 Hibernate는 전체 컬럼을 UPDATE하므로, 같은 대상에 대한
      * 동시 PATCH가 낡은 status/userType을 되쓰는 lost update를 행 잠금으로 차단한다.
