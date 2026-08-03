@@ -3,6 +3,7 @@ package com.cms.publicweb.notice.controller;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.config.auth.AdminSecurityService;
+import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import com.cms.publicweb.notice.service.PublicNoticeService;
@@ -35,7 +36,9 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
@@ -97,6 +100,21 @@ class PublicNoticeControllerTest {
         return PublicNoticeDetail.builder()
                 .id(id).title(title).content(content)
                 .createDate(LocalDateTime.now()).updateDate(LocalDateTime.now())
+                .build();
+    }
+
+    private com.cms.publicweb.notice.dto.PublicNoticeAttachment attachmentDto(Long id, String filename) {
+        return com.cms.publicweb.notice.dto.PublicNoticeAttachment.builder()
+                .id(id).originalFilename(filename).fileSize(100L).fileSizeText("100 B")
+                .build();
+    }
+
+    private PublicNoticeDetail detailWithAttachments(Long id, String title, String content,
+                                                       List<com.cms.publicweb.notice.dto.PublicNoticeAttachment> attachments) {
+        return PublicNoticeDetail.builder()
+                .id(id).title(title).content(content)
+                .createDate(LocalDateTime.now()).updateDate(LocalDateTime.now())
+                .attachments(attachments)
                 .build();
     }
 
@@ -266,5 +284,142 @@ class PublicNoticeControllerTest {
         mockMvc.perform(get("/notices"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(view().name("public/notice/error"));
+    }
+
+    // ===================== detail: 첨부 목록 렌더링 =====================
+
+    @Test
+    @DisplayName("상세에 첨부 링크와 파일명이 렌더링된다")
+    @WithMockUser
+    void detail_rendersAttachmentLink() throws Exception {
+        given(publicNoticeService.findPublishedNotice(1L))
+                .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
+                        List.of(attachmentDto(7L, "report.pdf")))));
+
+        mockMvc.perform(get("/notices/1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("/notices/1/attachments/7")))
+                .andExpect(content().string(containsString("report.pdf")));
+    }
+
+    @Test
+    @DisplayName("첨부가 0건이면 '첨부파일' 섹션 문구가 없다")
+    @WithMockUser
+    void detail_noAttachments_noAttachmentSection() throws Exception {
+        given(publicNoticeService.findPublishedNotice(1L))
+                .willReturn(Optional.of(detail(1L, "제목", "본문")));
+
+        mockMvc.perform(get("/notices/1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("첨부파일"))));
+    }
+
+    @Test
+    @DisplayName("첨부 파일명에 스크립트 태그가 있어도 이스케이프되어 실행되지 않는다")
+    @WithMockUser
+    void detail_attachmentFilenameXss_isEscaped() throws Exception {
+        given(publicNoticeService.findPublishedNotice(1L))
+                .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
+                        List.of(attachmentDto(7L, "<script>alert(1)</script>.txt")))));
+
+        mockMvc.perform(get("/notices/1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("<script>alert(1)</script>"))))
+                .andExpect(content().string(containsString("&lt;script&gt;")));
+    }
+
+    @Test
+    @DisplayName("상세 응답 본문에 storageKey(서버 내부 경로)가 노출되지 않는다")
+    @WithMockUser
+    void detail_doesNotExposeStorageKey() throws Exception {
+        given(publicNoticeService.findPublishedNotice(1L))
+                .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
+                        List.of(attachmentDto(7L, "report.pdf")))));
+
+        mockMvc.perform(get("/notices/1"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(not(containsString("storageKey"))));
+    }
+
+    // ===================== attachment (다운로드) =====================
+
+    @Test
+    @DisplayName("다운로드 성공 시 octet-stream·Content-Disposition·nosniff·no-store 헤더와 바디를 반환한다")
+    @WithMockUser
+    void attachment_success_returnsFileWithHeaders() throws Exception {
+        given(publicNoticeService.downloadPublishedAttachment(1L, 7L))
+                .willReturn(Optional.of(new PublicNoticeAttachmentDownload("report.pdf", "content".getBytes())));
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_OCTET_STREAM))
+                .andExpect(header().string("Content-Disposition", containsString("report.pdf")))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().bytes("content".getBytes()));
+    }
+
+    @Test
+    @DisplayName("Service가 empty를 반환하면(비공개 notice·없는 첨부·타 notice 첨부 공통) 404")
+    @WithMockUser
+    void attachment_serviceReturnsEmpty_notFound() throws Exception {
+        given(publicNoticeService.downloadPublishedAttachment(1L, 7L)).willReturn(Optional.empty());
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("비숫자 id/attachmentId는 Service를 거치지 않고 404(JSON 아님)")
+    @WithMockUser
+    void attachment_nonNumericIds_notFoundWithoutServiceCall() throws Exception {
+        mockMvc.perform(get("/notices/abc/attachments/1")).andExpect(status().isNotFound());
+        mockMvc.perform(get("/notices/1/attachments/abc")).andExpect(status().isNotFound());
+
+        Mockito.verifyNoInteractions(publicNoticeService);
+    }
+
+    @Test
+    @DisplayName("다운로드 중 Service 예외는 HTML 500 + public/notice/error 뷰로 응답한다(JSON 아님)")
+    @WithMockUser
+    void attachment_serviceThrows_returnsHtml500NotJson() throws Exception {
+        given(publicNoticeService.downloadPublishedAttachment(anyLong(), anyLong()))
+                .willThrow(new RuntimeException("디스크 오류 시뮬레이션"));
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(view().name("public/notice/error"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
+    }
+
+    @Test
+    @DisplayName("HEAD 요청은 GET과 동일한 핸들러 메서드를 거쳐 Service를 호출한다")
+    @WithMockUser
+    void attachment_head_invokesSameHandlerAsGet() throws Exception {
+        given(publicNoticeService.downloadPublishedAttachment(1L, 7L))
+                .willReturn(Optional.of(new PublicNoticeAttachmentDownload("report.pdf", "content".getBytes())));
+
+        mockMvc.perform(head("/notices/1/attachments/7"))
+                .andExpect(status().isOk());
+
+        verify(publicNoticeService).downloadPublishedAttachment(1L, 7L);
+    }
+
+    @Test
+    @DisplayName("CR/LF 포함 파일명 다운로드는 정확히 200이며 별도 헤더가 생기지 않고 raw CR/LF가 노출되지 않는다")
+    @WithMockUser
+    void attachment_crlfFilename_encodedSafelyWithoutHeaderInjection() throws Exception {
+        String crlfFilename = "report\r\nX-Evil: injected.txt";
+        given(publicNoticeService.downloadPublishedAttachment(1L, 7L))
+                .willReturn(Optional.of(new PublicNoticeAttachmentDownload(crlfFilename, "content".getBytes())));
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist("X-Evil"))
+                .andExpect(result -> {
+                    String contentDisposition = result.getResponse().getHeader("Content-Disposition");
+                    org.junit.jupiter.api.Assertions.assertNotNull(contentDisposition);
+                    org.junit.jupiter.api.Assertions.assertFalse(contentDisposition.contains("\r\n"));
+                });
     }
 }

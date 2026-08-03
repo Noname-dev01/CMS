@@ -32,6 +32,13 @@ class PublicNoticeTemplateConventionTest {
         }
     }
 
+    @Test
+    @DisplayName("detail.html에 storageKey(서버 내부 경로) 문자열이 없다")
+    void detailTemplate_doesNotReferenceStorageKey() throws IOException {
+        String content = readResource("templates/public/notice/detail.html");
+        assertFalse(content.contains("storageKey"), "detail.html에 storageKey가 있습니다 — 서버 내부 경로가 새어나갈 수 있습니다.");
+    }
+
     private String readResource(String path) throws IOException {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream(path)) {
             if (in == null) {

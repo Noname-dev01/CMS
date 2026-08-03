@@ -1,7 +1,12 @@
 package com.cms.publicweb.notice.service;
 
 import com.cms.admin.notice.domain.Notice;
+import com.cms.admin.notice.domain.NoticeAttachment;
+import com.cms.admin.notice.repository.NoticeAttachmentRepository;
 import com.cms.admin.notice.repository.NoticeRepository;
+import com.cms.common.storage.FileStorage;
+import com.cms.common.storage.StorageFileNotFoundException;
+import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -40,6 +46,8 @@ public class PublicNoticeService {
     private static final int MAX_PAGE = 1000;
 
     private final NoticeRepository noticeRepository;
+    private final NoticeAttachmentRepository noticeAttachmentRepository;
+    private final FileStorage fileStorage;
 
     @Transactional(readOnly = true)
     public Page<PublicNoticeSummary> getPublishedNotices(int page) {
@@ -53,8 +61,33 @@ public class PublicNoticeService {
         return noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(id).map(this::toDetail);
     }
 
+    /**
+     * 다운로드 시점 재검증 — notice의 공개 조건을 먼저 확인해야 트랜잭션 스냅샷이 확정된다
+     * (PLAN-public-notice-attachment.md 결정 2). 이 재검증이 보장하는 것은 "재검증 SELECT를
+     * 실행한 시점의 공개 상태"뿐이다 — 그 이후·응답 전송 완료 이전에 완료되는 비공개 전환까지
+     * 차단하지는 않는다(약한 보장, 락 미사용).
+     */
+    @Transactional(readOnly = true)
+    public Optional<PublicNoticeAttachmentDownload> downloadPublishedAttachment(Long noticeId, Long attachmentId) {
+        if (noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(noticeId).isEmpty()) {
+            return Optional.empty();
+        }
+        return noticeAttachmentRepository.findByIdAndNoticeId(attachmentId, noticeId)
+                .flatMap(this::loadDownload);
+    }
+
+    private Optional<PublicNoticeAttachmentDownload> loadDownload(NoticeAttachment attachment) {
+        try {
+            byte[] content = fileStorage.load(attachment.getStorageKey());
+            return Optional.of(new PublicNoticeAttachmentDownload(attachment.getOriginalFilename(), content));
+        } catch (StorageFileNotFoundException e) {
+            return Optional.empty();
+        }
+    }
+
     private PublicNoticeDetail toDetail(Notice notice) {
-        return PublicNoticeDetail.from(notice);
+        List<NoticeAttachment> attachments = noticeAttachmentRepository.findByNoticeIdOrderByIdAsc(notice.getId());
+        return PublicNoticeDetail.from(notice, attachments);
     }
 
     private int normalizePage(int page) {

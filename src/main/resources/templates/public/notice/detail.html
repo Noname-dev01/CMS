@@ -16,6 +16,17 @@
         <h2 class="notice-detail-title" th:text="${notice.title}"></h2>
         <div class="notice-detail-meta" th:text="${#temporals.format(notice.createDate, 'yyyy-MM-dd HH:mm')}"></div>
         <div class="notice-detail-content" th:text="${notice.content}"></div>
+
+        <div class="notice-attachments" th:if="${not #lists.isEmpty(notice.attachments)}">
+            <h3 class="notice-attachments-title">첨부파일</h3>
+            <ul class="notice-attachments-list">
+                <li class="notice-attachment-item" th:each="file : ${notice.attachments}">
+                    <a th:href="@{/notices/{id}/attachments/{fid}(id=${notice.id}, fid=${file.id})}"
+                       th:text="${file.originalFilename}"></a>
+                    <span class="notice-attachment-size" th:text="${file.fileSizeText}"></span>
+                </li>
+            </ul>
+        </div>
     </div>
 
     <a class="notice-back-link" th:href="@{/notices}">&larr; 목록으로</a>

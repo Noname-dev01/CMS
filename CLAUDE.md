@@ -94,8 +94,8 @@ com.cms/
 │                            #   - NoticeAttachmentController (REST API, /admin/api/notices/{noticeId}/attachments)
 │                            #   - NoticePageController (Thymeleaf: /admin/notice/manage)
 ├── publicweb/                # 비관리자(공개) 화면 — admin 패키지와 분리, @AdminPage 미부착 대상
-│   ├── notice/                #   공개 공지 목록·상세 (2026-07-28 완성, notice 테이블 읽기 전용 재사용)
-│   │   └── controller/       #   - PublicNoticeController (Thymeleaf: /notices, /notices/{id}) — 인증 불필요
+│   ├── notice/                #   공개 공지 목록·상세·첨부 다운로드 (2026-08-03 완성, notice·notice_attachment 테이블 읽기 전용 재사용)
+│   │   └── controller/       #   - PublicNoticeController (Thymeleaf: /notices, /notices/{id}, /notices/{id}/attachments/{attachmentId}) — 인증 불필요
 │   └── support/               #   PublicWebExceptionAdvice — publicweb 패키지 전용 범위 한정 예외 처리(HTML 500)
 ├── common/         # 공통 API 응답, 예외 클래스
 │   └── storage/    # 파일 스토리지 추상화 — FileStorage 인터페이스 + LocalDiskFileStorage 구현 (공지 첨부파일의 첫 소비자)
@@ -192,7 +192,7 @@ com.cms/
 | `/swagger-ui.html`, `/swagger-ui/**`, `/v3/api-docs`, `/v3/api-docs/**` | `ROLE_ADMIN` 필수 |
 | `/admin/notice/**`, `/admin/api/notices`, `/admin/api/notices/**` | `ROLE_ADMIN`·`ROLE_MANAGER` (공지사항 관리, 2026-07-20 승인) |
 | `/admin/**` | `ROLE_ADMIN` 필수 |
-| `/notices`, `/notices/**` | GET·HEAD만 공개 (`permitAll`), 그 외 메서드는 `denyAll`로 명시 차단 (공개 공지 페이지, 2026-07-28 승인) |
+| `/notices`, `/notices/**` | GET·HEAD만 공개 (`permitAll`), 그 외 메서드는 `denyAll`로 명시 차단 (공개 공지 페이지, 2026-07-28 승인). `/notices/**`가 하위 세그먼트 전체를 포괄해 `/notices/{id}/attachments/{attachmentId}`(2026-08-03 추가)도 별도 규칙 없이 이 매처가 적용됨 |
 | `/actuator/health` | 공개 (`permitAll`, 로드밸런서 헬스체크용) |
 | `/actuator/**`(health 제외) | `denyAll` 명시 차단 (2026-07-29 승인 — env/beans/metrics 등 노출 설정이 넓어져도 뚫리지 않도록 이중 방어) |
 | 그 외 모든 경로 | 공개 (`anyRequest().permitAll()`) |
@@ -229,7 +229,8 @@ com.cms/
 - 인가는 `ROLE_ADMIN`·`ROLE_MANAGER` 공용(작성자별 소유권 없음 — 누구나 서로 수정·삭제 가능). 사이드바 메뉴는 `V9__seed_notice_menu.sql`로 **멱등(WHERE NOT EXISTS) 자동 등록** — 다른 메뉴처럼 API 수동 등록이 아님(신규 환경마다 등록을 빠뜨리는 결함 방지)
 - 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-notice-board.md` 참조
 - **첨부파일 구현 완료** (`NoticeAttachment`, `NoticeAttachmentService`, 2026-07-22): 첨부는 `deleted` 컬럼 없이 하드 삭제(개별 DELETE = 행+파일 제거). 첨부 업로드·삭제는 모두 notice의 기존 비관적 락(`findByIdAndDeletedFalseForUpdate`)을 재사용해 동일 notice의 첨부 개수 상한(5개)·동시 삭제 경합을 직렬화한다. **notice 삭제 시 첨부가 남아있으면 409로 차단**된다(`NoticeService.deleteNotice()`) — 관리자가 첨부를 먼저 모두 삭제해야 notice를 소프트 삭제할 수 있어, 소프트 삭제된(=API로 영원히 도달 불가능해지는) notice에 딸린 첨부가 영구 오펀이 되는 상황을 원천 차단한다. 허용 확장자 pdf/doc(x)/xls(x)/ppt(x)/hwp/txt/csv/zip/png/jpg/jpeg/gif, 파일당 10MB·공지당 5개 상한. 확장자+선언 Content-Type 화이트리스트 검증(매직바이트 검사 없음 — Tika 등 신규 의존성 도입 안 함, 스푸핑 방어 수단이 아님을 인지하고 저장 루트를 웹 루트 밖에 두고 다운로드를 `octet-stream`+`attachment`+`nosniff`로 강제하는 것으로 보완). 파일 I/O는 `TransactionSynchronizationManager`로 DB 트랜잭션과 동기화(업로드 실패/롤백 시 파일 정리, 삭제는 커밋 후에만 파일 제거). 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-notice-attachment.md` 참조
-- **공개(비로그인) 공지 페이지 구현 완료** (`PublicNoticeController`·`PublicNoticeService`, `com.cms.publicweb.notice`, 2026-07-28): `/notices`(목록)·`/notices/{id}`(상세)에서 `useYn=true` AND `deleted=false`인 공지만 노출한다. 이 불변식은 admin `NoticeService`와 별도 클래스(`PublicNoticeService`)·별도 Repository 파생 쿼리(`findByDeletedFalseAndUseYnTrue`, `findByIdAndDeletedFalseAndUseYnTrue`)로 타입 단위로 격리되어, admin의 선택적 `useYn` 필터와 혼동될 수 없다. 공개 DTO(`PublicNoticeSummary`/`PublicNoticeDetail`)는 `authorId`(관리자 로그인 userId)를 필드 자체에서 제외한다. **`id`·`page`는 Spring 바인딩에 맡기지 않고 컨트롤러가 문자열로 받아 직접 파싱**한다 — `GlobalApiExceptionHandler`가 전역 `@RestControllerAdvice`라 페이지 컨트롤러의 타입 변환 예외까지 JSON으로 응답해버리기 때문(파싱 실패는 404/0으로 흡수, 존재 여부 열거 방지 목적으로 미노출·삭제·비숫자·없는 ID를 모두 동일한 404로 응답). 남은 예외(DB 장애 등)는 `com.cms.publicweb.support.PublicWebExceptionAdvice`(`basePackages="com.cms.publicweb"`, `@Order(HIGHEST_PRECEDENCE)`)가 HTML 500으로 흡수하며, 이 보장은 컨트롤러·Service 실행 중 예외로 한정된다(Thymeleaf 렌더링 단계 예외는 앱 전체의 기존 한계로 이번 범위에서 다루지 않음). 페이지 크기는 10으로 고정, `page`는 음수·`MAX_PAGE`(1000, 인덱스 없는 테이블의 대형 OFFSET 방어) 초과 시 0으로 보정. `SecurityConfig`는 `/notices`·`/notices/**`에 GET/HEAD만 `permitAll`, 나머지 메서드는 `denyAll`로 명시 차단(뒤에 남은 `anyRequest().permitAll()`에 기대지 않음). 첨부파일·검색은 이번 범위 제외. 상세 설계 결정·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-public-notice.md` 참조
+- **공개(비로그인) 공지 페이지 구현 완료** (`PublicNoticeController`·`PublicNoticeService`, `com.cms.publicweb.notice`, 2026-07-28): `/notices`(목록)·`/notices/{id}`(상세)에서 `useYn=true` AND `deleted=false`인 공지만 노출한다. 이 불변식은 admin `NoticeService`와 별도 클래스(`PublicNoticeService`)·별도 Repository 파생 쿼리(`findByDeletedFalseAndUseYnTrue`, `findByIdAndDeletedFalseAndUseYnTrue`)로 타입 단위로 격리되어, admin의 선택적 `useYn` 필터와 혼동될 수 없다. 공개 DTO(`PublicNoticeSummary`/`PublicNoticeDetail`)는 `authorId`(관리자 로그인 userId)를 필드 자체에서 제외한다. **`id`·`page`는 Spring 바인딩에 맡기지 않고 컨트롤러가 문자열로 받아 직접 파싱**한다 — `GlobalApiExceptionHandler`가 전역 `@RestControllerAdvice`라 페이지 컨트롤러의 타입 변환 예외까지 JSON으로 응답해버리기 때문(파싱 실패는 404/0으로 흡수, 존재 여부 열거 방지 목적으로 미노출·삭제·비숫자·없는 ID를 모두 동일한 404로 응답). 남은 예외(DB 장애 등)는 `com.cms.publicweb.support.PublicWebExceptionAdvice`(`basePackages="com.cms.publicweb"`, `@Order(HIGHEST_PRECEDENCE)`)가 HTML 500으로 흡수하며, 이 보장은 컨트롤러·Service 실행 중 예외로 한정된다(Thymeleaf 렌더링 단계 예외는 앱 전체의 기존 한계로 이번 범위에서 다루지 않음). 페이지 크기는 10으로 고정, `page`는 음수·`MAX_PAGE`(1000, 인덱스 없는 테이블의 대형 OFFSET 방어) 초과 시 0으로 보정. `SecurityConfig`는 `/notices`·`/notices/**`에 GET/HEAD만 `permitAll`, 나머지 메서드는 `denyAll`로 명시 차단(뒤에 남은 `anyRequest().permitAll()`에 기대지 않음). 검색은 이번 범위 제외(첨부파일은 후속 구현 완료 — 아래 참조). 상세 설계 결정·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-public-notice.md` 참조
+- **공개 첨부파일 다운로드 구현 완료** (`GET /notices/{id}/attachments/{attachmentId}`, `com.cms.publicweb.notice`, 2026-08-03): `PublicNoticeService`에 메서드로 확장(별도 클래스 신설 안 함 — 위 "노출+미삭제 불변식 타입 단위 격리"를 유지하는 게 목적이지 클래스 수를 늘리는 게 목적이 아님). admin `NoticeAttachmentService`는 재사용하지 않는다(`useYn` 미검증이라 공개 조건이 뚫림). **다운로드 시점 재검증(TOCTOU)은 "재검증 SELECT를 실행한 시점에 공개 상태였음"만 보장하는 약한 보장**이다 — 락은 쓰지 않는다(무인증 엔드포인트가 admin의 `PESSIMISTIC_WRITE`를 블로킹하는 DoS 표면이 되므로). `findByIdAndNoticeId` 복합 조건으로 IDOR 차단, `StorageFileNotFoundException`은 `Optional.empty()`로 흡수해 404 fail-closed. 실패 3종(비숫자 id·비공개 notice·없는 첨부)은 모두 동일한 404(`response.sendError(404)`+`return null`로 기존 `error/404.html` 재사용). 응답은 admin 다운로드와 동일하게 `application/octet-stream`+`ContentDisposition`+`nosniff`에 더해 **`Cache-Control: no-store`**(캐시가 TOCTOU 재검증을 우회하지 못하게). `PublicNoticeAttachment` DTO는 `storageKey`(서버 내부 경로) 필드 자체를 두지 않음. `/notices/**`가 이미 GET/HEAD `permitAll`이라 이 라우트는 **SecurityConfig 수정 없이** 자동으로 무인증 공개됨(`SecurityConfigTest`로 명시 고정). 무인증 경로에서 HEAD도 GET과 동일하게 서비스 진입·파일 전체 로딩이 발생하는 자원 고갈 위험은 명시적으로 수용(소규모 운영 전제, 스트리밍·레이트리밋 미도입 — 실제 공개 트래픽 발생 시 재검토 대상). 상세 설계 결정·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-public-notice-attachment.md` 참조
 
 **AdminActionLog**: 관리자 행위 감사 로그. `@AdminActionLogged`가 붙은 메서드 호출 시 성공/실패·요청 IP·URI가 자동 기록된다 (상세는 "AOP 기반 액션 로깅" 참조)
 
@@ -267,7 +268,8 @@ com.cms/
 - `GET /admin/api/notices/{noticeId}/attachments/{attachmentId}/content` — 첨부파일 다운로드 (`application/octet-stream` 강제, 다른 notice의 attachmentId는 404)
 - `DELETE /admin/api/notices/{noticeId}/attachments/{attachmentId}` — 첨부파일 삭제 (204 No Content, 행+실파일 함께 제거)
 - `GET /notices` — 공개 공지 목록 (비로그인, 노출·미삭제만, 페이지 크기 10 고정, `?page=`만 수용)
-- `GET /notices/{id}` — 공개 공지 상세 (비로그인, 미노출·삭제·비숫자·없는 ID는 모두 404)
+- `GET /notices/{id}` — 공개 공지 상세 (비로그인, 미노출·삭제·비숫자·없는 ID는 모두 404, 첨부 목록 포함)
+- `GET /notices/{id}/attachments/{attachmentId}` — 공개 첨부파일 다운로드 (비로그인, `application/octet-stream` 강제 + `Cache-Control: no-store`, 다운로드 시점 재검증(약한 보장)·IDOR 차단, 실패는 모두 404)
 
 ## 테스트 규칙
 
