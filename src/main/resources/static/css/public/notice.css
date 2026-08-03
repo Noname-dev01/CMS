@@ -135,6 +135,51 @@ body {
     line-height: 1.7;
 }
 
+.notice-attachments {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #edf0f3;
+}
+
+.notice-attachments-title {
+    font-size: 1rem;
+    font-weight: 500;
+    margin: 0 0 0.75rem;
+    color: #2c3e50;
+}
+
+.notice-attachments-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.notice-attachment-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.6rem 0;
+}
+
+.notice-attachment-item a {
+    color: #3498db;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notice-attachment-item a:hover {
+    text-decoration: underline;
+}
+
+.notice-attachment-size {
+    flex: 0 0 auto;
+    font-size: 0.85rem;
+    color: #95a5a6;
+}
+
 .notice-back-link {
     display: inline-block;
     margin-top: 2rem;

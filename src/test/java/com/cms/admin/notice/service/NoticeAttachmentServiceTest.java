@@ -214,6 +214,22 @@ class NoticeAttachmentServiceTest {
     }
 
     @Test
+    @DisplayName("CR/LF를 포함한 파일명도 업로드에 성공한다 (공개 다운로드 헤더 인젝션 회귀의 짝 — PLAN-public-notice-attachment.md)")
+    void upload_crlfFilename_success() {
+        given(noticeRepository.findByIdAndDeletedFalseForUpdate(1L)).willReturn(Optional.of(activeNotice()));
+        given(noticeAttachmentRepository.countByNoticeId(1L)).willReturn(0L);
+        given(fileStorage.store(any(byte[].class), anyString())).willReturn("2026/08/03/uuid.txt");
+        given(noticeAttachmentRepository.save(any(NoticeAttachment.class))).willAnswer(inv -> inv.getArgument(0));
+
+        String crlfFilename = "report\r\nX-Evil: injected.txt";
+        MockMultipartFile file = new MockMultipartFile("file", crlfFilename, "text/plain", "content".getBytes());
+
+        NoticeAttachmentResponse response = noticeAttachmentService.upload(1L, file);
+
+        assertEquals(crlfFilename, response.getOriginalFilename());
+    }
+
+    @Test
     @DisplayName("업로드 성공 시 롤백 정리 콜백이 등록되고, 커밋되지 않으면 파일이 삭제된다")
     void upload_registersRollbackCleanupCallback() {
         given(noticeRepository.findByIdAndDeletedFalseForUpdate(1L)).willReturn(Optional.of(activeNotice()));

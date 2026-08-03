@@ -254,6 +254,32 @@ class SecurityConfigTest {
                 .andExpect(status().isForbidden());
     }
 
+    // ==================== 공개 첨부 다운로드 인가 범위 검증 (2026-08-03 추가) ====================
+    // /notices/**가 하위 세그먼트 전체를 포괄하므로, 이 라우트는 코드 수정 없이 이미 무인증
+    // 공개다 — "라우트 추가만으로 무인증 공개된다"는 암묵적 동작을 명시적으로 고정한다.
+
+    @Test
+    @DisplayName("비인증 GET /notices/{id}/attachments/{attachmentId}는 200 (permitAll)")
+    void publicNoticeAttachment_unauthenticatedGet_ok() throws Exception {
+        mockMvc.perform(get("/notices/1/attachments/1"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비인증 HEAD /notices/{id}/attachments/{attachmentId}는 200 (permitAll)")
+    void publicNoticeAttachment_unauthenticatedHead_ok() throws Exception {
+        mockMvc.perform(head("/notices/1/attachments/1"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("CSRF 포함 비인증 POST /notices/{id}/attachments/{attachmentId}는 denyAll+익명 판별로 /admin/login 302 리다이렉트")
+    void publicNoticeAttachment_unauthenticatedPost_withCsrf_redirectsToLogin() throws Exception {
+        mockMvc.perform(post("/notices/1/attachments/1").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
     // ==================== actuator 인가 범위 검증 (PLAN-prod-profile.md 결정 3, 2026-07-29 승인) ====================
 
     @Test
@@ -383,6 +409,17 @@ class PublicNoticeStubController {
 
     @PostMapping("/notices")
     ResponseEntity<String> create() {
+        // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
+        return ResponseEntity.ok("{}");
+    }
+
+    @GetMapping("/notices/{id}/attachments/{attachmentId}")
+    String attachment() {
+        return "public-notice-attachment";
+    }
+
+    @PostMapping("/notices/{id}/attachments/{attachmentId}")
+    ResponseEntity<String> attachmentCreate() {
         // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
         return ResponseEntity.ok("{}");
     }
