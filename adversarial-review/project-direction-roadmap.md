@@ -2,7 +2,8 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-07-29 — 전면 재분석(`/createRoadmap`) 후 Top 3 신규 선정 (기준 커밋 `b2a6b0f` #22). 열린 이슈/PR 0건, 소스 TODO 0건(vendor 제외) 재확인. 신규 선정 근거는 하단 "실행 로드맵 — Top 3 (2026-07-29 선정)" 참조.
+> 최근 갱신: 2026-07-30 — ① prod 프로파일 부활 완료 반영 (`a51d29d` #23, `AdminBootstrapLoader`·`ProfileGuardEnvironmentPostProcessor`·actuator 이중 방어·Docker 실기 검증 사실확인, `/code-review-loop` 3라운드 거침) — 3단계(운영 경험) 개시. 검증 중 발견된 범위 밖 항목은 하단 "후속 과제" 참조.
+> 이전 갱신: 2026-07-29 — 전면 재분석(`/createRoadmap`) 후 Top 3 신규 선정 (기준 커밋 `b2a6b0f` #22). 열린 이슈/PR 0건, 소스 TODO 0건(vendor 제외) 재확인. 신규 선정 근거는 하단 "실행 로드맵 — Top 3 (2026-07-29 선정)" 참조.
 > 이전 갱신: 2026-07-28 — ③ 공개 공지 페이지 완료 반영 (`7ab80a5` #21, `com.cms.publicweb` 신규 패키지·`/notices` GET/HEAD permitAll+denyAll·Playwright 실기 검증·PR #21 CI success 사실확인)
 > 이전 갱신: 2026-07-27 — ④ Testcontainers 전환 완료 반영 (`04b8121` #20, `MariaDbContainerSupport`·CI service container 제거·PR #20 CI success 사실확인)
 > 이전 갱신: 2026-07-27 — ② 파일 스토리지 추상화 + 공지 첨부파일 완료 반영 (`174e925` #18, 첨부 CRUD·경로 탈출 방지·확장자 검증·감사 로그 사실확인) + `./gradlew test` 전체 통과 재확인
@@ -22,7 +23,7 @@
 
 1. **콘텐츠 도메인 부재.** 도메인이 member(관리자 계정)·menu·log·visit·dashboard뿐 — 전부 "관리를 위한 관리" 기능이고, 관리할 대상(게시글, 페이지, 미디어)이 없다.
 2. ~~**스키마 관리가 임계점.** `ddl-auto: update` + `docs/migration/` 수동 SQL 3개. 이 방식은 도메인이 하나만 더 늘어도 깨진다.~~ → **해소됨** (`020b203`, #7): Flyway 도입 완료, `ddl-auto: validate` 전환.
-3. **prod 프로파일이 의도적으로 제거된 상태**(#3 커밋)라 배포 목표가 없다. Dockerfile과 nginx 설정은 남아 있다.
+3. ~~**prod 프로파일이 의도적으로 제거된 상태**(#3 커밋)라 배포 목표가 없다. Dockerfile과 nginx 설정은 남아 있다.~~ → **해소됨** (`a51d29d`, #23): prod 프로파일 부활 완료 — `AdminBootstrapLoader`(초기 관리자 부트스트랩)·`ProfileGuardEnvironmentPostProcessor`(프로파일 가드)·actuator 이중 방어·`docker-compose.prod.yml` 배포 가능 상태 검증까지 완료. 실제 인터넷 배포(리버스 프록시·TLS·호스팅)는 여전히 범위 밖(하단 "후속 과제" 참조).
 4. **미완성 기능이 반쯤 열려 있다.** ~~`resetToken`·SMTP 설정은 있으나 비밀번호 재설정 발송/사용 로직 없음.~~ → **해소됨** (`99359d3`, #10): 비밀번호 재설정(메일 링크 발급 + 토큰 검증) 구현 완료. ~~`MemberStatus`의 `LOCKED` 상태 전이 로직(로그인 실패 잠금) 없음.~~ → **해소됨** (`f0ecc15`, #12): 로그인 연속 5회 실패 시 자동 잠금(30분 lazy 해제) 구현 완료. ~~`PASSWORD_EXPIRED` 상태 전이 로직(비번 만료)은 여전히 미구현.~~ → **해소됨** (`c889a3c`, #14): 비밀번호 90일 만료 자동 전이 구현 완료. ~~타 관리자 계정 수정/상태 변경 API(`PATCH /admin/api/members/{id}`) 없음 → 관리자 CRUD 미완.~~ → **해소됨** (`163367e`, #9): 타 관리자 수정/상태 변경 API + 대상자 세션 강제 만료 구현 완료.
 5. ~~**버전 부채**: Spring Boot 3.4.x는 OSS 지원이 종료된 라인(2026-07 기준). 최소 3.5.x로 올리고,~~ → **해소됨** (`76bba41`, #8): Boot 3.5.16 업그레이드 완료. 중기적으로 Java 21 + Boot 4.x 검토 시점은 유효.
 
@@ -48,8 +49,8 @@
 
 ### 3단계 — 운영 경험 (포트폴리오 가치의 완성)
 
-- prod 프로파일 부활: Swagger 차단, actuator 보호, `ddl-auto: none`, 시크릿 외부화. Dockerfile·nginx 설정이 이미 있어 절반은 준비돼 있다.
-- 저비용 VPS나 홈서버에 실배포 + 최소 모니터링(actuator + 로그). "배포 가능한 master"라는 GitHub Flow 원칙은 실제 배포가 있어야 의미를 갖는다.
+- ✅ **prod 프로파일 부활** (완료, 2026-07-30 · `a51d29d` #23): Swagger 비활성, actuator `health`만 공개(설정+Security 이중 방어), `ddl-auto: validate`(공통 정책 유지), 시크릿 전부 환경변수 외부화 + 초기 관리자 환경변수 부트스트랩까지 완료. Docker Compose 기반 배포 가능 상태 검증 완료(실배포 아님).
+- 저비용 VPS나 홈서버에 실배포 + 최소 모니터링(actuator + 로그). "배포 가능한 master"라는 GitHub Flow 원칙은 실제 배포가 있어야 의미를 갖는다. (리버스 프록시·TLS·호스팅 확정 필요 — 하단 "후속 과제" 참조)
 
 ### 지속 항목 (급하지 않지만 방향은 정해둘 것)
 
@@ -153,8 +154,9 @@
 - **완료 기준**: 로컬 MariaDB를 **내린 상태**에서 `./gradlew test` 전체 통과 / CI 통과 / 테스트 소요 시간이 기존 대비 과도하게(예: 2배 이상) 늘지 않음
 - **착수 게이트**: 신규 의존성 추가 → 사용자 승인 (CLAUDE.md 주의사항). ①~③과 독립이라 언제든 끼워 넣기 가능.
 
-### ⑤ prod 프로파일 부활 + 배포 준비 (3단계 개시)
+### ⑤ prod 프로파일 부활 + 배포 준비 (3단계 개시) — ✅ 완료 (2026-07-30 · `a51d29d` #23)
 - **유형**: 인프라·보안 / **선정 이유**: ①·③으로 "배포할 대상"이 생기는 시점에 맞춰 준비 — "배포 가능한 master"라는 GitHub Flow 원칙을 실배포로 증명하는 마지막 조각.
+- **완료 근거**: 2026-07-29 재선정 Top 3의 ①번으로 승계되어 실행됨 — 완료 근거는 하단 "실행 로드맵 — Top 3 (2026-07-29 선정)" ①번 참조.
 - **실행 원본**: 없음 — 착수 시 `/plan-review-loop`로 계획서 작성·검증.
 - **목표**: `prod` 프로파일로 기동하면 Swagger 비활성·시크릿 전부 환경변수 주입·안전한 로깅 수준이 보장되는 상태. 실배포(호스트 선정·도메인)는 별도 사용자 결정 사안으로 분리한다.
 - **수정해야 할 정확한 파일** (실측 기준):
@@ -179,8 +181,10 @@
 > 신규 발굴 2건: ②(공개 첨부파일 노출)은 `PLAN-public-notice.md`가 의도적으로 범위 제외했던 gap, ③(프로필 이미지 이관)은 기존 로드맵에서 "②(FileStorage) 완료 후 재평가"로 미뤄뒀던 후보가 선행 조건 해소로 승격된 것.
 > 공통 규칙(브랜치·Flyway 번호 확인·CSRF·1계획=1PR)은 [`plan/README.md`](plan/README.md) 참조.
 
-### ① prod 프로파일 부활 + 배포 준비 (3단계 개시)
+### ① prod 프로파일 부활 + 배포 준비 (3단계 개시) — ✅ 완료 (2026-07-30 · `a51d29d` #23)
 - **유형**: 인프라·보안 / **선정 이유**: 2026-07-20 Top 5 ⑤ 승계. ①②③(콘텐츠 도메인·공개 페이지)이 모두 완료되어 "배포할 대상"이 이미 확보된 상태 — "배포 가능한 master"라는 GitHub Flow 원칙을 실배포로 증명하는 마지막 조각이며 3단계의 유일한 개시 조건.
+- **완료 근거**: `AdminBootstrapLoader`/`AdminBootstrapCredentials`(초기 관리자 환경변수 부트스트랩, `uk_member_user_id` 유니크 제약으로 동시성 직렬화) + `ProfileGuardEnvironmentPostProcessor`(dev+prod 동시 활성화·활성 프로파일 0개 컨텍스트 생성 전 차단, `META-INF/spring.factories` 등록) + `SecurityConfig`/`application.yml`(`/actuator/health`만 무인증 공개, 설정+Security 이중 차단) + `application-prod.yml`(springdoc 비활성) 전부 코드 열람으로 실존 확인. `spring.profiles.active` 기본값 제거로 프로파일 미지정 기동 fail-fast 실측. 신규 테스트 `AdminBootstrapLoaderTest`·`AdminBootstrapConcurrencyIntegrationTest`(실 DB 동시성 경합 재현)·`ProfileGuardEnvironmentPostProcessorTest`·`ActuatorExposureTest`(Testcontainers 기반 실제 등록 엔드포인트 `{health}` 단일 확인) 전부 통과. `docker-compose.prod.yml` + `scripts/prod-up.sh`(health 폴링 + RestartCount 안정성 재확인)로 Docker 실기 검증: 빈 DB+부트스트랩 변수 기동 성공(특수문자 비밀번호 포함 로그인 확인)·재기동 무중복·ACTIVE ADMIN 없음+변수 없음 fail-fast·시크릿 컨테이너 간 격리(`docker inspect`)·actuator 이중 방어 전부 실측(`PLAN-prod-profile.md` "구현·검증 결과" 섹션). `./gradlew test` 523개 전체 통과. `/code-review-loop` 3라운드(codex 적대적 리뷰) 거쳐 환경변수 가드 누락·health 성공 판정의 CommandLineRunner 실패 은폐 가능성·RestartCount 오탐 가능성 반영. `/deploy-check` 실행(`adversarial-review/deploy-check-2026-07-30.md`) — 차단(no-ship) 0건. PR #23 머지 확인(`gh pr view 23` state=MERGED). **완료 기준 중 2건은 문자 그대로 미충족**(Swagger UI가 404 아닌 500 반환, `/deploy-check` 판정이 "ship"이 아닌 "needs-attention") — 둘 다 이번 PR이 만든 결함이 아니라 사전 발견된 기존 결함이며 사용자와 협의해 범위 밖으로 확정, 후속 과제로 기록(하단 "후속 과제 — ① 완료 시 발견" 참조).
+- **실행 원본**: [`plan/PLAN-prod-profile.md`](plan/PLAN-prod-profile.md) (codex 적대적 리뷰 7라운드 ship, 구현·검증 결과 기록됨)
 - **목표**: `prod` 프로파일로 기동하면 Swagger 비활성·시크릿 전부 환경변수 주입·안전한 로깅 수준이 보장되는 상태. 실배포(호스트 선정·도메인)는 별도 사용자 결정 사안으로 분리한다.
 - **수정해야 할 정확한 파일** (실측 기준, 2026-07-29 재확인):
     - 신규: `src/main/resources/application-prod.yml` (`application.yml`·`application-dev.yml`만 현존 확인 — prod 프로파일 파일 자체가 없음. springdoc 비활성화, Flyway `validate` 유지, 시크릿 placeholder)
@@ -220,6 +224,17 @@
 - **완료 기준**: `./gradlew test` 통과 / 신규 업로드·프리셋 선택·초기화 골든 패스 playwright 확인 / 기존 회원의 프로필 이미지가 이관 후에도 정상 표시 확인 / 회원 목록/상세 API 응답 페이로드 크기 감소 확인 / 이관 실패 시 롤백 경로 검증
 - **착수 게이트**: **기존 데이터 이관 수반 → 이관 전략 및 실행 시점(다운타임 여부) 사용자 승인 필수**. ①·②와 독립적으로 착수 가능.
 
+## 후속 과제 — ① prod 프로파일 완료 시 발견 (2026-07-30 기록)
+
+> ①(prod 프로파일 부활, `a51d29d` #23) 완료 검증 중 발견해 **이번 PR 범위 밖으로 확정**한 항목. 전부 이번 PR이 새로 만든 문제가 아니라 기존에 있던 결함이거나 애초에 별도 범위로 분리돼 있던 사안이다. 다음 로드맵 갱신 때 별도 작업으로 재평가.
+
+- **핸들러 없는 경로가 404 대신 500 반환**: `src/main/java/com/cms/common/api/GlobalApiExceptionHandler.java`의 selector 없는 전역 `@ExceptionHandler(Exception.class)` catch-all이 `NoResourceFoundException`까지 500으로 바꾸는 기존 결함. prod에서 `GET /swagger-ui.html`·`/v3/api-docs`(springdoc 비활성 시)로 재현 확인 — `PLAN-public-notice.md`에서 `/admin/logout`(GET)·`/favicon.ico`로 이미 발견됐던 것과 동일 패턴(이번이 3번째 발견 사례). **해결 방향**: `GlobalApiExceptionHandler`에 `NoResourceFoundException` 전용 핸들러를 추가해 404로 응답하게 한다 — admin API를 포함한 앱 전체 예외 처리 범위를 건드리는 변경이라 별도 작업으로 분리 필요(근본원인은 `docs/troubleshooting.md`에 이미 기록됨).
+- **실배포 인프라(nginx 리버스 프록시·TLS 인증서·실제 호스팅·CD 파이프라인)**: 현재 `docker-compose.prod.yml`은 `127.0.0.1:8080` 루프백 바인딩까지만 다루며 그대로 인터넷에 노출하면 안 된다. 로드맵 3단계에 이미 "별도 사용자 결정 사안"으로 명시된 범위 — 호스트·도메인이 정해지면 착수.
+- **`forward-headers-strategy`·secure/SameSite 쿠키**: 리버스 프록시 뒤에서 `X-Forwarded-*` 헤더를 신뢰하려면 필요. 위 리버스 프록시 도입과 함께 다룰 사안이라 별도 선행 착수 불필요.
+- **DB 백업 전략**: named volume 보존만으로는 백업이 아니다 — 실배포 전 별도 수립 필요.
+- **동시 부트스트랩 시 서로 다른 `ADMIN_BOOTSTRAP_*` 값 주입**: 서로 다른 컨테이너에 서로 다른 자격증명이 동시에 주입되면 관리자 계정이 두 개 생길 수 있다(`uk_member_user_id` 유니크 제약은 "같은" 자격증명 경합만 직렬화). "배포 파이프라인이 모든 인스턴스에 동일 설정을 배포한다"는 일반적인 전제를 벗어난 상황이라 `PLAN-prod-profile.md` 결정 4에서 위험 수용으로 남긴 설계 제약 — 현재 `docker-compose.prod.yml`은 고정 컨테이너명 단일 인스턴스라 애초에 재현 불가하나, 향후 다중 인스턴스 배포(K8s 등)로 전환 시 재평가 필요.
+- **미확인(외부 의존, 재확인 필요)**: 실제 SMTP 자격증명으로 비밀번호 재설정 메일이 prod에서 정상 발송되는지(더미 값으로 기동만 확인) / `mariadb:10.11` 이미지의 `healthcheck.sh --connect --innodb_initialized`가 이미지 태그 업데이트 후에도 계속 존재하는지(배포 전 `docker pull` 후 재확인 필요) / prod 프로파일 자체의 로그인→관리 화면 브라우저 골든 패스(이번엔 curl·docker inspect로만 확인, dev 프로파일 기준으로만 Playwright 회귀 확인함).
+
 ## 요약
 
-갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)·2단계(정체성 확보: 공지사항 도메인·파일 스토리지/첨부파일·공개 공지 페이지)가 모두 마감됐다. **2026-07-29 전면 재분석 결과 열린 이슈·TODO·비대 클래스 등 새로운 결함은 발견되지 않았다** — 남은 레버리지는 (①) 미착수 상태로 이월된 prod 부활, (②) `PLAN-public-notice.md`가 의도적으로 미룬 공개 첨부파일 노출, (③) `FileStorage` 완료로 선행 조건이 풀린 프로필 이미지 이관 세 가지다. **①(prod 부활)을 최우선 추천** — "배포할 대상"은 이미 확보됐고, 이것이 3단계(운영 경험) 개시의 유일한 조건이자 GitHub Flow의 "배포 가능한 master" 원칙을 실증하는 마지막 조각이다. ②는 범위가 작아 끼워 넣기 좋고, ③은 기존 데이터 이관 리스크가 있어 신중한 계획이 필요하다.
+갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)·2단계(정체성 확보: 공지사항 도메인·파일 스토리지/첨부파일·공개 공지 페이지)에 이어 **3단계(운영 경험)의 유일한 개시 조건이던 prod 프로파일 부활(①)도 완료됐다(2026-07-30 · `a51d29d` #23)**. 남은 레버리지는 (②) `PLAN-public-notice.md`가 의도적으로 미룬 공개 첨부파일 노출, (③) `FileStorage` 완료로 선행 조건이 풀린 프로필 이미지 이관 두 가지이며, 이번 ① 완료 검증 중 발견된 범위 밖 항목(실배포 인프라·기존 500 오응답 결함 등)은 위 "후속 과제" 참조. ②는 범위가 작아 끼워 넣기 좋고, ③은 기존 데이터 이관 리스크가 있어 신중한 계획이 필요하다. 실배포(호스트·도메인 확정, nginx·TLS)는 별도 사용자 결정 사안으로 남아 있다.
