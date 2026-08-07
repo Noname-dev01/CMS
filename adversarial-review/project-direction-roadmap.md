@@ -2,7 +2,9 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-07-30 — ① prod 프로파일 부활 완료 반영 (`a51d29d` #23, `AdminBootstrapLoader`·`ProfileGuardEnvironmentPostProcessor`·actuator 이중 방어·Docker 실기 검증 사실확인, `/code-review-loop` 3라운드 거침) — 3단계(운영 경험) 개시. 검증 중 발견된 범위 밖 항목은 하단 "후속 과제" 참조.
+> 최근 갱신: 2026-08-07 — "후속 과제 — ① prod 프로파일 완료 시 발견" 중 "핸들러 없는 경로가 404 대신 500 반환" 완료 반영 (`7c64307` #26, PR MERGED·CI success 사실확인). Top 3 항목 자체는 변동 없음 — 남은 미완료는 여전히 ③(프로필 이미지 이관) 하나.
+> 이전 갱신: 2026-08-06 — ② 공개 공지 상세 첨부파일 다운로드 완료 반영 (`10c28ff` #25, PR MERGED·CI test pass 사실확인). 남은 미완료는 ③(프로필 이미지 이관) 하나.
+> 이전 갱신: 2026-07-30 — ① prod 프로파일 부활 완료 반영 (`a51d29d` #23, `AdminBootstrapLoader`·`ProfileGuardEnvironmentPostProcessor`·actuator 이중 방어·Docker 실기 검증 사실확인, `/code-review-loop` 3라운드 거침) — 3단계(운영 경험) 개시. 검증 중 발견된 범위 밖 항목은 하단 "후속 과제" 참조.
 > 이전 갱신: 2026-07-29 — 전면 재분석(`/createRoadmap`) 후 Top 3 신규 선정 (기준 커밋 `b2a6b0f` #22). 열린 이슈/PR 0건, 소스 TODO 0건(vendor 제외) 재확인. 신규 선정 근거는 하단 "실행 로드맵 — Top 3 (2026-07-29 선정)" 참조.
 > 이전 갱신: 2026-07-28 — ③ 공개 공지 페이지 완료 반영 (`7ab80a5` #21, `com.cms.publicweb` 신규 패키지·`/notices` GET/HEAD permitAll+denyAll·Playwright 실기 검증·PR #21 CI success 사실확인)
 > 이전 갱신: 2026-07-27 — ④ Testcontainers 전환 완료 반영 (`04b8121` #20, `MariaDbContainerSupport`·CI service container 제거·PR #20 CI success 사실확인)
@@ -196,8 +198,10 @@
 - **완료 기준**: `SPRING_PROFILES_ACTIVE=prod`로 Docker 기동 성공 / Swagger UI 404 확인 / 시크릿 하드코딩 0건(코드·yml 검사) / `/actuator/health` 공개·그 외 actuator 비노출 확인 / `/deploy-check` ship 판정
 - **착수 게이트**: 신규 파일이라 계획서 승인 시 prod 보안 잠금 항목(actuator 노출 범위 등)을 인가 정책에 준해 사용자와 확인.
 
-### ② 공개 공지 상세에 첨부파일 다운로드 노출
+### ② 공개 공지 상세에 첨부파일 다운로드 노출 — ✅ 완료 (2026-08-03 · `10c28ff` #25)
 - **유형**: 기능 추가 / **선정 이유**: `PLAN-public-notice.md`(v1 결정, 2026-07-28)가 "이번 범위 제외(본문만 공개)"로 명시적으로 미룬 항목. `NoticeAttachment`·`FileStorage` 인프라가 이미 있어 구현 범위가 작고, 공개 페이지의 콘텐츠 완성도를 바로 높인다.
+- **완료 근거**: `PublicNoticeController.java:87` `@GetMapping("/{id}/attachments/{attachmentId}")` + `PublicNoticeService.java:71` `downloadPublishedAttachment()` 실존 확인. `PublicNoticeAttachmentIntegrationTest`(Testcontainers 실 DB)가 성공·TOCTOU(별도 트랜잭션 커밋 후 재요청 empty)·IDOR(`findByIdAndNoticeId` 복합 조건)·파일없음(`StorageFileNotFoundException` fail-closed) 4개 시나리오를 독립 테스트로 검증. `SecurityConfigTest`에 `/notices/{id}/attachments/{attachmentId}` GET 200·HEAD 200·POST(denyAll) 302 인가 회귀 3건 추가 확인. `PublicNoticeAttachment` DTO에 `storageKey` 필드 자체 부재, 응답에 `Cache-Control: no-store` 적용 확인. `NoticeAttachmentServiceTest`에 CR/LF 파일명 업로드 케이스 추가 확인. Playwright 실기 검증: 골든 패스(목록 렌더→200 다운로드→바이트 일치), 관리자 비노출 전환 후 같은 URL 재요청 시 첨부·상세 모두 404, 서로 다른 두 공지 조합 IDOR 404, 비숫자 id·존재하지 않는 id 전부 404(HTML), 관리 화면(대시보드·회원 관리·공지 관리) 회귀 없음 스크린샷 확인. 스키마 변경 없음(Flyway 최대 버전 V10 유지). `./gradlew test` 전체 통과(56개 테스트 클래스), PR #25 `state=MERGED`(2026-08-03) + GitHub Actions `test` **pass**(1m15s, run 30787387345) 확인. `plan-review-loop` 4라운드(ship) + `code-review-loop` 1라운드(지적 0건) 거침.
+- **실행 원본**: [`plan/PLAN-public-notice-attachment.md`](plan/PLAN-public-notice-attachment.md) (적대적 리뷰 4라운드 ship, 구현·검증 결과 기록됨)
 - **목표**: 비로그인 사용자가 공지 상세(`/notices/{id}`)에서 `useYn=true && deleted=false`인 공지에 첨부된 파일을 목록으로 보고 다운로드할 수 있다. 소프트 삭제·비노출 전환된 공지의 첨부는 여전히 접근 불가(다운로드 시점 재검증 — 목록 조회 이후 상태가 바뀌는 TOCTOU 방지).
 - **수정해야 할 정확한 파일** (실측 기준):
     - 신규 또는 수정: `src/main/java/com/cms/publicweb/notice/service/PublicNoticeService.java`(66줄, 실측) — 첨부 목록 조립 메서드 추가, 또는 별도 `PublicNoticeAttachmentService` 신규(다운로드 시점 notice 공개 조건 재검증 책임 분리 목적, 계획서에서 결정)
@@ -228,13 +232,20 @@
 
 > ①(prod 프로파일 부활, `a51d29d` #23) 완료 검증 중 발견해 **이번 PR 범위 밖으로 확정**한 항목. 전부 이번 PR이 새로 만든 문제가 아니라 기존에 있던 결함이거나 애초에 별도 범위로 분리돼 있던 사안이다. 다음 로드맵 갱신 때 별도 작업으로 재평가.
 
-- **핸들러 없는 경로가 404 대신 500 반환**: `src/main/java/com/cms/common/api/GlobalApiExceptionHandler.java`의 selector 없는 전역 `@ExceptionHandler(Exception.class)` catch-all이 `NoResourceFoundException`까지 500으로 바꾸는 기존 결함. prod에서 `GET /swagger-ui.html`·`/v3/api-docs`(springdoc 비활성 시)로 재현 확인 — `PLAN-public-notice.md`에서 `/admin/logout`(GET)·`/favicon.ico`로 이미 발견됐던 것과 동일 패턴(이번이 3번째 발견 사례). **해결 방향**: `GlobalApiExceptionHandler`에 `NoResourceFoundException` 전용 핸들러를 추가해 404로 응답하게 한다 — admin API를 포함한 앱 전체 예외 처리 범위를 건드리는 변경이라 별도 작업으로 분리 필요(근본원인은 `docs/troubleshooting.md`에 이미 기록됨).
+- ~~**핸들러 없는 경로가 404 대신 500 반환**~~ → **해소됨** (`7c64307` #26, 2026-08-07): `GlobalApiExceptionHandler`에 `NoResourceFoundException`·`NoHandlerFoundException` 전용 핸들러 추가 완료. `/admin/api/**`는 JSON 404(`RESOURCE_NOT_FOUND`), 그 외는 기존 `error/404.html`(`/admin/**` 하위는 `error/admin/404.html`) 재사용. 부수적으로 `/admin/api/**` 판정 매처(`SecurityConfig`·`AdminSessionExpiredStrategy`·신규 핸들러 3곳에 중복 존재하던 것)를 `GlobalApiExceptionHandler.API_MATCHER` 한 곳으로 단일화하고, `CustomErrorController`의 admin 접두사 오분류 기존 결함(`/administrator/missing` 등)도 `PathPattern` 기반 판정으로 함께 해결. `./gradlew test` 577개 전체 통과, `plan-review-loop` 4라운드(ship) + `code-review-loop` 1라운드(지적 0건) 거침, Playwright 실기 검증으로 재현 3사례(`/admin/logout` GET·`/favicon.ico`·prod swagger-ui) 중 dev 프로파일 기준 2건 해소 확인(prod 자체 실기 확인은 `.env.prod` 미비로 미시도, 동일 코드 경로라 프로파일 무관하게 적용될 것으로 예상). 리뷰 중 Spring Security의 기본 `StrictHttpFirewall`이 세미콜론 포함 경로를 필터 최상단에서 이미 차단한다는 사실을 실측 발견 — 상세는 `PLAN-not-found-handling.md` "구현·검증 결과" 참조. PR #26 머지 확인(`gh pr view 26` state=MERGED), CI success 확인.
 - **실배포 인프라(nginx 리버스 프록시·TLS 인증서·실제 호스팅·CD 파이프라인)**: 현재 `docker-compose.prod.yml`은 `127.0.0.1:8080` 루프백 바인딩까지만 다루며 그대로 인터넷에 노출하면 안 된다. 로드맵 3단계에 이미 "별도 사용자 결정 사안"으로 명시된 범위 — 호스트·도메인이 정해지면 착수.
 - **`forward-headers-strategy`·secure/SameSite 쿠키**: 리버스 프록시 뒤에서 `X-Forwarded-*` 헤더를 신뢰하려면 필요. 위 리버스 프록시 도입과 함께 다룰 사안이라 별도 선행 착수 불필요.
 - **DB 백업 전략**: named volume 보존만으로는 백업이 아니다 — 실배포 전 별도 수립 필요.
 - **동시 부트스트랩 시 서로 다른 `ADMIN_BOOTSTRAP_*` 값 주입**: 서로 다른 컨테이너에 서로 다른 자격증명이 동시에 주입되면 관리자 계정이 두 개 생길 수 있다(`uk_member_user_id` 유니크 제약은 "같은" 자격증명 경합만 직렬화). "배포 파이프라인이 모든 인스턴스에 동일 설정을 배포한다"는 일반적인 전제를 벗어난 상황이라 `PLAN-prod-profile.md` 결정 4에서 위험 수용으로 남긴 설계 제약 — 현재 `docker-compose.prod.yml`은 고정 컨테이너명 단일 인스턴스라 애초에 재현 불가하나, 향후 다중 인스턴스 배포(K8s 등)로 전환 시 재평가 필요.
 - **미확인(외부 의존, 재확인 필요)**: 실제 SMTP 자격증명으로 비밀번호 재설정 메일이 prod에서 정상 발송되는지(더미 값으로 기동만 확인) / `mariadb:10.11` 이미지의 `healthcheck.sh --connect --innodb_initialized`가 이미지 태그 업데이트 후에도 계속 존재하는지(배포 전 `docker pull` 후 재확인 필요) / prod 프로파일 자체의 로그인→관리 화면 브라우저 골든 패스(이번엔 curl·docker inspect로만 확인, dev 프로파일 기준으로만 Playwright 회귀 확인함).
 
+## 후속 과제 — ② 공개 첨부 다운로드 완료 시 기록 (2026-08-06)
+
+> ②(공개 공지 상세 첨부파일 다운로드, `10c28ff` #25) 완료 시 `PLAN-public-notice-attachment.md`가 명시적으로 로드맵 기록을 요구한 잔여 위험. 설계 결함이 아니라 사용자가 명시적으로 수용한 계약이다.
+
+- **무인증 다운로드 경로의 자원 고갈 위험(명시적 수용)**: `/notices/{id}/attachments/{attachmentId}`는 파일을 `byte[]`로 전량 로딩하며(HEAD도 GET과 동일하게 서비스 진입·전체 로딩), 동시·반복 요청 제한이 없다. 파일당 10MB·공지당 5개 상한은 한 건당 비용만 제한한다. 소규모 운영을 전제로 이번 범위에서 수용한 위험이며(`PLAN-public-notice-attachment.md` 리스크 표), 실제 공개 트래픽·적대적 접근이 예상되면 `InputStreamResource` 스트리밍 전환·레이트리밋 도입을 재검토한다.
+- **TOCTOU 약한 보장의 명시적 한계**: 다운로드 재검증은 "재검증 SELECT를 실행한 시점에 공개 상태였음"만 보장한다. 강한 보장(응답 전송 완료까지 락 유지)은 무인증 엔드포인트가 관리자 쓰기를 블로킹하는 DoS 표면을 만들어 미채택(2026-08-03 사용자 확정). 운영 요구가 달라지면 재평가 대상.
+
 ## 요약
 
-갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)·2단계(정체성 확보: 공지사항 도메인·파일 스토리지/첨부파일·공개 공지 페이지)에 이어 **3단계(운영 경험)의 유일한 개시 조건이던 prod 프로파일 부활(①)도 완료됐다(2026-07-30 · `a51d29d` #23)**. 남은 레버리지는 (②) `PLAN-public-notice.md`가 의도적으로 미룬 공개 첨부파일 노출, (③) `FileStorage` 완료로 선행 조건이 풀린 프로필 이미지 이관 두 가지이며, 이번 ① 완료 검증 중 발견된 범위 밖 항목(실배포 인프라·기존 500 오응답 결함 등)은 위 "후속 과제" 참조. ②는 범위가 작아 끼워 넣기 좋고, ③은 기존 데이터 이관 리스크가 있어 신중한 계획이 필요하다. 실배포(호스트·도메인 확정, nginx·TLS)는 별도 사용자 결정 사안으로 남아 있다.
+갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)·2단계(정체성 확보: 공지사항 도메인·파일 스토리지/첨부파일·공개 공지 페이지)에 이어 **3단계(운영 경험)의 유일한 개시 조건이던 prod 프로파일 부활(①)도 완료됐다(2026-07-30 · `a51d29d` #23)**. `PLAN-public-notice.md`가 의도적으로 미뤘던 공개 첨부파일 노출(②)도 완료됐다(2026-08-03 · `10c28ff` #25). **남은 항목은 (③) `FileStorage` 완료로 선행 조건이 풀린 프로필 이미지 이관 하나이며, 기존 데이터 이관 리스크가 있어 신중한 계획이 필요하다.** ① 완료 검증 중 발견된 범위 밖 항목(실배포 인프라·기존 500 오응답 결함 등)은 위 "후속 과제 — ① prod 프로파일 완료 시 발견" 참조, ② 완료 시 수용한 잔여 위험은 바로 위 "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록" 참조. 실배포(호스트·도메인 확정, nginx·TLS)는 별도 사용자 결정 사안으로 남아 있다.
