@@ -412,7 +412,7 @@ Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plu
 
 참고: `com.cms.publicweb.notice.controller.PublicNoticeController`(파싱 안전성) + `com.cms.publicweb.support.PublicWebExceptionAdvice`(범위 한정 advice) 구현. 상세 설계 결정은 `adversarial-review/plan/PLAN-public-notice.md` 결정 3-1·3-2 참조.
 
-### 핸들러가 아예 없는 경로(정적 리소스 미존재 등)가 404가 아니라 500으로 응답됨 (2026-07-30)
+### 핸들러가 아예 없는 경로(정적 리소스 미존재 등)가 404가 아니라 500으로 응답됨 (2026-07-30, 해결: 2026-08-06)
 
 #### 오류 메시지
 
@@ -428,7 +428,13 @@ Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plu
 
 #### 해결 방법
 
-**아직 고치지 않음** — 위 항목의 해결책(패키지 범위 한정 advice)은 `com.cms.publicweb`처럼 컨트롤러가 있는 패키지에 적용하는 방식이라, "컨트롤러가 아예 없는 요청"에는 적용되지 않는다. 근본적으로 고치려면 `GlobalApiExceptionHandler`(또는 신규 최상위 advice)에 `NoResourceFoundException`/`NoHandlerFoundException` 전용 핸들러를 추가해 404로 응답하게 해야 하는데, 이는 앱 전체(admin API 포함)의 예외 처리 범위를 건드리는 변경이라 특정 기능 PR에서 다루지 않고 별도 작업으로 미뤄왔다(prod 프로파일 부활 PR에서도 동일하게 범위 밖으로 판단). 보안상 실질 피해는 없다(502/500이 나올 뿐 정보가 새지 않음) — 다만 정상적인 404 대신 500이 나오는 것은 사용자 경험·모니터링(500 알림이 실제 장애가 아닌 것과 섞임) 관점에서 개선 여지가 있다. 다음에 이 문제를 다룰 때는 `GlobalApiExceptionHandler`에 `NoResourceFoundException` 핸들러를 추가하는 것으로 세 사례(swagger-ui/v3-api-docs, /admin/logout GET, /favicon.ico) 전부가 한 번에 해소될 것으로 예상된다.
+`GlobalApiExceptionHandler`(selector 없는 전역 `@RestControllerAdvice`) 안에 `NoResourceFoundException`·`NoHandlerFoundException` 전용 `@ExceptionHandler`를 `Exception` catch-all보다 먼저(같은 클래스 내 구체 예외 우선 매칭 규칙) 추가했다. 신규 advice를 별도로 만들지 않은 이유는, 위 항목의 패키지 범위 한정 advice(`PublicWebExceptionAdvice`)는 `basePackages` selector가 있어 "컨트롤러가 아예 없는 요청"(handler type이 없거나 다른 패키지에 속함)에는 애초에 적용 후보가 되지 않기 때문이다 — selector가 없는 전역 advice에 추가하는 것만이 모든 미매핑 경로를 잡을 수 있다.
+
+응답 형식은 경로로 분기한다 — `/admin/api/**`는 `Content-Type: application/json`을 명시한 `ApiErrorResponse` JSON 404(`RESOURCE_NOT_FOUND`), 그 외는 `response.sendError(404)` + `null` 반환으로 기존 `error/404.html`(또는 `/admin` 하위는 `error/admin/404.html`)을 그대로 재사용한다(`PublicNoticeController.attachment()`가 이미 쓰던 `sendError`+null 패턴 재사용 — `HttpEntityMethodProcessor`가 반환값 null이면 `requestHandled=true`로 처리하고 종료하므로 `ResponseEntity` 반환 타입에서도 안전하다). `/admin/api/**` 판정에는 `SecurityConfig`가 인가 규칙에 쓰는 것과 **동일한** `RequestMatcher` 인스턴스(`GlobalApiExceptionHandler.API_MATCHER`, `SecurityConfig`·`AdminSessionExpiredStrategy`가 정적 임포트로 재사용)를 쓴다 — raw 문자열 비교(`uri.startsWith(...)`)는 컨텍스트 경로·세미콜론 매트릭스 파라미터가 섞인 경로에서 Security의 판정과 어긋날 수 있다(`/admin/api;v=1/foo`처럼 `PathPattern`은 매칭하지만 문자열 비교는 실패하는 경우가 실측으로 확인됨).
+
+같은 리뷰 과정에서 `CustomErrorController`의 `requestURI.startsWith("/admin")` 분기도 함께 고쳤다 — 이 raw 문자열 비교는 `/administrator/missing`·`/admin-api/missing` 같은 비-admin 경로를 관리자 404로 오분류했다. `request.getContextPath()`를 제거한 뒤 `PathPattern.parse("/admin/**")`+`PathContainer.parsePath()`로 판정하도록 교체했다 — 이 컨트롤러는 컨테이너 ERROR 디스패치(`/error`) 시점에 실행되므로 `RequestMatcher.matches(HttpServletRequest)`를 쓸 수 없다(그 시점의 `request.getRequestURI()`는 원 경로가 아니라 포워드 대상인 `/error` 자체를 가리킨다 — 원 경로는 `jakarta.servlet.error.request_uri` 속성 문자열로만 존재한다). `PathPattern`을 문자열에 직접 적용하는 이 방식이 컨텍스트 경로·매트릭스 파라미터 양쪽을 실측으로 정확히 처리함을 확인했다(`/admin/**` 패턴 하나로 `/admin`(루트)·`/admin;v=1/missing` 전부 매칭, `/administrator/missing`은 불일치).
+
+**검증**: `spring.mvc.throw-exception-if-no-handler-found`는 Spring Boot 3.5.16에 존재하지 않는 프로퍼티다(javap로 `WebMvcProperties`에 대응 필드 없음 확인) — `DispatcherServlet`(Spring Framework 6.2.19)의 `throwExceptionIfNoHandlerFound` 기본값이 이미 `true`이므로(생성자 바이트코드 `iconst_1` 확인) `spring.web.resources.add-mappings=false` 단독으로 실제 `NoHandlerFoundException` 디스패치를 재현할 수 있다(`NoHandlerFoundDispatchTest`). 관련 코드: `GlobalApiExceptionHandler.handleNoHandlerFound()`, `CustomErrorController.isAdminPath()`. 상세 설계 결정·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-not-found-handling.md` 참조.
 
 ---
 

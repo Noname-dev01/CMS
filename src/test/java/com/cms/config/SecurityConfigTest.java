@@ -304,6 +304,72 @@ class SecurityConfigTest {
         mockMvc.perform(get("/actuator/env"))
                 .andExpect(status().isForbidden());
     }
+
+    // ==================== 핸들러 없는 경로의 404 응답 검증 (PLAN-not-found-handling.md) ====================
+    // /admin/api/**는 JSON 404, 그 외는 sendError(404)+null(컨테이너 ERROR 디스패치 트리거).
+    // MockMvc는 컨테이너 ERROR 디스패치를 수행하지 않으므로 여기서는 상태코드·본문(JSON인 경우)까지만
+    // 단언하고, 실제 HTML 렌더링·ERROR 재디스패치 이후의 필터 재평가는 Playwright로 검증한다.
+
+    @Test
+    @DisplayName("ADMIN의 GET /admin/api/존재하지않는경로는 JSON 404 RESOURCE_NOT_FOUND")
+    @WithMockUser(roles = "ADMIN")
+    void notFound_adminApiUnmappedPath_json404() throws Exception {
+        mockMvc.perform(get("/admin/api/does-not-exist"))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("Accept: text/html이어도 /admin/api/** 미매핑 경로는 여전히 JSON 404 (콘텐츠 협상 실패로 다른 응답이 되지 않음)")
+    @WithMockUser(roles = "ADMIN")
+    void notFound_adminApiUnmappedPath_acceptTextHtml_stillJson404() throws Exception {
+        mockMvc.perform(get("/admin/api/does-not-exist").accept(MediaType.TEXT_HTML))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("Accept: application/xml이어도 /admin/api/** 미매핑 경로는 여전히 JSON 404")
+    @WithMockUser(roles = "ADMIN")
+    void notFound_adminApiUnmappedPath_acceptXml_stillJson404() throws Exception {
+        mockMvc.perform(get("/admin/api/does-not-exist").accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("ADMIN의 GET /admin/존재하지않는경로는 404 (상태코드만 — HTML 렌더링은 Playwright로 검증)")
+    @WithMockUser(roles = "ADMIN")
+    void notFound_adminPageUnmappedPath_404() throws Exception {
+        mockMvc.perform(get("/admin/does-not-exist"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("비인증 GET /존재하지않는경로(공개)는 404")
+    void notFound_publicUnmappedPath_404() throws Exception {
+        mockMvc.perform(get("/does-not-exist"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("비인증 GET /admin/api/존재하지않는경로는 기존대로 JSON 401 (Security가 DispatcherServlet 도달 전에 차단 — 무회귀)")
+    void notFound_unauthenticatedAdminApiUnmappedPath_json401() throws Exception {
+        mockMvc.perform(get("/admin/api/does-not-exist"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    @DisplayName("CSRF 포함 비인증 POST /존재하지않는경로는 404 (MVC 예외 분기까지 도달 — 이 슬라이스는 실제 CSRF 필터를 통과함, " +
+            "단 ERROR 재디스패치 자체는 MockMvc 밖이라 재디스패치에서 403으로 안 뒤집힘까지는 이 테스트로 증명되지 않음 — 종단 확인은 Playwright)")
+    void notFound_unauthenticatedPostUnmappedPath_withCsrf_404() throws Exception {
+        mockMvc.perform(post("/does-not-exist").with(csrf()))
+                .andExpect(status().isNotFound());
+    }
 }
 
 // ==================== 슬라이스 테스트 전용 스텁 컨트롤러 ====================

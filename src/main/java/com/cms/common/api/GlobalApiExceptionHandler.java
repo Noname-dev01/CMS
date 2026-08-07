@@ -5,12 +5,16 @@ import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -20,9 +24,23 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+
+import java.io.IOException;
 
 @RestControllerAdvice
 public class GlobalApiExceptionHandler {
+
+    /**
+     * /admin/api/** 여부 판정 — SecurityConfig가 인가 규칙에 쓰는 것과 동일한
+     * RequestMatcher 인스턴스다. SecurityConfig·AdminSessionExpiredStrategy가 이 상수를
+     * 참조한다(반대 방향 — common → config 역의존을 만들지 않기 위해 이 클래스가 소유한다).
+     * 문자열 비교(uri.startsWith(...))로 대체하면 컨텍스트 경로·세미콜론 매트릭스
+     * 파라미터가 섞인 경로에서 Security의 판정과 어긋날 수 있다.
+     */
+    public static final RequestMatcher API_MATCHER =
+            PathPatternRequestMatcher.withDefaults().matcher("/admin/api/**");
 
     /**
      * Validation 실패 (@Valid)
@@ -308,6 +326,38 @@ public class GlobalApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
     }
 
+
+    /**
+     * 핸들러 없는 경로(정적 리소스 미존재 포함). NoResourceFoundException은
+     * spring.web.resources.add-mappings=true(기본값)일 때 정적 리소스 핸들러가
+     * "/**"를 잡고 있어 실제로 발생하는 경로다. NoHandlerFoundException은 그 설정이
+     * 꺼지면 대신 발생하므로 함께 등록해둔다(기본 설정에서는 도달하지 않음 —
+     * add-mappings=false로 전환한 슬라이스 테스트로 실제 디스패치 계약을 고정한다).
+     * 이 핸들러가 없으면 아래 Exception catch-all이 잡아 정상적인 404를 500
+     * INTERNAL_ERROR로 바꿔버린다(docs/troubleshooting.md 참조).
+     * /admin/api/**는 JSON 404, 그 외는 기존 error/404.html을 그대로 쓰기 위해
+     * sendError + null 반환한다 — HttpEntityMethodProcessor는 반환값이 null이면
+     * requestHandled=true로 처리하고 종료하므로 ResponseEntity 반환 타입에서도 안전하다
+     * (PublicNoticeController.attachment()와 동일 계약). JSON 응답은 Content-Type을
+     * 명시한다 — 명시하지 않으면 Accept: text/html 등에서 콘텐츠 협상이 실패할 수 있다
+     * (ApiAuthenticationEntryPoint·ApiAccessDeniedHandler와 동일한 이유).
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ApiErrorResponse> handleNoHandlerFound(
+            Exception e,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) throws IOException {
+        if (API_MATCHER.matches(request)) {
+            ApiErrorResponse body = ApiErrorResponse.of(
+                    request.getRequestURI(), "RESOURCE_NOT_FOUND", "요청하신 경로를 찾을 수 없습니다.");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body);
+        }
+        response.sendError(HttpServletResponse.SC_NOT_FOUND);
+        return null;
+    }
 
     /**
      * 예상 못한 서버 오류

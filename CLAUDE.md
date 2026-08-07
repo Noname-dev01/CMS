@@ -164,6 +164,7 @@ com.cms/
 - `@PreAuthorize` 위반으로 발생하는 `AccessDeniedException`은 `GlobalApiExceptionHandler.handleAccessDenied()`가 잡아 **JSON 403** (`ACCESS_DENIED`)으로 반환한다. 단, 이는 컨트롤러까지 도달한 요청에만 해당한다.
 - `/admin/api/**` 경로는 Security Filter Chain 레벨에서 전용 핸들러가 처리한다. 미인증은 `ApiAuthenticationEntryPoint`(JSON 401 `UNAUTHORIZED`), 권한 부족은 `ApiAccessDeniedHandler`(JSON 403 `ACCESS_DENIED`)가 응답한다. HTML 리다이렉트나 기본 오류 페이지는 반환되지 않는다.
 - `/admin/api/**` 이외의 경로(Thymeleaf 페이지 등)에서 발생하는 **401(미인증)**은 로그인 페이지로 리다이렉트된다.
+- **핸들러가 아예 등록되지 않은 경로(정적 리소스 미존재 포함)도 404다** (2026-08-06 해결). `GlobalApiExceptionHandler`가 `NoResourceFoundException`·`NoHandlerFoundException`을 `Exception` catch-all보다 먼저 잡아 `/admin/api/**`는 JSON 404(`RESOURCE_NOT_FOUND`), 그 외는 기존 `error/404.html`(`/admin/**` 하위는 `error/admin/404.html`)로 응답한다. 이전에는 이 catch-all이 500 `INTERNAL_ERROR`로 바꿔버리던 기존 결함이었다(`docs/troubleshooting.md` 참조).
 
 ### 목록 조회 파라미터
 
@@ -238,7 +239,7 @@ com.cms/
 
 ## API 문서
 
-- Swagger UI: `http://localhost:8080/swagger-ui.html` (SpringDoc OpenAPI 2.8.14, `ROLE_ADMIN` 로그인 필요, **dev 전용** — prod는 `application-prod.yml`의 `springdoc.api-docs.enabled=false`+`swagger-ui.enabled=false`로 핸들러 자체가 등록되지 않는다. 다만 이 경로에 접근하면 404가 아니라 500이 반환된다 — 기존 결함, `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조)
+- Swagger UI: `http://localhost:8080/swagger-ui.html` (SpringDoc OpenAPI 2.8.14, `ROLE_ADMIN` 로그인 필요, **dev 전용** — prod는 `application-prod.yml`의 `springdoc.api-docs.enabled=false`+`swagger-ui.enabled=false`로 핸들러 자체가 등록되지 않는다. 이 경로에 접근하면 페이지 경로이므로 HTML 404가 반환된다 — `com.cms.error.CustomErrorController`(2026-08-06 해결, `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조))
 - API 문서는 SpringDoc Swagger(OpenAPI 3)로 단일화한다. Spring REST Docs는 사용하지 않는다.
 
 현재 구현된 주요 엔드포인트(RESTful 규칙 정렬 완료):

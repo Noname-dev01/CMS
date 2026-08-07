@@ -20,6 +20,7 @@
 | 8 | ✅ **완료 (2026-07-28)** [PLAN-public-notice.md](PLAN-public-notice.md) — 공개 공지 페이지: 첫 비관리자 화면 (로드맵 2026-07-20 재선정 Top 5 ③) | feat | 5번 완료 필수 | 승인 완료 (2026-07-28, `/notices` GET/HEAD `permitAll`+나머지 `denyAll` 명시 — 인가 정책 변경) |
 | 9 | ✅ **완료 (2026-07-30)** [PLAN-prod-profile.md](PLAN-prod-profile.md) — prod 프로파일 부활 + 배포 준비 (로드맵 2026-07-29 선정 Top 3 ①) | infra/security | 8번 완료 권장(배포할 콘텐츠 확보) | 승인 완료 (2026-07-29, `/actuator/health` permitAll + `/actuator/**` denyAll 명시 — 인가 정책 변경) |
 | 10 | ✅ **완료 (2026-08-03)** [PLAN-public-notice-attachment.md](PLAN-public-notice-attachment.md) — 공개 공지 상세 첨부파일 다운로드 (로드맵 2026-07-29 선정 Top 3 ②) | feat | 8번 완료 필수 | 승인 완료(신규 의존성·스키마 변경·인가 정책 변경 없음) |
+| 11 | ✅ **완료 (2026-08-06)** [PLAN-not-found-handling.md](PLAN-not-found-handling.md) — 핸들러 없는 경로의 404 응답 정정 (로드맵 "후속 과제 — ① prod 프로파일 완료 시 발견") | fix | 없음 | 불필요(스키마·인가 정책 변경 없음, `SecurityConfig.java` 등은 매처 상수 소유권 이동만) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
