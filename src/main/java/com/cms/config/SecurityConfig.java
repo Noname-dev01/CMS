@@ -5,6 +5,7 @@ import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import com.cms.config.security.AdminSessionExpiredStrategy;
 import com.cms.config.security.ApiAccessDeniedHandler;
 import com.cms.config.security.ApiAuthenticationEntryPoint;
+import static com.cms.common.api.GlobalApiExceptionHandler.API_MATCHER;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -22,15 +23,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
-import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
-import org.springframework.security.web.util.matcher.RequestMatcher;
 
 @Configuration
 public class SecurityConfig {
 
-    // Security 6.5에서 AntPathRequestMatcher가 removal 예정으로 deprecated → PathPatternRequestMatcher로 교체
-    private static final RequestMatcher API_MATCHER = PathPatternRequestMatcher.withDefaults().matcher("/admin/api/**");
+    // API_MATCHER는 GlobalApiExceptionHandler가 소유한다(정적 임포트로 재사용) —
+    // 핸들러 없는 경로의 404 JSON/HTML 분기도 동일 매처를 써야 컨텍스트 경로·매트릭스
+    // 파라미터가 섞인 경로에서 인가 판정과 어긋나지 않는다.
     private static final ApiAuthenticationEntryPoint API_AUTH_ENTRY_POINT = new ApiAuthenticationEntryPoint();
     private static final ApiAccessDeniedHandler API_ACCESS_DENIED_HANDLER = new ApiAccessDeniedHandler();
     private static final LoginUrlAuthenticationEntryPoint LOGIN_ENTRY_POINT = new LoginUrlAuthenticationEntryPoint("/admin/login");
