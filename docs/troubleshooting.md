@@ -464,6 +464,28 @@ Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plu
 
 **검증**: `spring.mvc.throw-exception-if-no-handler-found`는 Spring Boot 3.5.16에 존재하지 않는 프로퍼티다(javap로 `WebMvcProperties`에 대응 필드 없음 확인) — `DispatcherServlet`(Spring Framework 6.2.19)의 `throwExceptionIfNoHandlerFound` 기본값이 이미 `true`이므로(생성자 바이트코드 `iconst_1` 확인) `spring.web.resources.add-mappings=false` 단독으로 실제 `NoHandlerFoundException` 디스패치를 재현할 수 있다(`NoHandlerFoundDispatchTest`). 관련 코드: `GlobalApiExceptionHandler.handleNoHandlerFound()`, `CustomErrorController.isAdminPath()`. 상세 설계 결정·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-not-found-handling.md` 참조.
 
+### Spring Data JPA 리포지토리를 `Mockito.spy()`로 감싸면 `UnfinishedStubbingException`이 난다 (2026-08-11)
+
+#### 오류 메시지
+
+```
+java.lang.IllegalStateException
+	Caused by: org.mockito.exceptions.misusing.UnfinishedStubbingException
+	at (doAnswer(...).when(repoSpy).someMethod(...) 호출 지점)
+```
+
+#### 원인
+
+Spring Data JPA가 리포지토리 인터페이스(`MemberRepository` 등)의 실제 구현체로 런타임에 생성하는 것은 일반 POJO가 아니라 동적 프록시다. `Mockito.spy(realInstance)`는 해당 인스턴스의 런타임 클래스를 서브클래싱(바이트버디)해 스파이를 만드는데, Spring Data가 생성한 프록시 클래스를 다시 서브클래싱하는 과정이 Mockito의 스터빙 상태 추적과 충돌해 `doAnswer(...).when(spy).method(matchers)` 형태의 스터빙 중에 `UnfinishedStubbingException`이 발생한다. 순수 POJO나 일반 `@Component` 구현체(예: `LocalDiskFileStorage`)를 스파이할 때는 이 문제가 재현되지 않는다 — Spring Data 리포지토리 인터페이스에 한정된 증상이다.
+
+`ProfileImageMigrationRunnerIntegrationTest`의 동시성 보조 검증 테스트(`run_concurrentRunners_migratesExactlyOnce`)에서, `MemberRepository`의 특정 메서드 호출만 계측(barrier 동기화 + 실제 위임 호출 성공/예외 기록)하기 위해 `Mockito.spy(memberRepository)`를 시도하다가 실측으로 재현됐다(적대적 리뷰 3·4라운드에서 "Spring Data 동적 프록시에 대한 `callRealMethod()` 위임이 문서화된 계약이 아니다"라고 지적했던 우려가 실제 오류로 나타난 사례).
+
+#### 해결 방법
+
+`spy()` 대신 순수 `mock(MemberRepository.class)`을 만들고, 계측이 필요한 메서드는 `doAnswer` 안에서 **원본 리포지토리 빈(`@Autowired`로 별도 보관한 참조)을 명시적으로 호출**하도록 전부 위임한다. 계측 대상(mock)과 실제 위임 대상(원본 빈)을 프록시 서브클래싱 없이 완전히 분리하면 문제가 사라진다. 반면 일반 구체 클래스(`FileStorage`의 `LocalDiskFileStorage` 구현체 등)는 `Mockito.spy()` + `invocation.callRealMethod()`가 표준적으로 안전하다.
+
+**검증**: 위 방식으로 전환 후 `ProfileImageMigrationRunnerIntegrationTest` 4개 테스트 전부 통과(`./gradlew test --tests`), 락이 실제로 두 동시 실행 중 하나만 이관을 완료하고 다른 하나는 스킵함을 로그로 확인. 관련 코드: `ProfileImageMigrationRunnerIntegrationTest.run_concurrentRunners_migratesExactlyOnce()`. 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-profile-image-storage.md` "후속 작업 계획" 섹션 참조.
+
 ---
 
 # 정리
