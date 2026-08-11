@@ -2,7 +2,9 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-08-07 — "후속 과제 — ① prod 프로파일 완료 시 발견" 중 "핸들러 없는 경로가 404 대신 500 반환" 완료 반영 (`7c64307` #26, PR MERGED·CI success 사실확인). Top 3 항목 자체는 변동 없음 — 남은 미완료는 여전히 ③(프로필 이미지 이관) 하나.
+> 최근 갱신(PR 반영 대기): `ProfileImageMigrationRunnerIntegrationTest`(Testcontainers) 추가로 "후속 과제 — ③" 2번 항목 해소(`test/profile-image-migration-runner-integration-test` 브랜치, 커밋·PR 번호는 머지 후 `/updateRoadmap`에서 사실확인 반영 예정) — 상세는 하단 "후속 과제 — ③ 프로필 이미지 이관 완료 시 발견" 참조. 남은 미해소는 1번 항목(실 레거시 데이터 이관 Playwright 골든 패스)뿐이다.
+> 이전 갱신: 2026-08-11 — ③ 프로필 이미지 Base64-in-DB → FileStorage 이관 완료 반영 (`e3175a9` #28, PR MERGED 사실확인). **Top 3(2026-07-29 선정) 전 항목 완료.** 완료 기준 5개 중 3개 완전 충족, 2개는 부분 충족(실 레거시 데이터 이관 골든 패스·마이그레이션 러너 Testcontainers 통합 테스트 미작성) — 사용자 협의 후 완료 처리, 잔여 항목은 하단 "후속 과제 — ③ 프로필 이미지 이관 완료 시 발견" 참조.
+> 이전 갱신: 2026-08-07 — "후속 과제 — ① prod 프로파일 완료 시 발견" 중 "핸들러 없는 경로가 404 대신 500 반환" 완료 반영 (`7c64307` #26, PR MERGED·CI success 사실확인). Top 3 항목 자체는 변동 없음 — 남은 미완료는 여전히 ③(프로필 이미지 이관) 하나.
 > 이전 갱신: 2026-08-06 — ② 공개 공지 상세 첨부파일 다운로드 완료 반영 (`10c28ff` #25, PR MERGED·CI test pass 사실확인). 남은 미완료는 ③(프로필 이미지 이관) 하나.
 > 이전 갱신: 2026-07-30 — ① prod 프로파일 부활 완료 반영 (`a51d29d` #23, `AdminBootstrapLoader`·`ProfileGuardEnvironmentPostProcessor`·actuator 이중 방어·Docker 실기 검증 사실확인, `/code-review-loop` 3라운드 거침) — 3단계(운영 경험) 개시. 검증 중 발견된 범위 밖 항목은 하단 "후속 과제" 참조.
 > 이전 갱신: 2026-07-29 — 전면 재분석(`/createRoadmap`) 후 Top 3 신규 선정 (기준 커밋 `b2a6b0f` #22). 열린 이슈/PR 0건, 소스 TODO 0건(vendor 제외) 재확인. 신규 선정 근거는 하단 "실행 로드맵 — Top 3 (2026-07-29 선정)" 참조.
@@ -214,8 +216,10 @@
 - **완료 기준**: `./gradlew test` 통과 / 비로그인으로 공개 공지 상세에서 첨부 다운로드 골든 패스 playwright 확인 / 비노출·소프트 삭제 공지의 첨부 다운로드 404 확인(목록 조회 후 상태 전환 시나리오 포함) / 다른 notice의 attachmentId로 접근 시 404(IDOR 차단) / 관리 화면(첨부 CRUD) 회귀 없음
 - **착수 게이트**: 없음(신규 의존성·스키마 변경 없음, 기존 승인된 `/notices/**` 공개 정책 범위 내 — 단, 계획 단계에서 `SecurityConfig` 수정이 실제로 필요하다고 판명되면 인가 정책 변경으로 재승인 필요).
 
-### ③ 프로필 이미지 Base64-in-DB → FileStorage 이관
+### ③ 프로필 이미지 Base64-in-DB → FileStorage 이관 — ✅ 완료 (2026-08-11 · `e3175a9` #28)
 - **유형**: 리팩토링 / **선정 이유**: 2026-07-20 로드맵에서 "②(파일 스토리지)의 `FileStorage` 인터페이스가 생긴 뒤 별도 마이그레이션 계획으로 다루는 게 안전"이라며 탈락시켰던 후보 — 그 선행 조건(`FileStorage`)이 이미 완료됐다. CLAUDE.md가 명시하는 "대용량 Base64 데이터가 API 응답에 포함될 수 있다"는 주의사항을 해소한다.
+- **완료 근거**: `member.profile_image_kind`(enum, `V11__add_member_profile_image_kind.sql`) + `Member` 도메인 메서드 4종 분리(`changeUploadedProfileImage`/`changePresetProfileImage`/`resetProfileImage`/`migrateProfileImageToStorage`) 실존 확인. `FileStorage`/`LocalDiskFileStorage`에 네임스페이스 인자 오버로드 3종(하위 호환 default 메서드) 추가 확인, `"profile"` 네임스페이스로 공지 첨부파일과 물리적으로 분리된 디렉터리 저장 확인. `ProfileImageValidator`(화이트리스트 png/jpeg/gif, 헤더 선검사 기반 decompression bomb 방어, 애니메이션 거부, MIME-포맷 일치 검증, 신규 의존성 없음) 확인. 다운로드 라우트 `GET /admin/api/members/me/profile-image`·`/{id}/profile-image` 실존 확인(`AdminMemberController`). `ProfileImageMigrationRunner`(1회성 이관, 행별 트랜잭션+비관적 락 재검증, 크기 초과 조건부 벌크 UPDATE로 즉시 격리, `kind` 조건 자체로 멱등성 보장) 확인. 신규 테스트 4클래스(`ProfileImageUrlsTest`·`ProfileImageValidatorTest`·`ProfileImageMigrationRunnerTest`·`MemberProfileImageInsertIntegrationTest`) + 기존 3클래스 확장(`AdminMemberControllerTest`·`AdminMemberServiceTest`·`LocalDiskFileStorageTest`) 전부 통과 확인, `./gradlew test` 전체 통과 재확인(Docker Desktop 데몬 기동 후). `/code-review-loop` 1라운드(codex 리뷰 지적 사항 0건) 거침. PR #28 머지 확인(`gh pr view 28` state=MERGED, mergedAt=2026-08-11).
+  - **완료 기준 중 2건은 부분 충족**(문자 그대로 완전 충족 아님, ①(prod 프로파일)과 동일한 패턴 — 사용자 협의 후 완료 처리, 잔여 항목은 하단 "후속 과제 — ③ 프로필 이미지 이관 완료 시 발견" 참조): (1) "기존 회원의 프로필 이미지가 이관 후에도 정상 표시 확인" — dev DB에 이관 대상 레거시 행이 0건이라 "0건 이관"만 Playwright로 확인, 실 레거시 데이터로 "이관 후 정상 표시"까지 이어지는 골든 패스는 미확인. (2) "이관 실패 시 롤백 경로 검증" — `ProfileImageMigrationRunnerTest`(Mockito 단위)로 스킵·벌크초기화 경로만 검증, 실 트랜잭션 커밋/롤백 + 동시 러너 실행을 검증하는 Testcontainers 통합 테스트는 계획에는 있었으나 시간 제약으로 미작성.
 - **목표**: 프로필 이미지가 DB `LONGTEXT` 컬럼의 Base64 데이터 URI 대신 `FileStorage`(로컬 디스크)에 실파일로 저장되고, 회원 조회 API 응답에는 다운로드 URL만 포함된다. **기존 데이터 이관(마이그레이션)이 핵심 리스크** — 계획 단계에서 반드시 전략(배치 1회성 이관 vs 무중단 lazy 이관 vs 재업로드 유도)을 확정해야 한다.
 - **수정해야 할 정확한 파일** (실측 기준):
     - 수정: `src/main/java/com/cms/admin/member/service/AdminMemberService.java`(344줄, 실측) — `updateMyProfileImage`(252행 Base64 인코딩)·`resetMyProfileImage`·`applyDefaultProfileImage` 메서드가 `FileStorage`를 사용하도록 전환
@@ -239,6 +243,14 @@
 - **동시 부트스트랩 시 서로 다른 `ADMIN_BOOTSTRAP_*` 값 주입**: 서로 다른 컨테이너에 서로 다른 자격증명이 동시에 주입되면 관리자 계정이 두 개 생길 수 있다(`uk_member_user_id` 유니크 제약은 "같은" 자격증명 경합만 직렬화). "배포 파이프라인이 모든 인스턴스에 동일 설정을 배포한다"는 일반적인 전제를 벗어난 상황이라 `PLAN-prod-profile.md` 결정 4에서 위험 수용으로 남긴 설계 제약 — 현재 `docker-compose.prod.yml`은 고정 컨테이너명 단일 인스턴스라 애초에 재현 불가하나, 향후 다중 인스턴스 배포(K8s 등)로 전환 시 재평가 필요.
 - **미확인(외부 의존, 재확인 필요)**: 실제 SMTP 자격증명으로 비밀번호 재설정 메일이 prod에서 정상 발송되는지(더미 값으로 기동만 확인) / `mariadb:10.11` 이미지의 `healthcheck.sh --connect --innodb_initialized`가 이미지 태그 업데이트 후에도 계속 존재하는지(배포 전 `docker pull` 후 재확인 필요) / prod 프로파일 자체의 로그인→관리 화면 브라우저 골든 패스(이번엔 curl·docker inspect로만 확인, dev 프로파일 기준으로만 Playwright 회귀 확인함).
 
+## 후속 과제 — ③ 프로필 이미지 이관 완료 시 발견 (2026-08-11 기록)
+
+> ③(프로필 이미지 Base64-in-DB → FileStorage 이관, `e3175a9` #28) 완료 검증 중 로드맵 완료 기준을 문자 그대로는 충족하지 못한 것으로 확인된 2건. `adversarial-review/plan/PLAN-profile-image-storage.md`가 "구현·검증 결과" 섹션에서 스스로 후속 과제로 명시한 항목이며, 사용자와 협의해 완료 처리와 함께 여기 별도 기록하기로 확정했다.
+
+- **실 레거시 데이터가 있는 DB에서의 이관 Playwright 골든 패스 미확인**: 검증 시점 dev DB에 마이그레이션 대상 `data:` URI 레거시 행이 이미 0건이라(이전 세션에 정리됨) "처리 대상=0, 이관=0"만 실기 확인했다. 이관 로직 자체(Base64 디코딩→저장→바이트 동일성, 화이트리스트 밖 MIME 스킵, 크기 초과 벌크 초기화)는 `ProfileImageMigrationRunnerTest`(Mockito 단위)·`ProfileImageMigrationRunnerIntegrationTest`(Testcontainers 실 DB)로 검증됨. 실제 레거시 데이터를 가진 DB에서 "이관 실행 → 브라우저에 이미지가 정상 표시"까지 이어지는 골든 패스(Playwright)만 여전히 별도로 재현·확인 필요 — 이 항목은 미해소로 남는다.
+- ~~**`ProfileImageMigrationRunnerIntegrationTest`(Testcontainers) 미작성**~~ → **해소됨** (2026-08-11, `test/profile-image-migration-runner-integration-test` 브랜치, 머지 후 커밋·PR 번호는 `/updateRoadmap`에서 사실확인 반영 예정): 실 트랜잭션 커밋/롤백 + `findByIdForUpdate` 락 결정적 증명(`innodb_lock_wait_timeout` 세션 변수 기법) + 동시 러너 실행 시 중복 이관 방지(보조 검증, `CyclicBarrier` + Mockito) 테스트 4개 추가. `/plan-review-loop` 5라운드(스킬 최대 라운드, `PLAN-profile-image-storage.md` "후속 작업 계획" 섹션 v1~v6) 거침 — 컨텍스트 기동 시 러너 자동 실행이 완전한 사전 격리를 보장하지 못하는 잔여 위험 1건은 사용자 협의 후 현재 수준(대상 집합 정확히 일치 어서션 + 클래스 단위 `@BeforeAll`)에서 명시적으로 수용. 구현 중 `Mockito.spy()`가 Spring Data JPA 리포지토리 동적 프록시에서 `UnfinishedStubbingException`을 내는 것을 실측 발견해 `mock()` + 명시 위임으로 전환(`docs/troubleshooting.md` 기록). `./gradlew test --tests` 4개 전부 통과(동시 실행 테스트 로그에서 한 스레드만 이관, 다른 스레드는 스킵 확인), `./gradlew test` 전체 630개 통과.
+- **WebP 레거시 행 영구 미이관**(설계상 수용된 제약, 버그 아님): 화이트리스트에서 WebP를 제외하기로 한 결정(사용자 확정)에 따라, 기존에 WebP로 저장된 레거시 행이 있다면 영구히 `LEGACY_INLINE`(Base64 pass-through)으로 남는다 — 데이터 손실은 없으나 해당 행만 "Base64 페이로드 제거" 목표에서 예외로 남는다.
+
 ## 후속 과제 — ② 공개 첨부 다운로드 완료 시 기록 (2026-08-06)
 
 > ②(공개 공지 상세 첨부파일 다운로드, `10c28ff` #25) 완료 시 `PLAN-public-notice-attachment.md`가 명시적으로 로드맵 기록을 요구한 잔여 위험. 설계 결함이 아니라 사용자가 명시적으로 수용한 계약이다.
@@ -248,4 +260,4 @@
 
 ## 요약
 
-갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)·2단계(정체성 확보: 공지사항 도메인·파일 스토리지/첨부파일·공개 공지 페이지)에 이어 **3단계(운영 경험)의 유일한 개시 조건이던 prod 프로파일 부활(①)도 완료됐다(2026-07-30 · `a51d29d` #23)**. `PLAN-public-notice.md`가 의도적으로 미뤘던 공개 첨부파일 노출(②)도 완료됐다(2026-08-03 · `10c28ff` #25). **남은 항목은 (③) `FileStorage` 완료로 선행 조건이 풀린 프로필 이미지 이관 하나이며, 기존 데이터 이관 리스크가 있어 신중한 계획이 필요하다.** ① 완료 검증 중 발견된 범위 밖 항목(실배포 인프라·기존 500 오응답 결함 등)은 위 "후속 과제 — ① prod 프로파일 완료 시 발견" 참조, ② 완료 시 수용한 잔여 위험은 바로 위 "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록" 참조. 실배포(호스트·도메인 확정, nginx·TLS)는 별도 사용자 결정 사안으로 남아 있다.
+갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)·2단계(정체성 확보: 공지사항 도메인·파일 스토리지/첨부파일·공개 공지 페이지)에 이어 **3단계(운영 경험)의 유일한 개시 조건이던 prod 프로파일 부활(①)도 완료됐다(2026-07-30 · `a51d29d` #23)**. `PLAN-public-notice.md`가 의도적으로 미뤘던 공개 첨부파일 노출(②)도 완료됐다(2026-08-03 · `10c28ff` #25). **`FileStorage` 완료로 선행 조건이 풀렸던 프로필 이미지 이관(③)도 완료됐다(2026-08-11 · `e3175a9` #28) — 실행 로드맵 Top 3(2026-07-29 선정) 전 항목이 완료된 상태다.** ① 완료 검증 중 발견된 범위 밖 항목(실배포 인프라·기존 500 오응답 결함 등)은 위 "후속 과제 — ① prod 프로파일 완료 시 발견" 참조, ② 완료 시 수용한 잔여 위험은 "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록" 참조, ③ 완료 시 남은 검증 공백(실 레거시 데이터 이관 골든 패스·마이그레이션 러너 통합 테스트)은 바로 위 "후속 과제 — ③ 프로필 이미지 이관 완료 시 발견" 참조. 다음 로드맵 갱신 때는 Top 3 전 항목 완료를 반영해 신규 후보를 재선정해야 한다. 실배포(호스트·도메인 확정, nginx·TLS)는 별도 사용자 결정 사안으로 남아 있다.

@@ -256,3 +256,130 @@
 - `ProfileImageMigrationRunnerIntegrationTest`(Testcontainers, 실 트랜잭션 커밋/롤백 + 동시 러너 실행 시뮬레이션) 및 실제 레거시 데이터가 있는 DB에서의 이관 Playwright 골든 패스 — 미완료, 별도 작업으로 추가 필요.
 - `docs/troubleshooting.md`에 "Docker Desktop 재기동 후 Windows 동적 포트 제외 범위로 인한 bootRun 포트 바인딩 실패" 기록.
 - 로드맵(`adversarial-review/project-direction-roadmap.md`) Top 3 ③ 완료 반영은 `/updateRoadmap`으로 별도 진행(이 문서 갱신만으로는 로드맵 파일이 자동 갱신되지 않음).
+
+---
+
+## 후속 작업 계획 — ProfileImageMigrationRunnerIntegrationTest(Testcontainers) 추가 (2026-08-11)
+
+> 로드맵 근거: `adversarial-review/project-direction-roadmap.md` "후속 과제 — ③ 프로필 이미지 이관 완료 시 발견" **2번 항목만**(러너 Testcontainers 통합 테스트). 1번 항목(실 레거시 데이터가 있는 DB에서의 Playwright 골든 패스)은 이번 작업 범위 밖이며 여전히 미해소로 남는다 — 브라우저·다운로드 엔드포인트·`<img>` 렌더링까지 포함하는 별도 성격의 검증이라 이 테스트 추가로 해소되지 않는다(리뷰 1차 지적 5).
+> 범위: 순수 테스트 추가. 프로덕션 코드·스키마·인가 정책 변경 없음.
+
+### 개정 이력(이 후속 작업 전용)
+- v1 (2026-08-11): 최초 작성.
+- v2 (2026-08-11, 리뷰 1차 — codex, no-ship → 계획 반영):
+  - **수용(높음, 동시성 테스트가 실경합을 보장하지 않음)**: v1의 시작 래치(`CountDownLatch`) 방식은 두 스레드가 `runner.run()`을 "비슷한 시각"에 호출하게 할 뿐, 둘 다 동일 ID를 조회하고 실제 락 획득 시점(`findByIdForUpdate`)에 동시에 도달함을 강제하지 않는다 — 순차 실행(A 완료 후 B가 빈 대상 목록만 확인)으로도 우연히 통과할 수 있어, 락을 제거해도 테스트가 계속 통과할 위험이 있었다. `CyclicBarrier`로 실제 락 획득 호출 직전에 두 스레드를 합류시키는 방식으로 쟁점 4를 재설계(아래).
+  - **수용(높음, 인용한 기존 테스트가 다른 메서드를 검증함)**: v1의 대안 A 기각 사유가 "`AdminMemberUpdateConcurrencyIntegrationTest.guardQuery_actuallyAcquiresRowLocks()`가 `findByIdForUpdate`의 락을 이미 증명했다"였는데, 사실은 그 테스트가 검증하는 건 `findActiveAdminIdsForUpdate()`(네이티브 `FOR UPDATE` 스칼라 쿼리)이지 `findByIdForUpdate()`(JPQL + `@Lock(PESSIMISTIC_WRITE)`)가 아니다 — 구현 메커니즘 자체가 다른 별개 메서드를 인용한 사실관계 오류였다. 재설계된 `CyclicBarrier` 기반 동시성 테스트 자체가 "락이 깨지면 반드시 실패하는" 결정적 대조 실험이 되므로, 이 지적은 별도의 "락 존재 증명 전용" 테스트 신설이 아니라 쟁점 4 재설계로 해소한다.
+  - **수용(높음, 워커 스레드 실패가 묻히면 거짓 양성 가능)**: v1은 `ExecutorService.submit()`의 반환값(`Future`) 처리를 명시하지 않았다 — 한 스레드가 조기 실패해도 다른 스레드만으로 겉보기 통과 조건(store 1회·최종 UPLOADED)이 우연히 성립할 수 있다. 양쪽 `Future.get(timeout)`을 반드시 호출해 예외·타임아웃을 테스트 스레드로 전파하도록 쟁점 4에 명시.
+  - **수용(중간, 동시성 결함 발견 시 고아 파일 정리가 누락됨)**: v1의 정리 계획은 "이관 성공 시 DB에 남은 storageKey 하나만" 추적했는데, 정작 검출하려는 실패 모드(락이 깨져 `store()`가 2회 호출됨)가 발생하면 마지막에 커밋된 키 외의 첫 번째 키는 DB 어디에도 참조되지 않아 정리 대상에서 누락된다 — 테스트는 의도대로 실패하지만 고아 파일이 공유 스토리지 루트에 영구히 남는다. `FileStorage` spy가 반환하는 **모든** storageKey를 스레드 안전 컬렉션에 기록해 전부 정리하도록 쟁점 5 수정.
+  - **수용(높음, 완료 기준이 로드맵 1번 항목까지 해소한다고 잘못 주장)**: 로드맵 후속 과제 ③의 두 항목(1: 실 레거시 데이터 Playwright 골든 패스, 2: 러너 Testcontainers 통합 테스트)은 서로 다른 성격의 작업인데, 이번 계획은 2번만 다루면서 "1·2번 해소"라고 주장했다. 상단 로드맵 근거 문구와 "완료 기준" 절을 2번만 해소하는 것으로 정정.
+- v3 (2026-08-11, 리뷰 2차 — codex, no-ship → 계획 반영):
+  - **수용(높음, `CyclicBarrier`는 락 제거 회귀를 결정적으로 검출하지 못함)**: v2의 barrier는 "두 스레드가 동시에 호출 직전에 도착함"만 보장하지, "두 SELECT가 모두 커밋 전 상태를 관측함"까지 보장하지 않는다 — barrier 통과 후에도 A가 완주(SELECT→이관→커밋)한 뒤에야 B가 SELECT하면(락이 없어도) 여전히 "store 1회·최종 UPLOADED"로 우연히 통과할 수 있다는 지적이 정확하다. `findByIdForUpdate`(JPQL `@Lock`)가 이 프로젝트에서 결정적으로 증명된 적이 없다는 v1 지적과 겹쳐, `NoticeConcurrencyIntegrationTest`의 "(A) 락 존재의 결정적 증명" 기법(`innodb_lock_wait_timeout` 세션 변수, 타이밍 아닌 필연적 타임아웃으로 증명)을 그대로 이식한 **별도 테스트**를 쟁점 4-A로 신설한다. 기존 barrier+spy 기반 테스트는 쟁점 4-B(보조 검증)로 격하해 유지한다.
+  - **수용(높음, `Future.get()`만으로는 러너 내부에서 흡수되는 행 단위 예외를 못 잡음)**: `ProfileImageMigrationRunner.run()`이 각 행 처리 예외를 `catch (Exception e) { failed++; }`로 내부 흡수하므로, 한 스레드의 실제 `findByIdForUpdate` 위임 호출이 실패해도 `Future.get()`은 정상 반환하고 겉보기 통과 조건(store 1회·최종 UPLOADED)이 우연히 성립할 수 있다는 지적이 정확하다. `doAnswer`에서 실제 위임 호출마다 성공/예외를 스레드 안전 리스트에 기록해, **두 스레드 모두 실제 위임 호출까지 도달해 예외 없이 정상 완료했음**을 명시적으로 단언하도록 쟁점 4-B에 추가.
+  - **수용(중간, storageKey 정리 전략이 쟁점 2와 모순)**: 쟁점 5가 "세 테스트 공통으로 `FileStorage` spy가 반환한 키를 수집"한다고 했지만, 정상 커밋 테스트(쟁점 2)는 스파이 없는 실제 싱글턴 러너를 쓴다고 명시해 애초에 수집할 spy가 없었다는 지적이 정확하다 — 시나리오별 정리 경로를 명확히 분리(아래 쟁점 5 수정).
+  - **수용(중간, `runner.run()`이 테스트 소유가 아닌 잔존 레거시 행까지 처리한다는 가정이 숨어 있음)**: 공유 Testcontainers DB에 이전 테스트의 정리 실패로 남은 `LEGACY_INLINE` 행이 있으면 동시성 테스트의 barrier·계측이 의도한 행이 아닌 곳에서 작동할 수 있다는 지적이 정확하다. 동시성 테스트 시작 전 `findIdsByProfileImageKind(LEGACY_INLINE)`이 비어 있음을 선제 확인하는 fail-fast 검증을 쟁점 4-B에 추가(러너 자체는 수정하지 않음 — 순수 테스트 추가 범위 유지).
+- v4 (2026-08-11, 리뷰 3차 — codex, no-ship → 계획 반영):
+  - **수용(높음, 격리 검증이 4-B에만 적용되어 정상 커밋·롤백 테스트는 무방비)**: v3의 `isEmpty()` 선제 확인을 4-B에만 넣어, `runner.run()`을 직접 호출하는 정상 커밋(쟁점 2)·롤백(쟁점 3) 테스트에는 동일한 방어가 없었다는 지적이 정확하다. `runner.run()`을 호출하는 **모든** 테스트에 공통 적용되는 어서션으로 신설 쟁점 6에 통합.
+  - **부분 수용/부분 반박(높음, `@SpringBootTest` 컨텍스트 기동 시 `CommandLineRunner` 자동 실행이 격리 설계에서 빠짐)**: `ProfileImageMigrationRunner`가 `@Profile` 제한 없는 `CommandLineRunner`라 컨텍스트 최초 기동 시 Spring Boot가 자동 실행한다는 사실 관계는 맞다. 다만 제안된 수정("테스트 컨텍스트에서 해당 러너의 자동 실행을 억제")은 **기각** — `CmsTestApplication`은 수십 개 Testcontainers 테스트 클래스가 공유하는 테스트 인프라라, 이를 건드리는 건 "순수 테스트 추가"라는 이번 작업 범위를 벗어나는 더 넓은 리스크다. 또한 이 컨텍스트를 공유하는 기존 테스트 중 `LEGACY_INLINE` 행을 DB에 남기는 클래스는 없어(이 신규 클래스가 유일), "컨텍스트 최초 기동 시점에 이미 레거시 행이 존재"하는 시나리오는 현재 실증되지 않는 가상의 위험이다. **대신 수용**: "실행 전 비어있음"이 아니라 "내 행 생성 직후 정확히 그 행 하나"로 대상 집합을 검증하는 공통 어서션(쟁점 6)을 도입해, 이 가상의 위험이 실제로 발생하더라도 조용한 오염 대신 즉시 테스트 실패로 드러나게 한다 — 지적이 겨냥한 실제 피해(소유권 밖 행의 조용한 변경)는 이 방식으로도 동일하게 방지된다.
+  - **수용(중간, Spring Data repository spy의 `callRealMethod()`가 구현 의존적)**: 인터페이스 기반 Mockito spy가 Spring Data JPA 동적 프록시에 대해 `invocation.callRealMethod()`로 안전하게 위임된다는 계약이 문서화되어 있지 않다는 지적이 정확하다. `doAnswer` 안에서 스파이가 아닌 **원본 `memberRepository` 참조를 직접 호출**하도록 쟁점 4-B 수정(아래).
+- v5 (2026-08-11, 리뷰 4차 — codex, no-ship → 계획 반영 + 사용자 결정):
+  - **수용(높음, singleton 대상집합 어서션은 자동실행 억제와 동등한 안전성을 제공하지 않음) — 사용자 결정: 현재 수준에서 명시적 수용**: 지적이 정확하다 — 자동 실행이 타 행을 **성공적으로** 처리하면 그 행은 `LEGACY_INLINE` 목록에서 사라지므로 쟁점 6의 어서션이 통과해버려 오염을 못 잡는다. 다만 진짜 해결(러너 자동실행을 테스트 컨텍스트에서 억제하면서도 쟁점 2에는 여전히 진짜 싱글턴 빈이 필요)은 `ProfileImageMigrationRunner`의 `@Profile` 무제약(의도적 프로덕션 설계 결정)을 테스트만을 위해 조건부로 바꾸는 프로덕션 코드 변경이 필요해, "순수 테스트 추가" 범위를 넘어선다. 사용자에게 선택지를 제시해 **"현재 수준에서 명시적 수용"**으로 결정받았다 — 이 코드베이스에서 `LEGACY_INLINE` 행을 실제로 남기는 테스트는 이번에 추가하는 클래스가 유일해 현재 오염 위험은 0이며, 향후 다른 테스트가 그런 행을 남기게 되면(코드 리뷰로 걸러질 가능성이 높은 변경) 재평가한다. 방어 비용 대비 효과가 큰 부분(클래스 시작 시점 잔존 행 검출)만 `@BeforeAll`로 추가한다(아래 쟁점 6 수정) — 완전한 차단은 아니지만 "이전 테스트의 정리 실패"라는 가장 현실적인 오염 경로는 잡아낸다.
+  - **수용(중간, `callRealMethod()` 의존성이 `findByIdForUpdate` 외 다른 repository 메서드에도 남음)**: 수동 생성 러너가 호출하는 `findIdsByProfileImageKind`·`resetIfOversizedLegacyImage`도 `findByIdForUpdate`와 동일하게 `doAnswer`에서 원본 `memberRepository`로 명시 위임하도록 쟁점 4-B 수정.
+  - **수용(낮음, 4-A의 실패 경로 정리 계약 미명시)**: `NoticeConcurrencyIntegrationTest`의 원본과 동일하게 `release.countDown()`을 `finally`로 보장하고, holder 측도 `Future.get(timeout)`으로 예외를 전파하며, `executor.shutdownNow()` + `awaitTermination(timeout)`으로 정리하도록 쟁점 4-A에 명시.
+- v6 (2026-08-11, 리뷰 5차 — codex, no-ship → 계획 반영, `/plan-review-loop` 5라운드 종료):
+  - **수용(중간, 4-A가 "락 타임아웃"이 아닌 임의의 예외로도 통과할 수 있음)**: 원본 `NoticeConcurrencyIntegrationTest`를 그대로 이식하면서 `assertNotNull(thrown)`만 검사해, 세션 변수 복원 실패 등 무관한 예외도 "락 존재 증명"으로 오인될 수 있다는 지적이 정확하다. `thrown`이 `PessimisticLockingFailureException`(Spring Data JPA가 락 타임아웃을 이 예외 계층으로 변환) 또는 그 원인 체인에 MariaDB 오류 코드 1205(`ER_LOCK_WAIT_TIMEOUT`)가 있는지 명시적으로 검증하도록 쟁점 4-A에 추가. 세션 변수 복원(`finally`)에서 발생하는 예외는 원래 `thrown` 값을 덮어쓰지 않도록 별도 try-catch로 분리해 로그만 남긴다.
+  - **수용(낮음, `@BeforeAll`의 인스턴스 필드 사용 시 생명주기 설정 누락)**: JUnit 5 기본 생명주기(`PER_METHOD`)에서 비정적 `@BeforeAll`이 인스턴스 필드(`@Autowired memberRepository`)를 쓰려면 `@TestInstance(Lifecycle.PER_CLASS)`가 필요하다는 지적이 정확하다 — 없으면 컴파일 오류. 신규 테스트 클래스에 `@TestInstance(TestInstance.Lifecycle.PER_CLASS)`를 명시하도록 쟁점 1에 추가.
+  - **`/plan-review-loop` 5라운드(스킬 최대 라운드) 종료**: 리뷰 자신이 "두 보완을 계획에 명시하면 추가 구조 변경 없이 ship 가능"이라고 명시했고, 남은 지적 2건 모두 반영 완료. 사용자 확인 후 구현 착수로 진행한다.
+
+### Context
+
+`ProfileImageMigrationRunner`는 Mockito 기반 단위 테스트(`ProfileImageMigrationRunnerTest`)로 스킵·벌크초기화·행 단위 격리 경로만 검증되어 있다. 그 테스트 파일 자신의 주석("실제 트랜잭션 커밋/롤백 검증은 Testcontainers 통합 테스트가 별도로 담당한다")과 위 "후속 과제"가 명시하듯, 다음 3가지는 실 DB 없이는 증명할 수 없다:
+1. 정상 이관이 **실제로 커밋**되어 재조회 시 DB에 반영되는가
+2. 이관 트랜잭션이 (외부 사정으로) **롤백**되면 DB·파일 모두 원상태로 남는가 — `FileStorageTransactionSupport.deleteOnRollback`이 실제로 파일을 정리하는가
+3. **동시에 같은 대상 행**을 두 실행 흐름이 처리해도 `findByIdForUpdate` 비관적 락 재검증으로 중복 이관(중복 저장·고아 파일)이 일어나지 않는가
+
+### 핵심 설계 결정 (쟁점별)
+
+#### 쟁점 1 — 테스트 파일 위치·베이스 클래스
+- **결정**: `src/test/java/com/cms/admin/member/ProfileImageMigrationRunnerIntegrationTest.java`. `@SpringBootTest(classes = CmsTestApplication.class)` + `extends MariaDbContainerSupport`. 클래스에 **`@TestInstance(TestInstance.Lifecycle.PER_CLASS)`**를 명시한다(v6 추가) — 쟁점 6의 클래스 단위 `@BeforeAll`이 인스턴스 필드로 주입된 `memberRepository`를 사용하므로, JUnit 5 기본 생명주기(`PER_METHOD`)에서는 컴파일 오류가 난다.
+- **왜**: 같은 패키지의 `MemberProfileImageInsertIntegrationTest`, 그리고 `NoticeAttachmentTransactionIntegrationTest`·`NoticeConcurrencyIntegrationTest`가 이미 이 조합으로 검증된 표준 패턴이다. 새 테스트 인프라가 필요 없다.
+
+#### 쟁점 2 — 정상 커밋 검증 방법
+- **결정**: `@Autowired ProfileImageMigrationRunner runner`(실제 싱글턴 빈)로, 대상 행 생성 직후 `assertOnlyMyRowIsTarget(id)`(쟁점 6) 확인 → `runner.run()` 호출 → `memberRepository.findById(id)` 재조회로 `kind=UPLOADED`·`profileImageContentType`·`profileImageUrl`(data URI 아님) 확인 → `fileStorage.load(key, "profile")`로 바이트가 원본과 정확히 일치하는지 왕복 확인.
+- **왜 이 방식**: 러너를 직접 생성하지 않고 실제 컨텍스트가 배선한 싱글턴을 쓰는 게 배선 자체(생성자 인자 순서, `FileStorage`/`TransactionTemplate` 빈 해석)까지 함께 검증하는 더 강한 테스트다. 이 시나리오엔 스텁·스파이가 필요 없다.
+
+#### 쟁점 3 — 롤백 검증 방법
+- **결정**: `NoticeAttachmentTransactionIntegrationTest.upload_rollback_fileDeleted()`와 동일 기법. 대상 행 생성 직후 `assertOnlyMyRowIsTarget(id)`(쟁점 6) 확인 → 외부 `TransactionTemplate`(REQUIRED 전파 — 러너 내부의 개별 `transactionTemplate.execute()` 호출들이 같은 물리 트랜잭션에 합류)으로 `runner.run()` 전체를 감싸고, `status.setRollbackOnly()` 직전에 `entityManager.flush()` + 네이티브 쿼리로 **아직 커밋되지 않은** storageKey를 트랜잭션 내부에서 캡처한다. 롤백 후 (a) `memberRepository.findById()` 재조회 시 원래 `LEGACY_INLINE`·원본 data URI 그대로인지, (b) 캡처한 storageKey로 `fileStorage.load(key, "profile")` 시도 시 `StorageFileNotFoundException`(파일이 `deleteOnRollback`의 `afterCompletion` 콜백으로 정리됨)이 나는지 검증한다.
+- **대안 A(기각) — 러너에 테스트 전용 실패 주입 지점 추가**: 프로덕션 코드에 테스트만을 위한 확장점(예: `migrateWithinTransaction`을 package-private으로 열거나 실패 훅 추가)을 넣는 방식. 순수 테스트 추가 작업의 범위를 벗어나는 무관한 프로덕션 변경이라 기각 — 이미 검증된 외부 트랜잭션 랩 기법으로 프로덕션 코드 변경 없이 동일한 결론을 얻을 수 있다.
+- **대안 B(기각) — `FileStorage.store()`가 예외를 던지도록 Mockito 스텁**: 이건 "저장 자체가 실패하는 시나리오"를 검증하는 것이지 "실 트랜잭션 커밋/롤백"을 검증하는 게 아니다. 로드맵이 요구한 검증 대상과 어긋난다.
+
+#### 쟁점 4 — 동시 실행 검증 방법 (v3 재설계 — (A) 결정적 증명 + (B) 러너 행동 보조검증으로 분리)
+
+**4-A. `findByIdForUpdate`가 실제로 PESSIMISTIC_WRITE 행 잠금을 획득하는지 결정적으로 증명**
+- **결정**: `NoticeConcurrencyIntegrationTest.lockQuery_actuallyAcquiresRowLock()`과 완전히 동일한 기법을 `MemberRepository.findByIdForUpdate`에 적용한다. 한 스레드가 `TransactionTemplate`으로 대상 행에 `findByIdForUpdate`를 호출해 락을 획득한 채 대기(`CountDownLatch`로 락 보유 신호 후 해제 래치 대기)하고, 메인 스레드는 같은 행에 대해 `SET SESSION innodb_lock_wait_timeout = 1`로 짧게 줄인 뒤 같은 `findByIdForUpdate`를 시도한다 — **타이밍이 아니라 반드시 타임아웃(예외)이 나는지**로 락의 존재를 결정적으로 증명한다(원래 세션 변수 값은 `finally`에서 복원).
+- **실패 경로 정리(v5 명시)**: 원본 `NoticeConcurrencyIntegrationTest`와 동일하게 — 락 보유 스레드는 `release.countDown()`을 **외부 `finally`**에서 반드시 호출해 assertion 실패 시에도 무기한 대기하지 않는다. 메인 스레드는 holder의 `Future.get(15, TimeUnit.SECONDS)`로 보유 스레드의 예외도 전파받는다. `executor.shutdownNow()` + `awaitTermination(15, TimeUnit.SECONDS)`로 정리(리뷰 4차 지적 3).
+- **예외 원인 특정(v6 추가)**: `assertNotNull(thrown)`이 아니라 `thrown`(또는 그 원인 체인)이 `org.springframework.dao.PessimisticLockingFailureException`이거나 메시지/원인에 MariaDB 오류 코드 1205(`ER_LOCK_WAIT_TIMEOUT`)를 포함하는지 명시적으로 검증한다 — 세션 변수 설정·복원 실패나 무관한 매핑 오류가 "락 존재 증명"으로 오인되는 거짓 양성을 차단한다. 세션 변수 복원(`finally`)에서 발생하는 예외는 별도 try-catch로 격리해 로그만 남기고, 원래 캡처한 `thrown` 값을 덮어쓰지 않는다.
+- **왜**: v2의 `CyclicBarrier`는 확률적 정황 증거일 뿐 결정적 증명이 아니라는 리뷰 2차 지적이 정확하다. `findByIdForUpdate`(JPQL `@Lock`)는 이 프로젝트에서 별도로 증명된 적이 없으므로(v1이 잘못 인용했던 `AdminMemberUpdateConcurrencyIntegrationTest`는 다른 메서드를 검증), 이관 러너 고유 로직과 무관하게 이 메서드 자체의 락 계약을 독립적으로 결정적 증명한다.
+
+**4-B. 러너가 그 락을 실제로 활용해 중복 이관을 방지하는지 확인 (보조 검증)**
+- **결정**: 4-A가 락의 존재를 이미 결정적으로 증명했으므로, 이 테스트의 역할은 "러너 로직이 그 락을 실제로 활용해 재검증 스킵을 올바르게 수행하는가"를 확인하는 보조 검증으로 재규정한다. v2의 `CyclicBarrier` + spy 설계를 유지하되 다음을 추가한다:
+  - **대상 집합 격리(쟁점 6 공통 어서션 적용)**: `runner.run()` 호출 직전 `assertOnlyMyRowIsTarget(id)`로 대상 집합이 정확히 내 행 하나인지 확인(상세는 쟁점 6).
+  - **위임 호출 성공 계측, repository spy 전체에 명시 위임(v4·v5 수정)**: `MemberRepository`를 `Mockito.spy()`로 감싸되, 러너가 실제로 호출하는 **세 메서드 전부**(`findIdsByProfileImageKind`·`resetIfOversizedLegacyImage`·`findByIdForUpdate`)의 `doAnswer`가 `invocation.callRealMethod()`가 아니라 **스파이 대상이 아닌 원본 `memberRepository`(`@Autowired`로 별도 보관한 참조)를 명시적으로 호출**하도록 통일한다(`memberRepository.findIdsByProfileImageKind(...)` 등) — Mockito가 인터페이스 스파이를 Spring Data 동적 프록시에 안전하게 위임한다는 보장이 문서화되어 있지 않다는 리뷰 3·4차 지적을 반영해, 계측 대상(스파이)과 실제 위임 대상(원본 빈)을 세 메서드 모두에서 명확히 분리한다. `findByIdForUpdate`의 `doAnswer`는 barrier 통과 후 이 호출의 성공/예외를 스레드 안전 리스트에 기록하고, 예외는 다시 던진다. 테스트 마지막에 **정확히 2개의 기록이 있고 그중 예외가 없음**을 단언해, 러너 내부의 행 단위 예외 흡수(`catch (Exception e) { failed++; }`)로 인해 한쪽 스레드의 위임 호출 실패가 조용히 묻히는 거짓 양성을 차단한다(리뷰 2차 지적 2).
+  - `FileStorage`도 `Mockito.spy()`로 감싸 `store()`의 매 호출마다 반환값을 스레드 안전 컬렉션에 기록(쟁점 5-C와 연동).
+  - **양쪽 `Future`에 대해 반드시 `.get(20, TimeUnit.SECONDS)`를 호출**해 워커 스레드의 예외·타임아웃을 테스트 스레드로 전파(리뷰 1차 지적 3). `finally`에서 `executor.shutdownNow()` + `awaitTermination`으로 정리.
+  - 두 스레드가 공유하는 `ProfileImageMigrationRunner`는 스파이가 적용된 `repoSpy`·`fileStorageSpy`를 생성자에 직접 주입해 수동 생성(`AdminBootstrapConcurrencyIntegrationTest` 패턴).
+  - 검증: 위임 호출 계측(2회, 예외 없음) + `verify(fileStorageSpy, times(1)).store(any(), any(), eq("profile"))` + 최종 DB 상태(`kind=UPLOADED`) + 저장된 바이트 일치.
+
+- **대안(기각) — 저장 디렉터리의 파일 개수를 이관 전후로 세어 "고아 파일 없음"을 검증**: 공유 테스트 스토리지 루트(`./data/attachments/profile`)는 같은 JVM에서 실행되는 다른 통합 테스트와 경로를 공유해 개수 기반 검증이 실행 환경 변화에 취약하다. Mockito spy의 정밀한 호출 횟수·반환값 캡처가 더 견고하다. (v1·v2에서 이미 기각, 유지)
+
+#### 쟁점 6 — `runner.run()`을 호출하는 모든 테스트의 대상 집합을 내 행으로 한정 (v4 신설, v5 잔여 위험 명시)
+- **결정**: `runner.run()`을 실제로 실행하는 세 테스트(쟁점 2 정상 커밋·쟁점 3 롤백·쟁점 4-B 보조 검증) 전부에서 공통 헬퍼 `assertOnlyMyRowIsTarget(Long id)`를 대상 행 생성 직후·`runner.run()` 호출 직전에 호출한다. 이 헬퍼는 `memberRepository.findIdsByProfileImageKind(LEGACY_INLINE)`이 **정확히 `List.of(id)`**인지 단언한다(`isEmpty()` 단독 검사가 아니라 "생성 직후 정확히 하나"로 검사 — 리뷰 3차 지적 1). 추가로 **클래스 단위 `@BeforeAll`**에서 이 테스트 클래스의 어떤 메서드도 실행되기 전에 `findIdsByProfileImageKind(LEGACY_INLINE)`이 비어 있는지 한 번 확인한다 — 이전 테스트 메서드의 정리 실패로 남은 잔존 행을 클래스 시작 시점에 즉시 검출한다.
+- **왜**: "실행 전 비어있음"만 확인하면 그 사이(내 행 생성 시점)에 다른 원인으로 잔존 행이 섞여 있었는지까지는 못 잡지만, "생성 직후 정확히 내 행 하나"는 이 클래스의 이전 테스트 메서드가 정리에 실패해 남긴 잔존 행을 실행 직전 시점 기준으로 정확히 잡아낸다. 오염이 있으면 `runner.run()`을 호출하기도 전에 테스트가 실패해, 소유권 밖 행을 조용히 함께 처리하는 사고를 이 경로에 한해 차단한다.
+- **잔여 위험(v5 — 리뷰 4차 지적 1, 사용자 결정: 현재 수준에서 명시적 수용)**: 이 어서션은 `@SpringBootTest` 컨텍스트 **최초 기동 시점**의 `ProfileImageMigrationRunner` 자동 실행(`CommandLineRunner`, `@Profile` 제한 없음)을 막지 못한다 — 만약 그 시점에 타 테스트 소유의 `LEGACY_INLINE` 행이 이미 존재하고 자동 실행이 그 행을 **성공적으로** `UPLOADED`로 이관해버리면, 그 행은 이후 `findIdsByProfileImageKind(LEGACY_INLINE)` 조회에서 사라지므로 위 어서션들은 (내 행만 정확히 잡아) 통과하지만 그 타 행의 DB 변경·파일 생성은 아무도 정리하지 않는다. 진짜 해결(자동 실행을 테스트 컨텍스트에서 억제)은 `ProfileImageMigrationRunner`의 `@Profile` 무제약(의도적 프로덕션 설계)을 테스트만을 위해 조건부로 바꾸는 프로덕션 코드 변경이 필요해 "순수 테스트 추가"라는 이번 작업 범위를 벗어난다. **사용자 결정**: 이 코드베이스에서 `LEGACY_INLINE` 행을 실제로 남기는 테스트는 이번에 추가하는 클래스가 유일해 현재 오염 위험은 0이므로, 현재 수준(위 어서션 + `@BeforeAll`)에서 명시적으로 수용한다. 향후 다른 테스트가 그런 행을 남기게 되면 재평가한다.
+- **적용 범위**: 쟁점 4-A(락 결정적 증명)는 `runner.run()`을 호출하지 않고 `findByIdForUpdate`를 직접 호출하는 저수준 테스트라 이 어서션이 필요 없다(대상 집합 조회 자체가 관여하지 않음).
+
+#### 쟁점 5 — 테스트 데이터 격리·정리 (v3 — 시나리오별 정리 경로 명확화)
+- **결정**: 각 테스트가 생성한 memberId는 그대로 리스트에 기록해 `@AfterEach`에서 회원 행을 삭제한다. storageKey 정리는 **시나리오별로 경로를 분리**해 공통 `List<String> createdStorageKeys`(스레드 안전 — `Collections.synchronizedList`)에 모은다:
+  - **5-A(쟁점 2, 정상 커밋)**: `runner.run()` 후 DB 재조회로 얻은 storageKey를 직접 추가.
+  - **5-B(쟁점 3, 롤백)**: 트랜잭션 내부에서 캡처한 storageKey를 직접 추가(트랜잭션이 롤백돼도 `deleteOnRollback`이 실패하는 극단적 케이스까지 대비하는 안전망).
+  - **5-C(쟁점 4-B, 동시 실행)**: `FileStorage` spy의 `store()` 호출마다 반환값을 직접 이 리스트에 추가하도록 계측(둘 이상 저장돼도 전부 잡힘).
+  - `@AfterEach`에서 리스트의 모든 키를 `fileStorage.delete(key, "profile")`로 정리(예외 흡수).
+- **왜(v3 수정 사유)**: v2는 "세 테스트 공통으로 spy가 반환한 키를 수집"한다고 서술했지만, 쟁점 2(정상 커밋)는 스파이 없는 실제 싱글턴 러너를 쓴다고 명시해 애초에 수집할 spy가 없는 모순이 있었다(리뷰 2차 지적 3). 시나리오별로 실제 구현 가능한 경로를 명시해 모순을 제거했다.
+- **왜(v1 근거 유지)**: 이 테스트 클래스가 공유 Testcontainers DB에 `LEGACY_INLINE` 행을 실제로 쓰는 유일한 클래스다. 정리하지 않으면 캐시된 ApplicationContext를 공유하는 다른 테스트 클래스나 재실행 시 `findIdsByProfileImageKind` 대상에 잔존해 노이즈가 된다(특히 쟁점 3의 롤백 테스트는 의도적으로 `LEGACY_INLINE` 상태를 남기므로, 정리하지 않으면 그 행이 영구히 DB에 남는다).
+
+### 변경 파일
+
+- 신규: `src/test/java/com/cms/admin/member/ProfileImageMigrationRunnerIntegrationTest.java` (테스트 4개 — 정상 커밋(쟁점2)·롤백(쟁점3)·락 결정적 증명(쟁점4-A)·러너 중복방지 보조검증(쟁점4-B) + 헬퍼)
+- 프로덕션 코드·스키마·인가 정책·`build.gradle` 변경 없음(Mockito는 `spring-boot-starter-test`에 이미 포함).
+
+### 완료 기준
+
+- `./gradlew test --tests "com.cms.admin.member.ProfileImageMigrationRunnerIntegrationTest"` 4개 테스트 전부 통과
+- `./gradlew test` 전체 통과(회귀 없음)
+- 로드맵 "후속 과제 — ③" **2번 항목만**(러너 Testcontainers 통합 테스트) 이 테스트로 해소했다고 로드맵에 반영(별도 `/updateRoadmap`). **1번 항목(실 레거시 데이터가 있는 DB에서의 Playwright 골든 패스)은 이번 작업으로 해소되지 않으며 계속 미해소로 남는다** — 별도 작업(실 데이터 시딩 + 브라우저 검증) 필요.
+
+### 착수 게이트
+
+없음 — 순수 테스트 추가, 스키마·인가 정책·신규 의존성 변경 전무.
+
+### 구현·검증 결과 (2026-08-11)
+
+**구현 파일**: `src/test/java/com/cms/admin/member/ProfileImageMigrationRunnerIntegrationTest.java`(신규, 테스트 4개 + 헬퍼) 하나. 계획서(v6) 대비 실제로 반영된 것 중 추가 발견 사항 1건:
+
+- **[구현 중 발견]** 쟁점 4-B에서 `MemberRepository`를 `Mockito.spy()`로 감싸려 하자 `UnfinishedStubbingException`이 실제로 재현됐다 — Spring Data JPA 리포지토리는 런타임에 동적 프록시라, 이를 다시 서브클래싱하는 스파이 생성이 Mockito의 스터빙 상태 추적과 충돌한다(리뷰 3·4라운드가 "문서화된 계약이 아니다"라고 경고했던 위험이 실측으로 확인됨). `spy()` 대신 순수 `mock(MemberRepository.class)` + 세 메서드 전부 원본 빈으로 명시 위임하는 방식으로 전환했다(계획서 자체의 방향과 동일선상 — "계측 대상과 실제 위임 대상 분리"를 스파이가 아닌 mock으로 달성). `FileStorage`(`LocalDiskFileStorage`, 일반 구체 클래스)의 `Mockito.spy()` + `callRealMethod()`는 계획대로 문제없이 동작했다. `docs/troubleshooting.md`에 기록.
+
+### 테스트 결과
+
+`./gradlew test --tests "com.cms.admin.member.ProfileImageMigrationRunnerIntegrationTest"` 4개 전부 통과. 동시 실행 테스트 로그에서 두 스레드 중 정확히 하나만 `이관=1`, 다른 하나는 `스킵=1`로 처리됐음을 실측 확인(락이 실제로 중복 이관을 막음). `./gradlew test` 전체 630개 통과, 회귀 없음.
+
+### Playwright 실기 검증
+
+**해당 없음** — 이번 작업은 순수 백엔드 테스트 코드 추가로, 화면·API 응답·사용자 흐름에 어떤 변경도 없다(신규 파일 1개, 프로덕션 코드 무변경). 검증할 UI 골든 패스가 존재하지 않는다.
+
+### 이슈
+
+- `Mockito.spy()`가 Spring Data JPA 리포지토리 프록시에서 실패하는 문제(위 "구현 중 발견" 참조) — `docs/troubleshooting.md` "애플리케이션 / 런타임" 카테고리에 기록 완료.
+
+### 후속 과제
+
+- 로드맵 "후속 과제 — ③" 1번 항목(실 레거시 데이터가 있는 DB에서의 Playwright 골든 패스)은 이번 작업 범위 밖으로 여전히 미해소 — 별도 작업 필요.
+- 로드맵(`adversarial-review/project-direction-roadmap.md`) 반영은 `/updateRoadmap`으로 별도 진행.
