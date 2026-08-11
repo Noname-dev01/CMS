@@ -118,9 +118,16 @@ com.cms/
 
 `AdminSecurityService` (`com.cms.config.auth`)가 `SecurityContextHolder`에서 현재 인증된 관리자 정보를 꺼내는 역할을 담당한다. `AdminMemberService`의 모든 메서드에서 `getCurrentAdminId()`, `hasAdminAuthority()` 등을 통해 사용한다.
 
-### 프로필 이미지
+### 프로필 이미지 (Base64-in-DB → FileStorage 이관 완료, 2026-08-10)
 
-업로드한 이미지는 `data:<mime>;base64,...` 형태의 Base64 데이터 URI로 DB의 `LONGTEXT` 컬럼(`profile_image_url`)에 저장된다(2MB 이하, `image/*` 파일만 허용). 기본 프리셋 4종(`profile-default`, `profile-1`, `profile-2`, `profile-3`)은 Base64가 아니라 정적 리소스 경로(`/img/undraw_profile*.svg`)로 저장된다. `com.cms.common.storage.FileStorage`(공지 첨부파일용, 2026-07-22 도입)를 재사용하는 실파일 이관은 별도 후속 작업 — 현재는 검증·변환 로직이 이 서비스 메서드에 그대로 인라인되어 있다.
+업로드된 이미지는 더 이상 DB에 Base64로 저장되지 않는다 — `com.cms.common.storage.FileStorage`(공지 첨부파일용, 2026-07-22 도입)의 **`"profile"` 네임스페이스**에 실파일로 저장된다. `FileStorage`에 네임스페이스 인자 오버로드 3종(`store`/`load`/`delete`)이 추가되어(하위 호환 default 메서드, 기존 2-인자 시그니처·`NoticeAttachmentService` 호출부는 무변경) 프로필 이미지는 공지 첨부파일과 **물리적으로 분리된 디렉터리**(`root/profile/...`)에 저장된다 — `member.profile_image_url`에는 storageKey(공지 첨부파일과 같은 `yyyy/MM/dd/uuid.ext` 형태)가 그대로 들어가도, 네임스페이스가 다르므로 물리 경로가 겹치지 않는다. 네임스페이스 없는 기존 `load()/delete()`는 예약된 최상위 세그먼트(`"profile"`)로 시작하는 storageKey를 아예 해석하지 않는다(공지 첨부파일 storageKey가 오염되어 `profile/...` 형태가 되어도 프로필 파일에 접근 못함 — 반대 방향도 마찬가지).
+
+- **`member.profile_image_kind`**(enum, `NONE`/`PRESET`/`UPLOADED`/`LEGACY_INLINE`, V11): "이 값이 지금 무슨 의미인지"를 문자열 생김새 추론이 아니라 명시적으로 관리한다. `UPLOADED`일 때만 `FileStorage`를 호출한다. `member.profile_image_content_type`(nullable)은 `UPLOADED`일 때만 채워져 다운로드 응답의 `Content-Type`을 확장자 추론 없이 재생한다.
+- **`Member` 도메인 메서드**: `changeProfileImage(url)` 단일 메서드 대신 `changeUploadedProfileImage`/`changePresetProfileImage`/`resetProfileImage`/`migrateProfileImageToStorage` 4종으로 분리해 "preset인데 content-type이 남아있는" 등 불가능한 상태 조합을 구조적으로 차단한다.
+- **검증**(`AdminMemberService`/`ProfileImageMigrationRunner` 공유, `ProfileImageValidator`): 화이트리스트는 `image/png`·`image/jpeg`·`image/gif`(**WebP 제외** — JDK 표준 `ImageIO`가 WebP를 지원하지 않아 신규 의존성 추가 대신 화이트리스트에서 뺌). `ImageReader`로 헤더만 먼저 읽어(`getWidth(0)/getHeight(0)`, 아직 픽셀 디코딩 전) 변 길이 2000px·총 픽셀 200만 상한을 넘으면 거부한 뒤에만 실제 디코딩(`reader.read(0)`)한다(decompression bomb 방어). `getNumImages(true) != 1`이면 애니메이션(다중 프레임)으로 거부(아바타에 애니메이션 불필요, GIF 폭탄 방지). `ImageReader.getFormatName()`으로 선언 MIME과 실제 포맷 일치도 검증한다. 신규 의존성 없음(JDK 표준 API만 사용).
+- **다운로드 라우트**: `GET /admin/api/members/me/profile-image`(ADMIN·MANAGER, `SecurityConfig`의 기존 `/admin/api/members/me/**` 매처가 그대로 커버 — 코드 변경 없음), `GET /admin/api/members/{id}/profile-image`(ADMIN 전용, 기존 `/admin/**` 캐치올이 커버). `ResponseEntity<byte[]>`로 실제 바이트를 직접 반환, `Content-Disposition` 미설정(인라인 렌더링 — `NoticeAttachmentController`와 반대), `Cache-Control: private, no-store` + `X-Content-Type-Options: nosniff`. 응답 URL에는 storageKey를 SHA-256 해시한 캐시 버스팅 토큰(`?v=...`)이 붙는다(고정 경로 재사용 시 브라우저가 이미지 교체를 인식 못 하는 문제 방지).
+- **1회성 이관**(`ProfileImageMigrationRunner`, `@Profile` 제한 없음 — dev·prod 모두 대상): 기존 `data:` URI 값을 실파일로 이관한다. ID만 조회 후 행별 트랜잭션에서 `findByIdForUpdate`로 재검증(동시 온라인 변경과 경합 시 자연히 스킵). 크기 초과 레거시 값은 엔티티를 전혀 읽지 않는 조건부 벌크 UPDATE(`resetIfOversizedLegacyImage`, SQL `CHAR_LENGTH` 서버 사이드 평가)로 즉시 `NONE` 초기화(자체 DoS 방지, pass-through 대신 격리). 그 외 일반 실패(화이트리스트 밖 MIME·손상된 Base64 등)는 `LEGACY_INLINE`으로 남아 기존처럼 pass-through 렌더링(가용성 우선). 별도 완료 플래그 없이 `kind` 조건 자체가 멱등성을 보장.
+- 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-profile-image-storage.md` 참조.
 
 ## 코딩 컨벤션
 
@@ -249,8 +256,10 @@ com.cms/
 - `PATCH /admin/api/members/{id}` — 타 관리자 부분 수정·상태 변경 (본인 계정은 400 → `/members/me` 사용; 최후 활성 ADMIN 제거 방지·비관적 락·세션 만료 등 상세 제약은 `AdminMemberService`와 Swagger 참조)
 - `GET /admin/api/members/me` — 내 정보 조회
 - `PATCH /admin/api/members/me` — 내 정보 수정
-- `PUT /admin/api/members/me/profile-image` — 프로필 이미지 업로드 (multipart) 또는 기본 프리셋 선택 (json 본문, 동일 경로·`consumes`로 구분)
+- `PUT /admin/api/members/me/profile-image` — 프로필 이미지 업로드 (multipart, png/jpeg/gif만 허용) 또는 기본 프리셋 선택 (json 본문, 동일 경로·`consumes`로 구분)
 - `DELETE /admin/api/members/me/profile-image` — 프로필 이미지 초기화 (204 No Content)
+- `GET /admin/api/members/me/profile-image` — 내 프로필 이미지 다운로드 (`application/<실제타입>`, 인라인 렌더링용 — ADMIN·MANAGER)
+- `GET /admin/api/members/{id}/profile-image` — 타 관리자 프로필 이미지 다운로드 (ADMIN 전용, `getAdminMember`와 동일 인가 수준)
 - `PATCH /admin/api/members/me/password` — 내 비밀번호 변경
 - `POST /admin/api/password-reset-requests` — 비밀번호 재설정 메일 발송 (공개, 항상 200 — 계정 열거 방지)
 - `POST /admin/api/password-resets` — 토큰으로 비밀번호 재설정 (공개, 204; 무효/만료/사용됨 비구분 400)
@@ -355,5 +364,5 @@ playwright로 확인할 수 없는 환경이라면 그 사실을 명시하고 �
 (코딩 컨벤션·보안 규칙·환경 설정 섹션의 금지 규칙은 각 섹션이 원본이다. 여기에는 다른 곳에 없는 항목만 둔다.)
 
 - QueryDSL Q클래스는 환경에 따라 생성 경로가 다르다. IntelliJ IDEA에서는 `src/main/generated/`, Gradle CLI(`./gradlew compileJava`)에서는 `build/generated/sources/annotationProcessor/java/main/`에 생성된다. 두 경로 모두 빌드 산출물이므로 커밋 대상이 아니며, 코드 변경 후 `./gradlew compileJava`로 다시 생성해야 한다.
-- 프로필 이미지는 DB에 저장되므로 대용량 Base64 데이터가 API 응답에 포함될 수 있다.
+- ~~프로필 이미지는 DB에 저장되므로 대용량 Base64 데이터가 API 응답에 포함될 수 있다.~~ → **해소됨**(2026-08-10): `FileStorage` 이관 완료로 API 응답은 짧은 다운로드 URL만 담는다. 단, 화이트리스트 밖 MIME(webp 등)으로 이관에 실패한 레거시 행은 `LEGACY_INLINE`으로 남아 예외적으로 Base64가 계속 응답에 포함된다(가용성 우선 정책, `adversarial-review/plan/PLAN-profile-image-storage.md` 참조).
 - 검증되지 않은 새 라이브러리/의존성은 먼저 제안한 뒤 추가한다.

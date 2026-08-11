@@ -151,6 +151,34 @@ set -a; source .env.dev; set +a; unset DB_URL; ./gradlew test   # V1~V7 자동 �
 
 **후기 (2026-07-27)**: Testcontainers 전환(`com.cms.support.MariaDbContainerSupport`, `adversarial-review/plan/PLAN-testcontainers.md`) 이후 이 문제 자체가 원천 해소됐다. DB 접속 테스트가 매 실행마다 빈 컨테이너에서 V1부터 전체 마이그레이션을 새로 적용하므로 "로컬 DB가 이전 세대로 드리프트된 상태"라는 전제 자체가 성립하지 않는다. 다만 이 항목은 Flyway의 "비어 있지 않은데 이력 없는 스키마" 거부 동작과 컨텍스트 로드 실패 도미노의 원리를 보여주는 사례로 보존한다.
 
+### Windows에서 Docker Desktop 재기동 직후 `bootRun`이 "Port already in use"로 반복 실패 (2026-08-10)
+
+**오류 메시지**:
+
+```
+***************************
+APPLICATION FAILED TO START
+***************************
+
+Description:
+
+Web server failed to start. Port 8080 was already in use.
+```
+
+**원인**: `netstat`/`Get-NetTCPConnection`으로 확인해도 8080(그리고 대체로 시도한 8090)을 점유한 프로세스가 전혀 없는데도 바인딩이 계속 실패했다. `netsh interface ipv4 show excludedportrange protocol=tcp`로 확인한 결과 Windows가 **7506~8280 범위 전체를 TCP 포트 제외 범위(excluded port range)로 예약**하고 있었다 — 8080·8090 둘 다 이 범위 안에 있어 애초에 어떤 프로세스도 bind()할 수 없는 상태였다. 이 범위는 Docker Desktop(WSL2 백엔드)이 내부적으로 Hyper-V 가상 스위치를 재구성할 때 동적으로 예약되며, 특히 Docker Desktop을 방금 재기동한 직후에 넓게 잡히는 경향이 있다. Spring Boot DevTools의 `restartedMain` 스레드명 때문에 처음엔 devtools 재시작 레이스로 오인했으나(`SPRING_DEVTOOLS_RESTART_ENABLED=false`로도 동일하게 재현되어 devtools는 무관함을 확인), 실제 원인은 OS 레벨 포트 예약이었다.
+
+**해결 방법**: 제외 범위 밖의 포트를 확인해 그 포트로 기동한다.
+
+```powershell
+# 현재 제외된 범위 확인
+netsh interface ipv4 show excludedportrange protocol=tcp
+
+# 범위 밖 포트(예: 9000)로 bootRun
+./gradlew bootRun --args="--server.port=9000"
+```
+
+근본 해결(관리자 권한 필요, 이번엔 적용하지 않음)은 `net stop winnat && net start winnat`으로 WinNAT을 재시작해 예약을 초기화하는 것이지만, Docker Desktop이 사용 중인 네트워킹을 함께 재설정할 위험이 있어 로컬 개발 중에는 포트를 우회하는 쪽을 권장한다.
+
 ---
 
 ## 빌드 / 의존성

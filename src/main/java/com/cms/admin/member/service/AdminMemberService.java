@@ -4,6 +4,8 @@ import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
+import com.cms.admin.member.domain.ProfileImageKind;
+import com.cms.admin.member.domain.ProfileImageUrls;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
 import com.cms.admin.member.dto.request.AdminMemberUpdateRequest;
@@ -13,11 +15,15 @@ import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
+import com.cms.admin.member.dto.response.ProfileImageContent;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
+import com.cms.common.storage.FileStorage;
+import com.cms.common.storage.FileStorageTransactionSupport;
+import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.config.auth.AdminSessionRevokeEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -31,7 +37,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -46,10 +51,19 @@ public class AdminMemberService {
             "profile-3", "/img/undraw_profile_3.svg"
     );
 
+    /** FileStorage 물리 네임스페이스 — 공지 첨부파일과 다른 하위 디렉터리(쟁점 2). */
+    private static final String PROFILE_IMAGE_NAMESPACE = "profile";
+
+    private static final long MAX_UPLOAD_FILE_SIZE = 2 * 1024 * 1024;
+
+    /** 회원 상세 응답에 프로필 이미지 URL을 어떤 라우트 형태로 넣을지 구분한다(쟁점 10). */
+    public enum ProfileImageVisibility { HIDDEN, SELF, OTHER }
+
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
+    private final FileStorage fileStorage;
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.ADMIN_CREATE, targetType = "MEMBER", targetIdExpression = "id")
@@ -97,7 +111,7 @@ public class AdminMemberService {
         Page<Member> page = memberRepository.searchAdminMembers(request, pageable);
 
         List<AdminMemberResponse> content = page.getContent().stream()
-                .map(member -> toResponse(member, false))
+                .map(member -> toResponse(member, ProfileImageVisibility.HIDDEN))
                 .toList();
 
         return AdminMemberPageResponse.builder()
@@ -117,7 +131,7 @@ public class AdminMemberService {
 
         validateAdminTarget(member);
 
-        return toResponse(member, true);
+        return toResponse(member, ProfileImageVisibility.OTHER);
     }
 
     @Transactional(readOnly = true)
@@ -125,7 +139,7 @@ public class AdminMemberService {
         Member member = memberRepository.findById(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
-        return toResponse(member, true);
+        return toResponse(member, ProfileImageVisibility.SELF);
     }
 
     @Transactional
@@ -140,7 +154,7 @@ public class AdminMemberService {
 
         member.updateInfo(normalizedUserName, normalizedEmail);
 
-        return toResponse(member, true);
+        return toResponse(member, ProfileImageVisibility.SELF);
     }
 
     /**
@@ -226,44 +240,69 @@ public class AdminMemberService {
             eventPublisher.publishEvent(new AdminSessionRevokeEvent(target.getId()));
         }
 
-        return toResponse(target, true);
+        return toResponse(target, ProfileImageVisibility.OTHER);
     }
 
+    /**
+     * 프로필 이미지 업로드. 화이트리스트·헤더 우선 크기·애니메이션·포맷-MIME 일치 검증을
+     * 통과한 뒤(ProfileImageValidator) FileStorage의 "profile" 네임스페이스에 저장한다.
+     *
+     * <p>동시 변경(교체·초기화·프리셋 전환) 경합을 직렬화하기 위해 {@code findByIdForUpdate}로
+     * 행을 잠근다 — {@code changeMyPassword()}와 동일한 이유(자동 잠금 벌크 UPDATE와의 경합
+     * 차단)로 이미 있는 패턴을 재사용한다. 구 이미지가 UPLOADED였다면 커밋 후 삭제한다.
+     */
     @Transactional
     public AdminMemberResponse updateMyProfileImage(Long adminId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new InvalidRequestException("업로드할 이미지 파일을 선택해주세요.");
         }
-
-        String contentType = file.getContentType();
-        if (contentType == null || !contentType.startsWith("image/")) {
-            throw new InvalidRequestException("이미지 파일만 업로드할 수 있습니다.");
-        }
-
-        long maxFileSize = 2 * 1024 * 1024;
-        if (file.getSize() > maxFileSize) {
+        if (file.getSize() > MAX_UPLOAD_FILE_SIZE) {
             throw new InvalidRequestException("프로필 이미지는 2MB 이하만 업로드할 수 있습니다.");
         }
 
-        Member member = memberRepository.findById(adminId)
-                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
-
+        String contentType = file.getContentType();
+        byte[] content;
         try {
-            String encoded = Base64.getEncoder().encodeToString(file.getBytes());
-            member.changeProfileImage("data:" + contentType + ";base64," + encoded);
+            content = file.getBytes();
         } catch (IOException e) {
             throw new InvalidRequestException("프로필 이미지를 처리할 수 없습니다.");
         }
+        ProfileImageValidator.validate(content, contentType);
 
-        return toResponse(member, true);
+        Member member = memberRepository.findByIdForUpdate(adminId)
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
+
+        ProfileImageKind previousKind = member.getProfileImageKind();
+        String previousStorageKey = member.getProfileImageUrl();
+
+        String storageKey = fileStorage.store(content, file.getOriginalFilename(), PROFILE_IMAGE_NAMESPACE);
+        FileStorageTransactionSupport.deleteOnRollback(fileStorage, storageKey, PROFILE_IMAGE_NAMESPACE,
+                "memberId=" + adminId);
+
+        member.changeUploadedProfileImage(storageKey, contentType, LocalDateTime.now(clock));
+
+        if (previousKind == ProfileImageKind.UPLOADED) {
+            FileStorageTransactionSupport.deleteAfterCommit(fileStorage, previousStorageKey, PROFILE_IMAGE_NAMESPACE,
+                    "memberId=" + adminId);
+        }
+
+        return toResponse(member, ProfileImageVisibility.SELF);
     }
 
     @Transactional
     public void resetMyProfileImage(Long adminId) {
-        Member member = memberRepository.findById(adminId)
+        Member member = memberRepository.findByIdForUpdate(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
-        member.changeProfileImage(null);
+        ProfileImageKind previousKind = member.getProfileImageKind();
+        String previousStorageKey = member.getProfileImageUrl();
+
+        member.resetProfileImage(LocalDateTime.now(clock));
+
+        if (previousKind == ProfileImageKind.UPLOADED) {
+            FileStorageTransactionSupport.deleteAfterCommit(fileStorage, previousStorageKey, PROFILE_IMAGE_NAMESPACE,
+                    "memberId=" + adminId);
+        }
     }
 
     @Transactional
@@ -288,7 +327,7 @@ public class AdminMemberService {
         // 변경 직전 이전 비밀번호로 인증을 통과한 세션이 살아남는 경합을 닫는다.
         eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));
 
-        return toResponse(member, false);
+        return toResponse(member, ProfileImageVisibility.HIDDEN);
     }
 
     @Transactional
@@ -298,12 +337,57 @@ public class AdminMemberService {
             throw new InvalidRequestException("선택할 수 없는 기본 프로필 이미지입니다.");
         }
 
-        Member member = memberRepository.findById(adminId)
+        Member member = memberRepository.findByIdForUpdate(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
-        member.changeProfileImage(presetImageUrl);
+        ProfileImageKind previousKind = member.getProfileImageKind();
+        String previousStorageKey = member.getProfileImageUrl();
 
-        return toResponse(member, true);
+        member.changePresetProfileImage(presetImageUrl, LocalDateTime.now(clock));
+
+        if (previousKind == ProfileImageKind.UPLOADED) {
+            FileStorageTransactionSupport.deleteAfterCommit(fileStorage, previousStorageKey, PROFILE_IMAGE_NAMESPACE,
+                    "memberId=" + adminId);
+        }
+
+        return toResponse(member, ProfileImageVisibility.SELF);
+    }
+
+    /** 본인 프로필 이미지 다운로드(GET .../me/profile-image) 전용. */
+    @Transactional(readOnly = true)
+    public ProfileImageContent getMyProfileImageContent(Long adminId) {
+        Member member = memberRepository.findById(adminId)
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
+        return loadProfileImageContent(member);
+    }
+
+    /**
+     * 타 관리자 프로필 이미지 다운로드(GET .../{id}/profile-image) 전용 — {@code getAdminMember}와
+     * 동일하게 ROLE_USER 대상은 404 처리한다(쟁점 11).
+     */
+    @Transactional(readOnly = true)
+    public ProfileImageContent getProfileImageContent(Long targetId) {
+        Member member = memberRepository.findById(targetId)
+                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
+        validateAdminTarget(member);
+        return loadProfileImageContent(member);
+    }
+
+    private ProfileImageContent loadProfileImageContent(Member member) {
+        if (member.getProfileImageKind() != ProfileImageKind.UPLOADED) {
+            throw new ResourceNotFoundException("프로필 이미지를 찾을 수 없습니다.");
+        }
+        String contentType = member.getProfileImageContentType();
+        if (contentType == null || !ProfileImageValidator.ALLOWED_CONTENT_TYPES.contains(contentType)) {
+            // DB 직접 조작 등으로 오염된 값 — 화이트리스트 밖이면 파일에 접근하지 않고 404.
+            throw new ResourceNotFoundException("프로필 이미지를 찾을 수 없습니다.");
+        }
+        try {
+            byte[] content = fileStorage.load(member.getProfileImageUrl(), PROFILE_IMAGE_NAMESPACE);
+            return new ProfileImageContent(content, contentType);
+        } catch (StorageFileNotFoundException e) {
+            throw new ResourceNotFoundException("프로필 이미지를 찾을 수 없습니다.");
+        }
     }
 
     private void validateAdminTarget(Member member) {
@@ -328,7 +412,12 @@ public class AdminMemberService {
                 });
     }
 
-    private AdminMemberResponse toResponse(Member member, boolean includeProfileImage) {
+    private AdminMemberResponse toResponse(Member member, ProfileImageVisibility visibility) {
+        String profileImageUrl = switch (visibility) {
+            case HIDDEN -> null;
+            case SELF -> ProfileImageUrls.resolveSelfUrl(member);
+            case OTHER -> ProfileImageUrls.resolveTargetUrl(member.getId(), member);
+        };
         return AdminMemberResponse.builder()
                 .id(member.getId())
                 .userId(member.getUserId())
@@ -338,7 +427,7 @@ public class AdminMemberService {
                 .status(member.getStatus())
                 .createDate(member.getCreateDate())
                 .updateDate(member.getUpdateDate())
-                .profileImageUrl(includeProfileImage ? member.getProfileImageUrl() : null)
+                .profileImageUrl(profileImageUrl)
                 .build();
     }
 }

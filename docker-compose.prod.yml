@@ -62,5 +62,7 @@ volumes:
   # 볼륨과 다른 새 빈 볼륨을 만들게 된다. 이름을 데이터 자체에 고정해 이런 사고를 막는다.
   db_data_prod:
     name: cms_db_data_prod
+  # 이름은 "notice_attachments"지만 2026-08-10부터 프로필 이미지도 이 볼륨을 공유한다
+  # (root/profile/... 하위 디렉터리로 물리적으로 분리 — PLAN-profile-image-storage.md 쟁점 8).
   notice_attachments_prod:
     name: cms_notice_attachments_prod

@@ -9,6 +9,7 @@ import com.cms.admin.member.dto.request.ProfileImagePresetRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
+import com.cms.admin.member.dto.response.ProfileImageContent;
 import com.cms.admin.member.service.AdminMemberService;
 import com.cms.config.auth.AdminSecurityService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -19,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -69,6 +71,16 @@ public class AdminMemberController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> getAdminMember(@PathVariable Long id) {
         return ResponseEntity.ok(adminMemberService.getAdminMember(id));
+    }
+
+    @Operation(summary = "타 관리자 프로필 이미지 다운로드", description = "getAdminMember와 동일 인가 수준 — ROLE_USER 대상 포함 존재하지 않으면 404.")
+    @ApiResponse(responseCode = "200", description = "다운로드 성공")
+    @ApiResponse(responseCode = "403", description = "권한 없음")
+    @ApiResponse(responseCode = "404", description = "관리자 없음 또는 업로드된 이미지 없음")
+    @GetMapping("members/{id}/profile-image")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<byte[]> getProfileImageContent(@PathVariable Long id) {
+        return profileImageResponse(adminMemberService.getProfileImageContent(id));
     }
 
     @Operation(summary = "타 관리자 계정 수정",
@@ -144,6 +156,16 @@ public class AdminMemberController {
         return ResponseEntity.noContent().build();
     }
 
+    @Operation(summary = "내 프로필 이미지 다운로드")
+    @ApiResponse(responseCode = "200", description = "다운로드 성공")
+    @ApiResponse(responseCode = "404", description = "업로드된 이미지 없음")
+    @GetMapping("members/me/profile-image")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<byte[]> getMyProfileImageContent() {
+        Long adminId = requireCurrentAdminId();
+        return profileImageResponse(adminMemberService.getMyProfileImageContent(adminId));
+    }
+
     @Operation(summary = "내 비밀번호 변경")
     @ApiResponse(responseCode = "200", description = "비밀번호 변경 성공")
     @ApiResponse(responseCode = "400", description = "현재 비밀번호 불일치 또는 새 비밀번호 확인 불일치")
@@ -156,6 +178,21 @@ public class AdminMemberController {
         // 자기수정 성공 후 반드시 refresh해야 상단바 이름·프로필 이미지가 즉시 갱신된다.
         adminSecurityService.refreshAuthentication(adminId);
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 프로필 이미지 다운로드 공통 응답 — NoticeAttachmentController와 달리
+     * {@code Content-Disposition}을 설정하지 않는다(인라인 렌더링 목적, {@code <img src>}가
+     * 다운로드 다이얼로그 없이 표시되어야 한다). {@code Cache-Control: private, no-store}로
+     * 인증된 개인 이미지가 공유 캐시에 남지 않게 한다(캐시 무효화 자체는 응답 URL의
+     * 버전 쿼리 파라미터가 담당 — ProfileImageUrls 참조).
+     */
+    private ResponseEntity<byte[]> profileImageResponse(ProfileImageContent content) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(content.contentType()))
+                .header("X-Content-Type-Options", "nosniff")
+                .cacheControl(CacheControl.noStore().cachePrivate())
+                .body(content.content());
     }
 
     /**

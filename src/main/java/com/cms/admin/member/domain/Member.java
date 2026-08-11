@@ -65,6 +65,23 @@ public class Member {
     @Column(name = "profile_image_url", columnDefinition = "LONGTEXT")
     private String profileImageUrl;
 
+    /**
+     * profileImageUrl 값이 지금 무엇을 의미하는지(없음/프리셋/업로드됨/미이관 레거시) 명시한다.
+     * {@link ProfileImageKind#UPLOADED}만 FileStorage 접근이 허용되는 상태다(쟁점 2 참조).
+     *
+     * <p>{@code @Builder.Default}가 없으면 {@code Member.builder()...build()}를 쓰는 기존
+     * 생성 경로(AdminMemberService.createAdmin/AdminBootstrapLoader/TestMemberLoader)가
+     * 전부 kind=null을 INSERT해 NOT NULL 제약 위반으로 깨진다 — 반드시 유지해야 한다.
+     */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "profile_image_kind", nullable = false, length = 20)
+    private ProfileImageKind profileImageKind = ProfileImageKind.NONE;
+
+    /** kind가 UPLOADED일 때만 채워진다. 다운로드 응답의 Content-Type을 확장자 추론 없이 재생한다. */
+    @Column(name = "profile_image_content_type", length = 100)
+    private String profileImageContentType;
+
     /** 로그인 연속 실패 카운트. 5회 도달 시 LOCKED 자동 전이 (증가·잠금은 벌크 UPDATE — LoginFailureService) */
     @Column(name = "failed_login_count", nullable = false)
     private int failedLoginCount;
@@ -93,11 +110,71 @@ public class Member {
     }
 
     /**
-     * 프로필 이미지 변경. null을 전달하면 이미지를 초기화한다.
+     * 업로드된 프로필 이미지로 변경한다. {@code storageKey}는 FileStorage의 {@code "profile"}
+     * 네임스페이스에 실제로 저장된 키여야 한다(호출부 책임 — FileStorage.store(..., "profile")의
+     * 반환값을 그대로 넘긴다). 의미별 메서드로 분리한 이유(단일 changeProfileImage(url, contentType)
+     * 대신)는 "preset인데 content-type이 남아있는" 등 불가능한 상태 조합을 구조적으로 막기 위함이다
+     * (adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 9).
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void changeProfileImage(String profileImageUrl) {
-        this.profileImageUrl = profileImageUrl;
-        this.updateDate = LocalDateTime.now();
+    public void changeUploadedProfileImage(String storageKey, String contentType, LocalDateTime now) {
+        requireNonBlank(storageKey, "storageKey");
+        requireNonBlank(contentType, "contentType");
+        Objects.requireNonNull(now, "now");
+        this.profileImageKind = ProfileImageKind.UPLOADED;
+        this.profileImageUrl = storageKey;
+        this.profileImageContentType = contentType;
+        this.updateDate = now;
+    }
+
+    /**
+     * 정적 프리셋 이미지로 변경한다. {@code presetUrl}이 실제로 허용된 프리셋 값인지의 정책
+     * 판단은 서비스(AdminMemberService.applyDefaultProfileImage)가 이미 마친 뒤 호출된다 —
+     * 엔티티는 non-blank 여부만 구조적으로 방어한다.
+     *
+     * @param now 앱 Clock 기준 현재 시각
+     */
+    public void changePresetProfileImage(String presetUrl, LocalDateTime now) {
+        requireNonBlank(presetUrl, "presetUrl");
+        Objects.requireNonNull(now, "now");
+        this.profileImageKind = ProfileImageKind.PRESET;
+        this.profileImageUrl = presetUrl;
+        this.profileImageContentType = null;
+        this.updateDate = now;
+    }
+
+    /**
+     * 프로필 이미지를 초기화한다(이미지 없음).
+     *
+     * @param now 앱 Clock 기준 현재 시각
+     */
+    public void resetProfileImage(LocalDateTime now) {
+        Objects.requireNonNull(now, "now");
+        this.profileImageKind = ProfileImageKind.NONE;
+        this.profileImageUrl = null;
+        this.profileImageContentType = null;
+        this.updateDate = now;
+    }
+
+    /**
+     * 1회성 이관 러너(ProfileImageMigrationRunner) 전용 — 미이관 레거시 data URI를 FileStorage로
+     * 옮긴 뒤 호출한다. {@link #changeUploadedProfileImage}와 달리 <b>updateDate를 갱신하지
+     * 않는다</b> — 사용자가 아무 것도 바꾸지 않았는데 배경 마이그레이션만으로 "최근 수정" 시각이
+     * 바뀌면 오해를 부른다(쟁점 6).
+     */
+    public void migrateProfileImageToStorage(String storageKey, String contentType) {
+        requireNonBlank(storageKey, "storageKey");
+        requireNonBlank(contentType, "contentType");
+        this.profileImageKind = ProfileImageKind.UPLOADED;
+        this.profileImageUrl = storageKey;
+        this.profileImageContentType = contentType;
+    }
+
+    private static void requireNonBlank(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + "는 비어 있을 수 없습니다.");
+        }
     }
 
     /**

@@ -11,4 +11,12 @@ public class StorageFileNotFoundException extends IllegalStateException {
     public StorageFileNotFoundException(String message, Throwable cause) {
         super(message, cause);
     }
+
+    /**
+     * 원인 예외 없이 던지는 경우(예: 예약된 네임스페이스 접근 거부처럼 I/O 실패가 아닌
+     * 논리적 거부) 전용 — {@link com.cms.admin.member.ProfileImageMigrationRunner} 등.
+     */
+    public StorageFileNotFoundException(String message) {
+        super(message);
+    }
 }
