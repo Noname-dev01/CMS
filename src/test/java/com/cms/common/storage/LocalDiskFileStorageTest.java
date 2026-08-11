@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -130,5 +131,93 @@ class LocalDiskFileStorageTest {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    // ===================== 네임스페이스(프로필 이미지, PLAN-profile-image-storage.md 쟁점 2·v6) =====================
+
+    @Test
+    @DisplayName("네임스페이스로 저장하면 실제로 root/<namespace> 하위에 파일이 생성된다")
+    void store_withNamespace_writesUnderNamespaceSubdirectory(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        byte[] content = "프로필 이미지".getBytes();
+
+        String storageKey = storage.store(content, "avatar.png", "profile");
+
+        assertTrue(Files.exists(tempDir.resolve("profile").resolve(storageKey)),
+                "네임스페이스 하위 디렉터리에 실제 파일이 있어야 한다");
+        assertArrayEquals(content, storage.load(storageKey, "profile"));
+    }
+
+    @Test
+    @DisplayName("네임스페이스 없는 기존 store()는 위치·동작이 그대로 유지된다(회귀 없음)")
+    void store_withoutNamespace_behaviorUnchanged(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        byte[] content = "공지 첨부".getBytes();
+
+        String storageKey = storage.store(content, "report.pdf");
+
+        assertTrue(Files.exists(tempDir.resolve(storageKey)));
+        assertFalse(Files.exists(tempDir.resolve("profile").resolve(storageKey)));
+        assertArrayEquals(content, storage.load(storageKey));
+    }
+
+    @Test
+    @DisplayName("정방향: 공지 첨부파일의 실제 storageKey를 profile 네임스페이스로 읽으면 물리적으로 다른 경로라 찾지 못한다")
+    void load_noticeKeyUnderProfileNamespace_notFound(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        String noticeKey = storage.store("공지 첨부 원본".getBytes(), "report.pdf"); // 네임스페이스 없이 저장(공지 방식)
+
+        assertThrows(StorageFileNotFoundException.class, () -> storage.load(noticeKey, "profile"));
+    }
+
+    @Test
+    @DisplayName("역방향: 네임스페이스 없는 기존 load()/delete()는 예약된 profile 서브트리를 절대 해석하지 못한다")
+    void load_and_delete_reservedNamespaceViaUnnamespacedApi_rejected(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        String profileKey = storage.store("프로필 원본".getBytes(), "avatar.png", "profile");
+        String pollutedNoticeStyleKey = "profile/" + profileKey; // 오염된 notice_attachment.storage_key 흉내
+
+        assertThrows(StorageFileNotFoundException.class, () -> storage.load(pollutedNoticeStyleKey));
+
+        // delete()는 no-op 계약이라 예외를 던지지 않지만, 실제로 프로필 파일이 삭제되면 안 된다.
+        storage.delete(pollutedNoticeStyleKey);
+        assertArrayEquals("프로필 원본".getBytes(), storage.load(profileKey, "profile"),
+                "예약된 네임스페이스 우회 시도로 프로필 파일이 삭제되면 안 된다");
+    }
+
+    @Test
+    @DisplayName("허용되지 않는 네임스페이스 형식은 즉시 거부된다")
+    void store_invalidNamespace_rejected(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> storage.store("x".getBytes(), "a.txt", "../etc"));
+        assertThrows(IllegalArgumentException.class,
+                () -> storage.store("x".getBytes(), "a.txt", "profile/nested"));
+    }
+
+    @Test
+    @DisplayName("네임스페이스를 지원하지 않는 FileStorage 구현체의 default 메서드는 UnsupportedOperationException을 던진다")
+    void defaultNamespaceMethods_throwUnsupportedOperationException() {
+        FileStorage unsupporting = new FileStorage() {
+            @Override
+            public String store(byte[] content, String originalFilename) {
+                return "noop";
+            }
+
+            @Override
+            public byte[] load(String storageKey) {
+                return new byte[0];
+            }
+
+            @Override
+            public void delete(String storageKey) {
+                // no-op
+            }
+        };
+
+        assertThrows(UnsupportedOperationException.class, () -> unsupporting.store("x".getBytes(), "a.txt", "profile"));
+        assertThrows(UnsupportedOperationException.class, () -> unsupporting.load("key", "profile"));
+        assertThrows(UnsupportedOperationException.class, () -> unsupporting.delete("key", "profile"));
     }
 }

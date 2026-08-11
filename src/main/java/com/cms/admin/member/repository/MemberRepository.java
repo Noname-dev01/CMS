@@ -2,6 +2,7 @@ package com.cms.admin.member.repository;
 
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
+import com.cms.admin.member.domain.ProfileImageKind;
 import com.cms.admin.member.domain.Role;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -159,4 +160,28 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
             LocalDateTime start,
             LocalDateTime end
     );
+
+    /**
+     * 프로필 이미지 1회성 이관 러너(ProfileImageMigrationRunner) 전용 — 대상 id만 조회한다
+     * (엔티티 전체가 아니라 스칼라 반환. LONGTEXT 값을 한 번에 메모리에 올리지 않기 위함,
+     * adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 6). 관리자 수가 적어
+     * 페이지네이션 없이 전체 조회한다. profile_image_kind 인덱스(V11)로 가볍다.
+     */
+    @Query("select m.id from Member m where m.profileImageKind = :kind order by m.id")
+    List<Long> findIdsByProfileImageKind(@Param("kind") ProfileImageKind kind);
+
+    /**
+     * 미이관 레거시(LEGACY_INLINE) 프로필 이미지 값이 상한을 초과하면 엔티티를 전혀 읽지 않고
+     * 조건부 벌크 UPDATE만으로 NONE으로 초기화한다 — JPQL length()는 SQL CHAR_LENGTH()로
+     * 변환되어 DB가 길이 조건을 서버 사이드에서 평가하고, 애플리케이션은 영향받은 행 수만
+     * 받는다(LONGTEXT 값도, 그 길이 값도 애플리케이션으로 전송되지 않음). 이 UPDATE가 0행이면
+     * (상한 이하이거나 이미 다른 요청이 처리함) 러너가 findByIdForUpdate로 재조회해 정상
+     * 이관을 시도한다(쟁점 6, 사용자 결정 — 크기 초과는 pass-through 대신 안전하게 격리).
+     */
+    @Modifying(clearAutomatically = true)
+    @Query("update Member m set m.profileImageKind = com.cms.admin.member.domain.ProfileImageKind.NONE, "
+            + "m.profileImageUrl = null, m.profileImageContentType = null "
+            + "where m.id = :id and m.profileImageKind = com.cms.admin.member.domain.ProfileImageKind.LEGACY_INLINE "
+            + "and length(m.profileImageUrl) > :limit")
+    int resetIfOversizedLegacyImage(@Param("id") Long id, @Param("limit") int limit);
 }

@@ -138,7 +138,7 @@
                             </div>
                             <img id="toolProfilePreviewImage" class="d-none" alt="프로필 이미지 편집 미리보기">
                         </div>
-                        <div class="profile-upload-help">JPG, PNG, GIF, WEBP 파일을 2MB 이하로 업로드할 수 있습니다.</div>
+                        <div class="profile-upload-help">JPG, PNG, GIF 파일을 2MB 이하로 업로드할 수 있습니다.</div>
                     </div>
                     <div class="profile-edit-options">
                         <div class="profile-uploader-head">
@@ -169,7 +169,7 @@
                             <p>직접 올린 이미지는 저장 후 바로 프로필에 반영됩니다.</p>
                         </div>
                         <div class="custom-file">
-                            <input type="file" class="custom-file-input" id="profileImageFile" accept="image/png,image/jpeg,image/gif,image/webp">
+                            <input type="file" class="custom-file-input" id="profileImageFile" accept="image/png,image/jpeg,image/gif">
                             <label class="custom-file-label" for="profileImageFile" id="profileImageFileLabel">이미지 선택</label>
                         </div>
                     </div>
@@ -540,9 +540,9 @@
             return;
         }
 
-        const allowedTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+        const allowedTypes = ["image/png", "image/jpeg", "image/gif"];
         if (!allowedTypes.includes(file.type)) {
-            showUploadError("JPG, PNG, GIF, WEBP 형식의 이미지만 업로드할 수 있습니다.");
+            showUploadError("JPG, PNG, GIF 형식의 이미지만 업로드할 수 있습니다.");
             clearSelectedFileWithoutHidingError();
             return;
         }

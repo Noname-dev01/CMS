@@ -10,6 +10,7 @@ import com.cms.admin.member.dto.request.AdminSignupRequest;
 import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
+import com.cms.admin.member.dto.response.ProfileImageContent;
 import com.cms.admin.member.service.AdminMemberService;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
@@ -47,6 +48,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -935,5 +937,82 @@ class AdminMemberControllerTest {
                 .andExpect(status().isForbidden());
 
         verifyNoInteractions(adminMemberService);
+    }
+
+    // ===================== profile-image 다운로드 (PLAN-profile-image-storage.md 쟁점 11) =====================
+
+    @Test
+    @DisplayName("내 프로필 이미지 다운로드 성공 — 바이트 본문 + 정확한 헤더")
+    @WithMockUser(roles = "ADMIN")
+    void getMyProfileImageContent_success() throws Exception {
+        given(adminMemberService.getMyProfileImageContent(1L))
+                .willReturn(new ProfileImageContent(new byte[]{1, 2, 3}, "image/png"));
+
+        mockMvc.perform(get("/admin/api/members/me/profile-image"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/png"))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(header().doesNotExist("Content-Disposition"));
+    }
+
+    @Test
+    @DisplayName("MANAGER도 자기 자신 프로필 이미지 다운로드(GET /members/me/profile-image) 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void getMyProfileImageContent_manager_ok() throws Exception {
+        given(adminMemberService.getMyProfileImageContent(1L))
+                .willReturn(new ProfileImageContent(new byte[]{1}, "image/png"));
+
+        mockMvc.perform(get("/admin/api/members/me/profile-image"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("인증 없이 내 프로필 이미지를 요청하면 401")
+    void getMyProfileImageContent_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/api/members/me/profile-image"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("업로드된 이미지가 없으면 404")
+    @WithMockUser(roles = "ADMIN")
+    void getMyProfileImageContent_notFound() throws Exception {
+        given(adminMemberService.getMyProfileImageContent(1L))
+                .willThrow(new ResourceNotFoundException("프로필 이미지를 찾을 수 없습니다."));
+
+        mockMvc.perform(get("/admin/api/members/me/profile-image"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("ADMIN은 타 관리자 프로필 이미지 다운로드(GET /members/{id}/profile-image) 가능하다")
+    @WithMockUser(roles = "ADMIN")
+    void getProfileImageContent_admin_ok() throws Exception {
+        given(adminMemberService.getProfileImageContent(2L))
+                .willReturn(new ProfileImageContent(new byte[]{5, 6}, "image/jpeg"));
+
+        mockMvc.perform(get("/admin/api/members/2/profile-image"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/jpeg"))
+                .andExpect(content().bytes(new byte[]{5, 6}));
+    }
+
+    @Test
+    @DisplayName("MANAGER는 타 관리자 프로필 이미지 다운로드(GET /members/{id}/profile-image)를 할 수 없다(403)")
+    @WithMockUser(roles = "MANAGER")
+    void getProfileImageContent_manager_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/members/2/profile-image"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("인증 없이 타 관리자 프로필 이미지를 요청하면 401")
+    void getProfileImageContent_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/api/members/2/profile-image"))
+                .andExpect(status().isUnauthorized());
     }
 }

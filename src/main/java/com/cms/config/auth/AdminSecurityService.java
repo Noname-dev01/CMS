@@ -1,6 +1,7 @@
 package com.cms.config.auth;
 
 import com.cms.admin.member.domain.Member;
+import com.cms.admin.member.domain.ProfileImageUrls;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
@@ -66,7 +67,9 @@ public class AdminSecurityService {
             return null;
         }
 
-        return userDetails.getMember().getProfileImageUrl();
+        // 탑바는 항상 "본인" 컨텍스트다 — kind=UPLOADED면 /admin/api/members/me/profile-image
+        // 다운로드 라우트로, 그 외(프리셋·미이관 레거시)는 원값 그대로 pass-through.
+        return ProfileImageUrls.resolveSelfUrl(userDetails.getMember());
     }
 
     /**
