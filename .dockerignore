@@ -11,3 +11,7 @@ data/
 /*.png
 adversarial-review/
 .claude/
+
+# DB·파일 백업 산출물(scripts/prod-backup.sh, 기본 BACKUP_DIR) — 비밀번호 해시·PII가
+# 담길 수 있어 .gitignore뿐 아니라 빌더 레이어에도 절대 올라가면 안 된다(codex 리뷰 지적)
+/backups

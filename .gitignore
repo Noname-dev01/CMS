@@ -66,3 +66,6 @@ src/main/generated/
 
 ### 공지사항 첨부파일 로컬 저장 경로(app.file-storage.root 기본값) ###
 /data/attachments
+
+### DB·파일 백업 산출물 (scripts/prod-backup.sh, 기본 BACKUP_DIR) ###
+/backups

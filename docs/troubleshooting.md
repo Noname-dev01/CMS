@@ -179,6 +179,89 @@ netsh interface ipv4 show excludedportrange protocol=tcp
 
 근본 해결(관리자 권한 필요, 이번엔 적용하지 않음)은 `net stop winnat && net start winnat`으로 WinNAT을 재시작해 예약을 초기화하는 것이지만, Docker Desktop이 사용 중인 네트워킹을 함께 재설정할 위험이 있어 로컬 개발 중에는 포트를 우회하는 쪽을 권장한다.
 
+### `docker run`으로 컨테이너 내부 경로를 직접 인자로 넘기면 Windows Git Bash(MSYS)가 host 경로로 잘못 치환한다 (2026-08-12, PLAN-db-backup.md 구현 중)
+
+#### 오류 메시지
+
+```
+tar: C\:/Program Files/Git/source: Cannot open: No such file or directory
+tar: Error is not recoverable: exiting now
+```
+또는
+```
+df: 'C:/Program Files/Git/target': No such file or directory
+```
+
+#### 원인
+
+MSYS(Git Bash)는 `/`로 시작하는 커맨드라인 인자를 자동으로 Windows 경로로 바꾸는 휴리스틱을 갖고 있다. `docker exec ... sh -c '...'`처럼 경로가 **컨테이너 안의 셸이 해석할 문자열 안에 들어있으면** 영향받지 않지만, `docker run --rm -v vol:/source:ro image tar czf - -C /source .`처럼 `/source`가 **`docker run`에 직접 전달되는 별도 인자**면 MSYS가 이를 "호스트 절대 경로"로 오인해 `C:/Program Files/Git/source` 같은 존재하지 않는 host 경로로 바꿔버린다. `docker run -v vol:/path` 형태의 볼륨 마운트 지정 자체는 `:`로 시작 문자가 다르기 때문에 영향받지 않는다 — 문제는 어디까지나 **컨테이너 내부 경로를 가리키는 후속 커맨드 인자**(`tar -C /path`, `df -Pk /path` 등)뿐이다.
+
+#### 해결 방법
+
+영향받는 `docker run`/`docker exec` 호출 앞에 `MSYS_NO_PATHCONV=1`을 붙여 자동 변환을 끈다:
+
+```bash
+MSYS_NO_PATHCONV=1 docker run --rm -v myvolume:/source:ro myimage tar czf - -C /source .
+```
+
+`sh -c '...'`로 감싼 스크립트 문자열 안의 경로는 애초에 영향받지 않으므로(컨테이너 안의 `sh`가 해석) 그 경로에는 이 플래그가 불필요하다. 텍스트만으로 하는 코드 리뷰(codex 등)는 이 상호작용을 잡아내지 못한다 — 실제 Windows Git Bash + Docker 환경에서 스크립트를 직접 실행해야만 드러난다.
+
+### `sha256sum` 출력 형식이 플랫폼(텍스트/바이너리 모드 기본값)에 따라 다르다 (2026-08-12, PLAN-db-backup.md 구현 중)
+
+#### 증상
+
+자체 생성한 `sha256sum`을 정규식으로 검증하는 로직이 스스로 만든 정상 체크섬 파일도 형식 불일치로 거부한다.
+
+#### 원인
+
+GNU coreutils `sha256sum`은 텍스트 모드일 때 `<해시>  <파일명>`(스페이스 2개), 바이너리 모드일 때 `<해시> *<파일명>`(스페이스+별표) 형식을 출력한다. **Windows Git Bash(MSYS)는 기본이 바이너리 모드, 대부분의 Linux 배포판은 기본이 텍스트 모드**다 — 같은 `sha256sum file1 file2 > SHA256SUMS` 명령이라도 플랫폼에 따라 출력 형식이 갈린다.
+
+#### 해결 방법
+
+체크섬 파일 형식을 직접 정규식으로 검증할 때는 두 형식을 모두 허용한다:
+
+```bash
+grep -qE "^[0-9a-f]{64} [ *]<파일명>\$" line   # 스페이스 뒤 공백 또는 별표 모두 허용
+```
+
+### `set -e` 상태에서 `EXIT` 트랩의 마지막 명령이 조건부로 실패하면 트랩 자체의 실패가 스크립트 종료 코드를 덮어쓴다 (2026-08-12, PLAN-db-backup.md 구현 중)
+
+#### 증상
+
+`prod-backup.sh`가 실제로는 완전히 성공(모든 산출물 생성·무결성 검증 통과, `✅ 백업 완료` 출력)했는데도 호출자(`prod-restore.sh`)가 "안전 백업 생성 실패"로 판정하고 복구를 중단한다. **이 버그가 있는 채로는 복구가 단 한 번도 성공할 수 없었다** — 계획 리뷰 6라운드(codex 적대적 리뷰)로도 잡히지 않고 실기 검증 중에야 발견됐다.
+
+#### 원인
+
+트랩 함수의 마지막 문장이 다음과 같은 형태였다:
+
+```bash
+cleanup() {
+  ...
+  [ "$lock_acquired" = "1" ] && { rmdir "$LOCK_DIR" 2>/dev/null || echo "경고"; }
+}
+trap 'cleanup $?' EXIT
+```
+
+`lock_acquired`가 `"1"`이 아닌 경로(예: 다른 스크립트가 내부 호출해 잠금 획득 자체를 건너뛴 경우)에서는 `[ ... ]`가 거짓이 되고 `&&`가 단락평가돼 `{ ... }`는 실행되지 않는다 — 이때 **이 bare `[ cond ] && cmd` 문장 자체가 함수의 마지막 실행 문장이라 그 진위값(거짓=1)이 그대로 `cleanup()` 함수의 반환값이 된다.** `set -e` 활성 상태에서 `EXIT` 트랩의 실행 결과가 비정상(0이 아님)이면, 트랩 실행 전에 이미 결정돼 있던 원래 종료 코드(여기서는 성공, 0)가 트랩 자신의 실패로 **덮어써진다** — 스크립트는 실제로 성공했는데도 호출자에게는 실패(1)로 보고된다.
+
+최상위(트랩이 아닌) 위치의 동일한 `[ cond ] && cmd` 패턴은 이 문제가 없다 — AND-OR 리스트에서 `&&`/`||`의 마지막 항목이 아닌 명령의 실패는 `set -e`를 트리거하지 않기 때문이다(별도로 직접 확인). 문제는 오직 **트랩 함수 자체의 반환값**이 스크립트의 최종 종료 코드에 영향을 주는 `EXIT` 트랩이라는 특수한 위치에서만 발생한다.
+
+#### 해결 방법
+
+트랩 함수의 마지막 문장을 조건부로 실패할 수 있는 bare `[ ] && cmd` 대신 `if ... fi`로 바꾸고, 함수 끝에 명시적으로 `return 0`을 추가해 트랩이 항상 성공으로 끝나도록 보장한다:
+
+```bash
+cleanup() {
+  ...
+  if [ "$lock_acquired" = "1" ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null || echo "경고"
+  fi
+  return 0   # EXIT 트랩은 항상 성공으로 끝나야 원래 종료 코드가 그대로 전파된다
+}
+```
+
+**검증 방법**: `cleanup() { [ "$lock_acquired" = "1" ] && { echo ok; }; }; trap cleanup EXIT; echo done` 형태의 최소 재현으로 `echo $?`가 1이 되는지 직접 확인 후 고친다. EXIT 트랩이 있는 스크립트는 트랩 함수의 **모든 실행 경로**가 명시적으로 성공(`return 0` 또는 마지막 명령이 항상 성공)으로 끝나는지 반드시 점검한다.
+
 ---
 
 ## 빌드 / 의존성

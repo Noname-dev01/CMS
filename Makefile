@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help dev-db dev-up dev-down logs logs-app logs-db ps rebuild prune prod-up prod-down logs-prod
+.PHONY: help dev-db dev-up dev-down logs logs-app logs-db ps rebuild prune prod-up prod-down logs-prod prod-backup
 
 help:
 	@echo ""
@@ -18,6 +18,7 @@ help:
 	@echo "make prod-up     → Start prod stack (app + db, 검증용 — 실배포 아님)"
 	@echo "make prod-down   → Stop prod stack (데이터 볼륨 보존)"
 	@echo "make logs-prod   → Show prod logs"
+	@echo "make prod-backup → Back up prod DB + attachment volume (보존기간 경과분 자동 정리)"
 	@echo ""
 
 dev-db:
@@ -55,3 +56,6 @@ prod-down:
 
 logs-prod:
 	@bash scripts/prod-logs.sh
+
+prod-backup:
+	@bash scripts/prod-backup.sh
