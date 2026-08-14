@@ -2,132 +2,51 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 지침 파일 지도
+
+아래 파일들은 해당 디렉터리 작업 시 자동 로드된다. 코드를 열지 않고 판단해야 하는 상황이라면 이 표를 보고 직접 읽는다 — 추측하지 않는다.
+
+| 파일 위치 | 담긴 내용 |
+|---|---|
+| `com.cms.admin.log` | `@AdminActionLogged` 독립 트랜잭션(REQUIRES_NEW)·예외 격리 계약 |
+| `com.cms.admin.member` | 초기 관리자 부트스트랩, 비밀번호 재설정·로그인 실패 잠금·90일 만료, 프로필 이미지 |
+| `com.cms.admin.menu` | 사이드바 2단 제약·역할 필터·메뉴 시드 조건 |
+| `com.cms.admin.notice` | `useYn`/`deleted` 분리, 비관적 락, 첨부파일 상한·삭제 차단 |
+| `com.cms.config` | `SecurityConfig` 경로별 접근 제어 표(승인 이력 포함) |
+| `com.cms.publicweb.notice` | 공개 노출 불변식 격리, 404 흡수 정책, 공개 첨부 TOCTOU |
+| `src/test/java` | MockMvc·spring-security-test·슬라이스 우선·Testcontainers |
+
 ## 브랜치 전략
 
 **GitHub Flow** 채택. `master`는 항상 배포 가능 상태로 유지하고 직접 push하지 않는다.
 
 - 브랜치 접두사: `feat/` · `fix/` · `refactor/` · `security/` · `test/` · `chore/` + kebab-case
-- 작업 완료 시 PR → CI 통과(`./gradlew test`) → Squash merge → 브랜치 삭제
+- 작업 완료 시 PR → CI(`.github/workflows/ci.yml`) 통과(`./gradlew test`) → Squash merge → 브랜치 삭제
 - 상세 규칙: `docs/branching.md` 참고
-- CI: `.github/workflows/ci.yml` (PR 및 master push 시 자동 실행, MariaDB service container 포함)
 
 ## 빌드 및 실행 명령어
 
-```bash
-# 빌드
-./gradlew build
-
-# 애플리케이션 실행 (로컬)
-./gradlew bootRun
-
-# 테스트 전체 실행
-./gradlew test
-
-# 특정 테스트 클래스 실행
-./gradlew test --tests "com.cms.admin.member.service.AdminMemberServiceTest"
-
-# 특정 테스트 메서드 실행
-./gradlew test --tests "com.cms.admin.member.service.AdminMemberServiceTest.메서드명"
-
-# QueryDSL Q클래스 생성 (코드 변경 후 필요)
-./gradlew compileJava
-```
-
-### Docker 환경
-
-```bash
-# 개발용 DB만 시작 (로컬 개발 시 권장)
-make dev-db
-
-# 전체 개발 스택 시작
-make dev-up
-
-# 개발 환경 중지
-make dev-down
-
-# 앱/DB 로그 확인
-make logs-app
-make logs-db
-
-# prod 프로파일 배포 가능 상태 검증(실배포 아님 — docs/deployment.md 참고)
-make prod-up
-make prod-down
-```
+- Docker 기반 개발/검증 명령은 `make help`로 확인한다(prod 타깃은 배포 가능 상태 검증용 — 실배포 절차는 `docs/deployment.md`).
 
 ## 아키텍처 개요
 
-Spring Boot 3.5.16 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의존 방향은 **Controller → Service → Repository → Entity** 단방향을 유지한다.
+Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의존 방향은 **Controller → Service → Repository → Entity** 단방향을 유지한다.
 
-### 레이어 구조
+### 구조상 알아둘 점
 
-```
-Presentation  →  Controller (REST API) + Thymeleaf 페이지 컨트롤러
-Business      →  Service
-Data Access   →  Repository (Spring Data JPA + QueryDSL)
-Domain        →  Entity
-Cross-cutting →  Security, AOP 로깅, 전역 예외 처리
-```
-
-- **REST API Controller**: `/admin/api/**` 경로, `@RestController`
-- **페이지 Controller**: Thymeleaf 뷰 반환, `@Controller` (예: `AdminMainController`, `AdminMemberPageController`)
-- **QueryDSL 동적 쿼리**: `*RepositoryImpl` 클래스에 구현 (`MemberRepositoryImpl`)
-- **전역 예외 처리**: `GlobalApiExceptionHandler` (`@RestControllerAdvice`)
-
-### 주요 패키지
-
-```
-com.cms/
-├── admin/                   # 도메인별 기능 + 공통 페이지 컨트롤러
-│   ├── AdminMainController  # /admin(대시보드: 통계 카드 4종 + 최근 7일 방문자 차트), /admin/login, /admin/login-error 페이지 서빙
-│   ├── AdminViewAdvice      # admin 패키지 전체에 공통 모델 속성 주입 (currentAdminName, currentAdminProfileImageUrl)
-│   ├── AdminPage            # Thymeleaf 페이지 컨트롤러 마커 어노테이션 — 새 페이지 컨트롤러에 필수 부착 (누락은 AdminPageAnnotationConventionTest가 감지)
-│   ├── AdminSidebarAdvice   # @AdminPage 컨트롤러에만 사이드바 모델 주입 (sidebarMenus, currentUri) — REST API 요청에 메뉴 DB 조회가 나가지 않도록 범위 제한
-│   ├── member/              # 관리자 계정 관리 (핵심 도메인) — 생성·조회·자기수정·타 관리자 수정
-│   │   ├── AdminBootstrapLoader        # prod 초기 관리자 부트스트랩(@Profile("prod"), 2026-07-29)
-│   │   ├── AdminBootstrapCredentials   #   부트스트랩 전용 검증 계약(일반 클래스 — record 아님, toString에 userId만 노출)
-│   │   └── controller/      #   - AdminMemberController (REST API, /admin/api/*)
-│   │                        #   - AdminMemberPageController (Thymeleaf: /admin/member/{new,manage,info})
-│   ├── log/                 # 관리자 활동 로그 (AOP 기반, `AdminActionLogRepository`)
-│   ├── menu/                # 메뉴 도메인 (CRUD·트리 API + 관리 화면 + 동적 사이드바 완성. 기본 메뉴 시드는 Flyway V3 담당)
-│   └── notice/               # 공지사항 도메인 (첫 콘텐츠 도메인, 관리 화면 CRUD + 첨부파일 CRUD 완성)
-│       └── controller/      #   - NoticeController (REST API, /admin/api/notices) — ADMIN·MANAGER 공용
-│                            #   - NoticeAttachmentController (REST API, /admin/api/notices/{noticeId}/attachments)
-│                            #   - NoticePageController (Thymeleaf: /admin/notice/manage)
-├── publicweb/                # 비관리자(공개) 화면 — admin 패키지와 분리, @AdminPage 미부착 대상
-│   ├── notice/                #   공개 공지 목록·상세·첨부 다운로드 (2026-08-03 완성, notice·notice_attachment 테이블 읽기 전용 재사용)
-│   │   └── controller/       #   - PublicNoticeController (Thymeleaf: /notices, /notices/{id}, /notices/{id}/attachments/{attachmentId}) — 인증 불필요
-│   └── support/               #   PublicWebExceptionAdvice — publicweb 패키지 전용 범위 한정 예외 처리(HTML 500)
-├── common/         # 공통 API 응답, 예외 클래스
-│   └── storage/    # 파일 스토리지 추상화 — FileStorage 인터페이스 + LocalDiskFileStorage 구현 (공지 첨부파일의 첫 소비자)
-├── config/         # Spring Security, QueryDSL 설정
-│   ├── ProfileGuardEnvironmentPostProcessor  # dev+prod 동시 활성화·활성 프로파일 0개 차단(META-INF/spring.factories 등록, 2026-07-29)
-│   ├── auth/       # 인증·인가 컴포넌트 (AdminSecurityService, CustomUserDetailsService, CustomUserDetails)
-│   │               #   + 세션 강제 만료 (AdminSessionService, AdminSessionRevokeEvent/Listener — AFTER_COMMIT)
-│   └── security/   # Security 필터 핸들러 (ApiAuthenticationEntryPoint, ApiAccessDeniedHandler, AdminSessionExpiredStrategy)
-└── error/          # 커스텀 에러 처리 (CustomErrorController)
-```
+- `AdminPage`는 Thymeleaf 페이지 컨트롤러 마커 어노테이션이다. 새 페이지 컨트롤러에 **필수 부착** — 누락은 `AdminPageAnnotationConventionTest`가 감지한다.
+- `AdminSidebarAdvice`는 `@AdminPage` 컨트롤러에만 사이드바 모델을 주입한다. REST API 요청에 메뉴 DB 조회가 나가지 않도록 의도적으로 범위를 제한한 것이다.
+- `publicweb`은 비관리자(공개) 화면 전용으로 `admin` 패키지와 분리한다. `@AdminPage` 미부착 대상이며, 예외 처리도 `publicweb/support/PublicWebExceptionAdvice`가 범위 한정으로 담당한다.
+- `config/ProfileGuardEnvironmentPostProcessor`는 dev+prod 동시 활성화와 활성 프로파일 0개를 컨텍스트 생성 **전에** 차단한다(`META-INF/spring.factories` 등록).
+- `common/storage`의 `FileStorage`(구현 `LocalDiskFileStorage`)는 파일 스토리지 추상화이며, 공지 첨부파일이 첫 소비자다.
 
 ### AOP 기반 액션 로깅
 
-`@AdminActionLogged` 어노테이션을 메서드에 붙이면 호출 성공/실패가 `AdminActionLog`에 자동 기록된다. `AdminActionLogAspect`가 처리한다.
+`@AdminActionLogged`로 관리자 행위가 자동 감사 기록된다. 트랜잭션·예외 격리 계약은 `com.cms.admin.log`의 `CLAUDE.md` 참조.
 
-- **독립 트랜잭션**: `AdminActionLogService.log()`는 `Propagation.REQUIRES_NEW`로 실행된다. 원 비즈니스 트랜잭션이 롤백되어도 FAIL 로그는 별도 트랜잭션으로 커밋된다.
-- **예외 격리**: Aspect 내부에서 로그 저장 실패를 try-catch로 격리한다. 로그 저장이 실패해도 원 요청 결과(성공/실패)는 뒤집히지 않는다.
+### 프로필 이미지
 
-### 현재 로그인 관리자 정보 조회
-
-`AdminSecurityService` (`com.cms.config.auth`)가 `SecurityContextHolder`에서 현재 인증된 관리자 정보를 꺼내는 역할을 담당한다. `AdminMemberService`의 모든 메서드에서 `getCurrentAdminId()`, `hasAdminAuthority()` 등을 통해 사용한다.
-
-### 프로필 이미지 (Base64-in-DB → FileStorage 이관 완료, 2026-08-10)
-
-업로드된 이미지는 더 이상 DB에 Base64로 저장되지 않는다 — `com.cms.common.storage.FileStorage`(공지 첨부파일용, 2026-07-22 도입)의 **`"profile"` 네임스페이스**에 실파일로 저장된다. `FileStorage`에 네임스페이스 인자 오버로드 3종(`store`/`load`/`delete`)이 추가되어(하위 호환 default 메서드, 기존 2-인자 시그니처·`NoticeAttachmentService` 호출부는 무변경) 프로필 이미지는 공지 첨부파일과 **물리적으로 분리된 디렉터리**(`root/profile/...`)에 저장된다 — `member.profile_image_url`에는 storageKey(공지 첨부파일과 같은 `yyyy/MM/dd/uuid.ext` 형태)가 그대로 들어가도, 네임스페이스가 다르므로 물리 경로가 겹치지 않는다. 네임스페이스 없는 기존 `load()/delete()`는 예약된 최상위 세그먼트(`"profile"`)로 시작하는 storageKey를 아예 해석하지 않는다(공지 첨부파일 storageKey가 오염되어 `profile/...` 형태가 되어도 프로필 파일에 접근 못함 — 반대 방향도 마찬가지).
-
-- **`member.profile_image_kind`**(enum, `NONE`/`PRESET`/`UPLOADED`/`LEGACY_INLINE`, V11): "이 값이 지금 무슨 의미인지"를 문자열 생김새 추론이 아니라 명시적으로 관리한다. `UPLOADED`일 때만 `FileStorage`를 호출한다. `member.profile_image_content_type`(nullable)은 `UPLOADED`일 때만 채워져 다운로드 응답의 `Content-Type`을 확장자 추론 없이 재생한다.
-- **`Member` 도메인 메서드**: `changeProfileImage(url)` 단일 메서드 대신 `changeUploadedProfileImage`/`changePresetProfileImage`/`resetProfileImage`/`migrateProfileImageToStorage` 4종으로 분리해 "preset인데 content-type이 남아있는" 등 불가능한 상태 조합을 구조적으로 차단한다.
-- **검증**(`AdminMemberService`/`ProfileImageMigrationRunner` 공유, `ProfileImageValidator`): 화이트리스트는 `image/png`·`image/jpeg`·`image/gif`(**WebP 제외** — JDK 표준 `ImageIO`가 WebP를 지원하지 않아 신규 의존성 추가 대신 화이트리스트에서 뺌). `ImageReader`로 헤더만 먼저 읽어(`getWidth(0)/getHeight(0)`, 아직 픽셀 디코딩 전) 변 길이 2000px·총 픽셀 200만 상한을 넘으면 거부한 뒤에만 실제 디코딩(`reader.read(0)`)한다(decompression bomb 방어). `getNumImages(true) != 1`이면 애니메이션(다중 프레임)으로 거부(아바타에 애니메이션 불필요, GIF 폭탄 방지). `ImageReader.getFormatName()`으로 선언 MIME과 실제 포맷 일치도 검증한다. 신규 의존성 없음(JDK 표준 API만 사용).
-- **다운로드 라우트**: `GET /admin/api/members/me/profile-image`(ADMIN·MANAGER, `SecurityConfig`의 기존 `/admin/api/members/me/**` 매처가 그대로 커버 — 코드 변경 없음), `GET /admin/api/members/{id}/profile-image`(ADMIN 전용, 기존 `/admin/**` 캐치올이 커버). `ResponseEntity<byte[]>`로 실제 바이트를 직접 반환, `Content-Disposition` 미설정(인라인 렌더링 — `NoticeAttachmentController`와 반대), `Cache-Control: private, no-store` + `X-Content-Type-Options: nosniff`. 응답 URL에는 storageKey를 SHA-256 해시한 캐시 버스팅 토큰(`?v=...`)이 붙는다(고정 경로 재사용 시 브라우저가 이미지 교체를 인식 못 하는 문제 방지).
-- **1회성 이관**(`ProfileImageMigrationRunner`, `@Profile` 제한 없음 — dev·prod 모두 대상): 기존 `data:` URI 값을 실파일로 이관한다. ID만 조회 후 행별 트랜잭션에서 `findByIdForUpdate`로 재검증(동시 온라인 변경과 경합 시 자연히 스킵). 크기 초과 레거시 값은 엔티티를 전혀 읽지 않는 조건부 벌크 UPDATE(`resetIfOversizedLegacyImage`, SQL `CHAR_LENGTH` 서버 사이드 평가)로 즉시 `NONE` 초기화(자체 DoS 방지, pass-through 대신 격리). 그 외 일반 실패(화이트리스트 밖 MIME·손상된 Base64 등)는 `LEGACY_INLINE`으로 남아 기존처럼 pass-through 렌더링(가용성 우선). 별도 완료 플래그 없이 `kind` 조건 자체가 멱등성을 보장.
-- 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-profile-image-storage.md` 참조.
+`com.cms.admin.member`의 `CLAUDE.md` 참조(FileStorage 이관·검증·다운로드 라우트 등 상세).
 
 ## 코딩 컨벤션
 
@@ -141,42 +60,7 @@ com.cms/
 
 ## RESTful API 설계 규칙
 
-이 프로젝트의 API는 RESTful 컨벤션을 따른다. 신규 엔드포인트는 아래 규칙을 기준으로 설계한다.
-
-### URI 규칙
-
-- **자원은 명사, 복수형, 소문자**로 표현한다. 동사를 URI에 넣지 않는다. (`/createMember` ✕ → `POST /members` ○)
-- 다중 단어는 하이픈(`-`)으로 연결한다. (`/profile-image`)
-- 컬렉션과 단일 자원을 구분한다.
-    - 컬렉션: `/admin/api/members`
-    - 단일 자원: `/admin/api/members/{id}`
-- 현재 로그인 사용자(본인) 리소스는 `me` 별칭을 사용한다. (`/admin/api/members/me`)
-- 하위 관계는 중첩 경로로 표현한다. (`/admin/api/members/me/profile-image`)
-
-### HTTP 메서드 매핑
-
-| 메서드 | 용도 | 성공 상태 코드 |
-|--------|------|----------------|
-| `GET` | 조회 (목록/단건) | 200 OK |
-| `POST` | 생성 | 201 Created (+ `Location` 헤더) |
-| `PUT` | 전체 교체 | 200 OK / 204 No Content |
-| `PATCH` | 부분 수정 | 200 OK |
-| `DELETE` | 삭제 | 204 No Content |
-
-### 상태 코드 규칙
-
-- `400` 검증 실패(`VALIDATION_ERROR`), JSON 파싱 오류(`JSON_PARSE_ERROR`), `401` 미인증, `403` 권한 없음, `404` 자원 없음, `409` 상태 충돌·중복(`DUPLICATE_RESOURCE`), `500` 서버 오류.
-- DB 유니크 제약 위반(`DataIntegrityViolationException`)도 409 `DUPLICATE_RESOURCE`로 처리된다. `uk_member_user_id`·`uk_member_email` 위반 시 각각 사람이 읽을 수 있는 메시지로 응답한다.
-- 컨트롤러까지 도달한 API 예외는 `GlobalApiExceptionHandler`를 통해 `common` 패키지의 공통 응답 포맷으로 반환한다.
-- `@PreAuthorize` 위반으로 발생하는 `AccessDeniedException`은 `GlobalApiExceptionHandler.handleAccessDenied()`가 잡아 **JSON 403** (`ACCESS_DENIED`)으로 반환한다. 단, 이는 컨트롤러까지 도달한 요청에만 해당한다.
-- `/admin/api/**` 경로는 Security Filter Chain 레벨에서 전용 핸들러가 처리한다. 미인증은 `ApiAuthenticationEntryPoint`(JSON 401 `UNAUTHORIZED`), 권한 부족은 `ApiAccessDeniedHandler`(JSON 403 `ACCESS_DENIED`)가 응답한다. HTML 리다이렉트나 기본 오류 페이지는 반환되지 않는다.
-- `/admin/api/**` 이외의 경로(Thymeleaf 페이지 등)에서 발생하는 **401(미인증)**은 로그인 페이지로 리다이렉트된다.
-- **핸들러가 아예 등록되지 않은 경로(정적 리소스 미존재 포함)도 404다** (2026-08-06 해결). `GlobalApiExceptionHandler`가 `NoResourceFoundException`·`NoHandlerFoundException`을 `Exception` catch-all보다 먼저 잡아 `/admin/api/**`는 JSON 404(`RESOURCE_NOT_FOUND`), 그 외는 기존 `error/404.html`(`/admin/**` 하위는 `error/admin/404.html`)로 응답한다. 이전에는 이 catch-all이 500 `INTERNAL_ERROR`로 바꿔버리던 기존 결함이었다(`docs/troubleshooting.md` 참조).
-
-### 목록 조회 파라미터
-
-- 페이징·정렬·검색은 쿼리 파라미터로 전달한다. (`?page=0&size=20&sort=createdAt,desc&keyword=...`)
-- 페이징 응답은 일관된 구조(콘텐츠 + 페이지 메타)를 유지한다.
+신규·변경 엔드포인트의 URI 명명, 상태 코드 계약, 목록 조회 파라미터 규칙은 `api-conventions` 스킬 참조(API 작업 시 자동 로드).
 
 ## 환경 설정
 
@@ -184,26 +68,13 @@ com.cms/
 - **운영(prod, 배포 가능 상태 검증 완료 — 2026-07-29)**: `application-prod.yml` + `.env.prod`(커밋 금지). 절차·필수 환경변수는 `docs/deployment.md` 참고. 실제 인터넷 배포(호스트·도메인·TLS)는 별도 범위.
 - **프로파일 기본값 없음(의도)**: `spring.profiles.active: ${SPRING_PROFILES_ACTIVE}` — 미지정 시 기동 자체가 실패한다(placeholder 해석 실패로 fail-fast). `com.cms.config.ProfileGuardEnvironmentPostProcessor`가 추가로 `dev`+`prod` 동시 활성화와 활성 프로파일 0개(빈 문자열)를 컨텍스트 생성 전에 차단한다. 로컬 `./gradlew test`·CI 모두 `SPRING_PROFILES_ACTIVE=dev`를 명시 주입한다(`build.gradle`의 `test` 태스크, `.github/workflows/ci.yml`).
 - **스키마 관리는 Flyway** (`src/main/resources/db/migration/`, `ddl-auto: validate` — 공통값, 전 프로파일 적용): 엔티티 변경만으로는 스키마가 바뀌지 않는다 — 컬럼/인덱스 추가·변경 시 반드시 마이그레이션 파일을 함께 작성한다. 머지된 마이그레이션 파일은 수정 금지(체크섬 불일치로 기동 실패). 기존 DB 전환·새 마이그레이션 작성 규칙은 `docs/migration-guide.md` 참고.
-- **초기 관리자 계정**: dev는 회원이 없으면 `TestMemberLoader`(`@Profile("dev")`)가 `userId=admin` / `pwd=1234`(BCrypt) ROLE_ADMIN 계정을 자동 생성한다. prod는 `AdminBootstrapLoader`(`@Profile("prod")`, `com.cms.admin.member`)가 ACTIVE 상태 ROLE_ADMIN이 하나도 없을 때만 `ADMIN_BOOTSTRAP_USER_ID`·`_PASSWORD`·`_EMAIL` 환경변수로 계정을 생성한다 — 셋 중 하나라도 없거나 값이 유효하지 않으면(검증 계약은 `AdminBootstrapCredentials`) 기동을 실패시킨다(관리자 없이 조용히 뜨는 것보다 안전하다는 결정). ACTIVE ROLE_ADMIN이 이미 있으면 환경변수를 검사하지 않는다. 저장·동시성 재조회는 `PasswordResetService`와 동일하게 `TransactionTemplate`으로 트랜잭션 경계를 명시한다(같은 클래스 내부 호출은 `@Transactional` 프록시를 타지 않으므로). 최초 계정이 이미 있는 경우에는 `POST /admin/api/members`(관리자 인증 필요)로 추가 생성한다. 상세 설계 결정은 `adversarial-review/plan/PLAN-prod-profile.md` 참조.
+- **초기 관리자 계정**: dev(`TestMemberLoader`)·prod(`AdminBootstrapLoader`) 부트스트랩 계약과 기동 실패 조건은 `com.cms.admin.member`의 `CLAUDE.md` 참조.
 - **actuator**: `management.endpoints.web.exposure.include: health`(공통, 전 프로파일)+`show-details: never`. `SecurityConfig`가 `/actuator/health`만 `permitAll()`, `/actuator/**`는 `denyAll()`로 이중 방어한다(설정이 실수로 넓어져도 Security 레이어가 막음).
 - 민감 정보(DB 비밀번호, 메일 계정, 시크릿)는 코드에 하드코딩하지 않고 프로파일/환경변수로 분리한다. `.env.dev`·`.env.prod` 모두 git 추적 대상 아님(`.gitignore`의 `.env*` 규칙, `.env.example`만 예외).
 
 ## 보안 규칙
 
-`SecurityConfig`에 정의된 접근 제어:
-
-| 경로 | 접근 |
-|------|------|
-| `/admin/login`, `/admin/login-error` | 공개 |
-| `/admin/password-reset`, `/admin/password-reset/confirm` | 공개 (비밀번호 재설정 페이지, 2026-07-13 승인) |
-| `/admin/api/password-reset-requests`, `/admin/api/password-resets` | 공개 (비밀번호 재설정 API — CSRF 토큰은 필요) |
-| `/swagger-ui.html`, `/swagger-ui/**`, `/v3/api-docs`, `/v3/api-docs/**` | `ROLE_ADMIN` 필수 |
-| `/admin/notice/**`, `/admin/api/notices`, `/admin/api/notices/**` | `ROLE_ADMIN`·`ROLE_MANAGER` (공지사항 관리, 2026-07-20 승인) |
-| `/admin/**` | `ROLE_ADMIN` 필수 |
-| `/notices`, `/notices/**` | GET·HEAD만 공개 (`permitAll`), 그 외 메서드는 `denyAll`로 명시 차단 (공개 공지 페이지, 2026-07-28 승인). `/notices/**`가 하위 세그먼트 전체를 포괄해 `/notices/{id}/attachments/{attachmentId}`(2026-08-03 추가)도 별도 규칙 없이 이 매처가 적용됨 |
-| `/actuator/health` | 공개 (`permitAll`, 로드밸런서 헬스체크용) |
-| `/actuator/**`(health 제외) | `denyAll` 명시 차단 (2026-07-29 승인 — env/beans/metrics 등 노출 설정이 넓어져도 뚫리지 않도록 이중 방어) |
-| 그 외 모든 경로 | 공개 (`anyRequest().permitAll()`) |
+`SecurityConfig`의 경로별 접근 제어 표(승인 이력 포함)는 `com.cms.config`의 `CLAUDE.md` 참조.
 
 - `ACTIVE` 상태 계정만 로그인 가능 (`CustomUserDetailsService`). 연속 5회 로그인 실패 시 자동 잠금(30분 해제) — 정책 상세는 "핵심 도메인 모델 > Member" 참조 (2026-07-14 승인)
 - **세션 등록·강제 만료**: `sessionManagement(maximumSessions(-1))` + `SessionRegistry` + `HttpSessionEventPublisher` 활성 (동시 로그인 제한 없음 — 세션 추적만). 타 관리자 수정으로 상태·권한이 실변경되면(멱등 재잠금 LOCKED/DISABLED 동일값 포함) `AdminSessionRevokeEvent`가 발행되고 커밋 후 `AdminSessionRevokeListener`(AFTER_COMMIT)가 대상자 세션을 만료 처리한다. 만료된 세션의 다음 요청은 `AdminSessionExpiredStrategy`가 API는 JSON 401, 페이지는 `/admin/login` 리다이렉트로 응답. **계약은 best-effort** — 즉시 접근 차단 수단이 아니며, 극단적 커밋 경합 시 기존 세션이 세션 타임아웃(기본 30분) 또는 재잠금까지 유효할 수 있다.
@@ -216,153 +87,46 @@ com.cms/
 
 (필드 목록은 엔티티 코드가 원본이다. 여기에는 코드만 봐서는 알기 어려운 사실만 기록한다.)
 
-**Member** (관리자 계정)
-- `Role`: `ROLE_ADMIN`, `ROLE_MANAGER`, `ROLE_USER` / `MemberStatus`: `ACTIVE`, `LOCKED`, `DISABLED`, `DELETED`, `PASSWORD_EXPIRED`
-- **비밀번호 재설정 구현 완료** (`PasswordResetService`): 이메일로 재설정 링크 발송(토큰은 URL fragment `#token=`) → 토큰 검증 → 재설정. 토큰은 SHA-256 해시로만 저장(평문·해시 모두 **로그 출력 금지** — 예외 객체 통째 로깅도 금지), 30분 TTL·일회용·60초 재발급 쿨다운(발급 시 계정 행 잠금으로 원자성 보장). 계정 존재 여부와 무관하게 항상 200 응답(열거 방지), 대상은 `ACTIVE`/`PASSWORD_EXPIRED` + `ROLE_ADMIN`/`ROLE_MANAGER` allowlist. 재설정 성공 시 기존 세션 만료(`AdminSessionRevokeEvent`) + `PASSWORD_EXPIRED`는 `ACTIVE` 복귀. **모든 비밀번호 변경 경로(`Member.changePassword()`)가 outstanding reset 토큰을 함께 클리어**한다. 상세 설계 결정은 `adversarial-review/plan/PLAN-password-reset.md` 참조
-- **로그인 실패 잠금 구현 완료** (`LoginFailureService`, 2026-07-14): 연속 5회 실패(`BadCredentialsException`만 카운트) 시 `LOCKED` 자동 전이 + **30분 후 lazy 자동 해제**(로그인·비밀번호 재설정 진입점에서 조건부 벌크 UPDATE). 대상은 `ROLE_ADMIN`/`ROLE_MANAGER` allowlist — `ROLE_USER`는 오잠금되지 않는다. `locked_at null = 수동 잠금(영구)`, `locked_at 존재 = 자동 잠금(30분 해제)`로 구분되며, `changeStatus()`는 항상 `locked_at`을 정리한다. 잠금 전이는 `AdminAccountAutoLockEvent`(AFTER_COMMIT)로 `AdminActionLog`(`ACCOUNT_AUTO_LOCK`) 감사 기록 + 기존 세션 만료(`AdminSessionRevokeEvent`, 발행 순서상 세션 만료가 감사보다 먼저). 성공 핸들러(`VisitLoggingAuthenticationSuccessHandler`)는 인증 완료 직전 fresh 상태·역할·비밀번호 해시를 재확인해 불일치·예외 시 **fail-closed 거부**(경합으로 잠긴/강등된/구 비밀번호 세션 차단). **내 비밀번호 변경 성공 시 전 세션 폐기**(본인 포함 — 재로그인 필요). `Member`에 `@DynamicUpdate` 부착(더티체킹 경합의 잠금 소실 차단). 최후 ADMIN 잠금 복구는 `docs/troubleshooting.md` 참조. 상세 설계 결정은 `adversarial-review/plan/PLAN-login-failure-lockout.md` 참조
-- **비밀번호 90일 만료 구현 완료** (`PasswordExpiryService`, 2026-07-18): `password_changed_at`이 90일에 도달한 `ACTIVE` + `ROLE_ADMIN`/`ROLE_MANAGER` 계정을 로그인 시점에 `PASSWORD_EXPIRED`로 전이(조건부 벌크 UPDATE, 로그인 트랜잭션 참여 + `noRollbackFor`로 전이 커밋 유지). 성공 핸들러(`VisitLoggingAuthenticationSuccessHandler`)도 성공 처리 직전 만료를 재판정한다(인증 중 90일 경계 통과 TOCTOU 차단). 만료 로그인 거부는 실패 카운트를 증가시키지 않는다(`CredentialsExpiredException`). **모든 비밀번호 변경 경로(`Member.changePassword()`)가 `passwordChangedAt` 갱신 + `PASSWORD_EXPIRED → ACTIVE` 복귀를 수행**(재설정·내 비밀번호 변경 공통 — 살아있는 세션이 만료 후 비밀번호를 바꿔도 고착되지 않음). 배치/스케줄러 없음. 관리자가 수동으로 `ACTIVE` 복구해도 비밀번호 미변경이면 다음 로그인 때 재만료(의도된 동작). 상세 설계 결정은 `adversarial-review/plan/PLAN-password-expiry.md` 참조
-
-**Menu**
-- `MenuAccessRole`: `ALL`(공용, ADMIN·MANAGER 노출) / `ADMIN`(ADMIN 전용 노출). DB 컬럼 null은 ALL로 정규화(레거시 행 호환)
-- 사이드바는 `AdminSidebarAdvice` → `MenuService.getSidebarMenus()`가 활성 메뉴를 역할 필터링해 동적 렌더링한다. SB Admin 2 UI 제약으로 **2단(최상위 + 직계 하위)까지만** 그린다
-- 기본 메뉴 시드는 Flyway `V3__seed_default_menus.sql`이 담당한다 — menu 테이블이 **완전히 비었을 때만** 전체 시드하며, 행이 하나라도 있으면 건드리지 않는다 (보충 기능 없음)
-- `accessRole`은 사이드바 **노출** 제어일 뿐이며, 실제 접근 차단은 Security(`@PreAuthorize` 등)가 담당한다
-
-**Notice** (공지사항, 2026-07-20 구현 완료 — 첫 콘텐츠 도메인)
-- 필드: `title`(200자)·`content`(TEXT, 최대 10,000자)·`useYn`(노출 여부)·`deleted`(소프트 삭제)·`authorId`(작성 시점 로그인 userId 문자열 스냅샷, member FK 아님) — 5개 컬럼 모두 NOT NULL
-- `useYn`(노출)과 `deleted`(소프트 삭제)는 **별도 컬럼**이다 — 메뉴처럼 하나로 겸치지 않는다. 목록·상세·수정·삭제는 항상 `deleted=false` 필터
-- **PATCH·DELETE는 비관적 락**(`NoticeRepository.findByIdAndDeletedFalseForUpdate` — 명시적 `@Query` + `@Lock(PESSIMISTIC_WRITE)`, `MenuRepository.findByIdForUpdate`와 동일 패턴)으로 직렬화한다. 락 없이는 DELETE 커밋 후 먼저 읽은 PATCH가 삭제 상태를 되돌리는 lost update가 발생한다. `DELETE`도 `NoticeResponse`를 반환(컨트롤러가 버리고 204) — `AdminActionLogAspect`가 반환 객체 getter에서만 targetId를 추출하므로 `void`면 감사 로그 targetId가 항상 null이 된다(`MenuService.deactivateMenu()`와 동일 이유)
-- 목록(`GET /admin/api/notices`)은 `NoticeSummaryResponse`(본문 제외), 상세·생성·수정·삭제는 `NoticeResponse`(본문 포함) — 목록 응답의 JSON 직렬화·전송량만 줄이며, QueryDSL 조회 자체(DB에서 content 읽기)는 줄지 않는다
-- 목록 페이지 크기는 100으로 clamp(`NoticeService.MAX_PAGE_SIZE`, `AdminActionLogQueryService`와 동일 패턴)
-- 인가는 `ROLE_ADMIN`·`ROLE_MANAGER` 공용(작성자별 소유권 없음 — 누구나 서로 수정·삭제 가능). 사이드바 메뉴는 `V9__seed_notice_menu.sql`로 **멱등(WHERE NOT EXISTS) 자동 등록** — 다른 메뉴처럼 API 수동 등록이 아님(신규 환경마다 등록을 빠뜨리는 결함 방지)
-- 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-notice-board.md` 참조
-- **첨부파일 구현 완료** (`NoticeAttachment`, `NoticeAttachmentService`, 2026-07-22): 첨부는 `deleted` 컬럼 없이 하드 삭제(개별 DELETE = 행+파일 제거). 첨부 업로드·삭제는 모두 notice의 기존 비관적 락(`findByIdAndDeletedFalseForUpdate`)을 재사용해 동일 notice의 첨부 개수 상한(5개)·동시 삭제 경합을 직렬화한다. **notice 삭제 시 첨부가 남아있으면 409로 차단**된다(`NoticeService.deleteNotice()`) — 관리자가 첨부를 먼저 모두 삭제해야 notice를 소프트 삭제할 수 있어, 소프트 삭제된(=API로 영원히 도달 불가능해지는) notice에 딸린 첨부가 영구 오펀이 되는 상황을 원천 차단한다. 허용 확장자 pdf/doc(x)/xls(x)/ppt(x)/hwp/txt/csv/zip/png/jpg/jpeg/gif, 파일당 10MB·공지당 5개 상한. 확장자+선언 Content-Type 화이트리스트 검증(매직바이트 검사 없음 — Tika 등 신규 의존성 도입 안 함, 스푸핑 방어 수단이 아님을 인지하고 저장 루트를 웹 루트 밖에 두고 다운로드를 `octet-stream`+`attachment`+`nosniff`로 강제하는 것으로 보완). 파일 I/O는 `TransactionSynchronizationManager`로 DB 트랜잭션과 동기화(업로드 실패/롤백 시 파일 정리, 삭제는 커밋 후에만 파일 제거). 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-notice-attachment.md` 참조
-- **공개(비로그인) 공지 페이지 구현 완료** (`PublicNoticeController`·`PublicNoticeService`, `com.cms.publicweb.notice`, 2026-07-28): `/notices`(목록)·`/notices/{id}`(상세)에서 `useYn=true` AND `deleted=false`인 공지만 노출한다. 이 불변식은 admin `NoticeService`와 별도 클래스(`PublicNoticeService`)·별도 Repository 파생 쿼리(`findByDeletedFalseAndUseYnTrue`, `findByIdAndDeletedFalseAndUseYnTrue`)로 타입 단위로 격리되어, admin의 선택적 `useYn` 필터와 혼동될 수 없다. 공개 DTO(`PublicNoticeSummary`/`PublicNoticeDetail`)는 `authorId`(관리자 로그인 userId)를 필드 자체에서 제외한다. **`id`·`page`는 Spring 바인딩에 맡기지 않고 컨트롤러가 문자열로 받아 직접 파싱**한다 — `GlobalApiExceptionHandler`가 전역 `@RestControllerAdvice`라 페이지 컨트롤러의 타입 변환 예외까지 JSON으로 응답해버리기 때문(파싱 실패는 404/0으로 흡수, 존재 여부 열거 방지 목적으로 미노출·삭제·비숫자·없는 ID를 모두 동일한 404로 응답). 남은 예외(DB 장애 등)는 `com.cms.publicweb.support.PublicWebExceptionAdvice`(`basePackages="com.cms.publicweb"`, `@Order(HIGHEST_PRECEDENCE)`)가 HTML 500으로 흡수하며, 이 보장은 컨트롤러·Service 실행 중 예외로 한정된다(Thymeleaf 렌더링 단계 예외는 앱 전체의 기존 한계로 이번 범위에서 다루지 않음). 페이지 크기는 10으로 고정, `page`는 음수·`MAX_PAGE`(1000, 인덱스 없는 테이블의 대형 OFFSET 방어) 초과 시 0으로 보정. `SecurityConfig`는 `/notices`·`/notices/**`에 GET/HEAD만 `permitAll`, 나머지 메서드는 `denyAll`로 명시 차단(뒤에 남은 `anyRequest().permitAll()`에 기대지 않음). 검색은 이번 범위 제외(첨부파일은 후속 구현 완료 — 아래 참조). 상세 설계 결정·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-public-notice.md` 참조
-- **공개 첨부파일 다운로드 구현 완료** (`GET /notices/{id}/attachments/{attachmentId}`, `com.cms.publicweb.notice`, 2026-08-03): `PublicNoticeService`에 메서드로 확장(별도 클래스 신설 안 함 — 위 "노출+미삭제 불변식 타입 단위 격리"를 유지하는 게 목적이지 클래스 수를 늘리는 게 목적이 아님). admin `NoticeAttachmentService`는 재사용하지 않는다(`useYn` 미검증이라 공개 조건이 뚫림). **다운로드 시점 재검증(TOCTOU)은 "재검증 SELECT를 실행한 시점에 공개 상태였음"만 보장하는 약한 보장**이다 — 락은 쓰지 않는다(무인증 엔드포인트가 admin의 `PESSIMISTIC_WRITE`를 블로킹하는 DoS 표면이 되므로). `findByIdAndNoticeId` 복합 조건으로 IDOR 차단, `StorageFileNotFoundException`은 `Optional.empty()`로 흡수해 404 fail-closed. 실패 3종(비숫자 id·비공개 notice·없는 첨부)은 모두 동일한 404(`response.sendError(404)`+`return null`로 기존 `error/404.html` 재사용). 응답은 admin 다운로드와 동일하게 `application/octet-stream`+`ContentDisposition`+`nosniff`에 더해 **`Cache-Control: no-store`**(캐시가 TOCTOU 재검증을 우회하지 못하게). `PublicNoticeAttachment` DTO는 `storageKey`(서버 내부 경로) 필드 자체를 두지 않음. `/notices/**`가 이미 GET/HEAD `permitAll`이라 이 라우트는 **SecurityConfig 수정 없이** 자동으로 무인증 공개됨(`SecurityConfigTest`로 명시 고정). 무인증 경로에서 HEAD도 GET과 동일하게 서비스 진입·파일 전체 로딩이 발생하는 자원 고갈 위험은 명시적으로 수용(소규모 운영 전제, 스트리밍·레이트리밋 미도입 — 실제 공개 트래픽 발생 시 재검토 대상). 상세 설계 결정·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-public-notice-attachment.md` 참조
-
-**AdminActionLog**: 관리자 행위 감사 로그. `@AdminActionLogged`가 붙은 메서드 호출 시 성공/실패·요청 IP·URI가 자동 기록된다 (상세는 "AOP 기반 액션 로깅" 참조)
+**Member**(관리자 계정, 비밀번호 재설정·로그인 실패 잠금·비밀번호 90일 만료·프로필 이미지 포함), **Menu**, **Notice**(첨부파일·공개 공지 페이지·공개 첨부파일 다운로드 포함), **AdminActionLog** 상세는 각각 `com.cms.admin.member`·`com.cms.admin.menu`·`com.cms.admin.notice`(공개 측은 `com.cms.publicweb.notice`)·`com.cms.admin.log`의 `CLAUDE.md` 참조(해당 패키지 작업 시 자동 로드).
 
 **VisitLog / 대시보드**: ADMIN·MANAGER 로그인 성공 1회 = 방문 1건 (`VisitLoggingAuthenticationSuccessHandler`가 기록 — 저장·집계 모두 KST `Clock` 단일 시간원, 2026-07-18 통일). 대시보드는 통계 카드 4종 + 최근 7일 방문자 라인 차트(`DashboardService.getDailyVisitorCounts()` — 방문 없는 날 0 채움, 집계 실패 시 빈 리스트 폴백으로 500 없이 오류 문구 표시, 페이지 모델 주입 방식이라 REST API 없음). 카드·차트는 개별 조회라 순간 불일치 허용(의도된 eventual consistency). SB Admin 2 데모 위젯은 2026-07-18 전부 제거됨
 
 ## API 문서
 
-- Swagger UI: `http://localhost:8080/swagger-ui.html` (SpringDoc OpenAPI 2.8.14, `ROLE_ADMIN` 로그인 필요, **dev 전용** — prod는 `application-prod.yml`의 `springdoc.api-docs.enabled=false`+`swagger-ui.enabled=false`로 핸들러 자체가 등록되지 않는다. 이 경로에 접근하면 페이지 경로이므로 HTML 404가 반환된다 — `com.cms.error.CustomErrorController`(2026-08-06 해결, `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조))
+- Swagger UI: `http://localhost:8080/swagger-ui.html` (SpringDoc OpenAPI, `ROLE_ADMIN` 로그인 필요, **dev 전용** — prod는 `application-prod.yml`의 `springdoc.api-docs.enabled=false`+`swagger-ui.enabled=false`로 핸들러 자체가 등록되지 않는다. 이 경로에 접근하면 페이지 경로이므로 HTML 404가 반환된다 — `com.cms.error.CustomErrorController`(2026-08-06 해결, `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조))
 - API 문서는 SpringDoc Swagger(OpenAPI 3)로 단일화한다. Spring REST Docs는 사용하지 않는다.
-
-현재 구현된 주요 엔드포인트(RESTful 규칙 정렬 완료):
-- `POST /admin/api/members` — 관리자 생성 (201 Created); `userType`은 `ROLE_ADMIN`·`ROLE_MANAGER`만 허용 (`ROLE_USER` 불가, 위반 시 400)
-- `GET /admin/api/members` — 관리자 목록 (페이징/검색)
-- `GET /admin/api/members/{id}` — 관리자 상세
-- `PATCH /admin/api/members/{id}` — 타 관리자 부분 수정·상태 변경 (본인 계정은 400 → `/members/me` 사용; 최후 활성 ADMIN 제거 방지·비관적 락·세션 만료 등 상세 제약은 `AdminMemberService`와 Swagger 참조)
-- `GET /admin/api/members/me` — 내 정보 조회
-- `PATCH /admin/api/members/me` — 내 정보 수정
-- `PUT /admin/api/members/me/profile-image` — 프로필 이미지 업로드 (multipart, png/jpeg/gif만 허용) 또는 기본 프리셋 선택 (json 본문, 동일 경로·`consumes`로 구분)
-- `DELETE /admin/api/members/me/profile-image` — 프로필 이미지 초기화 (204 No Content)
-- `GET /admin/api/members/me/profile-image` — 내 프로필 이미지 다운로드 (`application/<실제타입>`, 인라인 렌더링용 — ADMIN·MANAGER)
-- `GET /admin/api/members/{id}/profile-image` — 타 관리자 프로필 이미지 다운로드 (ADMIN 전용, `getAdminMember`와 동일 인가 수준)
-- `PATCH /admin/api/members/me/password` — 내 비밀번호 변경
-- `POST /admin/api/password-reset-requests` — 비밀번호 재설정 메일 발송 (공개, 항상 200 — 계정 열거 방지)
-- `POST /admin/api/password-resets` — 토큰으로 비밀번호 재설정 (공개, 204; 무효/만료/사용됨 비구분 400)
-- `GET /admin/api/menus/tree` — 메뉴 트리 조회 (`useYn=true|all`)
-- `GET /admin/api/menus/{id}` — 메뉴 단건 조회
-- `POST /admin/api/menus` — 메뉴 생성 (201 Created); `accessRole` 누락 시 `ALL` 기본화
-- `PATCH /admin/api/menus/{id}` — 메뉴 부분 수정 (null 필드는 기존값 유지, `upMenuNo` 변경 불가)
-- `DELETE /admin/api/menus/{id}` — 메뉴 비활성화 (소프트 삭제, 204 No Content)
-- `GET /admin/api/notices` — 공지사항 목록 (페이징/검색, `keyword`·`useYn` 필터, size는 100으로 clamp)
-- `GET /admin/api/notices/{id}` — 공지사항 상세 (본문 포함)
-- `POST /admin/api/notices` — 공지사항 생성 (201 Created); 작성자는 로그인 사용자로 자동 채움
-- `PATCH /admin/api/notices/{id}` — 공지사항 부분 수정 (null 필드는 기존값 유지, 값이 오면 공백 거부, 전체 null은 400)
-- `DELETE /admin/api/notices/{id}` — 공지사항 소프트 삭제 (204 No Content); 첨부파일이 남아있으면 409 (`RESOURCE_CONFLICT`, 첨부를 먼저 삭제해야 함)
-- `POST /admin/api/notices/{noticeId}/attachments` — 공지 첨부파일 업로드 (multipart, 201 Created); 확장자 위반 400, 5개 초과 409
-- `GET /admin/api/notices/{noticeId}/attachments` — 공지 첨부파일 목록 (메타만, 파일 내용 제외)
-- `GET /admin/api/notices/{noticeId}/attachments/{attachmentId}/content` — 첨부파일 다운로드 (`application/octet-stream` 강제, 다른 notice의 attachmentId는 404)
-- `DELETE /admin/api/notices/{noticeId}/attachments/{attachmentId}` — 첨부파일 삭제 (204 No Content, 행+실파일 함께 제거)
-- `GET /notices` — 공개 공지 목록 (비로그인, 노출·미삭제만, 페이지 크기 10 고정, `?page=`만 수용)
-- `GET /notices/{id}` — 공개 공지 상세 (비로그인, 미노출·삭제·비숫자·없는 ID는 모두 404, 첨부 목록 포함)
-- `GET /notices/{id}/attachments/{attachmentId}` — 공개 첨부파일 다운로드 (비로그인, `application/octet-stream` 강제 + `Cache-Control: no-store`, 다운로드 시점 재검증(약한 보장)·IDOR 차단, 실패는 모두 404)
+- 구현된 엔드포인트 전체 목록과 파라미터·제약은 Swagger UI에서 확인한다(위 경로, dev 프로파일).
 
 ## 테스트 규칙
 
-- 새 기능에는 테스트를 함께 작성한다.
-- 컨트롤러 테스트는 `MockMvc`를 사용한다.
-- 시큐리티가 걸린 엔드포인트는 `spring-security-test`(`@WithMockUser` 등)를 활용한다.
-- 슬라이스 테스트(`@WebMvcTest`, `@DataJpaTest`)를 우선하고, 통합 테스트(`@SpringBootTest`)는 필요한 경우에만 사용한다.
-- **DB에 실제로 접속하는 테스트는 Testcontainers를 사용한다** (2026-07-27 도입, `com.cms.support.MariaDbContainerSupport`). 대상 테스트 클래스가 이 베이스 클래스를 `extends`하면 실행 시점에 일회용 MariaDB 컨테이너가 자동 기동된다 — **로컬 DB 기동(`make dev-db`)이나 `DB_PASS`/`MAIL_USER`/`MAIL_PASS` 환경변수 주입 없이 `./gradlew test`만으로 전체 테스트가 통과**한다. 필요한 건 Docker뿐이다. `build.gradle`의 `maxParallelForks=1`+`forkEvery=0`으로 테스트 JVM(워커)당 컨테이너 1개를 보장하며, 재사용(`reuse.enable`)은 쓰지 않아 매 실행이 깨끗한 DB에서 시작한다(Flyway가 V1부터 전체 마이그레이션 적용). 상세 설계 결정은 `adversarial-review/plan/PLAN-testcontainers.md` 참조.
+세부 규칙(MockMvc·spring-security-test·슬라이스 테스트 우선·Testcontainers)은 `src/test/java`의 `CLAUDE.md` 참조(테스트 코드 작업 시 자동 로드).
 
 ## 문제 해결 기록 (Troubleshooting)
 
-개발 중 해결에 시간이 들고 재발 가능한 **비자명한 이슈**를 해결한 경우 `docs/troubleshooting.md`에 기록한다. (단순 오타·일회성 실수는 제외)
-
-- **기록 시점**: 원인을 규명하고 해결을 검증한 직후.
-- **카테고리로 구분**: 새 항목은 아래 카테고리 중 적절한 곳에 추가한다. 맞는 카테고리가 없으면 새 카테고리를 만든다.
-    - 개발 환경 / 인프라 (Docker, WSL, 로컬 DB 등)
-    - 빌드 / 의존성 (Gradle, QueryDSL Q클래스, 라이브러리 호환성 등)
-    - 애플리케이션 / 런타임 (Security 필터, AOP 로깅, 트랜잭션, JPA/QueryDSL 등)
-- **형식**: 카테고리(`##`) 아래에 이슈 제목(`###`)을 두고, 내부는 `오류 메시지 / 원인 / 해결 방법(필요 시 검증 명령)` 순서로 작성한다.
+비자명한 이슈를 해결했다면 `docs/troubleshooting.md`에 기록한다. 기록 시점·카테고리·형식은 `troubleshooting-log` 스킬 참조.
 
 ## MCP 도구 활용 지침
 
-### context7 — 라이브러리 공식 문서 조회
-
-라이브러리 API가 **불확실하거나 버전에 민감한 작업**일 때는 코드를 작성하기 전에 context7로 최신 공식 문서를 확인한다 (훈련 데이터가 오래됐을 수 있다). 확신이 있는 안정된 API까지 매번 조회할 필요는 없다. 상황별 조회 대상:
-
-| 상황 | 조회 대상 |
-|------|-----------|
-| QueryDSL 동적 쿼리·`BooleanExpression` 조합 | `querydsl` |
-| Spring Data JPA `Specification` / Pageable 정렬 | `spring-data-jpa` |
-| Spring Security 필터 체인·메서드 보안 설정 | `spring-security` |
-| SpringDoc OpenAPI 어노테이션·Swagger 커스터마이징 | `springdoc-openapi` |
-| Thymeleaf 레이아웃·조각(fragment) 문법 | `thymeleaf` |
-| Spring Boot 3.x 설정·자동 구성 변경사항 | `spring-boot` |
-
-사용 순서: `resolve-library-id` → `query-docs` (토픽과 버전을 함께 지정).
-
-### sequential-thinking — 복잡한 작업 사전 설계
-
-다음 조건 중 하나라도 해당하면 sequential-thinking으로 단계별 계획을 먼저 수립한다.
-
-- Controller → Service → Repository → Entity를 모두 신규 작성하는 **새 도메인 기능** 추가
-- 여러 레이어·파일에 걸친 **리팩터링 또는 마이그레이션** (예: API 경로 일괄 변경)
-- 원인 불명 버그의 **근본 원인 추적** (AOP·Security 필터·트랜잭션 경계 포함)
-- DB 스키마 변경이 수반되는 작업 (영향 엔티티·마이그레이션 순서 정리)
-
-계획 결과를 사용자에게 먼저 제시하고 확인받은 뒤 코드를 작성한다.
-
-### playwright — 브라우저 UI 검증
-
-Thymeleaf 화면을 수정하거나 새 페이지를 추가한 경우 playwright로 직접 확인한다.
-
-**기본 접속 정보**
-- URL: `http://localhost:8080`
-- 로그인: 사전에 DB에 등록된 관리자 계정 (`dev` 프로파일에서 DB가 비어 있으면 `TestMemberLoader`가 `admin`/`1234` 계정을 자동 생성)
-- 로그인 경로: `/admin/login`
-
-**검증 우선순위**
-1. 로그인 → 해당 화면 진입 → 핵심 기능 동작 (골든 패스)
-2. 폼 유효성 검사 메시지 노출 여부
-3. API 호출 후 화면 갱신(목록 reload, 성공/오류 토스트 등)
-4. 다른 화면에 회귀 오류가 없는지 스크린샷으로 확인
-
-앱이 실행 중이 아닐 때는 `./gradlew bootRun`(또는 `make dev-up`)을 먼저 실행한다.
-playwright로 확인할 수 없는 환경이라면 그 사실을 명시하고 완료를 주장하지 않는다.
+context7(라이브러리 공식 문서 조회)·sequential-thinking(복잡한 작업 사전 설계)·playwright(브라우저 UI 검증) 사용 시점·절차는 `library-docs-lookup` 스킬 참조(관련 작업 시 자동 판단·호출).
 
 ## 작업 방식 (Claude Code에게)
 
 1. 변경 범위가 크면 코드 작성 전에 **계획을 먼저 제시**하고 확인을 받는다. (복잡한 작업은 sequential-thinking 활용)
 2. 한 번에 하나의 기능/관심사만 변경한다. 무관한 리팩터링을 섞지 않는다.
-3. 작업 후 `./gradlew test`로 검증하고, 실패 시 원인을 설명한다.
-4. 엔티티/스키마 변경 시 영향 범위(연관 엔티티, 마이그레이션 필요 여부)를 먼저 알린다.
-5. API 경로를 추가·변경할 때는 위 RESTful 규칙을 따르고, 호출하는 화면/JS 영향 범위를 함께 보고한다.
-6. 라이브러리 API가 불확실하면 context7로 확인한 뒤 작성한다 — 훈련 데이터가 오래됐을 수 있다.
-7. Thymeleaf 화면 변경 후에는 playwright로 UI를 직접 확인하고 결과를 보고한다.
-8. 비자명한 이슈를 해결했다면 `docs/troubleshooting.md`의 알맞은 카테고리에 위 형식대로 기록한다. (기준은 "문제 해결 기록" 섹션 참고)
-9. 확인되지 않거나 확실하지 않은 부분은 **추측하지 말고 질문**한다. 사용자가 결정해야 하는 트레이드오프는 선택지로 정리해 질문한다. (사용자가 매번 요청하지 않아도 항상 적용)
-10. codex 계열 도구(`/codex:review`, `/codex:adversarial-review` 등)의 출력을 사용자에게 전달할 때는 **원문 전체를 한국어로 번역**해 보여준다 — 코드 식별자·기술 용어는 원형 유지, 내용 누락·축약 금지. 요약만 제시하고 원문을 생략하지 않는다.
+3. **요청받지 않은 기능·추상화·설정 옵션을 미리 만들지 않는다. 문제를 해결하는 최소한의 코드로 구현한다.** (과도하게 복잡해 보이면 더 단순한 방법을 먼저 제시한다)
+4. 작업 후 `./gradlew test`로 검증하고, 실패 시 원인을 설명한다.
+5. 엔티티/스키마 변경 시 영향 범위(연관 엔티티, 마이그레이션 필요 여부)를 먼저 알린다.
+6. API 경로를 추가·변경할 때는 `api-conventions` 스킬의 규칙을 따르고, 호출하는 화면/JS 영향 범위를 함께 보고한다.
+7. 라이브러리 API가 불확실하면 context7로 확인한 뒤 작성한다 — 훈련 데이터가 오래됐을 수 있다.
+8. Thymeleaf 화면 변경 후에는 playwright로 UI를 직접 확인하고 결과를 보고한다.
+9. 비자명한 이슈를 해결했다면 `docs/troubleshooting.md`의 알맞은 카테고리에 기록한다. (기준은 `troubleshooting-log` 스킬 참고)
+10. 확인되지 않거나 확실하지 않은 부분은 **추측하지 말고 질문**한다. 사용자가 결정해야 하는 트레이드오프는 선택지로 정리해 질문한다. (사용자가 매번 요청하지 않아도 항상 적용)
+11. codex 계열 도구(`/codex:review`, `/codex:adversarial-review` 등)의 출력을 사용자에게 전달할 때는 **원문 전체를 한국어로 번역**해 보여준다 — 코드 식별자·기술 용어는 원형 유지, 내용 누락·축약 금지. 요약만 제시하고 원문을 생략하지 않는다.
 
 ## 주의사항 / 금지 사항
 
 (코딩 컨벤션·보안 규칙·환경 설정 섹션의 금지 규칙은 각 섹션이 원본이다. 여기에는 다른 곳에 없는 항목만 둔다.)
 
 - QueryDSL Q클래스는 환경에 따라 생성 경로가 다르다. IntelliJ IDEA에서는 `src/main/generated/`, Gradle CLI(`./gradlew compileJava`)에서는 `build/generated/sources/annotationProcessor/java/main/`에 생성된다. 두 경로 모두 빌드 산출물이므로 커밋 대상이 아니며, 코드 변경 후 `./gradlew compileJava`로 다시 생성해야 한다.
-- ~~프로필 이미지는 DB에 저장되므로 대용량 Base64 데이터가 API 응답에 포함될 수 있다.~~ → **해소됨**(2026-08-10): `FileStorage` 이관 완료로 API 응답은 짧은 다운로드 URL만 담는다. 단, 화이트리스트 밖 MIME(webp 등)으로 이관에 실패한 레거시 행은 `LEGACY_INLINE`으로 남아 예외적으로 Base64가 계속 응답에 포함된다(가용성 우선 정책, `adversarial-review/plan/PLAN-profile-image-storage.md` 참조).
+- 프로필 이미지는 `FileStorage` 이관 완료로 API 응답에 짧은 다운로드 URL만 담긴다. 단, 화이트리스트 밖 MIME(webp 등)으로 이관에 실패한 레거시 행은 `LEGACY_INLINE`으로 남아 예외적으로 Base64가 계속 응답에 포함된다(가용성 우선 정책, `adversarial-review/plan/PLAN-profile-image-storage.md` 참조).
 - 검증되지 않은 새 라이브러리/의존성은 먼저 제안한 뒤 추가한다.
