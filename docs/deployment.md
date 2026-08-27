@@ -153,6 +153,15 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 | SQL 로그(`show-sql`) | `true` | `false` |
 | 초기 관리자 계정 | `TestMemberLoader`(고정 `admin`/`1234`, 회원 0명일 때만) | `AdminBootstrapLoader`(환경변수 기반, ACTIVE ROLE_ADMIN 없을 때만) |
 
+## 무인증 공개 엔드포인트 레이트리밋
+
+`cms.rate-limit.*`(전 프로파일 공통값, `application.yml`)이 `/notices/**`·비밀번호 재설정 API를 토큰 버킷으로 방어한다. 상세 설계는 `adversarial-review/plan/PLAN-public-endpoint-rate-limit.md` 참조.
+
+- **운영 튜닝**: `CMS_RATE_LIMIT_ENABLED`(기본 `true`)로 전체를 켜고 끌 수 있다. 개별 규칙의 한도는 `application.yml`을 수정해야 한다(환경변수 인덱스 오버라이드는 지원하지 않음 — Spring Boot relaxed binding은 리스트 프로퍼티의 환경변수 오버라이드를 신뢰하기 어렵다).
+- **다중 인스턴스 배포 시 한도가 사실상 배가된다** — 각 인스턴스가 독립된 Caffeine 캐시를 가지므로, 로드밸런서 뒤에 인스턴스 N개를 두면 실질 한도는 설정값의 최대 N배가 된다(현재 단일 인스턴스 전제와 일치, `docker-compose.prod.yml` 변경 없이는 발생하지 않는 시나리오).
+- **fail-open 잔여 위험**: 캐시가 포화되는 극단적 상황(대량 IP 회전 공격 등)에서는 개별 IP의 정확한 누적치 보장이 흐트러질 수 있다 — 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단하는 최소 방어"가 목표이기 때문이다. 완전한 정확성이 필요하면 Redis 등 외부 원자적 저장소가 필요하나 이번 범위를 벗어난다.
+- nginx 리버스 프록시 도입 시 `server.forward-headers-strategy=native`를 설정하면 레이트리밋의 IP 추출(`request.getRemoteAddr()`) 코드는 변경 없이 실 클라이언트 IP를 기준으로 동작한다 — 단, nginx가 클라이언트 제공 `X-Forwarded-For`를 그대로 통과시키지 않고 자신이 관측한 실제 peer IP로 재작성해야 하고, 애플리케이션 포트(8080)에 외부에서 직접 접근할 수 없어야 한다(로드맵 "실배포 인프라" 항목 범위).
+
 ## 알려진 제약
 
 - `GET /swagger-ui.html`·`/v3/api-docs`는 springdoc 비활성 시 404가 아니라 500을 반환한다(기존 결함 — `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조). 보안 실질 피해는 없다(문서가 새는 게 아니라 그냥 500).

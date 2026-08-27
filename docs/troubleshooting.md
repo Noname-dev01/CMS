@@ -569,6 +569,51 @@ Spring Data JPA가 리포지토리 인터페이스(`MemberRepository` 등)의 �
 
 **검증**: 위 방식으로 전환 후 `ProfileImageMigrationRunnerIntegrationTest` 4개 테스트 전부 통과(`./gradlew test --tests`), 락이 실제로 두 동시 실행 중 하나만 이관을 완료하고 다른 하나는 스킵함을 로그로 확인. 관련 코드: `ProfileImageMigrationRunnerIntegrationTest.run_concurrentRunners_migratesExactlyOnce()`. 상세 설계 결정·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-profile-image-storage.md` "후속 작업 계획" 섹션 참조.
 
+### `@WebMvcTest` 슬라이스에서 레이트리밋 버킷이 테스트 메서드 간에 공유돼 실행 순서에 따라 실패한다 (2026-08-12)
+
+#### 오류 메시지
+
+```
+java.lang.AssertionError
+  Expected: 200 OK
+  Actual:   429 TOO_MANY_REQUESTS
+```
+(첫 요청부터 429가 나오거나, 반대로 소진돼야 할 요청이 계속 200으로 통과하는 등 테스트 실행 순서에 따라 증상이 달라짐)
+
+#### 원인
+
+`TokenBucketRateLimiter`(내부 Caffeine 캐시)는 `@WebMvcTest` 슬라이스 컨텍스트에서 싱글턴 Bean이고, Spring TestContext 프레임워크는 같은 테스트 클래스의 모든 `@Test` 메서드가 이 컨텍스트를 공유하게 한다. `MockMvc`가 기본으로 쓰는 원격 주소(`127.0.0.1`)를 그대로 두면, 같은 규칙을 건드리는 여러 테스트 메서드가 사실상 같은 버킷을 나눠 쓰게 되어 실행 순서(JUnit 5는 기본적으로 결정적 순서를 보장하지 않음)에 따라 테스트가 통과하거나 실패한다.
+
+#### 해결 방법
+
+`MockHttpServletRequest.setRemoteAddr(ip)`를 적용하는 `RequestPostProcessor`를 만들어 **테스트 메서드마다 서로 다른 IP**를 부여해 버킷을 격리한다.
+
+```java
+private static RequestPostProcessor from(String ip) {
+    return request -> { request.setRemoteAddr(ip); return request; };
+}
+// ...
+mockMvc.perform(get("/notices").with(from("10.10.10.1"))).andExpect(status().isOk());
+```
+
+**검증**: `RateLimitFilterTest`·`RateLimitResponseTest`·`PasswordResetControllerTest`의 레이트리밋 관련 테스트에 서로 다른 IP를 부여한 뒤 실행 순서를 바꿔도(`--tests` 단독 실행, 클래스 전체 실행 모두) 안정적으로 통과함을 확인. 관련 코드: `com.cms.config.RateLimitFilterTest`. 상세 설계는 `adversarial-review/plan/PLAN-public-endpoint-rate-limit.md` 참조.
+
+### `build.gradle`의 전역 `CMS_RATE_LIMIT_ENABLED=false`가 레이트리밋을 검증하는 슬라이스 테스트에도 적용돼 필터가 항상 통과만 한다 (2026-08-12)
+
+#### 오류 메시지
+
+증상은 "예외 없음, 그러나 기대한 429가 절대 발생하지 않고 항상 200" — 별도 오류 메시지 없이 조용히 실패(assertion만 실패).
+
+#### 원인
+
+`build.gradle`의 `test` 태스크는 같은 IP로 반복 요청하는 기존 MockMvc 테스트 수백 개의 429 회귀를 막기 위해 `environment 'CMS_RATE_LIMIT_ENABLED', 'false'`를 전역 주입한다(PLAN-public-endpoint-rate-limit.md 결정). OS 환경변수는 Spring Boot 프로퍼티 우선순위상 `application.yml`보다 높으므로, 레이트리밋 자체를 검증하려는 슬라이스 테스트에서도 이 값이 그대로 적용돼 `cms.rate-limit.enabled`가 `false`로 바인딩되고, `RateLimitFilter`는 항상 `chain.doFilter()`만 호출한다.
+
+#### 해결 방법
+
+레이트리밋 동작을 실제로 검증하는 테스트 클래스에 `@TestPropertySource(properties = "cms.rate-limit.enabled=true")`를 명시해 전역 환경변수를 오버라이드한다. IDE에서 개별 테스트를 실행하면 이 Gradle 환경변수 자체가 적용되지 않아 `application.yml` 기본값(`enabled: true`)으로 동작하는 차이가 있다는 점도 함께 유의한다 — 반대로 레이트리밋과 무관한 기존 테스트를 IDE에서 개별 실행하면 예상치 못한 429를 만날 수 있다.
+
+**검증**: `PasswordResetControllerTest`에 `@TestPropertySource`를 추가한 뒤 CSRF-레이트리밋 순서 검증 테스트(운영 설정 `capacity=5` 그대로 사용)가 안정적으로 통과함을 확인. 관련 코드: `com.cms.admin.member.controller.PasswordResetControllerTest`.
+
 ---
 
 # 정리

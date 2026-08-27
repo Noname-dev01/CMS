@@ -40,6 +40,12 @@ public class CustomErrorController implements ErrorController {
                 }
                 modelAndView.addObject("timestamp", new java.util.Date());
                 modelAndView.addObject("path", requestURI);
+            } else if (statusCode == 429) {
+                // 레이트리밋 초과(RateLimitFilter의 sendError(429)) — 429가 걸리는 경로는 전부
+                // 무인증 공개 경로(/notices/**)라 admin 전용 429는 두지 않는다.
+                modelAndView.setViewName("error/429");
+                modelAndView.addObject("timestamp", new java.util.Date());
+                modelAndView.addObject("path", requestURI);
             }
         }
 

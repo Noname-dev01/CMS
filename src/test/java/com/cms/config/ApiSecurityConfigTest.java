@@ -7,6 +7,7 @@ import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.LoginFailureService;
 import com.cms.config.auth.PasswordExpiryService;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
+import com.cms.config.ratelimit.RateLimitFilterConfig;
 import com.cms.support.TestStubController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = AdminApiTestController.class)
 @Import({
         SecurityConfig.class,
+        RateLimitFilterConfig.class,
         ApiSecurityConfigTest.MockConfig.class
 })
 @ActiveProfiles({"test", "webmvc-test"})

@@ -64,3 +64,35 @@ springdoc:
     operationsSorter: alpha
     tagsSorter: alpha
     withCredentials: true
+
+cms:
+  rate-limit:
+    # 무인증 공개 엔드포인트(/notices/**, 비밀번호 재설정 API)의 최소 방어 —
+    # 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단"하는 목적이다.
+    # "N회/기간"은 버스트 상한 N + 평균 N/기간을 뜻한다(PLAN-public-endpoint-rate-limit.md 쟁점 2).
+    # 캐시(maxKeys) 포화 시 개별 IP의 정확한 누적치 보장이 흐트러질 수 있음을 fail-open으로
+    # 명시 수용한다(쟁점 3) — Caffeine 도입 배경은 계획 문서 참조.
+    enabled: true
+    max-keys: 10000
+    rules:
+      # attachment가 public-notice보다 먼저 평가돼야 더 엄격한 한도가 우선 적용된다(쟁점 8).
+      - id: attachment
+        pattern: /notices/*/attachments/*
+        methods: [GET, HEAD]
+        capacity: 20
+        refill-period-seconds: 60
+      - id: public-notice
+        pattern: /notices/**
+        methods: [GET, HEAD]
+        capacity: 120
+        refill-period-seconds: 60
+      - id: reset-request
+        pattern: /admin/api/password-reset-requests
+        methods: [POST]
+        capacity: 5
+        refill-period-seconds: 3600
+      - id: reset-confirm
+        pattern: /admin/api/password-resets
+        methods: [POST]
+        capacity: 20
+        refill-period-seconds: 3600

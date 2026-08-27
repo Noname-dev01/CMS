@@ -82,6 +82,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 - 메서드 레벨 보안: `MethodSecurityConfig`에서 활성화
 - 비밀번호는 항상 `PasswordEncoder`로 인코딩하며 평문 저장 금지.
 - **인가 정책(URL 권한, 로그인 정책)은 사전 협의 없이 변경하지 않는다.** 변경이 필요하면 먼저 제안한다.
+- **무인증 공개 엔드포인트 레이트리밋** (`cms.rate-limit.*`, `com.cms.config.ratelimit`, 2026-08-12 도입): `/notices/**`(GET·HEAD)·비밀번호 재설정 API 2종(POST)에 토큰 버킷 기반 최소 방어를 적용한다. "N회/기간"은 버스트 상한 N + 평균 N/기간을 뜻하며(엄격한 슬라이딩 상한 아님), 정확한 유량 계약을 보장하는 게이트웨이가 아니다. 저장소는 Caffeine(`maximumSize` + 버킷별 `Expiry`)이며, **fail-open을 운영 위험으로 명시 수용**한다 — 캐시가 포화되는 극단적 상황(대량 IP 회전 공격 등)에서는 개별 IP의 정확한 누적치 보장이 흐트러질 수 있다(메모리 상한·무제한 신규 키 수용·IP별 완벽한 정확성을 동시에 요구하려면 Redis 같은 외부 원자적 저장소가 필요하나 이번 범위·인프라 제약을 벗어나 기각). 필터는 `CsrfFilter` **다음**에 위치한다 — CSRF 검증 실패 요청이 quota를 소비하면 외부 사이트가 피해자 브라우저로 토큰 없는 form POST를 반복시켜 피해자 IP의 quota를 고갈시키는 교차 사이트 공격이 가능해지기 때문이다. 키는 `request.getRemoteAddr()` 고정(`X-Forwarded-For` 등은 위조 가능해 미사용). 상세 설계·리뷰 이력은 `adversarial-review/plan/PLAN-public-endpoint-rate-limit.md` 참조.
 
 ## 핵심 도메인 모델
 
