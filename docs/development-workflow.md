@@ -27,7 +27,7 @@
   리뷰 대상으로 쓴다 (`plan/README.md` 인덱스에서 확인).
   (구형 명명 `adversarial-review/<기능>-plan.md`는 2026-07-14 폐기 — 기존 파일은 그대로 두되
   신규 계획은 `plan/PLAN-*.md`로 작성한다.)
-- 리뷰 절차의 원본은 **`.claude/skills/plan-review-loop/SKILL.md`**다 — 에이전트가 codex CLI를
+- 리뷰 절차의 원본은 **전역 스킬 `~/.claude/skills/plan-review-loop/SKILL.md`**다 (2026-08-27 프로젝트 로컬에서 전역으로 이동 — 다른 프로젝트에서도 재사용). 에이전트가 codex CLI를
   직접 비대화형으로 호출한다 (계획 문서 **전문을 프롬프트에 포함**, 실패 시 1회 재시도 후
   자체 적대적 리뷰로 폴백·출처 명시). 사용자에게 `/codex:adversarial-review` 실행을
   요청하던 구방식(2026-07-12 이전)은 폐기됐다.
