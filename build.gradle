@@ -33,6 +33,10 @@ dependencies {
     implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.14'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // 무인증 공개 엔드포인트 레이트리밋(cms.rate-limit) — bounded 캐시 + 버킷별 만료 관리 위임.
+    // 버전은 Spring Boot BOM 관리(PLAN-public-endpoint-rate-limit.md 참조 — 자체 구현 admission/sweep이
+    // 3라운드 연속 동시성 결함을 낸 것을 근거로 도입 결정).
+    implementation 'com.github.ben-manes.caffeine:caffeine'
     // Flyway (버전은 Boot BOM 관리. MariaDB 지원은 flyway-mysql 모듈에 포함 — Flyway 10부터 DB별 모듈 분리)
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-mysql'
@@ -59,6 +63,13 @@ tasks.named('test') {
     // 바뀌어(PLAN-prod-profile.md 결정 1) 프로파일 미지정 기동이 fail-fast하므로,
     // 로컬 실행도 CI(.github/workflows/ci.yml)와 동일하게 dev를 명시한다.
     environment 'SPRING_PROFILES_ACTIVE', 'dev'
+    // 레이트리밋 필터를 비활성화한다 — 같은 IP(로컬 테스트 클라이언트)로 반복 요청하는 기존
+    // MockMvc 테스트가 많아, 활성화 상태로 두면 대량 429 회귀가 발생한다. 레이트리밋 자체를
+    // 검증하는 테스트만 @TestPropertySource(properties = "cms.rate-limit.enabled=true")로
+    // 개별 오버라이드한다(PLAN-public-endpoint-rate-limit.md). IDE에서 개별 테스트를 실행하면
+    // 이 환경변수가 적용되지 않아 기본값(application.yml의 enabled: true)으로 동작하는 차이가
+    // 있다 — docs/troubleshooting.md 참조.
+    environment 'CMS_RATE_LIMIT_ENABLED', 'false'
     // MariaDbContainerSupport는 static 필드로 컨테이너를 시작하는 진짜 싱글턴이다 —
     // "테스트 JVM(워커)당 컨테이너 1개"라는 계약이 성립하려면 프로세스가 여러 개
     // 뜨거나 하나의 프로세스가 순차적으로 재기동되지 않아야 한다. maxParallelForks는

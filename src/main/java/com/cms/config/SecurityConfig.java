@@ -2,6 +2,7 @@ package com.cms.config;
 
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
+import com.cms.config.ratelimit.RateLimitFilter;
 import com.cms.config.security.AdminSessionExpiredStrategy;
 import com.cms.config.security.ApiAccessDeniedHandler;
 import com.cms.config.security.ApiAuthenticationEntryPoint;
@@ -23,6 +24,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 
 @Configuration
@@ -40,7 +42,8 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            VisitLoggingAuthenticationSuccessHandler successHandler,
                                            LockingAuthenticationFailureHandler failureHandler,
-                                           SessionRegistry sessionRegistry) throws Exception {
+                                           SessionRegistry sessionRegistry,
+                                           RateLimitFilter rateLimitFilter) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> auth
                         .requestMatchers("/admin/login", "/admin/login-error").permitAll()
@@ -112,7 +115,12 @@ public class SecurityConfig {
                                 DEFAULT_ACCESS_DENIED_HANDLER.handle(request, response, accessDeniedException);
                             }
                         })
-                );
+                )
+                // 무인증 공개 엔드포인트 레이트리밋. CsrfFilter *다음*에 둔다 — CSRF 검증에 실패해
+                // 컨트롤러까지 도달하지 못하는 요청까지 quota를 소비시키면, 외부 사이트가 피해자
+                // 브라우저로 토큰 없는 form POST를 반복시켜 피해자 IP의 quota를 고갈시키는 교차
+                // 사이트 공격이 가능해진다(PLAN-public-endpoint-rate-limit.md 쟁점 4).
+                .addFilterAfter(rateLimitFilter, CsrfFilter.class);
         return http.build();
     }
 

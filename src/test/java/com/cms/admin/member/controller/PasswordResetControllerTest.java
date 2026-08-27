@@ -8,6 +8,7 @@ import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.config.SecurityConfig;
+import com.cms.config.ratelimit.RateLimitFilterConfig;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.LoginFailureService;
@@ -24,6 +25,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.containsString;
@@ -48,10 +50,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = {PasswordResetController.class, AdminMainController.class})
 @Import({
         SecurityConfig.class,
+        RateLimitFilterConfig.class,
         PasswordResetControllerTest.MockConfig.class,
         GlobalApiExceptionHandler.class
 })
 @ActiveProfiles({"test", "webmvc-test"})
+// build.gradle의 test 태스크가 전역으로 CMS_RATE_LIMIT_ENABLED=false를 주입하므로,
+// 레이트리밋(CsrfFilter 순서) 실증 테스트를 위해 이 슬라이스에서만 명시 활성화한다 —
+// 운영 규칙(reset-request capacity=5/3600초)을 application.yml 그대로 사용한다.
+@TestPropertySource(properties = "cms.rate-limit.enabled=true")
 class PasswordResetControllerTest {
 
     private static final String VALID_TOKEN = "0123456789abcdef".repeat(4); // 64자 hex
@@ -188,6 +195,66 @@ class PasswordResetControllerTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
 
         verifyNoInteractions(passwordResetService);
+    }
+
+    // ==================== 레이트리밋(RateLimitFilter) — CsrfFilter 순서 실증 ====================
+    // (PLAN-public-endpoint-rate-limit.md 쟁점 4, codex 9라운드 지적) RateLimitFilter가
+    // CsrfFilter 다음에 있어야 CSRF 검증 실패 요청이 quota를 소비하지 않는다 — 그렇지 않으면
+    // 외부 사이트가 피해자 브라우저로 토큰 없는 form POST를 반복시켜 피해자 IP의 비밀번호
+    // 재설정 quota(운영 설정: 5회/3600초)를 고갈시키는 교차 사이트 공격이 가능해진다.
+    // application.yml의 실제 운영 규칙(reset-request, capacity=5)을 그대로 사용해 검증한다 —
+    // 다른 테스트 메서드와 슬라이스 컨텍스트(TokenBucketRateLimiter 싱글턴)를 공유하므로
+    // remoteAddr을 이 테스트 전용 IP로 격리한다.
+
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor from(String ip) {
+        return request -> {
+            request.setRemoteAddr(ip);
+            return request;
+        };
+    }
+
+    @Test
+    @DisplayName("CSRF 토큰 없는 POST를 5회(운영 capacity)보다 많이 반복해도 quota가 소비되지 않는다 (전부 JSON 401)")
+    void requestReset_repeatedCsrfFailures_doNotConsumeRateLimitQuota() throws Exception {
+        var ip = from("40.40.40.1");
+        for (int i = 0; i < 8; i++) { // 운영 capacity(5)보다 많은 8회 반복
+            mockMvc.perform(post("/admin/api/password-reset-requests")
+                            .with(ip)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"email\":\"admin@test.com\"}"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        }
+        verifyNoInteractions(passwordResetService);
+    }
+
+    @Test
+    @DisplayName("CSRF 실패가 quota를 소비하지 않았으므로, 이어서 유효한 CSRF로 운영 capacity(5)회 전부 통과하고 6회째 429")
+    void requestReset_afterCsrfFailures_validCsrfStillHasFullQuota() throws Exception {
+        var ip = from("40.40.40.2");
+        for (int i = 0; i < 8; i++) {
+            mockMvc.perform(post("/admin/api/password-reset-requests")
+                            .with(ip)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"email\":\"admin@test.com\"}"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(post("/admin/api/password-reset-requests")
+                            .with(ip)
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"email\":\"admin@test.com\"}"))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(post("/admin/api/password-reset-requests")
+                        .with(ip)
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@test.com\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"));
     }
 
     // ==================== 재설정 실행 API ====================
