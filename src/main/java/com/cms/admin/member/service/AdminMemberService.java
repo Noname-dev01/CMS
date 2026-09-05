@@ -142,9 +142,23 @@ public class AdminMemberService {
         return toResponse(member, ProfileImageVisibility.SELF);
     }
 
+    /**
+     * 내 정보(이름·이메일) 수정.
+     *
+     * <p>행 잠금 조회 — 이메일 변경 시 {@link Member#updateInfo}가 재설정 토큰을 클리어하는데,
+     * 잠금 없는 조회를 쓰면 {@code PasswordResetService.issueToken}(옛 이메일 대상, {@code
+     * findByEmailForUpdate})과 경합해 다음 순서로 토큰이 유출될 수 있었다: ① 이 메서드가 오래된
+     * 스냅샷(토큰=null)을 읽는다 → ② 재설정 요청이 옛 이메일로 토큰을 발급·커밋한다 → ③ 이
+     * 메서드가 오래된 스냅샷 기준으로 토큰에 다시 null을 대입한다(null→null) → ④ {@code
+     * @DynamicUpdate} 더티체킹이 변경 없음으로 판단해 토큰 컬럼을 UPDATE에서 제외한다 → 옛
+     * 이메일로 발급된 토큰이 새 이메일과 함께 DB에 남는다. {@code updateAdminMember}·{@code
+     * changeMyPassword} 등 이 클래스의 다른 모든 쓰기 메서드가 이미 쓰는 패턴과 동일하게
+     * {@code findByIdForUpdate}로 전환해, 경합 시 후행 트랜잭션이 항상 최신 커밋값을 읽도록
+     * 한다(adversarial-review/plan/PLAN-member-self-update-row-lock.md 참조).
+     */
     @Transactional
     public AdminMemberResponse updateMyInfo(Long adminId, AdminMyInfoUpdateRequest request) {
-        Member member = memberRepository.findById(adminId)
+        Member member = memberRepository.findByIdForUpdate(adminId)
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         String normalizedUserName = normalizeUserName(request.getUserName());
