@@ -14,7 +14,7 @@ description: 8단계 워크플로우(정찰→설계→적대적리뷰→승인�
 3. **[적대적 리뷰]** 설계 결과를 adversarial-review/plan/PLAN-<기능>.md로 저장한 뒤
    (해당 작업의 계획서가 adversarial-review/plan/에 **이미 있으면 새로 만들지 말고 그 문서를
    갱신해 리뷰 대상으로 사용**해줘 — plan/README.md 인덱스에서 확인),
-   `plan-review-loop` 스킬(.claude/skills/plan-review-loop/SKILL.md)의 라운드 절차를 그대로 수행해줘 —
+   `plan-review-loop` 스킬(전역 스킬, ~/.claude/skills/plan-review-loop/SKILL.md)의 라운드 절차를 그대로 수행해줘 —
    codex CLI 직접 호출(계획 문서 전문 포함, 실패 시 1회 재시도 후 자체 리뷰 폴백) →
    리뷰 원문 전체를 한국어로 표시 → 지적별 트리아지(수용/반박/결정 필요) →
    계획 반영 + 개정 이력("vN 변경: ..." 형식, 기각 사유 포함) → ship 판정까지 라운드 반복.
