@@ -48,6 +48,7 @@ import javax.imageio.ImageIO;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
@@ -302,7 +303,7 @@ class AdminMemberServiceTest {
                 .email("ADMIN02@TEST.COM ")
                 .build();
 
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(memberRepository.findByEmail("admin02@test.com")).willReturn(Optional.empty());
 
         AdminMemberResponse response = adminMemberService.updateMyInfo(1L, request);
@@ -312,6 +313,10 @@ class AdminMemberServiceTest {
         assertNotNull(response.getUpdateDate());
         assertTrue(!response.getUpdateDate().isBefore(previousUpdateDate));
         verify(memberRepository).findByEmail("admin02@test.com");
+        // 호출 계약 고정 — 감사 H-02(adversarial-review/plan/PLAN-member-self-update-row-lock.md):
+        // 이메일 변경과 비밀번호 재설정 토큰 발급의 경합을 막으려면 반드시 행 잠금 조회를 써야 한다.
+        verify(memberRepository).findByIdForUpdate(1L);
+        verify(memberRepository, never()).findById(anyLong());
     }
 
     private Member adminMemberWithResetToken() {
@@ -339,7 +344,7 @@ class AdminMemberServiceTest {
                 .email("changed@test.com")
                 .build();
 
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(memberRepository.findByEmail("changed@test.com")).willReturn(Optional.empty());
 
         adminMemberService.updateMyInfo(1L, request);
@@ -357,7 +362,7 @@ class AdminMemberServiceTest {
                 .email("admin01@test.com")
                 .build();
 
-        given(memberRepository.findById(1L)).willReturn(Optional.of(member));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         // 본인 소유 이메일 → 중복 검증 통과
         given(memberRepository.findByEmail("admin01@test.com")).willReturn(Optional.of(member));
 
@@ -764,7 +769,7 @@ class AdminMemberServiceTest {
                 .email("dup@test.com")
                 .build();
 
-        given(memberRepository.findById(1L)).willReturn(Optional.of(currentMember));
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(currentMember));
         given(memberRepository.findByEmail("dup@test.com")).willReturn(Optional.of(duplicatedMember));
 
         DuplicateResourceException exception = assertThrows(DuplicateResourceException.class,
