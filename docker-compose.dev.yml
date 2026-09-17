@@ -27,6 +27,10 @@ services:
     restart: unless-stopped
     env_file: .env.dev
     environment:
+      # .env.dev의 DB_URL(localhost:3307)은 호스트에서 bootRun할 때 쓰는 값이라
+      # 컨테이너 안에서는 자기 자신(localhost)을 가리켜 db 서비스에 연결할 수 없다.
+      # 컨테이너 내부 네트워크에서는 서비스명(db:3306)으로 오버라이드해야 한다.
+      DB_URL: jdbc:mariadb://db:3306/${MYSQL_DATABASE}
       # 컨테이너 전용 절대경로 — application.yml의 기본값(./data/attachments)을 오버라이드한다.
       # named volume 마운트 지점과 동일해야 한다(PLAN-notice-attachment.md 쟁점 10).
       APP_FILE_STORAGE_ROOT: /app/data/attachments

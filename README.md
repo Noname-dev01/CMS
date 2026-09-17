@@ -1,7 +1,7 @@
 # CMS (Content Management System)
 
 ![Java](https://img.shields.io/badge/Java-17-blue)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4-brightgreen)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen)
 ![Spring Security](https://img.shields.io/badge/Spring%20Security-6-green)
 ![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-Hibernate%206-yellowgreen)
 ![Thymeleaf](https://img.shields.io/badge/Thymeleaf-Template-darkgreen)
@@ -16,7 +16,24 @@ Docker를 활용하여 개발 환경과 통합 실행 환경을 분리하였으�
 Spring Security 및 Swagger 문서화를 적용했습니다.
 
 소스 코드와 문서는 UTF-8 인코딩을 기준으로 작성합니다. 에디터 설정은 루트의 `.editorconfig`를 따릅니다.
+
 ---
+
+## ✨ 주요 기능
+
+단순 CRUD를 넘어 운영 환경에서 요구되는 인증/인가·동시성·감사·복구 요소까지 구현했습니다.
+
+- **인증/인가**: 세션 기반 로그인, Role(ADMIN/MANAGER) 기반 URL·메서드 이중 접근 제어, 로그인 5회 연속 실패 시 자동 잠금(30분), 비밀번호 90일 만료
+- **세션 보안**: 타 관리자가 대상 계정의 상태·권한을 실제로 변경하면 대상자 세션을 강제 만료 처리(이벤트 기반 best-effort, 커밋 이후 발동)
+- **CSRF·레이트리밋**: 전 경로 CSRF 보호 + 무인증 공개 엔드포인트(공지 조회, 비밀번호 재설정 요청)에 토큰 버킷 기반 레이트리밋 적용
+- **감사 로그**: `@AdminActionLogged` AOP로 관리자 행위를 자동 기록하며, 원 트랜잭션이 롤백돼도 별도 트랜잭션(REQUIRES_NEW)으로 로그는 보존
+- **동시성 제어**: 회원·메뉴·공지·비밀번호 재설정에 낙관적/비관적 락을 적용해 동시 수정 충돌을 방지 (마지막 활성 ADMIN 계정 보호 가드 포함)
+- **파일 스토리지**: 공지 첨부파일과 회원 프로필 이미지를 DB Base64 저장에서 디스크 기반 파일 스토리지로 이관
+- **대시보드**: 통계 카드 4종 + 최근 7일 방문자 추이 차트(KST 단일 시간원 기준 집계)
+- **운영 지원**: prod 프로파일 DB/파일 백업·복구 스크립트(`make prod-backup`), Flyway 기반 스키마 버전 관리
+
+---
+
 ## 🛠 문제 해결 기록 (Troubleshooting)
 
 프로젝트 개발 과정에서 발생한 주요 이슈와 해결 방법을 정리했습니다.
@@ -159,10 +176,14 @@ make logs-prod   # prod 로그
 
 ## Security
 
-- `/admin/**` 경로 보호
-- Role 기반 접근 제어
-- Custom Login Page 적용
-- Spring Security Filter Chain 구성
+- `/admin/**`, `/admin/api/**` 경로별 접근 제어 (승인 이력은 `com.cms.config`의 `CLAUDE.md` 참고)
+- Role(ADMIN/MANAGER) 기반 URL·메서드(`@PreAuthorize`) 이중 접근 제어
+- Custom Login Page + 로그인 실패 자동 잠금(5회/30분) + 비밀번호 90일 만료
+- CSRF 전 경로 적용, `X-CSRF-TOKEN` 헤더 기반 상태 변경 요청 검증
+- 세션 등록·강제 만료(`SessionRegistry` + 이벤트 기반 revoke)
+- 무인증 공개 엔드포인트(공지 조회, 비밀번호 재설정) 토큰 버킷 레이트리밋
+- actuator는 `/actuator/health`만 공개, 그 외 전부 차단(설정+Security 이중 방어)
+- 비밀번호 BCrypt 인코딩, 비밀번호 재설정 토큰 해시(SHA-256) 저장
 
 ---
 
