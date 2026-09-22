@@ -34,6 +34,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -81,9 +82,9 @@ class AdminBootstrapLoaderTest {
     void noActiveAdmin_validCredentials_createsAdmin() {
         given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
         given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
-        given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("bootpass1!");
+        given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("BootPass1234567!");
         given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("boot@example.com");
-        given(passwordEncoder.encode("bootpass1!")).willReturn("{bcrypt}encoded");
+        given(passwordEncoder.encode("BootPass1234567!")).willReturn("{bcrypt}encoded");
 
         loader.run();
 
@@ -96,6 +97,36 @@ class AdminBootstrapLoaderTest {
         assertThat(saved.getPwd()).isEqualTo("{bcrypt}encoded");
         assertThat(saved.getUserType()).isEqualTo(Role.ROLE_ADMIN);
         assertThat(saved.getStatus()).isEqualTo(MemberStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("ACTIVE ROLE_ADMIN이 없고 이메일 대소문자가 섞여도 정규화되어 저장된다")
+    void noActiveAdmin_mixedCaseEmail_normalizesBeforeSaving() {
+        given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
+        given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
+        given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("BootPass1234567!");
+        given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("BOOT@EXAMPLE.COM");
+        given(passwordEncoder.encode("BootPass1234567!")).willReturn("{bcrypt}encoded");
+
+        loader.run();
+
+        ArgumentCaptor<Member> captor = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getEmail()).isEqualTo("boot@example.com");
+    }
+
+    @Test
+    @DisplayName("비밀번호가 73바이트를 초과하면 인코더·저장소를 호출하지 않고 기동 실패")
+    void noActiveAdmin_passwordOver72Bytes_throwsWithoutEncodingOrSaving() {
+        given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
+        given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
+        given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("a".repeat(73));
+        given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("boot@example.com");
+
+        assertThatIllegalStateException().isThrownBy(() -> loader.run());
+
+        verify(memberRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(passwordEncoder);
     }
 
     @Test
@@ -130,7 +161,7 @@ class AdminBootstrapLoaderTest {
     void noActiveAdmin_invalidCredentials_throwsWithoutLeakingValue() {
         given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
         given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
-        given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("abc"); // 4자 미만
+        given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("abc"); // 14자 이하(최소 15코드포인트 미달)
         given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("not-an-email");
 
         assertThatIllegalStateException()

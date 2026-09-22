@@ -4,6 +4,7 @@ import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
+import com.cms.admin.member.service.EmailNormalizer;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
@@ -105,7 +106,7 @@ public class AdminBootstrapLoader implements CommandLineRunner {
                 memberRepository.saveAndFlush(Member.builder()
                         .userId(credentials.getUserId())
                         .userName(credentials.getUserId())
-                        .email(credentials.getEmail())
+                        .email(EmailNormalizer.normalize(credentials.getEmail()))
                         .pwd(passwordEncoder.encode(credentials.getPassword()))
                         .userType(Role.ROLE_ADMIN)
                         .status(MemberStatus.ACTIVE)

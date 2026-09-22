@@ -30,7 +30,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -106,7 +105,7 @@ public class PasswordResetService {
      * @param clientIp 참고 로그 전용 — 공개 엔드포인트라 위조 가능하므로 보안 판단 근거로 쓰지 않는다
      */
     public void requestReset(String email, String clientIp) {
-        String normalizedEmail = normalizeEmail(email);
+        String normalizedEmail = EmailNormalizer.normalize(email);
         log.info("비밀번호 재설정 요청 수신 email={}, ip={}", maskEmail(normalizedEmail), clientIp);
 
         Optional<IssueResult> issued;
@@ -301,14 +300,6 @@ public class PasswordResetService {
     private String buildResetLink(String plainToken) {
         // fragment는 서버로 전송되지 않아 access log·프록시 로그·Referer에 토큰이 남지 않는다
         return baseUrl + "/admin/password-reset/confirm#token=" + plainToken;
-    }
-
-    /**
-     * AdminMemberService.normalizeEmail()과 동일 규칙(private라 복제).
-     * 기본 Locale의 대소문자 규칙(터키어 I/i 등)에 의존하지 않도록 Locale.ROOT 고정.
-     */
-    private String normalizeEmail(String email) {
-        return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
     }
 
     private String maskEmail(String email) {
