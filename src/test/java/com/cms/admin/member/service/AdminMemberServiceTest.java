@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -193,6 +194,31 @@ class AdminMemberServiceTest {
         DuplicateResourceException exception = assertThrows(DuplicateResourceException.class, () -> adminMemberService.createAdmin(req));
 
         assertEquals("이미 사용 중인 이메일입니다.", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("계정 생성 시 이메일 대소문자를 정규화한 뒤 중복 검사·저장한다")
+    void createAdmin_normalizesEmailCaseBeforeDuplicateCheckAndSave() {
+        AdminSignupRequest req = AdminSignupRequest.builder()
+                .userId("admin01")
+                .pwd("Admin1234567890!")
+                .userName("홍길동")
+                .email("Admin01@Test.com")
+                .userType(Role.ROLE_ADMIN)
+                .build();
+
+        given(memberRepository.existsByUserId(req.getUserId())).willReturn(false);
+        given(memberRepository.existsByEmail("admin01@test.com")).willReturn(false);
+        given(passwordEncoder.encode(req.getPwd())).willReturn("encodedPassword");
+        given(memberRepository.save(any(Member.class))).willReturn(adminMember());
+
+        adminMemberService.createAdmin(req);
+
+        verify(memberRepository).existsByEmail("admin01@test.com");
+
+        ArgumentCaptor<Member> captor = ArgumentCaptor.forClass(Member.class);
+        verify(memberRepository).save(captor.capture());
+        assertEquals("admin01@test.com", captor.getValue().getEmail());
     }
 
     @Test

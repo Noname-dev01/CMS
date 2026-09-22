@@ -105,7 +105,7 @@ class AdminMemberControllerTest {
     private AdminSignupRequest request() {
         return AdminSignupRequest.builder()
                 .userId("admin01")
-                .pwd("Admin1234!")
+                .pwd("Admin1234567890!")
                 .userName("홍길동")
                 .email("admin@test.com")
                 .userType(Role.ROLE_ADMIN)
@@ -168,7 +168,7 @@ class AdminMemberControllerTest {
     void createAdmin_validation_fail() throws Exception {
         AdminSignupRequest badRequest = AdminSignupRequest.builder()
                 .userId("")
-                .pwd("Admin1234!")
+                .pwd("Admin1234567890!")
                 .userName("홍길동")
                 .email("admin01@test.com")
                 .userType(Role.ROLE_ADMIN)
@@ -180,6 +180,116 @@ class AdminMemberControllerTest {
                     .content(objectMapper.writeValueAsString(badRequest)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    @DisplayName("비밀번호가 14코드포인트면 400 + 서비스 미호출")
+    @WithMockUser(roles = "ADMIN")
+    void createAdmin_password14CodePoints_returns400AndSkipsService() throws Exception {
+        AdminSignupRequest badRequest = AdminSignupRequest.builder()
+                .userId("admin01")
+                .pwd("a".repeat(14))
+                .userName("홍길동")
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/admin/api/members")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("비밀번호가 ASCII 73바이트면 400 + 서비스 미호출")
+    @WithMockUser(roles = "ADMIN")
+    void createAdmin_password73Bytes_returns400AndSkipsService() throws Exception {
+        AdminSignupRequest badRequest = AdminSignupRequest.builder()
+                .userId("admin01")
+                .pwd("a".repeat(73))
+                .userName("홍길동")
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/admin/api/members")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("userId가 51자면 400 + 서비스 미호출")
+    @WithMockUser(roles = "ADMIN")
+    void createAdmin_userId51Chars_returns400AndSkipsService() throws Exception {
+        AdminSignupRequest badRequest = AdminSignupRequest.builder()
+                .userId("a".repeat(51))
+                .pwd("Admin1234567890!")
+                .userName("홍길동")
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/admin/api/members")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("userName이 101자면 400 + 서비스 미호출")
+    @WithMockUser(roles = "ADMIN")
+    void createAdmin_userName101Chars_returns400AndSkipsService() throws Exception {
+        AdminSignupRequest badRequest = AdminSignupRequest.builder()
+                .userId("admin01")
+                .pwd("Admin1234567890!")
+                .userName("a".repeat(101))
+                .email("admin01@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/admin/api/members")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("email이 101자면 400 + 서비스 미호출")
+    @WithMockUser(roles = "ADMIN")
+    void createAdmin_email101Chars_returns400AndSkipsService() throws Exception {
+        AdminSignupRequest badRequest = AdminSignupRequest.builder()
+                .userId("admin01")
+                .pwd("Admin1234567890!")
+                .userName("홍길동")
+                .email("a".repeat(92) + "@test.com")
+                .userType(Role.ROLE_ADMIN)
+                .build();
+
+        mockMvc.perform(post("/admin/api/members")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
     }
 
     @Test
@@ -239,7 +349,7 @@ class AdminMemberControllerTest {
     void createAdmin_userType_roleUser_returns400() throws Exception {
         AdminSignupRequest roleUserRequest = AdminSignupRequest.builder()
                 .userId("admin01")
-                .pwd("Admin1234!")
+                .pwd("Admin1234567890!")
                 .userName("홍길동")
                 .email("admin@test.com")
                 .userType(Role.ROLE_USER)
@@ -261,7 +371,7 @@ class AdminMemberControllerTest {
     void createAdmin_userType_roleManager_returns201() throws Exception {
         AdminSignupRequest roleManagerRequest = AdminSignupRequest.builder()
                 .userId("manager01")
-                .pwd("Manager1234!")
+                .pwd("Manager1234567890!")
                 .userName("김매니저")
                 .email("manager01@test.com")
                 .userType(Role.ROLE_MANAGER)
@@ -710,9 +820,9 @@ class AdminMemberControllerTest {
     @WithMockUser(roles = "ADMIN")
     void changeMyPassword_success() throws Exception {
         AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
-                .currentPassword("Admin1234!")
-                .newPassword("NewAdmin1234!")
-                .confirmPassword("NewAdmin1234!")
+                .currentPassword("Admin1234567890!")
+                .newPassword("NewAdmin1234567890!")
+                .confirmPassword("NewAdmin1234567890!")
                 .build();
 
         given(adminMemberService.changeMyPassword(anyLong(), any())).willReturn(adminMemberResponse());
@@ -737,8 +847,48 @@ class AdminMemberControllerTest {
     void changeMyPassword_validationFail() throws Exception {
         AdminMyPasswordChangeRequest badRequest = AdminMyPasswordChangeRequest.builder()
                 .currentPassword("")
-                .newPassword("NewAdmin1234!")
-                .confirmPassword("NewAdmin1234!")
+                .newPassword("NewAdmin1234567890!")
+                .confirmPassword("NewAdmin1234567890!")
+                .build();
+
+        mockMvc.perform(patch("/admin/api/members/me/password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("새 비밀번호가 14코드포인트면 400 + 서비스 미호출")
+    @WithMockUser(roles = "ADMIN")
+    void changeMyPassword_newPassword14CodePoints_returns400AndSkipsService() throws Exception {
+        AdminMyPasswordChangeRequest badRequest = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234567890!")
+                .newPassword("a".repeat(14))
+                .confirmPassword("a".repeat(14))
+                .build();
+
+        mockMvc.perform(patch("/admin/api/members/me/password")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(badRequest)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @DisplayName("새 비밀번호가 ASCII 73바이트면 400 + 서비스 미호출")
+    @WithMockUser(roles = "ADMIN")
+    void changeMyPassword_newPassword73Bytes_returns400AndSkipsService() throws Exception {
+        AdminMyPasswordChangeRequest badRequest = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234567890!")
+                .newPassword("a".repeat(73))
+                .confirmPassword("a".repeat(73))
                 .build();
 
         mockMvc.perform(patch("/admin/api/members/me/password")
@@ -757,8 +907,8 @@ class AdminMemberControllerTest {
     void changeMyPassword_wrongPassword() throws Exception {
         AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
                 .currentPassword("WrongPassword!")
-                .newPassword("NewAdmin1234!")
-                .confirmPassword("NewAdmin1234!")
+                .newPassword("NewAdmin1234567890!")
+                .confirmPassword("NewAdmin1234567890!")
                 .build();
 
         given(adminMemberService.changeMyPassword(anyLong(), any()))
@@ -780,9 +930,9 @@ class AdminMemberControllerTest {
     @WithMockUser(roles = "ADMIN")
     void changeMyPassword_memberNotFound() throws Exception {
         AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
-                .currentPassword("Admin1234!")
-                .newPassword("NewAdmin1234!")
-                .confirmPassword("NewAdmin1234!")
+                .currentPassword("Admin1234567890!")
+                .newPassword("NewAdmin1234567890!")
+                .confirmPassword("NewAdmin1234567890!")
                 .build();
 
         given(adminMemberService.changeMyPassword(anyLong(), any()))
@@ -802,9 +952,9 @@ class AdminMemberControllerTest {
     @WithMockUser(roles = "USER")
     void changeMyPassword_forbidden() throws Exception {
         AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
-                .currentPassword("Admin1234!")
-                .newPassword("NewAdmin1234!")
-                .confirmPassword("NewAdmin1234!")
+                .currentPassword("Admin1234567890!")
+                .newPassword("NewAdmin1234567890!")
+                .confirmPassword("NewAdmin1234567890!")
                 .build();
 
         mockMvc.perform(patch("/admin/api/members/me/password")
@@ -895,9 +1045,9 @@ class AdminMemberControllerTest {
         given(adminMemberService.changeMyPassword(anyLong(), any())).willReturn(adminMemberResponse());
 
         AdminMyPasswordChangeRequest pwdRequest = AdminMyPasswordChangeRequest.builder()
-                .currentPassword("Admin1234!")
-                .newPassword("NewAdmin1234!")
-                .confirmPassword("NewAdmin1234!")
+                .currentPassword("Admin1234567890!")
+                .newPassword("NewAdmin1234567890!")
+                .confirmPassword("NewAdmin1234567890!")
                 .build();
 
         mockMvc.perform(patch("/admin/api/members/me/password")

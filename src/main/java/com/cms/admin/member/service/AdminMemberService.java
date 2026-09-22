@@ -72,8 +72,10 @@ public class AdminMemberService {
             throw new DuplicateResourceException("이미 사용 중인 아이디입니다.");
         }
 
-        if (req.getEmail() != null && !req.getEmail().isBlank()
-                && memberRepository.existsByEmail(req.getEmail())) {
+        String normalizedEmail = EmailNormalizer.normalize(req.getEmail());
+
+        if (normalizedEmail != null && !normalizedEmail.isBlank()
+                && memberRepository.existsByEmail(normalizedEmail)) {
             throw new DuplicateResourceException("이미 사용 중인 이메일입니다.");
         }
 
@@ -85,7 +87,7 @@ public class AdminMemberService {
                         .userId(req.getUserId())
                         .pwd(passwordEncoder.encode(req.getPwd()))
                         .userName(req.getUserName())
-                        .email(req.getEmail())
+                        .email(normalizedEmail)
                         .userType(req.getUserType()) // MANAGER or ADMIN
                         .status(MemberStatus.ACTIVE)
                         .createDate(now)
@@ -162,7 +164,7 @@ public class AdminMemberService {
                 .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
         String normalizedUserName = normalizeUserName(request.getUserName());
-        String normalizedEmail = normalizeEmail(request.getEmail());
+        String normalizedEmail = EmailNormalizer.normalize(request.getEmail());
 
         validateDuplicatedEmail(normalizedEmail, member.getId());
 
@@ -224,7 +226,7 @@ public class AdminMemberService {
                     : target.getUserName();
             String effectiveEmail = target.getEmail();
             if (request.getEmail() != null) {
-                effectiveEmail = normalizeEmail(request.getEmail());
+                effectiveEmail = EmailNormalizer.normalize(request.getEmail());
                 validateDuplicatedEmail(effectiveEmail, target.getId());
             }
             target.updateInfo(effectiveUserName, effectiveEmail);
@@ -412,10 +414,6 @@ public class AdminMemberService {
 
     private String normalizeUserName(String userName) {
         return userName == null ? null : userName.trim();
-    }
-
-    private String normalizeEmail(String email) {
-        return email == null ? null : email.trim().toLowerCase();
     }
 
     private void validateDuplicatedEmail(String email, Long currentMemberId) {

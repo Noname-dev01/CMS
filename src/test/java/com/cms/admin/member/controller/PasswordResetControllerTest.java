@@ -266,10 +266,10 @@ class PasswordResetControllerTest {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"" + VALID_TOKEN + "\","
-                                + "\"newPassword\":\"NewPassword1!\",\"confirmPassword\":\"NewPassword1!\"}"))
+                                + "\"newPassword\":\"NewPassword1234567!\",\"confirmPassword\":\"NewPassword1234567!\"}"))
                 .andExpect(status().isNoContent());
 
-        verify(passwordResetService).resetPassword(VALID_TOKEN, "NewPassword1!", "NewPassword1!");
+        verify(passwordResetService).resetPassword(VALID_TOKEN, "NewPassword1234567!", "NewPassword1234567!");
     }
 
     @Test
@@ -280,7 +280,7 @@ class PasswordResetControllerTest {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"" + malformed + "\","
-                                + "\"newPassword\":\"NewPassword1!\",\"confirmPassword\":\"NewPassword1!\"}"))
+                                + "\"newPassword\":\"NewPassword1234567!\",\"confirmPassword\":\"NewPassword1234567!\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
                 // rejected value(토큰)가 응답 본문에 포함되면 안 된다
@@ -299,9 +299,39 @@ class PasswordResetControllerTest {
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"" + VALID_TOKEN + "\","
-                                + "\"newPassword\":\"NewPassword1!\",\"confirmPassword\":\"NewPassword1!\"}"))
+                                + "\"newPassword\":\"NewPassword1234567!\",\"confirmPassword\":\"NewPassword1234567!\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("새 비밀번호가 14코드포인트면 400 + 서비스 미호출")
+    void resetPassword_newPassword14CodePoints_returns400AndSkipsService() throws Exception {
+        String shortPassword = "a".repeat(14);
+        mockMvc.perform(post("/admin/api/password-resets")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"" + VALID_TOKEN + "\","
+                                + "\"newPassword\":\"" + shortPassword + "\",\"confirmPassword\":\"" + shortPassword + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(passwordResetService);
+    }
+
+    @Test
+    @DisplayName("새 비밀번호가 ASCII 73바이트면 400 + 서비스 미호출")
+    void resetPassword_newPassword73Bytes_returns400AndSkipsService() throws Exception {
+        String oversizedPassword = "a".repeat(73);
+        mockMvc.perform(post("/admin/api/password-resets")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"" + VALID_TOKEN + "\","
+                                + "\"newPassword\":\"" + oversizedPassword + "\",\"confirmPassword\":\"" + oversizedPassword + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+
+        verifyNoInteractions(passwordResetService);
     }
 
     @Test
@@ -310,7 +340,7 @@ class PasswordResetControllerTest {
         mockMvc.perform(post("/admin/api/password-resets")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"" + VALID_TOKEN + "\","
-                                + "\"newPassword\":\"NewPassword1!\",\"confirmPassword\":\"NewPassword1!\"}"))
+                                + "\"newPassword\":\"NewPassword1234567!\",\"confirmPassword\":\"NewPassword1234567!\"}"))
                 .andExpect(status().isUnauthorized());
 
         verifyNoInteractions(passwordResetService);
