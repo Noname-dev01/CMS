@@ -26,10 +26,17 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
 
     /**
      * prod 초기 관리자 부트스트랩 트리거 판정 전용(단순 존재 확인 — 잠금 불필요).
-     * 진짜 직렬화가 필요한 지점(동시 부트스트랩 저장 경합)은 {@code uk_member_user_id}
-     * 유니크 제약이 맡는다(PLAN-prod-profile.md 결정 4).
+     * D-01 대안 A(2026-09-23 사용자 승인, remediation-plan.md PR 2): {@code ROLE_ADMIN} +
+     * {@code statuses} allowlist(ACTIVE/LOCKED/PASSWORD_EXPIRED)를 만족하는 계정이 하나라도
+     * 있으면 "기존 관리자가 구성된 설치"로 본다 — 일시적으로 로그인 불가한 상태(자동/수동 잠금,
+     * 비밀번호 만료)도 "관리자가 아예 없는 것"과 구분한다. 이 존재 질의와 신규 ADMIN INSERT는
+     * 원자적인 한 동작이 아니다 — 보장하는 것은 "질의 실행 시점에 적격 ADMIN이 있었는가"이며,
+     * 기동 완료 시점까지 전역적으로 신규 ADMIN이 정확히 한 명만 생기는 것을 보장하지 않는다.
+     * 동일 설치의 모든 인스턴스가 같은 {@code ADMIN_BOOTSTRAP_*} 자격증명(같은 userId)을
+     * 쓴다는 운영 전제 위에서만 "신규 ADMIN 한 명"이 보장된다({@code uk_member_user_id}
+     * 유니크 제약이 같은 ID 충돌만 직렬화).
      */
-    boolean existsByUserTypeAndStatus(Role userType, MemberStatus status);
+    boolean existsByUserTypeAndStatusIn(Role userType, Collection<MemberStatus> statuses);
 
     /**
      * 타 관리자 수정(PATCH) 시 대상 row를 PESSIMISTIC_WRITE로 잠근 뒤 조회한다.
