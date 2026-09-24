@@ -2,7 +2,10 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-09-05 — 외부 기술 감사 보고서(`docs/CMS-technical-audit-2026-09-05.md`, 기준 커밋 `cd8ec40` #33) 14개 항목(높음 4·중간 8·낮음 2) 코드 대조 검증(핵심 항목 직접 재확인) 후 반영. Top 3(2026-07-29)·④(2026-08-27) 전부 완료 상태에서 신규 Top 5 선정 — 상세는 "실행 로드맵 — Top 5 (2026-09-05 선정, 기술 감사 기반)" 참조. 우선순위 낮은 잔여 6건은 같은 섹션 하단 표에 별도 기록.
+> 최근 갱신: 2026-09-24(3차) — Remediation Plan PR 2(ADMIN bootstrap·로그인 상태 분리, H-01) 구현 완료 반영. `/suggestRoadmap` → PR 2 선택 → `/plan-review-loop`(codex CLI 2라운드, ship) → 사용자 구현 승인 → 구현·테스트·실기 검증까지 이번 세션에서 직접 수행: `MemberRepository.existsByUserTypeAndStatusIn` 신규(기존 단일-ACTIVE 질의 대체), `AdminBootstrapLoader`의 존재 질의·재조회 흡수를 `{ACTIVE,LOCKED,PASSWORD_EXPIRED}` allowlist로 통일. 신규 테스트 30개(단위 15·Testcontainers 통합 15) + 전체 스위트 720개 통과, 실제 prod JAR+별도 MariaDB로 "LOCKED 관리자만 있어도 부트스트랩 변수 없이 기동" 실기 확인(사용자 dev 스택 미간섭). `security/admin-bootstrap-eligible-status` 브랜치에서 작업 — **커밋·PR·머지는 아직**(`/code-review-loop` → `/commitPR` 단계 예정). 상세는 "실행 로드맵 — Remediation Plan" PR 2 참조.
+> 이전 갱신: 2026-09-24(2차) — 사용자 요청으로 `adversarial-review/deploy-check-2026-09-23.md`(독립 재검증 감사)·`adversarial-review/remediation-plan.md`(PR 1~6 실행 계획)를 신규 섹션 "실행 로드맵 — Remediation Plan (2026-09-23 독립 검증 기반)"으로 로드맵에 처음 편입. PR 1(관리자 상세 저장형 마크업 렌더링 결함 수정, 감사 C-01)이 `9294af5` #37로 이미 완료됐음을 코드·테스트·CI·PR 머지·실기 검증 문서로 사실확인해 완료 반영, PR 2~6(H-01·M-03·M-04·M-02·M-01/M-05)은 계획서 자체가 "구현 미착수"로 명시해 미완료 상태로 그대로 기록. M-06(시간대 진입점 오탐)은 독립 검증에서 철회되어 별도 표기.
+> 이전 갱신: 2026-09-24(1차) — Top 5(2026-09-05 선정) ② 자기 정보 수정의 행 잠금 누락 해소(감사 H-02) 완료 반영 (`fabd903` #34, PR CI test pass·완료 기준 5개 전부 사실확인) — 상세는 "실행 로드맵 — Top 5 (2026-09-05 선정, 기술 감사 기반)" ② 참조. Top 5 중 ①(`f890195` #36)은 이미 완료 반영되어 있었고, 이번 갱신으로 ①·② 완료·③~⑤ 미착수 상태가 됐다.
+> 이전 갱신: 2026-09-05 — 외부 기술 감사 보고서(`docs/CMS-technical-audit-2026-09-05.md`, 기준 커밋 `cd8ec40` #33) 14개 항목(높음 4·중간 8·낮음 2) 코드 대조 검증(핵심 항목 직접 재확인) 후 반영. Top 3(2026-07-29)·④(2026-08-27) 전부 완료 상태에서 신규 Top 5 선정 — 상세는 "실행 로드맵 — Top 5 (2026-09-05 선정, 기술 감사 기반)" 참조. 우선순위 낮은 잔여 6건은 같은 섹션 하단 표에 별도 기록.
 > 이전 갱신: 2026-08-27 — 무인증 공개 엔드포인트 레이트리밋 도입(`cms.rate-limit`) 완료 반영 (`38ee3bc` #32, PR MERGED·완료 기준 18개 항목 실기 검증 사실확인). 2026-07-29 Top 3에는 없던 항목으로, ③ 완료 후 코드 레벨에서 신규 발의되어 실행됨 — 상세는 "실행 로드맵 — Top 3 (2026-07-29 선정)" ④ 참조. "선정에서 탈락한 후보"의 비밀번호 재설정 API rate limit 항목 해소, "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록"의 자원 고갈 위험 부분 완화도 함께 반영.
 > 이전 갱신: 2026-08-12 — "후속 과제 — ① prod 프로파일 완료 시 발견"의 "DB 백업 전략" 완료 반영 (`95f264f` #30, PR MERGED·완료 기준 21개 전 항목 실기 검증 사실확인) — 상세는 해당 섹션 참조. 검증 중 계획 문서가 스스로 명시한 "오프사이트 백업 미포함" 잔여 위험은 신규 후속 과제로 별도 기록.
 > 이전 갱신: 2026-08-12 — `ProfileImageMigrationRunnerIntegrationTest`(Testcontainers) 추가로 "후속 과제 — ③" 2번 항목 완료 반영 (`ca6446f` #29, PR MERGED·CI test pass 사실확인) — 상세는 하단 "후속 과제 — ③ 프로필 이미지 이관 완료 시 발견" 참조. 남은 미해소는 1번 항목(실 레거시 데이터 이관 Playwright 골든 패스)뿐이다.
@@ -266,8 +269,9 @@
 - **완료 기준**: 1자 비밀번호 400 거부 / ASCII 72·73바이트 및 멀티바이트 경계에서 500 없이 400 / 51자 `userId` 등 DB 길이 초과 입력 400 / 이메일 대소문자·앞뒤 공백 케이스에서 생성·수정·재설정 조회 결과 일치 / 기존 회원가입·비밀번호 변경 골든 패스 회귀 없음
 - **착수 게이트**: 비밀번호 최소 길이 상향은 로그인 정책과 인접한 변경 — 구체적 최소 길이·72바이트 처리 방식은 사용자 확인 후 착수.
 
-### ② 자기 정보 수정의 행 잠금 누락 해소 (감사 H-02)
+### ② 자기 정보 수정의 행 잠금 누락 해소 (감사 H-02) — ✅ 완료 (2026-09-05 · `fabd903` #34)
 - **유형**: 보안·동시성 / **선정 이유**: `AdminMemberService`에서 대상 회원을 수정하는 다른 모든 메서드(181·272·294·317·340행)는 `findByIdForUpdate`로 행 잠금을 걸지만 **`updateMyInfo`만 유일하게** 평범한 `findById`를 쓴다 — 일관성 누락이 명백하고, 이메일 변경으로 폐기되어야 할 비밀번호 재설정 토큰이 경합 시 살아남을 수 있는 실질적 보안 결함이다.
+- **완료 근거**: `AdminMemberService.updateMyInfo`가 `findById` → `findByIdForUpdate`로 전환됨을 코드에서 확인(잠금 전환 사유를 설명하는 Javadoc 포함). 단위 테스트 4건(`updateMyInfo_success`·`updateMyInfo_emailChange_clearsOutstandingResetToken`·`updateMyInfo_sameEmail_keepsResetToken`·`updateMyInfo_duplicateEmail`)이 `findByIdForUpdate` 사용·`findById` 미사용을 `verify`로 고정 확인. 신규 통합 테스트 2건(`AdminMemberEmailResetTokenConcurrencyIntegrationTest`, Testcontainers MariaDB) 실존 확인 — 테스트 1은 `findByEmailForUpdate` 보유 중 `innodb_lock_wait_timeout=1` 하 `findByIdForUpdate`가 `Error 1205 Lock wait timeout`으로 실제 실패함을 실증(PK 잠금과 이메일 잠금이 같은 행을 두고 물리적으로 충돌), 테스트 2는 옛 이메일 발급 토큰이 이메일 변경 시 실제 DB 왕복(Hibernate dirty-check)으로 정확히 `null`로 갱신됨을 확인. `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 658개 전체 통과(신규 2건 순증, 회귀 0건) 기록 확인 — 로컬 Docker 미기동 상태라 이번 검증에서는 Testcontainers 의존 클래스를 직접 재실행하지 못했으나, PR #34 GitHub Actions CI(`gh pr checks 34`) `test` **pass**(1m14s, run 33960053338) 확인 및 `AdminMemberServiceTest`(Docker 불필요 단위 테스트) 51개 로컬 재실행 통과로 갈음. `adversarial-review/plan/PLAN-member-self-update-row-lock.md`(codex 적대적 리뷰 4라운드 ship) "구현·검증 결과" 섹션에 완료 기준 5개 전부 `[x]` + Playwright 실기 검증(내 정보 수정 골든 패스·원복·회원 목록/대시보드 회귀 없음) 기록 확인. PR #34 머지 확인(`gh pr view 34` state=MERGED, mergedAt=2026-09-05). 스키마 변경 없음, 인가 정책 변경 없음.
 - **목표**: 자기 정보(이름·이메일) 수정도 다른 회원 수정 경로와 동일하게 행 잠금 하에서 처리되어, 이메일 변경과 비밀번호 재설정 토큰 발급이 동시에 발생해도 옛 이메일로 발급된 토큰이 이메일 변경 후 반드시 무효화된다.
 - **수정해야 할 정확한 파일** (실측 기준):
     - 수정: `src/main/java/com/cms/admin/member/service/AdminMemberService.java:145`(`updateMyInfo` — `findById` → `findByIdForUpdate`로 전환)
@@ -323,6 +327,57 @@
 | L-01 | `MemberRepositoryImpl.toOrderSpecifiers`에 id 보조 정렬 없음(`NoticeRepositoryImpl`엔 있음) | 영향 범위 작음(동률 데이터가 페이지 경계를 넘는 드문 경우) | 회원 목록 화면을 다음에 수정할 때 함께 처리 |
 | L-02 | README Boot 배지(3.4) vs 실제 3.5.16, `deployment.md`의 prod Swagger 404 설명 등 문서-코드 불일치 | 기능에 영향 없는 문서 정확성 문제 | `/claudemd-check` 또는 문서 정리 작업 시 함께 처리 |
 
+## 실행 로드맵 — Remediation Plan (2026-09-23 독립 검증 기반)
+
+> **주의**: 이 섹션의 발견 코드(C-01·H-01·M-01~M-06)는 바로 위 "실행 로드맵 — Top 5 (2026-09-05 선정)" 섹션의 발견 코드(H-01·M-07 등)와 **번호가 겹치지만 서로 다른 감사**다. 이번 코드는 `docs/CMS-technical-audit-2026-09-22.md`(1차 감사) → `adversarial-review/deploy-check-2026-09-23.md`(독립 재검증, `INDEPENDENT VERIFICATION REVIEW`) 기준이며, 실행 계획은 `adversarial-review/remediation-plan.md`(PR 1~6 경계)에 있다. 두 문서 다 읽기 전용 감사/계획 문서이며, project-direction-roadmap.md에는 이번에 처음 편입한다(사용자 명시 요청, 2026-09-24).
+> `deploy-check-2026-09-23.md` 최종 판정: **no-ship**(외부 production 배포 기준) — Critical 없음, C-01·H-01 High 잔존. M-06(시간대 진입점 오탐)은 재검증에서 **철회**되어 코드 수정 대상이 아니다(`main()`이 이미 KST 고정 확인).
+> `remediation-plan.md` 상태(문서 자체 명시): **PR 1·PR 2 구현·범위 내 검증 완료(2026-09-24) / PR 3~6 구현 미착수**. H-01 A안 정책은 승인됐으며(2026-09-23), 사용자는 PR 1·PR 2 구현을 각각 승인해 순서대로 완료했다 — PR 3~6은 착수 전 별도 승인 필요.
+
+### PR 1 — 관리자 상세 화면 저장형 마크업 렌더링 결함 수정 (C-01) — ✅ 완료 (2026-09-24 · `9294af5` #37)
+- **유형**: 보안 / **선정 이유**: 독립 검증에서 Critical→High로 하향됐지만 여전히 no-ship 사유 중 하나. MANAGER가 저장한 이름이 ADMIN 상세 화면에서 escape 없이 `innerHTML`에 연결돼 저장된 마크업이 DOM 요소로 해석되는 결함 — 수정 범위·롤백 단위가 6개 PR 중 가장 작아 최우선 처리.
+- **완료 근거**: `templates/admin/member/admin-manage.html`의 `renderDetail()`에서 `detailContent.innerHTML = detailItems.map(...)` 조립부가 `(item.html ?? escapeHtml(item.value))`로 출력 경계 escape를 한 번만 적용하도록 수정됨을 코드에서 직접 확인 — 내부에서 만드는 이메일 복사 버튼만 `html` 필드로 분리되고 이메일 값 자체는 별도 escape, 그 외 아이디·이름·권한·상태·생성일은 전부 평문 `value` 경로. 신규 `AdminMemberTemplateConventionTest`(3개) 실존 확인, `AdminMemberControllerTest`(70개)·`AdminMemberServiceTest`(51개) 로컬 재실행 전부 통과(실패 0). PR #37 GitHub Actions CI(`gh pr checks 37`) `test` **pass**(1m36s, run 35975823168) 확인, PR #37 머지 확인(`gh pr view 37` state=MERGED, mergedAt=2026-09-24). `docs/verification/admin-detail-rendering.md`에 격리 MariaDB+실제 prod JAR+Chromium 실기 검증 기록 확인 — 무해한 마크업 표식(`<span id="audit-name-marker">...</span>`) 저장 후 상세 화면에서 새 DOM 요소 0개·원문 그대로 표시, 정상 한글/영문/특수문자(`&`·따옴표·문자 그대로의 `&lt;`) 보존, 이메일 복사 버튼·프로필 fallback/preset·모달 저장/취소/닫기·MANAGER의 관리자 API/페이지 403·CSRF 403 전부 통과, page error 0. 관련 168개 테스트 전부 통과 + 전체 699개 중 698개 통과(기존 Windows symlink 테스트 1개만 스킵, PR 신규 테스트는 스킵 없음) 기록 확인. `adversarial-review/remediation-plan.md` "PR 1 실행 기록 — 2026-09-24" 섹션과 상태 헤더("PR 1 구현·범위 내 검증 완료")가 일치. DTO/Entity/SecurityConfig/DB migration 변경 없음.
+- **목표**: 저장된 이름 등 평문이 ADMIN 상세 화면에서 DOM 마크업으로 해석되지 않고, 이메일 복사·프로필·모달 수정 UI는 기존대로 동작하며 DB에는 원문을 그대로 유지한다.
+- **완료 기준**(계획서 명시): 무해한 표식이 문자 그대로 표시되고 새 DOM 요소가 생기지 않음 / 정상 UI·권한·CSRF 회귀 통과 / 신규 dependency·migration 없음 — 전 항목 사실확인.
+- **착수 게이트**: 없음(기존 승인된 회원 상세 화면의 결함 수정 — 인가 정책·DB 변경 아님).
+
+### PR 2 — ADMIN bootstrap과 로그인 상태 분리 (H-01) — ✅ 완료 (2026-09-24, `security/admin-bootstrap-eligible-status` 브랜치 · 머지 전)
+- **유형**: 보안·운영 / **선정 이유**: 독립 검증에서 재확인된 High 잔존 항목. 초기 관리자 변수가 없을 때 ACTIVE ADMIN이 하나도 없으면 기동 자체가 실패하는데, 이미 만료된 자동 잠금·LOCKED/PASSWORD_EXPIRED 상태도 현재는 "ACTIVE ADMIN 없음"으로 오판돼 재기동을 막을 수 있다.
+- **완료 근거**: `MemberRepository.existsByUserTypeAndStatusIn(Role, Collection<MemberStatus>)` 신규 파생 쿼리 확인, 기존 `existsByUserTypeAndStatus`는 유일한 호출부와 함께 삭제됨을 코드에서 확인. `AdminBootstrapLoader`의 `ELIGIBLE_STATUSES={ACTIVE,LOCKED,PASSWORD_EXPIRED}` 상수가 `run()`의 존재 질의와 `createOrReconcile()`의 재조회 흡수 조건 양쪽에 동일 적용됨을 확인(코드 대조). 신규 테스트 `AdminBootstrapLoaderTest`(Mockito, 15개: 적격 상태 allowlist 존재질의·LOCKED/PASSWORD_EXPIRED 흡수·DISABLED/DELETED/다른 역할 거부 포함) + `AdminBootstrapStartupIntegrationTest`(Testcontainers MariaDB, 15개: 상태 8종 행렬·상태 혼합 2건·재조회 전 상태 변경 실 DB unique 충돌 2건·병렬 존재확인 경합 1건·자동 잠금 만료+비밀번호 만료 동시 발생 1건) 전부 통과 확인. `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 전체 720개 통과(신규 30개 순증, 실패·오류 0) 확인. 실기 검증: `./gradlew bootJar`로 갱신한 실제 prod JAR + 별도 일회성 MariaDB(사용자 dev 스택 미간섭)로 (1) 빈 DB+유효 변수→정상 기동+ADMIN 생성, (2) 해당 계정을 LOCKED로 전이 후 부트스트랩 변수 전부 제거하고 재기동→**이 PR의 핵심 변경대로 정상 기동**(health 200), DB 재조회로 상태·`locked_at` 무변경 확인. `docs/deployment.md`·`.env.example`·`docker-compose.prod.yml`·`com.cms.admin.member/CLAUDE.md` 문서 동기화 확인. 계획 리뷰(codex CLI 2라운드, v5·v6, ship 판정) 거침. `adversarial-review/remediation-plan.md` PR 2 섹션 "PR 2 실행 기록"에 상세 기록. **커밋·PR 생성·머지는 미완료** — `/code-review-loop` → `/commitPR` 단계에서 진행 예정.
+- **목표**: DB에 `ROLE_ADMIN` + `ACTIVE/LOCKED/PASSWORD_EXPIRED` 중 하나라도 있으면 "기존 ADMIN이 구성된 설치"로 보고 신규 bootstrap을 건너뛰며 기동을 허용한다(확정 정책 **D-01 대안 A**, 2026-09-23 사용자 승인). 어느 분기에서도 기존 계정의 상태·비밀번호 해시·`lockedAt`·`passwordChangedAt`·reset token 등 기존 필드는 변경하지 않는다 — **기동 허용 ≠ 로그인 허용**.
+- **완료 기준**(계획서 명시): 상태 행렬(ACTIVE/LOCKED/EXPIRED/DISABLED/DELETED/빈 DB/MANAGER-only/혼합) · prod 실행 JAR · 로그인·재설정 요청 회귀 통과 / 기동 직후 기존 계정 필드 무변경 확인 / 초기 관리자 미구성 시 fail-fast 유지 / 문서 정합성 확보 / migration 없음 — 전 항목 사실확인.
+
+### PR 3 — API 오류 계약과 안전한 500 진단 (M-03)
+- **유형**: 운영·가용성 / **선정 이유**: 독립 검증이 재확인 — 잘못된 path variable, 지원하지 않는 HTTP method/media type 요청이 인증된 API 경로에서도 500으로 오분류되고, 미분류 예외에 대한 진단 로그가 전혀 없다.
+- **목표**: `MethodArgumentTypeMismatchException`→400, `HttpRequestMethodNotSupportedException`→405(`Allow` 헤더 포함), `HttpMediaTypeNotSupportedException`→415로 좁게 매핑하고, 나머지 예상 밖 예외는 여전히 500이되 method·라우트 패턴·예외 클래스·제한된 스택 프레임을 서버 로그에 남긴다(원시 URI/쿼리/바디/헤더/쿠키/비밀번호/토큰/예외 메시지는 로그에 넣지 않음).
+- **수정해야 할 정확한 파일** (계획서 실측 기준): `src/main/java/com/cms/common/api/GlobalApiExceptionHandler.java`, 신규 `GlobalApiExceptionHandlerTest`·`ApiErrorContractIntegrationTest`(실제 Security 포함 요청 행렬), 기존 `AdminMemberControllerTest`·`MenuControllerTest` 보강, `docs/troubleshooting.md`·`api-conventions` 스킬의 상태 코드 표.
+- **완료 기준**(계획서 명시): 400/401/403/404/405/409/415/429/500 전체 오류 행렬 통과 / Security 우선순위·HTML 오류 페이지 회귀 없음 / 안전한 진단 로그(민감정보 미포함) 검증 통과 / 새 예외 아키텍처·의존성·migration 없음.
+- **착수 게이트**: 없음(설정·예외 매핑 위주, 인가 정책 변경 없음). 단, PR 2~6 전체와 마찬가지로 구현 착수는 별도 승인 필요.
+
+### PR 4 — 메뉴 같은 행 쓰기의 비관적 잠금 일관화 (M-04)
+- **유형**: 데이터 정합성·동시성 / **선정 이유**: 독립 검증이 **실제 MariaDB 서비스 경합으로 재현해 Bug로 확정**(정적 추론에서 격상). `MenuService`의 일반 수정(이름 등)만 잠금 없는 조회를 쓰고 비활성화만 `findByIdForUpdate`를 써서, "일반 수정 조회 → 비활성화 커밋 → 일반 수정 커밋" 순서면 방금 커밋된 비활성화가 `useYn=true`로 되돌아가는 lost update가 실측 재현됨. 위 Top 5(2026-09-05) ②(`AdminMemberService.updateMyInfo`의 행 잠금 누락, 감사 H-02)와 동일한 "일부 메서드만 잠금 누락" 결함군이 메뉴 도메인에서도 발견된 것.
+- **목표**: 메뉴 일반 수정도 최초 조회부터 `findByIdForUpdate()`를 쓰도록 통일해, 같은 행에 대한 동시 수정/비활성화가 서로의 커밋을 덮어쓰지 않는다.
+- **수정해야 할 정확한 파일** (계획서 실측 기준): `src/main/java/com/cms/admin/menu/service/MenuService.java`(`updateMenu()`의 조회 분기 제거), `src/test/java/com/cms/admin/menu/service/MenuServiceTest.java`(잠금 stub 전환)·`MenuConcurrencyIntegrationTest`(양방향 same-row 시나리오 추가), 필요 시 `MenuControllerTest`의 409 회귀, `com.cms.admin.menu`의 `CLAUDE.md`·`docs/troubleshooting.md`.
+- **완료 기준**(계획서 명시): same-row 양방향 실제 MariaDB 경합에서 비활성화·이름 수정 모두 보존(lost update 없음) / 기존 부모-자식 불변식 유지 / 예상 밖 데드락·타임아웃을 숨기지 않음 / 신규 version 컬럼·migration 없음.
+- **착수 게이트**: 없음(기존 정책의 동시성 결함 수정, 인가 정책 변경 아님). 구현 착수는 별도 승인 필요.
+
+### PR 5 — SMTP timeout 설정과 운영 전달 (M-02)
+- **유형**: 운영·가용성 / **선정 이유**: `application-prod.yml`에 SMTP connection/read/write timeout이 전혀 없어 SMTP 무응답 시 발송 스레드가 무한정 대기할 수 있다. 독립 검증이 로컬 SMTP 모의 소켓으로 지연 발생을 확인.
+- **목표**: `mail.smtp.connectiontimeout`(10초)·`timeout`(읽기 30초)·`writetimeout`(30초)을 prod 기본값으로 설정하고 선택적 환경변수로 override 가능하게 한다(공식 권장값이 아닌 이 프로젝트용 시작값 — staging 검증 후 최종 확정). executor·메일 워크플로 자체는 바꾸지 않는다.
+- **수정해야 할 정확한 파일** (계획서 실측 기준): `src/main/resources/application-prod.yml`, `docker-compose.prod.yml`(선택 환경변수 3종 매핑), `.env.example`, `scripts/_prod-env-guard.sh`(변수 목록 추가), `docs/deployment.md`, 신규 `ProdMailTimeoutConfigurationTest`·`PasswordResetMailTimeoutIntegrationTest`.
+- **완료 기준**(계획서 명시): prod 기본값·override 적용 확인 / 세 timeout 각각 유효한 값(0·음수·단위문자열·과대정수 거부) 검증 / 로컬 지연 시나리오에서 유한 시간 내 종료·token 정리 회귀 통과 / executor·queue·신규 의존성 변경 없음.
+- **착수 게이트**: 없음(설정값 추가 위주). 코드상 다른 PR과 독립이라 승인 시 순서를 앞당길 수 있음.
+
+### PR 6 — Backup/Restore 및 ingress 배포 계약 문서화 (M-01·M-05)
+- **유형**: 운영·문서 / **선정 이유**: `prod-backup.sh`가 DB 덤프 후 파일 볼륨을 압축해 같은 백업 세트 안에서도 시점이 어긋날 수 있다는 점(M-01)과, 현재 loopback 배포라 실제 reverse proxy/TLS ingress가 정해지지 않은 상태에서 미리 특정 프록시 설정을 만들지 않겠다는 점(M-05)을 함께 다룬다. **로드맵의 기존 "⑤ 백업 시점 정합성 확보(감사 H-04, 2026-09-05 선정)"·"후속 과제 — ① 실배포 인프라"와 문제의식이 겹친다** — 착수 시 두 항목과 작업을 통합할지 사용자와 확인 필요.
+- **목표**: 현재 규모에서는 **quiesced(정지 상태) 백업을 정규 recovery backup으로 채택**하고, online 백업은 시점 불일치를 명시한 보조 수단으로만 남긴다. 격리 Docker daemon/폐기 가능 VM에서 실제 복원 훈련(dummy 데이터 변경 → 백업 → 복원 → 참조 파일·공지·프로필·권한·재기동 확인)을 수행하고, 실제 ingress 결정 전에는 특정 프록시 설정을 구현하지 않는다.
+- **수정해야 할 정확한 파일** (계획서 실측 기준): `docs/deployment.md`, 신규 `docs/verification/recovery-drill.md`·`docs/verification/deployment-edge.md`. 백업/복구 스크립트·Makefile·Dockerfile·SecurityConfig·레이트리밋·IP 해석 로직 등 **제품 코드 변경 없음**(문서·운영 계약 PR).
+- **완료 기준**(계획서 명시): 정규 백업 모드·중단 허용 범위·담당자 확정 / 격리 환경에서의 실제 복원 증거 확보 / 실패 처리 절차 확인 / ingress 체크리스트와 미검증 범위 명시 / 새 백업 플랫폼·프록시 추상화 도입 없음.
+- **착수 게이트**: 실배포 시점·ingress 확정 여부에 따라 범위가 달라짐 — 로드맵의 관련 항목(⑤ 백업 시점 정합성, 후속 과제 ① 실배포 인프라)과 통합 착수할지 사용자 확인 필요.
+
+### 이번 감사에서 코드 수정이 불필요한 항목
+
+- **M-06(시간대 진입점 누락 주장) — 철회**: 1차 감사(`docs/CMS-technical-audit-2026-09-22.md`)가 `main()` 진입점을 놓치고 "JVM UTC 시 시각이 9시간 어긋날 수 있다"고 지적했으나, 독립 검증이 실제 `main()`이 JVM 기본 시간대를 KST로 고정함을 `-Duser.timezone=UTC` 조건에서도 실행 확인해 철회했다. 코드 변경 불필요. (참고: 기존 Top 5(2026-09-05)의 "우선순위에서 밀린 감사 항목" 표의 M-05는 이것과 발견 코드는 다르지만 같은 주제 — `AppConfig` KST `Clock` 밖의 `LocalDateTime.now()` 직접 호출 지점들 — 를 다룬다는 점은 참고할 것.)
+
 ## 후속 과제 — ① prod 프로파일 완료 시 발견 (2026-07-30 기록)
 
 > ①(prod 프로파일 부활, `a51d29d` #23) 완료 검증 중 발견해 **이번 PR 범위 밖으로 확정**한 항목. 전부 이번 PR이 새로 만든 문제가 아니라 기존에 있던 결함이거나 애초에 별도 범위로 분리돼 있던 사안이다. 다음 로드맵 갱신 때 별도 작업으로 재평가.
@@ -354,4 +409,6 @@
 
 갈림길은 "관리 골격을 더 다듬을 것인가 vs 관리할 대상을 만들 것인가"인데, 골격은 이미 충분히 좋고 1단계(계정 라이프사이클)·2단계(정체성 확보: 공지사항 도메인·파일 스토리지/첨부파일·공개 공지 페이지)에 이어 **3단계(운영 경험)의 유일한 개시 조건이던 prod 프로파일 부활(①)도 완료됐다(2026-07-30 · `a51d29d` #23)**. `PLAN-public-notice.md`가 의도적으로 미뤘던 공개 첨부파일 노출(②)도 완료됐다(2026-08-03 · `10c28ff` #25). **`FileStorage` 완료로 선행 조건이 풀렸던 프로필 이미지 이관(③)도 완료됐다(2026-08-11 · `e3175a9` #28) — 실행 로드맵 Top 3(2026-07-29 선정) 전 항목이 완료된 상태다.** ③의 검증 공백 중 마이그레이션 러너 Testcontainers 통합 테스트는 후속 작업으로 해소됐다(2026-08-12 · `ca6446f` #29). ① 완료 검증 중 발견된 범위 밖 항목(실배포 인프라·기존 500 오응답 결함 등)은 위 "후속 과제 — ① prod 프로파일 완료 시 발견" 참조, ② 완료 시 수용한 잔여 위험은 "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록" 참조, ③의 남은 검증 공백(실 레거시 데이터 이관 Playwright 골든 패스 1건만 남음)은 바로 위 "후속 과제 — ③ 프로필 이미지 이관 완료 시 발견" 참조. **① 완료 검증 중 남아 있던 "DB 백업 전략" 미해소 항목도 완료됐다(2026-08-12 · `95f264f` #30) — prod DB·파일 로컬 백업/복구 도구(`scripts/prod-backup.sh`·`scripts/prod-restore.sh`) 도입, 완료 기준 21개 전 항목 실기 검증.** 오프사이트 백업은 범위 밖으로 명시 수용되어 신규 후속 과제로 기록됐다("후속 과제 — ① prod 프로파일 완료 시 발견" 참조). **Top 3 완료 이후 코드 레벨에서 신규 발의된 무인증 공개 엔드포인트 레이트리밋(④)도 완료됐다(2026-08-27 · `38ee3bc` #32)** — `/notices/**`·비밀번호 재설정 API 2종에 토큰 버킷 기반 최소 방어 도입, 완료 기준 18개 항목 전 항목 실기 검증. 이로써 "선정에서 탈락한 후보"의 rate limit 항목이 해소됐고, ② 완료 시 수용했던 자원 고갈 위험도 부분 완화됐다. 실배포(호스트·도메인 확정, nginx·TLS·오프사이트 백업)는 별도 사용자 결정 사안으로 남아 있다.
 
-**2026-09-05: 외부 기술 감사 보고서 기반 신규 Top 5 선정.** Top 3(2026-07-29)·④(2026-08-27) 전 항목 완료로 미완료 항목이 없던 상태에서, 코드 대조 검증을 마친 감사 결과 14건 중 방치 비용이 크고 구현 범위가 작은 5건을 선정했다: **① 관리자 비밀번호 검증 정책 통일 + 이메일 정규화 정합(H-01·M-07), ② 자기 정보 수정 행 잠금 누락 해소(H-02) — 이메일 변경과 비밀번호 재설정 토큰 발급의 실질적 동시성 결함, ③ 감사 로그 신뢰성 강화(H-03·M-01), ④ SMTP 타임아웃/큐 상한 + 서버 오류 로깅(M-02·M-03), ⑤ 백업 시점 정합성(H-04)**. 나머지 6건(M-04·M-05·M-06·M-08·L-01·L-02)은 방치 비용이 상대적으로 낮아 다음 갱신으로 미뤘다 — 상세는 "실행 로드맵 — Top 5 (2026-09-05 선정, 기술 감사 기반)" 참조. 다음 작업 선택은 `/suggestRoadmap`.
+**2026-09-05: 외부 기술 감사 보고서 기반 신규 Top 5 선정.** Top 3(2026-07-29)·④(2026-08-27) 전 항목 완료로 미완료 항목이 없던 상태에서, 코드 대조 검증을 마친 감사 결과 14건 중 방치 비용이 크고 구현 범위가 작은 5건을 선정했다: **① 관리자 비밀번호 검증 정책 통일 + 이메일 정규화 정합(H-01·M-07), ② 자기 정보 수정 행 잠금 누락 해소(H-02) — 이메일 변경과 비밀번호 재설정 토큰 발급의 실질적 동시성 결함, ③ 감사 로그 신뢰성 강화(H-03·M-01), ④ SMTP 타임아웃/큐 상한 + 서버 오류 로깅(M-02·M-03), ⑤ 백업 시점 정합성(H-04)**. 나머지 6건(M-04·M-05·M-06·M-08·L-01·L-02)은 방치 비용이 상대적으로 낮아 다음 갱신으로 미뤘다 — 상세는 "실행 로드맵 — Top 5 (2026-09-05 선정, 기술 감사 기반)" 참조. **이후 ①(2026-09-22 · `f890195` #36)·②(2026-09-05 · `fabd903` #34)가 완료됐다** — 남은 미완료는 ③~⑤.
+
+**2026-09-24: 별도의 독립 재검증 감사(`deploy-check-2026-09-23.md`)·remediation 실행 계획(`remediation-plan.md`)을 사용자 요청으로 로드맵에 신규 편입.** Top 5(2026-09-05)와는 다른 감사 사이클로 발견된 C-01(High)·H-01(High)·M-01~M-06(Medium/Low, M-06은 철회) 8건을 PR 1~6 경계로 추적한다 — 상세는 "실행 로드맵 — Remediation Plan (2026-09-23 독립 검증 기반)" 참조. **PR 1(관리자 상세 저장형 마크업 렌더링 결함 수정, C-01)은 이미 완료됐다(2026-09-24 · `9294af5` #37)** — 나머지 PR 2~6(ADMIN bootstrap-로그인 상태 분리 H-01, API 오류 계약/진단 M-03, 메뉴 행 잠금 일관화 M-04, SMTP 타임아웃 M-02, 백업/ingress 계약 문서화 M-01·M-05)은 계획서 자체가 "구현 미착수"로 명시하며, 사용자는 현재까지 PR 1 구현만 승인한 상태다. 다음 작업 선택은 `/suggestRoadmap`.
