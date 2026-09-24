@@ -24,6 +24,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +42,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -1014,6 +1018,62 @@ class AdminMemberControllerTest {
     }
 
     // ===================== MANAGER 권한 — self API 접근 검증 ====================
+
+    @ParameterizedTest
+    @ValueSource(strings = {"<span id=\"audit-name-marker\">검증 이름</span>",
+            "홍길동 & Alice ' \" &lt;", "홍길동 Alice"})
+    @WithMockUser(roles = "MANAGER")
+    @DisplayName("MANAGER 이름 수정은 평문 원문을 서비스와 JSON 응답에 그대로 전달한다")
+    void updateMyInfo_manager_preservesPlainText(String name) throws Exception {
+        AdminMyInfoUpdateRequest request = AdminMyInfoUpdateRequest.builder()
+                .userName(name).email("manager@example.com").build();
+        given(adminMemberService.updateMyInfo(eq(1L), any())).willReturn(
+                AdminMemberResponse.builder().id(1L).userName(name).userType(Role.ROLE_MANAGER).build());
+
+        mockMvc.perform(patch("/admin/api/members/me").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userName").value(name));
+
+        ArgumentCaptor<AdminMyInfoUpdateRequest> captor = ArgumentCaptor.forClass(AdminMyInfoUpdateRequest.class);
+        verify(adminMemberService).updateMyInfo(eq(1L), captor.capture());
+        assertThat(captor.getValue().getUserName()).isEqualTo(name);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"<span id=\"audit-name-marker\">검증 이름</span>",
+            "홍길동 & Alice ' \" &lt;", "홍길동 Alice"})
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("ADMIN 상세 JSON은 저장된 평문을 HTML 사전 인코딩 없이 반환한다")
+    void getAdminMember_preservesPlainText(String name) throws Exception {
+        given(adminMemberService.getAdminMember(2L)).willReturn(
+                AdminMemberResponse.builder().id(2L).userName(name).userType(Role.ROLE_MANAGER).build());
+
+        mockMvc.perform(get("/admin/api/members/2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userName").value(name));
+    }
+
+    @Test
+    @WithMockUser(roles = "MANAGER")
+    @DisplayName("MANAGER는 ADMIN 전용 상세 API에 직접 접근할 수 없다")
+    void getAdminMember_manager_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/members/2"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(adminMemberService);
+    }
+
+    @Test
+    @WithMockUser(roles = "MANAGER")
+    @DisplayName("MANAGER 본인 이름 수정도 CSRF 없이는 거절한다")
+    void updateMyInfo_manager_withoutCsrf_forbidden() throws Exception {
+        mockMvc.perform(patch("/admin/api/members/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(myInfoUpdateRequest())))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(adminMemberService);
+    }
 
     @Test
     @DisplayName("MANAGER는 자기 자신 정보 조회(GET /members/me) 가능하다")

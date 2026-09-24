@@ -635,23 +635,24 @@
             { label: "아이디", value: data.userId },
             { label: "이름", value: data.userName || "-" },
             {
+                // 내부에서 만드는 이메일 UI만 마크업이며, 이메일 값 자체는 위에서 escape한다.
                 label: "이메일",
-                value: data.email
+                html: data.email
                     ? "<button type=\"button\" class=\"copy-email-btn\" data-email=\"" + emailValue + "\">" +
                       "<span class=\"copy-email-icon\"><i class=\"far fa-copy\"></i></span>" +
                       "<span class=\"copy-email-text\"><span>" + emailValue + "</span><small>클릭해서 복사</small></span>" +
                       "</button>"
                     : "<span class=\"value-muted\">-</span>"
             },
-            { label: "권한", value: escapeHtml(getRoleLabel(data.userType)) },
-            { label: "상태", value: escapeHtml(getStatusLabel(data.status)) },
+            { label: "권한", value: getRoleLabel(data.userType) },
+            { label: "상태", value: getStatusLabel(data.status) },
             { label: "생성일", value: formatDate(data.createDate) }
         ];
 
         detailContent.innerHTML = detailItems.map(item => {
             return "<div class=\"detail-item\">" +
                 "<span class=\"label\">" + escapeHtml(item.label) + "</span>" +
-                "<div class=\"value\">" + item.value + "</div>" +
+                "<div class=\"value\">" + (item.html ?? escapeHtml(item.value)) + "</div>" +
                 "</div>";
         }).join("");
 

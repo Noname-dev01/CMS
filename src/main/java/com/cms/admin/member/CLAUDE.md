@@ -6,6 +6,8 @@
 
 ## Member (관리자 계정)
 
+- **관리자 상세 평문 렌더링** (`admin-manage.html`, 2026-09-24, remediation PR 1): 상세 항목의 `value`는 평문으로 유지하고 출력 경계에서 `escapeHtml()`을 한 번 적용한다. 내부에서 만드는 이메일 버튼만 `html` 항목으로 분리하며 이메일 값은 별도로 escape한다. 이름 저장/API 원문 정책은 바꾸지 않는다. 실제 DOM·이메일 복사·역할/CSRF 회귀 절차는 `docs/verification/admin-detail-rendering.md` 참조.
+
 - **초기 관리자 계정**: dev는 회원이 없으면 `TestMemberLoader`(`@Profile("dev")`)가 `userId=admin` / `pwd=1234`(BCrypt) ROLE_ADMIN 계정을 자동 생성한다. prod는 `AdminBootstrapLoader`(`@Profile("prod")`)가 ACTIVE 상태 ROLE_ADMIN이 하나도 없을 때만 `ADMIN_BOOTSTRAP_USER_ID`·`_PASSWORD`·`_EMAIL` 환경변수로 계정을 생성한다 — 셋 중 하나라도 없거나 값이 유효하지 않으면(검증 계약은 `AdminBootstrapCredentials`) 기동을 실패시킨다(관리자 없이 조용히 뜨는 것보다 안전하다는 결정). ACTIVE ROLE_ADMIN이 이미 있으면 환경변수를 검사하지 않는다. 저장·동시성 재조회는 `PasswordResetService`와 동일하게 `TransactionTemplate`으로 트랜잭션 경계를 명시한다(같은 클래스 내부 호출은 `@Transactional` 프록시를 타지 않으므로). 최초 계정이 이미 있는 경우에는 `POST /admin/api/members`(관리자 인증 필요)로 추가 생성한다. 상세 설계 결정은 `adversarial-review/plan/PLAN-prod-profile.md` 참조.
 - `Role`: `ROLE_ADMIN`, `ROLE_MANAGER`, `ROLE_USER` / `MemberStatus`: `ACTIVE`, `LOCKED`, `DISABLED`, `DELETED`, `PASSWORD_EXPIRED`
 - **비밀번호 재설정 구현 완료** (`PasswordResetService`): 이메일로 재설정 링크 발송(토큰은 URL fragment `#token=`) → 토큰 검증 → 재설정. 토큰은 SHA-256 해시로만 저장(평문·해시 모두 **로그 출력 금지** — 예외 객체 통째 로깅도 금지), 30분 TTL·일회용·60초 재발급 쿨다운(발급 시 계정 행 잠금으로 원자성 보장). 계정 존재 여부와 무관하게 항상 200 응답(열거 방지), 대상은 `ACTIVE`/`PASSWORD_EXPIRED` + `ROLE_ADMIN`/`ROLE_MANAGER` allowlist. 재설정 성공 시 기존 세션 만료(`AdminSessionRevokeEvent`) + `PASSWORD_EXPIRED`는 `ACTIVE` 복귀. **모든 비밀번호 변경 경로(`Member.changePassword()`)가 outstanding reset 토큰을 함께 클리어**한다. 상세 설계 결정은 `adversarial-review/plan/PLAN-password-reset.md` 참조
