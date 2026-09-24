@@ -23,12 +23,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.EnumSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -39,6 +42,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class AdminBootstrapLoaderTest {
+
+    /** {@link AdminBootstrapLoader}의 private ELIGIBLE_STATUSES와 동일한 D-01 allowlist. */
+    private static final Set<MemberStatus> ELIGIBLE_STATUSES =
+            EnumSet.of(MemberStatus.ACTIVE, MemberStatus.LOCKED, MemberStatus.PASSWORD_EXPIRED);
 
     @Mock
     MemberRepository memberRepository;
@@ -80,7 +87,7 @@ class AdminBootstrapLoaderTest {
     @Test
     @DisplayName("ACTIVE ROLE_ADMIN이 없고 필수 3변수가 유효하면 관리자 계정을 생성한다")
     void noActiveAdmin_validCredentials_createsAdmin() {
-        given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
+        given(memberRepository.existsByUserTypeAndStatusIn(Role.ROLE_ADMIN, ELIGIBLE_STATUSES)).willReturn(false);
         given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
         given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("BootPass1234567!");
         given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("boot@example.com");
@@ -102,7 +109,7 @@ class AdminBootstrapLoaderTest {
     @Test
     @DisplayName("ACTIVE ROLE_ADMIN이 없고 이메일 대소문자가 섞여도 정규화되어 저장된다")
     void noActiveAdmin_mixedCaseEmail_normalizesBeforeSaving() {
-        given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
+        given(memberRepository.existsByUserTypeAndStatusIn(Role.ROLE_ADMIN, ELIGIBLE_STATUSES)).willReturn(false);
         given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
         given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("BootPass1234567!");
         given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("BOOT@EXAMPLE.COM");
@@ -118,7 +125,7 @@ class AdminBootstrapLoaderTest {
     @Test
     @DisplayName("비밀번호가 73바이트를 초과하면 인코더·저장소를 호출하지 않고 기동 실패")
     void noActiveAdmin_passwordOver72Bytes_throwsWithoutEncodingOrSaving() {
-        given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
+        given(memberRepository.existsByUserTypeAndStatusIn(Role.ROLE_ADMIN, ELIGIBLE_STATUSES)).willReturn(false);
         given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
         given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("a".repeat(73));
         given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("boot@example.com");
@@ -130,20 +137,39 @@ class AdminBootstrapLoaderTest {
     }
 
     @Test
-    @DisplayName("ACTIVE ROLE_ADMIN이 이미 있으면 환경변수 유무와 무관하게 아무것도 하지 않는다")
-    void activeAdminExists_doesNothing() {
-        given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(true);
+    @DisplayName("적격 상태(ACTIVE/LOCKED/PASSWORD_EXPIRED) ROLE_ADMIN이 이미 있으면 환경변수 유무와 무관하게 아무것도 하지 않는다")
+    void eligibleAdminExists_doesNothing() {
+        given(memberRepository.existsByUserTypeAndStatusIn(Role.ROLE_ADMIN, ELIGIBLE_STATUSES)).willReturn(true);
 
         loader.run();
 
+        verify(memberRepository).existsByUserTypeAndStatusIn(eq(Role.ROLE_ADMIN), eq(ELIGIBLE_STATUSES));
         verify(memberRepository, never()).saveAndFlush(any());
         verify(environment, never()).getProperty(any());
     }
 
     @Test
+    @DisplayName("존재 질의는 ACTIVE 단일 상태가 아니라 D-01 allowlist(ACTIVE/LOCKED/PASSWORD_EXPIRED) 전체로 호출된다")
+    void existenceQuery_usesFullEligibleStatusAllowlist() {
+        given(memberRepository.existsByUserTypeAndStatusIn(Role.ROLE_ADMIN, ELIGIBLE_STATUSES)).willReturn(false);
+        given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
+        given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("BootPass1234567!");
+        given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("boot@example.com");
+        given(passwordEncoder.encode("BootPass1234567!")).willReturn("{bcrypt}encoded");
+
+        loader.run();
+
+        ArgumentCaptor<Set<MemberStatus>> statusesCaptor = ArgumentCaptor.forClass(Set.class);
+        verify(memberRepository).existsByUserTypeAndStatusIn(eq(Role.ROLE_ADMIN), statusesCaptor.capture());
+        assertThat(statusesCaptor.getValue())
+                .containsExactlyInAnyOrder(MemberStatus.ACTIVE, MemberStatus.LOCKED, MemberStatus.PASSWORD_EXPIRED)
+                .doesNotContain(MemberStatus.DISABLED, MemberStatus.DELETED);
+    }
+
+    @Test
     @DisplayName("ACTIVE ROLE_ADMIN이 없고 환경변수가 하나라도 없으면 기동 실패(값은 노출 안 함)")
     void noActiveAdmin_missingVariable_throwsWithoutLeakingValue() {
-        given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
+        given(memberRepository.existsByUserTypeAndStatusIn(Role.ROLE_ADMIN, ELIGIBLE_STATUSES)).willReturn(false);
         given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
         given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn(null);
         given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("boot@example.com");
@@ -159,7 +185,7 @@ class AdminBootstrapLoaderTest {
     @Test
     @DisplayName("ACTIVE ROLE_ADMIN이 없고 자격증명 검증에 실패하면 기동 실패(값은 노출 안 함)")
     void noActiveAdmin_invalidCredentials_throwsWithoutLeakingValue() {
-        given(memberRepository.existsByUserTypeAndStatus(Role.ROLE_ADMIN, MemberStatus.ACTIVE)).willReturn(false);
+        given(memberRepository.existsByUserTypeAndStatusIn(Role.ROLE_ADMIN, ELIGIBLE_STATUSES)).willReturn(false);
         given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
         given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("abc"); // 14자 이하(최소 15코드포인트 미달)
         given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("not-an-email");
@@ -193,7 +219,7 @@ class AdminBootstrapLoaderTest {
     }
 
     @Test
-    @DisplayName("저장 중 유니크 제약 위반이 나고 재조회해도 ROLE_ADMIN·ACTIVE가 아니면 원 예외를 전파한다")
+    @DisplayName("저장 중 유니크 제약 위반이 나고 재조회해도 ROLE_ADMIN·적격 상태가 아니면 원 예외를 전파한다")
     void createOrReconcile_conflictNotReconciled_rethrows() {
         AdminBootstrapCredentials credentials = new AdminBootstrapCredentials("bootadmin", "bootpass1!", "boot@example.com");
         doAnswer(invocation -> {
@@ -201,6 +227,103 @@ class AdminBootstrapLoaderTest {
         }).when(transactionTemplate).executeWithoutResult(any());
 
         given(memberRepository.findByUserId("bootadmin")).willReturn(Optional.empty());
+
+        org.assertj.core.api.Assertions.assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> loader.createOrReconcile(credentials));
+    }
+
+    @Test
+    @DisplayName("동시 생성 경합 중 같은 ID가 LOCKED로 전이됐어도(적격 상태) 재조회 기준으로 흡수한다")
+    void createOrReconcile_conflictReconciledAsLocked_swallowsException() {
+        AdminBootstrapCredentials credentials = new AdminBootstrapCredentials("bootadmin", "bootpass1!", "boot@example.com");
+        doAnswer(invocation -> {
+            throw new DataIntegrityViolationException("duplicate key");
+        }).when(transactionTemplate).executeWithoutResult(any());
+
+        Member existing = Member.builder()
+                .userId("bootadmin")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.LOCKED)
+                .build();
+        given(memberRepository.findByUserId("bootadmin")).willReturn(Optional.of(existing));
+
+        loader.createOrReconcile(credentials);
+
+        // 예외가 밖으로 전파되지 않으면 이 지점에 도달한다.
+    }
+
+    @Test
+    @DisplayName("동시 생성 경합 중 같은 ID가 PASSWORD_EXPIRED로 전이됐어도(적격 상태) 재조회 기준으로 흡수한다")
+    void createOrReconcile_conflictReconciledAsPasswordExpired_swallowsException() {
+        AdminBootstrapCredentials credentials = new AdminBootstrapCredentials("bootadmin", "bootpass1!", "boot@example.com");
+        doAnswer(invocation -> {
+            throw new DataIntegrityViolationException("duplicate key");
+        }).when(transactionTemplate).executeWithoutResult(any());
+
+        Member existing = Member.builder()
+                .userId("bootadmin")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.PASSWORD_EXPIRED)
+                .build();
+        given(memberRepository.findByUserId("bootadmin")).willReturn(Optional.of(existing));
+
+        loader.createOrReconcile(credentials);
+
+        // 예외가 밖으로 전파되지 않으면 이 지점에 도달한다.
+    }
+
+    @Test
+    @DisplayName("동시 생성 경합 중 같은 ID가 DISABLED로 전이됐으면(비적격 상태) 부활시키지 않고 원 예외를 전파한다")
+    void createOrReconcile_conflictWithDisabledSameId_rethrowsWithoutReviving() {
+        AdminBootstrapCredentials credentials = new AdminBootstrapCredentials("bootadmin", "bootpass1!", "boot@example.com");
+        doAnswer(invocation -> {
+            throw new DataIntegrityViolationException("duplicate key");
+        }).when(transactionTemplate).executeWithoutResult(any());
+
+        Member existing = Member.builder()
+                .userId("bootadmin")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.DISABLED)
+                .build();
+        given(memberRepository.findByUserId("bootadmin")).willReturn(Optional.of(existing));
+
+        org.assertj.core.api.Assertions.assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> loader.createOrReconcile(credentials));
+    }
+
+    @Test
+    @DisplayName("동시 생성 경합 중 같은 ID가 DELETED로 전이됐으면(비적격 상태) 부활시키지 않고 원 예외를 전파한다")
+    void createOrReconcile_conflictWithDeletedSameId_rethrowsWithoutReviving() {
+        AdminBootstrapCredentials credentials = new AdminBootstrapCredentials("bootadmin", "bootpass1!", "boot@example.com");
+        doAnswer(invocation -> {
+            throw new DataIntegrityViolationException("duplicate key");
+        }).when(transactionTemplate).executeWithoutResult(any());
+
+        Member existing = Member.builder()
+                .userId("bootadmin")
+                .userType(Role.ROLE_ADMIN)
+                .status(MemberStatus.DELETED)
+                .build();
+        given(memberRepository.findByUserId("bootadmin")).willReturn(Optional.of(existing));
+
+        org.assertj.core.api.Assertions.assertThatExceptionOfType(DataIntegrityViolationException.class)
+                .isThrownBy(() -> loader.createOrReconcile(credentials));
+    }
+
+    @Test
+    @DisplayName("동시 생성 경합 중 같은 ID가 다른 역할(ROLE_MANAGER)이면 흡수하지 않고 원 예외를 전파한다")
+    void createOrReconcile_conflictWithDifferentRoleSameId_rethrowsWithoutAbsorbing() {
+        AdminBootstrapCredentials credentials = new AdminBootstrapCredentials("bootadmin", "bootpass1!", "boot@example.com");
+        doAnswer(invocation -> {
+            throw new DataIntegrityViolationException("duplicate key");
+        }).when(transactionTemplate).executeWithoutResult(any());
+
+        Member existing = Member.builder()
+                .userId("bootadmin")
+                .userType(Role.ROLE_MANAGER)
+                .status(MemberStatus.ACTIVE)
+                .build();
+        given(memberRepository.findByUserId("bootadmin")).willReturn(Optional.of(existing));
 
         org.assertj.core.api.Assertions.assertThatExceptionOfType(DataIntegrityViolationException.class)
                 .isThrownBy(() -> loader.createOrReconcile(credentials));

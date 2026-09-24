@@ -6,10 +6,13 @@
 
 최종 판단 근거: [INDEPENDENT VERIFICATION REVIEW](deploy-check-2026-09-23.md). [PROJECT TECHNICAL AUDIT](deploy-check-2026-09-22.md)은 배경 및 과거 판정 이력으로만 사용한다.
 
-상태: **PR 1 구현·범위 내 검증 완료(2026-09-24) / PR 2~6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 이후 사용자가 PR 1만 구현 승인했다. 전체 remediation 구현·배포 승인이나 PR 생성 완료를 의미하지 않는다.
+상태: **PR 1·PR 2 구현·범위 내 검증 완료(2026-09-24) / PR 3~6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1·PR 2 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인이나 PR 생성 완료를 의미하지 않는다.
 
 개정 이력:
 
+- v7 변경(2026-09-24): `/suggestRoadmap` → PR 2 선택 → 계획 리뷰 ship(v5·v6) → 사용자 구현 승인 순으로 PR 2(H-01) 구현. `MemberRepository.existsByUserTypeAndStatusIn` 신규(기존 `existsByUserTypeAndStatus` 대체·삭제), `AdminBootstrapLoader`의 존재 질의·재조회 흡수 조건을 `ELIGIBLE_STATUSES={ACTIVE,LOCKED,PASSWORD_EXPIRED}`로 통일. 신규 테스트 30개(단위 7·Testcontainers 통합 15, 기존 클래스 확장 포함) 전부 통과, `./gradlew test` 전체 720개 통과. 실제 prod JAR + 별도 일회성 MariaDB로 "LOCKED 관리자만 있어도 부트스트랩 변수 없이 정상 기동"을 실기 확인(사용자 dev 스택은 건드리지 않음). `docs/deployment.md`·`.env.example`·`docker-compose.prod.yml`·`com.cms.admin.member/CLAUDE.md` 문서 동기화. 상세는 PR 2 섹션의 "PR 2 실행 기록" 참조.
+- v6 변경(2026-09-24): PR 2(H-01) 계획 리뷰 2라운드(codex CLI, v5 수정 검증) — **ship 판정.** 1라운드 두 지적(동시성 보장 범위, EXPIRED 복귀 경로 문구)이 실제 코드와 대조해 해소됐음을 재확인. 비차단 지적 1건(수용) — "재조회 전 상태 변경" 테스트 문구가 넓어 구현 시 기대 결과가 불명확할 수 있다는 지적에 따라, Tests to Add의 해당 항목을 3가지 구체 사례(exists=true 직후 DISABLED 전환→skip 유지/exists=false 이후 같은 ID 생성→재조회 기준 흡수/충돌 후 재조회 전 DISABLED 전환→실패, LOCKED·EXPIRED는 allowlist에 따라 흡수)로 세분화했다. 이로써 PR 2 계획 리뷰 루프 종료 — 구현 착수는 별도 사용자 확인 필요.
+- v5 변경(2026-09-24): PR 2(H-01) 구현 착수 전 계획 리뷰 1라운드(자체 적대적 리뷰, codex CLI로 실제 코드·기존 테스트 대조) 수용 2건 반영 — (1) bootstrap 존재 질의(`existsByUserTypeAndStatusIn` 등)와 INSERT가 원자적 한 동작이 아니므로, "전역적으로 신규 ADMIN 한 명만 생성된다"고 서술하지 않고 "존재 질의 실행 시점의 판정"이며 "동일 설치의 모든 인스턴스가 같은 bootstrap 자격증명(같은 ID)을 쓴다"는 운영 전제 위에서 안전함을 명시. 기존 `AdminBootstrapConcurrencyIntegrationTest`가 `createOrReconcile()`을 순차 2회만 호출해 병렬 존재확인·재조회 전 상태 변경을 검증하지 못하는 공백을 Tests to Add에 명시. (2) "EXPIRED는 적격 reset 성공 후에만 ACTIVE 복귀"라는 문구가 실제 코드(`Member.changePassword()`가 일반 비밀번호 변경으로도 EXPIRED→ACTIVE를 수행, `PasswordExpiryIntegrationTest`가 이미 검증)와 모순되어 "bootstrap은 만료 상태를 변경하지 않는다. reset 시나리오에서는 적격 reset 성공 후 ACTIVE로 복귀하며, 기존 내 비밀번호 변경 경로의 만료 해소도 유지한다"로 한정. 부가로 상태표에 `DISABLED ADMIN + ACTIVE MANAGER/USER`(적격 ADMIN 없음→bootstrap 변수 필요) 사례, "same ID DISABLED/DELETED 충돌 실패"에 "다른 적격 ADMIN이 없을 때"라는 전제, 자동 잠금 만료+비밀번호 만료 동시 발생(`CustomUserDetailsService`가 잠금 해제 다음에 만료 판정) 테스트를 Tests to Add에 추가. D-01 정책(대안 A) 자체는 변경 없음 — 정책 서술의 정확도·테스트 공백만 보완.
 - v4 변경(2026-09-24): PR 1만 사용자 승인 후 구현. 상세 평문/이메일 markup 분리, 신규 회귀 14개, 관련 168개 통과, 전체 698개 통과·기존 symlink 1개 skip, 실제 prod JAR 브라우저 회귀 통과. 다른 PR 정책·범위는 변경하지 않음. PR 1 실행 기록 및 검증 문서 추가.
 - v1: 현재 HEAD 재탐색, 6개 PR 경계, 최소 변경안, 회귀 테스트 및 배포 Gate 작성. 제품 코드·설정·기존 테스트·과거 보고서는 수정하지 않음.
 - v2 변경: 자체 적대적 리뷰 R-01/R-02 수용 — 복원 스크립트의 localhost health와 격리 VM 실행 위치를 일치시키고, 메뉴 잠금 회귀에 실제 DB 대기 관측을 명시. D-01의 수동 LOCKED 기동 정책은 사용자 결정 필요로 유지. 최종 구현 승인은 아직 없음.
@@ -197,7 +200,8 @@ H-01 · High · Operational Risk / Architecture Issue.
 - DISABLED/DELETED ADMIN만 존재하거나 ADMIN이 없으면 기존처럼 유효한 신규 ADMIN bootstrap 자격증명을 요구한다. 빈 DB와 MANAGER-only도 이 분기에 포함한다.
 - 신규 bootstrap은 별도 ADMIN 생성이며 기존 DISABLED/DELETED 계정을 부활시키거나 동일 ID의 기존 계정을 덮어쓰지 않는다. 기존 unique 제약도 유지한다.
 - **어느 bootstrap 분기에서도 기존 계정의 상태, 비밀번호 해시, `lockedAt`, `passwordChangedAt`, reset token·만료 시각 등 기존 필드를 변경하지 않는다.** 신규 계정 생성에 필요한 최초 필드 설정과 기존 계정 변경을 구분한다.
-- 기동 이후 로그인/reset 요청에서 동작하는 기존의 만료된 자동 잠금 해제·비밀번호 재설정 정책은 그대로다. 수동 LOCKED의 자동 해제를 새로 허용하지 않는다.
+- 기동 이후 로그인/reset 요청에서 동작하는 기존의 만료된 자동 잠금 해제·비밀번호 재설정 정책은 그대로다. 수동 LOCKED의 자동 해제를 새로 허용하지 않는다. **정정(v5):** bootstrap 자체는 만료 상태를 변경하지 않는다. EXPIRED의 ACTIVE 복귀는 reset 시나리오에서는 적격 reset 성공 후에, 그리고 기존에 이미 존재하는 살아있는 세션의 `changeMyPassword()` 경로(`Member.changePassword()`)로도 동일하게 일어난다 — bootstrap이 이 기존 경로를 막거나 "reset만 유일한 복귀 수단"으로 서술하지 않는다.
+- **동시성 보장 범위 명시(v5 추가):** 존재 질의(`existsByUserTypeAndStatusIn` 등)와 신규 ADMIN INSERT는 원자적인 한 동작이 아니다 — 이 정책이 보장하는 것은 "존재 질의를 실행한 시점에 적격 ADMIN이 있었는가"이지, 기동 완료 시점까지 전역적으로 신규 ADMIN이 정확히 한 명만 생기는 것을 보장하지 않는다. 서로 다른 bootstrap 자격증명(다른 ID)을 가진 두 인스턴스가 동시에 존재 확인을 통과하면 서로 다른 ADMIN이 각각 생성될 수 있다 — **동일 설치의 모든 인스턴스가 같은 bootstrap 자격증명(같은 ID)을 사용한다**는 운영 전제 위에서만 "신규 ADMIN 한 명"이 보장된다. 이 전제는 `docs/deployment.md`의 bootstrap 설명에도 명시한다.
 
 검토한 세 대안의 의미(아래 B/C는 비교 이력이며 채택하지 않음):
 
@@ -228,6 +232,11 @@ H-01 · High · Operational Risk / Architecture Issue.
 
 A에서 수동 LOCKED의 기동도 허용하는 이유는 **관리자 로그인 차단과 공개 앱 가용성을 분리**하기 때문이다. 수동 잠금을 일시 상태나 자동 복구 가능 상태로 재분류하지 않는다. 모든 ADMIN이 수동 LOCKED이면 별도 운영자 복구는 여전히 필요하다.
 
+**상태표 보강(v5 추가):**
+
+- 위 상태표에 없던 `DISABLED ADMIN + ACTIVE MANAGER/USER` 조합도 명시한다 — 적격 ADMIN이 없으므로 "빈 DB"·"MANAGER만 존재"와 동일하게 변수 없으면 실패, 유효하면 신규 구성이다(ADMIN 역할이 아닌 계정의 상태는 D-01 allowlist 판정과 무관).
+- "same ID DISABLED/DELETED는 부활하지 않고 충돌 실패"(Tests to Add 참조)에는 **다른 적격 ADMIN이 없을 때**라는 전제를 명시한다 — 예: `ACTIVE ADMIN A` + `DISABLED ADMIN B`가 이미 있는 DB에 bootstrap 자격증명 ID가 B와 같아도, A가 존재 질의를 이미 충족시키므로 전역 skip이 먼저 적용되고 변수 검증·충돌 실패 경로로 가지 않는다.
+
 #### Files Likely Affected
 
 - `src/main/java/com/cms/admin/member/AdminBootstrapLoader.java`.
@@ -255,8 +264,12 @@ A에서 수동 LOCKED의 기동도 허용하는 이유는 **관리자 로그인 
 - same ID LOCKED/EXPIRED는 runner skip, same ID DISABLED/DELETED는 부활하지 않고 충돌 실패. 다른 역할의 동일 ID·중복 이메일도 무조건 흡수하지 않음.
 - `createOrReconcile()`의 실제 DB unique 충돌/새 트랜잭션 재조회 및 허용/거부 역할·상태 조합.
 - prod 기동 직후, login/reset 요청 **전에** 상태·lockedAt·passwordChangedAt·비밀번호 해시·token이 바뀌지 않았는지 확인.
-- 그 후 자동 잠금 만료는 기존 로그인/reset 요청에서만 해제, 미만료·수동 LOCKED는 거절, EXPIRED는 적격 reset 성공 후에만 ACTIVE 복귀, DISABLED/DELETED는 reset 거절 유지.
+- 그 후 자동 잠금 만료는 기존 로그인/reset 요청에서만 해제, 미만료·수동 LOCKED는 거절, DISABLED/DELETED는 reset 거절 유지. **(v5 정정)** EXPIRED의 ACTIVE 복귀는 적격 reset 성공 후 **뿐 아니라** 기존에 이미 존재하는 살아있는 세션의 `changeMyPassword()` 경로로도 일어난다 — bootstrap 계획이 "reset 성공 후에만"으로 전역 불변식을 새로 만들지 않는다. 두 경로 모두 회귀 확인 대상이다.
 - 부트스트랩 없는 상태에도 공개 공지·reset 화면이 기동하고 prod에 dev 기본 계정이 생기지 않음.
+- **(v5 추가) 병렬 존재확인 경합**: 서로 다른 bootstrap ID(따라서 다른 자격증명)를 가진 두 실행이 모두 `exists=false`를 확인한 뒤 각자 INSERT를 시도하면 서로 다른 ADMIN 두 명이 생성될 수 있음을 실제 DB로 확인 — 이는 결함이 아니라 "동일 설치는 동일 bootstrap ID를 쓴다"는 운영 전제의 경계임을 테스트 설명에 명시한다. 기존 `AdminBootstrapConcurrencyIntegrationTest`(`createOrReconcile()` 순차 2회 호출)와 구분되는 **병렬** 시나리오로 별도 추가.
+- **(v5 추가, round2 명확화)** **재조회 전 상태 변경**: 최초 존재 질의는 skip 여부를, 충돌 후 재조회는 reconciliation 여부를 결정한다는 원칙 아래 다음 3가지를 각각 고정 검증한다 — (1) `exists=true` 직후 대상이 DISABLED로 변경되면 runner는 그대로 skip한다(이 경로에는 재조회가 없다). (2) `exists=false` 이후 같은 ID가 생성되면 INSERT 충돌 후 재조회에서 읽은 역할·상태로 흡수 여부를 결정한다. (3) 충돌 후 재조회 전에 같은 ID가 DISABLED로 변경·커밋되면 흡수하지 않고 실패하며, LOCKED/PASSWORD_EXPIRED라면 allowlist에 따라 흡수한다.
+- **(v5 추가) 상태 혼합**: `DISABLED ADMIN + ACTIVE MANAGER/USER`에서 변수 없으면 실패·유효하면 신규 구성 확인. `ACTIVE ADMIN A + DISABLED/LOCKED/EXPIRED ADMIN B`에서 bootstrap 자격증명 ID가 B와 같아도 전역 skip이 우선되어 변수 검증·충돌 실패 없이 기동함을 확인(B는 그대로 방치).
+- **(v5 추가) 자동 잠금 만료 + 비밀번호 만료 동시 발생**: `lockedAt`이 30분을 넘긴 LOCKED이면서 `passwordChangedAt`도 90일을 넘긴 계정은 bootstrap 직후에는 LOCKED 상태를 그대로 유지(bootstrap은 자동 해제하지 않음)하되, 이후 로그인 시도 시 `CustomUserDetailsService`가 자동 잠금 해제 다음에 비밀번호 만료를 판정해 PASSWORD_EXPIRED로 로그인이 거절됨을 확인 — "자동 잠금 해제 → 로그인 성공"만 검증하는 기존 케이스와 구분되는 별도 시나리오.
 
 실제 기동 테스트는 공유 dev seed가 있는 DB를 재사용해 행렬을 오염시키지 않는다. Testcontainers의 **독립 DB/schema와 명시적 prod 설정**을 사용하고 실제 `CmsApplication`으로 기동한다. Gradle의 `SPRING_PROFILES_ACTIVE=dev`를 높은 우선순위 설정으로 명시적으로 대체해 dev+prod가 동시에 켜지지 않게 한다. 최종 실행 JAR 검증은 runner 완료·프로세스 생존·안정 health까지 확인한다. 순간적인 최초 health 200만으로 성공 판정하지 않는다.
 
@@ -281,6 +294,18 @@ D-01 정책 승인 완료. PR 5 없이 코드 테스트는 가능하지만 실�
 #### Completion Criteria
 
 상태 행렬·prod 실행 JAR·복구 요청 회귀 통과, 기존 계정 무변경, 초기 관리자 미구성 fail-fast 유지, 문서 정합성 확보. migration 없음.
+
+#### PR 2 실행 기록 — 2026-09-24
+
+- Context: 사용자가 `/suggestRoadmap` → PR 2 선택 → 계획 리뷰(codex CLI 2라운드, v5·v6, ship) → 구현 착수 순으로 승인. `feat/admin-detail-safe-text`(PR 1)가 이미 머지된 기준 HEAD 위에서 `security/admin-bootstrap-eligible-status` 브랜치로 작업했다.
+- 구현: `MemberRepository`에 `existsByUserTypeAndStatusIn(Role, Collection<MemberStatus>)` 신규 파생 쿼리 추가, 기존 `existsByUserTypeAndStatus(Role, MemberStatus)`는 유일한 호출부(`AdminBootstrapLoader`)와 함께 완전히 대체해 삭제(사용처 없는 코드 남기지 않음). `AdminBootstrapLoader`에 `ELIGIBLE_STATUSES = {ACTIVE, LOCKED, PASSWORD_EXPIRED}` 상수를 두고 `run()`의 skip 판정과 `createOrReconcile()`의 재조회 흡수 조건 양쪽에 동일하게 적용(계획 Implementation Step 4 요구사항). 기동 실패 메시지를 "ACTIVE 상태의..."에서 "적격(ACTIVE/LOCKED/PASSWORD_EXPIRED) 상태의..."로 갱신. 클래스 Javadoc에 D-01 정책·동시성 보장 범위·운영 전제를 명시(v5·v6 리뷰 반영 내용과 동일 문구). `docs/deployment.md`·`.env.example`·`docker-compose.prod.yml`·`com.cms.admin.member/CLAUDE.md`의 부트스트랩 설명을 새 allowlist·동시성 전제에 맞춰 갱신. `AdminMemberService`·`Member`·`LoginFailureService`·`PasswordExpiryService`·`CustomUserDetailsService`·인증 matcher는 계획대로 무변경(읽기·회귀 검증 대상으로만 사용).
+- 신규 테스트: `AdminBootstrapLoaderTest`(Mockito)에 7건 순증(적격 상태 allowlist 존재질의 검증 2건, LOCKED/PASSWORD_EXPIRED 재조회 흡수 2건, DISABLED/DELETED/다른 역할 재조회 거부 3건) — 총 15개. 신규 `AdminBootstrapStartupIntegrationTest`(Testcontainers MariaDB) 15건: 상태 행렬(ACTIVE/LOCKED/PASSWORD_EXPIRED 존재 시 변수 없이 skip 3건, 빈 DB/MANAGER-only/DISABLED-only/DELETED-only 변수 필요 4건, DISABLED-only에 신규 ID로 생성 가능 1건), v5 상태 혼합 2건(DISABLED+ACTIVE MANAGER는 부적격 취급, ACTIVE A+DISABLED B는 B 방치하며 skip), v5 재조회 전 상태 변경 실 DB unique 충돌 경로 2건(LOCKED 흡수·DISABLED 거부), v5 병렬 존재확인 경합 1건(barrier로 두 인스턴스 exists=false 동시 통과 재현 → 서로 다른 ADMIN 2명 생성 확인), v5 자동 잠금 만료+비밀번호 만료 동시 발생 1건(bootstrap 직후 LOCKED 유지 → 로그인 시도 시뮬레이션에서 PASSWORD_EXPIRED로 전이해 거절). 이 클래스는 `@Profile("prod")` 컨텍스트 전환 대신 기존 `AdminBootstrapConcurrencyIntegrationTest` 관례(POJO 직접 생성)를 따라 dev 프로파일 Testcontainers로 실 DB 제약·트랜잭션을 검증한다 — 프로파일 전환 자체는 별도 실기 검증(아래)으로 확인.
+- 회귀 이슈: Spring TestContext가 동일 설정(`@SpringBootTest(classes=CmsTestApplication)`)의 컨텍스트·Testcontainers 컨테이너를 여러 테스트 클래스에 걸쳐 재사용해, `TestMemberLoader`(dev seed)가 컨텍스트 최초 기동 시 만든 `admin` 계정이 이 클래스 실행 시점에 이미 존재함을 발견 — "적격 ADMIN 없음" 상태 행렬 케이스를 전부 오염시켰다. `@BeforeEach`에서 `admin` 행을 백업 후 제거하고 `@AfterEach`에서 동일 값으로 복원하는 방식으로 격리(다른 테스트 클래스의 `CmsApplicationTests.testMemberLoader_seedsAdminAccount`처럼 이 seed의 영속 존재를 전제하는 테스트에 영향 없음, 실제로 조합 재실행해 회귀 없음 확인). `LocalDateTime` 초기 assert가 MariaDB 컬럼의 마이크로초 절단으로 실패해 `isEqualToIgnoringNanos`로 교정. 테스트 비밀번호 일부가 `@MinCodePoints(15)` 경계에 미달해 검증 실패했던 것도 교정.
+- 검증 결과: `./gradlew compileJava compileTestJava` 성공. `AdminBootstrapLoaderTest` 15개·`AdminBootstrapStartupIntegrationTest` 15개·`AdminBootstrapConcurrencyIntegrationTest` 1개(무회귀)·`CmsApplicationTests` 2개(무회귀) 각각 통과 확인 후, `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 전체 실행 — **720개 전체 통과, 실패·오류 0**(신규 30개 순증: 단위 7·통합 15 + 기존 재확인 무변경, PR 1 이후 기준 698개에서 신규 클래스·케이스 순증).
+- 실기: 로컬 Docker(사용자 dev 스택 `cms-app-dev`/`cms-db-dev`는 건드리지 않음)에 별도 일회성 MariaDB(`cms-verify-db`, 포트 3309)를 띄우고 `./gradlew bootJar`로 갱신한 실제 JAR을 `SPRING_PROFILES_ACTIVE=prod`로 직접 실행(`docker-compose.prod.yml`은 사용자 dev 스택과 호스트 포트 8080이 충돌해 이번엔 우회): (1) 빈 DB + 유효한 `ADMIN_BOOTSTRAP_*` 3변수 → 정상 기동, `member` 테이블에 `ROLE_ADMIN`/`ACTIVE` 1행 생성 확인(DB 직접 조회). (2) 그 계정을 `LOCKED`로 직접 전이한 뒤 **부트스트랩 변수 전부 제거**하고 재기동 → **이번 PR의 핵심 변경대로 정상 기동**(`/actuator/health` 200, 예외 없음), DB 재조회로 `status=LOCKED`·`locked_at` 원값 그대로 무변경 확인. 검증용 컨테이너·`.env.prod`·임시 스토리지 디렉터리는 종료 후 전부 제거, 사용자 dev 스택 무변경 확인(`docker ps`).
+- 이슈: 처음 직접 JAR 실행 시 PATH에 `java`가 없어 `nohup: failed to run command 'java'` 실패 — JDK 홈(`C:\Users\user\.jdks\corretto-17.0.18`) 절대경로로 우회. 첫 실기 시도는 `docker-compose.prod.yml` 그대로 사용해 사용자 dev 스택과 호스트 포트 8080이 충돌 — 즉시 `docker compose down`으로 정리하고 dev 스택 무변경 확인 후, compose 대신 직접 JAR 실행 + 별도 포트(8099)/별도 DB 컨테이너(3309)로 재시도해 충돌 없이 완료. 두 번째 재기동 검증에서 로컬 `build/libs/*.jar`이 코드 변경 전 stale 빌드였음을 발견(구 오류 메시지 문구로 확인)해 `./gradlew bootJar` 재실행 후 재검증.
+- `/code-review-loop` 2라운드: 1라운드에서 [P2] 지적 1건 수용 — `AdminBootstrapStartupIntegrationTest`의 병렬 존재확인 경합 테스트가 테스트 코드의 별도 `existsByUserTypeAndStatusIn` 호출만 `CountDownLatch`로 동기화하고 실제로 실행되는 `run()` 내부 재조회는 동기화하지 못해 스레드 스케줄링에 따라 간헐적으로 실패할 수 있었다(운영 코드 결함 아님, 테스트 설계 결함). `run()` 대신 존재 재확인 없이 곧바로 INSERT하는 `createOrReconcile()`을 `CyclicBarrier`로 실행 지점 직전에 동기화하도록 재설계해 결정적으로 만들었다(반복 3회 재실행 통과 확인). 2라운드는 지적 0건(ship). 전체 720개 재확인 통과.
+- 후속: 없음. 감사 H-01(D-01 대안 A) 완료 — 커밋·PR 처리는 `/commitPR` 단계에서 진행.
 
 ### PR 3 — API 오류 계약과 안전한 500 진단
 

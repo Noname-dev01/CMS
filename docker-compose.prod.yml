@@ -41,7 +41,8 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:?필수 환경변수입니다}
       # 컨테이너 내부 절대경로 — named volume 마운트 지점과 동일해야 한다(dev compose와 동일 패턴).
       APP_FILE_STORAGE_ROOT: /app/data/attachments
-      # 부트스트랩 3변수는 선택 입력이다 — ACTIVE ROLE_ADMIN이 이미 있는 정상 운영 환경에서는
+      # 부트스트랩 3변수는 선택 입력이다 — ROLE_ADMIN + ACTIVE/LOCKED/PASSWORD_EXPIRED 중
+      # 하나인 계정이 이미 있는 정상 운영 환경에서는(D-01 대안 A, 잠금·만료 중이어도 포함)
       # 이 값들이 없어도 기동돼야 하므로 Compose가 무조건 요구하지 않는다(결정 4·7).
       ADMIN_BOOTSTRAP_USER_ID: ${ADMIN_BOOTSTRAP_USER_ID-}
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD-}
