@@ -23,6 +23,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -343,6 +345,26 @@ class AdminMemberServiceTest {
         // 이메일 변경과 비밀번호 재설정 토큰 발급의 경합을 막으려면 반드시 행 잠금 조회를 써야 한다.
         verify(memberRepository).findByIdForUpdate(1L);
         verify(memberRepository, never()).findById(anyLong());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"<span id=\"audit-name-marker\">검증 이름</span>",
+            "홍길동 & Alice ' \" &lt;", "홍길동 Alice"})
+    @DisplayName("MANAGER 본인 수정과 ADMIN 상세 응답은 평문 이름 원문을 보존한다")
+    void updateMyInfo_thenGetAdminMember_preservesPlainText(String name) {
+        Member member = Member.builder().id(2L).userId("manager01")
+                .userName("변경 전").email("manager@example.com")
+                .userType(Role.ROLE_MANAGER).status(MemberStatus.ACTIVE).build();
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(member));
+        given(memberRepository.findByEmail(member.getEmail())).willReturn(Optional.of(member));
+        given(memberRepository.findById(2L)).willReturn(Optional.of(member));
+
+        AdminMemberResponse updated = adminMemberService.updateMyInfo(2L,
+                AdminMyInfoUpdateRequest.builder().userName(name).email(member.getEmail()).build());
+
+        assertEquals(name, member.getUserName());
+        assertEquals(name, updated.getUserName());
+        assertEquals(name, adminMemberService.getAdminMember(2L).getUserName());
     }
 
     private Member adminMemberWithResetToken() {
