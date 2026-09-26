@@ -6,10 +6,13 @@
 
 최종 판단 근거: [INDEPENDENT VERIFICATION REVIEW](deploy-check-2026-09-23.md). [PROJECT TECHNICAL AUDIT](deploy-check-2026-09-22.md)은 배경 및 과거 판정 이력으로만 사용한다.
 
-상태: **PR 1·PR 2 구현·범위 내 검증 완료(2026-09-24) / PR 3~6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1·PR 2 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인이나 PR 생성 완료를 의미하지 않는다.
+상태: **PR 1·PR 2 구현·검증·커밋·PR·머지 완료(PR 1 2026-09-24 `9294af5` #37, PR 2 2026-09-24 `eaaccb6` #38) / PR 3 구현·검증 완료(2026-09-26, `fix/api-error-contract` 브랜치 · 커밋·PR·머지 전) / PR 4~6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1·PR 2·PR 3 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인을 의미하지는 않는다.
 
 개정 이력:
 
+- v10 변경(2026-09-25): PR 3(M-03) 계획 리뷰 2라운드(codex CLI, v9 수정 검증) — **ship 판정.** 406 handler 추가가 기존 handler 우선순위와 충돌하지 않음(`Exception` catch-all보다 구체적 handler 우선), `FieldError.isBindingFailure()`로 타입 변환 실패를 문구·언어에 의존하지 않고 신뢰성 있게 판별 가능(`MethodArgumentNotValidException` 경로도 같은 `buildValidationMessage()`를 공유해 함께 보호됨), 오류 `ResponseEntity`에 JSON Content-Type을 직접 지정하는 접근이 유효함(단 `@ExceptionHandler(produces=...)`로 handler 선택 자체를 제한하는 방식은 `Accept: text/html`에서 handler 미선택 문제를 만들 수 있어 대체 수단으로 사용 금지 — Implementation Steps에 반영) 확인. 비차단 지적 1건(수용) — 6절 오류 행렬·Gate E·Final Execution Checklist가 아직 406·확장 범위(JSON Content-Type 전체 보장·BindException 비노출)를 반영하지 않아 PR 3 본문과 동기화했다. 이로써 PR 3 계획 리뷰 루프 종료 — 구현 착수는 별도 사용자 확인 필요.
+- v9 변경(2026-09-25): PR 3(M-03) 구현 착수 전 계획 리뷰 1라운드(codex CLI, 실제 코드 대조) — needs-attention, 지적 3건 전부 수용. (1) `HttpMediaTypeNotAcceptableException`(406, Accept 협상 실패)이 계획의 세 handler에 빠져 catch-all(500)로 새는 구멍 발견 → 4번째 handler로 추가. (2) "기존 JSON Content-Type 유지"가 실제 코드(기존 handler들이 Content-Type 미지정)와 맞지 않음 → API 분기 전체의 JSON Content-Type 보장을 범위에 포함, 회귀 테스트를 "HTML 아님" 대신 "상태+Content-Type+4필드 본문" 동시 검증으로 강화. (3) 기존 `BindException` 처리(`buildValidationMessage()`)가 타입 변환 실패 메시지를 그대로 노출해(예: enum 필드에 임의 문자열 입력 시 그 값이 메시지에 반영) 이번 PR의 "안전한 진단·민감정보 미노출" 완료 기준과 충돌 → 사용자 확인 후 PR 3 범위에 포함, 타입 변환 실패 필드 오류만 고정 문구로 대체(일반 Bean Validation 문구는 유지). Target Behavior·Implementation Steps·Tests to Add·Completion Criteria 갱신.
+- v8 변경(2026-09-25): `/updateRoadmap` 사실확인 후 PR 1·PR 2의 커밋·PR·머지 완료를 문서에 반영. PR 2는 커밋 `eaaccb6` "보안: ADMIN bootstrap 기동 조건을 상태 allowlist로 확장 (감사 H-01) (#38)"로 머지됨(`gh pr view 38` state=MERGED·mergedAt=2026-09-24T11:52:37Z, `gh pr checks 38` test pass 2m0s). PR 1은 `9294af5` #37(기존에 이미 반영됨). Final Execution Checklist의 PR 2 두 항목을 `[x]`로 갱신.
 - v7 변경(2026-09-24): `/suggestRoadmap` → PR 2 선택 → 계획 리뷰 ship(v5·v6) → 사용자 구현 승인 순으로 PR 2(H-01) 구현. `MemberRepository.existsByUserTypeAndStatusIn` 신규(기존 `existsByUserTypeAndStatus` 대체·삭제), `AdminBootstrapLoader`의 존재 질의·재조회 흡수 조건을 `ELIGIBLE_STATUSES={ACTIVE,LOCKED,PASSWORD_EXPIRED}`로 통일. 신규 테스트 30개(단위 7·Testcontainers 통합 15, 기존 클래스 확장 포함) 전부 통과, `./gradlew test` 전체 720개 통과. 실제 prod JAR + 별도 일회성 MariaDB로 "LOCKED 관리자만 있어도 부트스트랩 변수 없이 정상 기동"을 실기 확인(사용자 dev 스택은 건드리지 않음). `docs/deployment.md`·`.env.example`·`docker-compose.prod.yml`·`com.cms.admin.member/CLAUDE.md` 문서 동기화. 상세는 PR 2 섹션의 "PR 2 실행 기록" 참조.
 - v6 변경(2026-09-24): PR 2(H-01) 계획 리뷰 2라운드(codex CLI, v5 수정 검증) — **ship 판정.** 1라운드 두 지적(동시성 보장 범위, EXPIRED 복귀 경로 문구)이 실제 코드와 대조해 해소됐음을 재확인. 비차단 지적 1건(수용) — "재조회 전 상태 변경" 테스트 문구가 넓어 구현 시 기대 결과가 불명확할 수 있다는 지적에 따라, Tests to Add의 해당 항목을 3가지 구체 사례(exists=true 직후 DISABLED 전환→skip 유지/exists=false 이후 같은 ID 생성→재조회 기준 흡수/충돌 후 재조회 전 DISABLED 전환→실패, LOCKED·EXPIRED는 allowlist에 따라 흡수)로 세분화했다. 이로써 PR 2 계획 리뷰 루프 종료 — 구현 착수는 별도 사용자 확인 필요.
 - v5 변경(2026-09-24): PR 2(H-01) 구현 착수 전 계획 리뷰 1라운드(자체 적대적 리뷰, codex CLI로 실제 코드·기존 테스트 대조) 수용 2건 반영 — (1) bootstrap 존재 질의(`existsByUserTypeAndStatusIn` 등)와 INSERT가 원자적 한 동작이 아니므로, "전역적으로 신규 ADMIN 한 명만 생성된다"고 서술하지 않고 "존재 질의 실행 시점의 판정"이며 "동일 설치의 모든 인스턴스가 같은 bootstrap 자격증명(같은 ID)을 쓴다"는 운영 전제 위에서 안전함을 명시. 기존 `AdminBootstrapConcurrencyIntegrationTest`가 `createOrReconcile()`을 순차 2회만 호출해 병렬 존재확인·재조회 전 상태 변경을 검증하지 못하는 공백을 Tests to Add에 명시. (2) "EXPIRED는 적격 reset 성공 후에만 ACTIVE 복귀"라는 문구가 실제 코드(`Member.changePassword()`가 일반 비밀번호 변경으로도 EXPIRED→ACTIVE를 수행, `PasswordExpiryIntegrationTest`가 이미 검증)와 모순되어 "bootstrap은 만료 상태를 변경하지 않는다. reset 시나리오에서는 적격 reset 성공 후 ACTIVE로 복귀하며, 기존 내 비밀번호 변경 경로의 만료 해소도 유지한다"로 한정. 부가로 상태표에 `DISABLED ADMIN + ACTIVE MANAGER/USER`(적격 ADMIN 없음→bootstrap 변수 필요) 사례, "same ID DISABLED/DELETED 충돌 실패"에 "다른 적격 ADMIN이 없을 때"라는 전제, 자동 잠금 만료+비밀번호 만료 동시 발생(`CustomUserDetailsService`가 잠금 해제 다음에 만료 판정) 테스트를 Tests to Add에 추가. D-01 정책(대안 A) 자체는 변경 없음 — 정책 서술의 정확도·테스트 공백만 보완.
@@ -28,7 +31,7 @@
 |---|---|---|
 | C-01 | `admin-manage.html`의 목록·상단 요약은 escape, 상세 `detailItems`의 아이디·이름은 raw 값이며 `innerHTML`에 연결 | 현재 문자열 렌더링을 유지하고 평문/의도된 마크업 경계를 좁게 수정 |
 | H-01 | `AdminBootstrapLoader.run()`이 ADMIN+ACTIVE만 검사. 로그인·reset의 lazy unlock은 별도 요청 경로 | DB의 역할·상태 allowlist로 기동 조건을 분리하는 A안 정책 확정. 구현은 미착수 |
-| M-03 | catch-all이 미분류 예외를 500으로 반환하고 진단 로그 없음. public advice·Security는 별도 경계 | 누락된 MVC 예외 3종 및 안전한 500 진단만 추가 |
+| M-03 | catch-all이 미분류 예외를 500으로 반환하고 진단 로그 없음. public advice·Security는 별도 경계 | 누락된 MVC 예외 4종(v9: 406 추가) 및 안전한 500 진단, API 전체 JSON Content-Type 보장, BindException 타입 변환 메시지 비노출까지 추가 |
 | M-04 | 이름 수정은 `findById`, 비활성화는 `findByIdForUpdate`. 부모 변경 API는 없음 | 일반 수정도 최초 조회부터 같은 대상 행 잠금. 부모 경합을 실제 DB로 재검증 |
 | M-02 | prod SMTP auth/STARTTLS만 설정. timeout 없음. 발송 실패 시 조건부 token 정리 있음 | 3개 timeout과 설정 전달·검증만 변경 |
 | M-01 | DB dump 후 tar. 스크립트의 prod 컨테이너·volume 이름 고정. 정지 백업 절차 존재 | 정규 recovery backup으로 quiesced 모드 추천. 전용 격리 Docker daemon에서 복원 훈련 |
@@ -45,7 +48,7 @@ Java 17 / Spring Boot 3.5.16 / MariaDB 10.11 / 기존 Flyway와 Testcontainers�
 
 - C-01: 관리자 상세의 평문 안전 렌더링.
 - H-01: 계정의 로그인 상태와 초기 ADMIN 구성 필요 여부 분리.
-- M-03: 일부 400/405/415 보존 및 catch-all 500의 안전한 진단.
+- M-03: 400/405/415/406 매핑 및 catch-all 500의 안전한 진단, API 전체 JSON Content-Type 보장, BindException 타입 변환 메시지 비노출.
 - M-04: 같은 메뉴에 대한 일반 수정/비활성화의 동시성 규칙 일관화.
 - M-02: prod SMTP connection/read/write timeout 설정 및 적용 확인.
 
@@ -305,7 +308,7 @@ D-01 정책 승인 완료. PR 5 없이 코드 테스트는 가능하지만 실�
 - 실기: 로컬 Docker(사용자 dev 스택 `cms-app-dev`/`cms-db-dev`는 건드리지 않음)에 별도 일회성 MariaDB(`cms-verify-db`, 포트 3309)를 띄우고 `./gradlew bootJar`로 갱신한 실제 JAR을 `SPRING_PROFILES_ACTIVE=prod`로 직접 실행(`docker-compose.prod.yml`은 사용자 dev 스택과 호스트 포트 8080이 충돌해 이번엔 우회): (1) 빈 DB + 유효한 `ADMIN_BOOTSTRAP_*` 3변수 → 정상 기동, `member` 테이블에 `ROLE_ADMIN`/`ACTIVE` 1행 생성 확인(DB 직접 조회). (2) 그 계정을 `LOCKED`로 직접 전이한 뒤 **부트스트랩 변수 전부 제거**하고 재기동 → **이번 PR의 핵심 변경대로 정상 기동**(`/actuator/health` 200, 예외 없음), DB 재조회로 `status=LOCKED`·`locked_at` 원값 그대로 무변경 확인. 검증용 컨테이너·`.env.prod`·임시 스토리지 디렉터리는 종료 후 전부 제거, 사용자 dev 스택 무변경 확인(`docker ps`).
 - 이슈: 처음 직접 JAR 실행 시 PATH에 `java`가 없어 `nohup: failed to run command 'java'` 실패 — JDK 홈(`C:\Users\user\.jdks\corretto-17.0.18`) 절대경로로 우회. 첫 실기 시도는 `docker-compose.prod.yml` 그대로 사용해 사용자 dev 스택과 호스트 포트 8080이 충돌 — 즉시 `docker compose down`으로 정리하고 dev 스택 무변경 확인 후, compose 대신 직접 JAR 실행 + 별도 포트(8099)/별도 DB 컨테이너(3309)로 재시도해 충돌 없이 완료. 두 번째 재기동 검증에서 로컬 `build/libs/*.jar`이 코드 변경 전 stale 빌드였음을 발견(구 오류 메시지 문구로 확인)해 `./gradlew bootJar` 재실행 후 재검증.
 - `/code-review-loop` 2라운드: 1라운드에서 [P2] 지적 1건 수용 — `AdminBootstrapStartupIntegrationTest`의 병렬 존재확인 경합 테스트가 테스트 코드의 별도 `existsByUserTypeAndStatusIn` 호출만 `CountDownLatch`로 동기화하고 실제로 실행되는 `run()` 내부 재조회는 동기화하지 못해 스레드 스케줄링에 따라 간헐적으로 실패할 수 있었다(운영 코드 결함 아님, 테스트 설계 결함). `run()` 대신 존재 재확인 없이 곧바로 INSERT하는 `createOrReconcile()`을 `CyclicBarrier`로 실행 지점 직전에 동기화하도록 재설계해 결정적으로 만들었다(반복 3회 재실행 통과 확인). 2라운드는 지적 0건(ship). 전체 720개 재확인 통과.
-- 후속: 없음. 감사 H-01(D-01 대안 A) 완료 — 커밋·PR 처리는 `/commitPR` 단계에서 진행.
+- 후속: 없음. 감사 H-01(D-01 대안 A) 완료. 커밋 `eaaccb6` "보안: ADMIN bootstrap 기동 조건을 상태 allowlist로 확장 (감사 H-01) (#38)"로 반영, PR #38 머지 확인(`gh pr view 38` state=MERGED, mergedAt=2026-09-24T11:52:37Z) + CI(`gh pr checks 38`) `test` pass(2m0s) — 커밋·PR·머지까지 완료.
 
 ### PR 3 — API 오류 계약과 안전한 500 진단
 
@@ -330,11 +333,18 @@ M-03 · Medium · Bug / Operational Risk.
 | `MethodArgumentTypeMismatchException` | 400 / 기존 `INVALID_REQUEST` | 잘못된 값 원문을 메시지에 재출력하지 않음 |
 | `HttpRequestMethodNotSupportedException` | 405 / 신규 `METHOD_NOT_ALLOWED` | 서버가 제공하는 지원 method로 `Allow` header 구성 |
 | `HttpMediaTypeNotSupportedException` | 415 / 신규 `UNSUPPORTED_MEDIA_TYPE` | 고정된 안전한 메시지, 기존 JSON 오류 포맷 |
+| `HttpMediaTypeNotAcceptableException` | 406 / 신규 `NOT_ACCEPTABLE` | 고정된 안전한 메시지, JSON 오류 포맷 유지 |
 | 예상 밖 나머지 Exception | 500 / 기존 `INTERNAL_ERROR` | client 응답은 일반 메시지 유지, 안전한 ERROR 기록 |
 
-포괄적 `TypeMismatchException`/`ConversionNotSupportedException` 전체를 무조건 400으로 바꾸지 않는다. 서버 conversion 설정 결함까지 클라이언트 탓으로 바뀌지 않도록 실제 MVC 입력 변환 예외에 한정한다. 기존 `BindException`은 기존 validation handler가 처리한다.
+**(v9 계획 리뷰 수용 — 406 추가)**: `HttpMediaTypeNotSupportedException`(요청 `Content-Type` 문제)과 `HttpMediaTypeNotAcceptableException`(응답 형식 협상 실패)은 서로 다른 예외다. 인증된 정상 요청에 `Accept: text/html`만 붙여도 후자가 발생해 원래 계획의 catch-all(500)로 샐 수 있었다 — 이번 PR의 목표("일반 클라이언트 오류를 500으로 오분류하지 않는다")와 정면으로 충돌하는 구멍이라 4번째 좁은 handler로 추가한다.
+
+포괄적 `TypeMismatchException`/`ConversionNotSupportedException` 전체를 무조건 400으로 바꾸지 않는다. 서버 conversion 설정 결함까지 클라이언트 탓으로 바뀌지 않도록 실제 MVC 입력 변환 예외에 한정한다.
+
+**(v9 계획 리뷰 수용 — BindException 메시지 비노출)**: 기존 `BindException` 처리(`buildValidationMessage()`)는 `FieldError.getDefaultMessage()`를 그대로 응답에 담는다. 이 기본 메시지는 Bean Validation 문구뿐 아니라 **Spring 타입 변환 실패 메시지**로도 만들어질 수 있어, 예를 들어 `GET /admin/api/members?userType=FAKE_TOKEN_MARKER`처럼 열거형 필드에 잘못된 값을 보내면 변환 실패 메시지에 입력 표식이 그대로 반영되는 실제 경로가 있다(400으로 분류된다는 사실이 응답 메시지 안전을 보장하지 않음). 기존 결함이라 이번 PR의 "500 오분류" 범위보다는 넓지만, 같은 파일(`GlobalApiExceptionHandler`)이고 "안전한 진단 로그·민감정보 미포함"이라는 이번 PR의 완료 기준과 직결돼 함께 처리하기로 한다 — `buildValidationMessage()`가 **타입 변환 실패로 생성된 필드 오류**를 감지하면 고정된 안전한 문구로 대체하고, 일반 Bean Validation 문구(`@NotNull`, `@Size` 등)는 기존대로 유지한다.
 
 500 로그에는 method, **라우트 pattern**(가능하면 `HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`, 없으면 고정 `unmatched`), exception class, 제한된 stack frame 위치를 기록한다. raw URI/query, body, header, cookie, 비밀번호, reset token, 예외 message/`toString()`/cause message는 기본 로그에 넣지 않는다. raw Throwable 전체를 그대로 로깅하면 메일 본문·토큰을 가진 예외의 프로젝트 계약과 충돌할 수 있다.
+
+**(v9 계획 리뷰 수용 — JSON Content-Type 보장)**: 기존 validation handler(`GlobalApiExceptionHandler.java:49`)·JSON 파싱·비즈니스 오류 handler 대부분과 catch-all(`:366`)은 응답 `Content-Type`을 명시하지 않는다. `@RestControllerAdvice`만으로는 `Accept: text/html` 요청에도 JSON 응답이 보장되지 않으며, "HTML이 아니면 통과"라는 회귀 기준은 빈 응답도 통과시키는 약한 검증이다. API 분기(`/admin/api/**`·공개 API 경로)의 모든 오류 응답이 `application/json` Content-Type을 명시적으로 갖도록 보장하는 것을 이번 PR 범위에 포함한다 — 신규 handler 4종뿐 아니라 기존 handler·catch-all에도 동일하게 적용.
 
 진단은 같은 handler 안의 작은 처리로 한정한다. 예를 들어 예외 class와 상위 frame 10개 수준의 제한된 위치 정보로 시작하며, 별도 범용 redaction/logging 프레임워크를 만들지 않는다. 새 error 응답 필드나 추적 ID 체계도 이번 필수 범위가 아니다.
 
@@ -349,20 +359,24 @@ M-03 · Medium · Bug / Operational Risk.
 
 #### Implementation Steps
 
-1. Security를 통과한 실제 API 경로에서 현재 500 재현 테스트를 추가한다. method/media type 검증에 인증·CSRF를 누락해 401/403을 잘못 시험하지 않는다.
-2. 기존 advice에 위 세 개의 좁은 handler를 추가하고 JSON `Content-Type`과 기존 응답 shape를 유지한다. `Accept: text/html` 요청도 API 오류를 HTML로 바꾸지 않는지 확인한다.
+1. Security를 통과한 실제 API 경로에서 현재 500 재현 테스트를 추가한다(406 포함). method/media type/Accept 검증에 인증·CSRF를 누락해 401/403을 잘못 시험하지 않는다.
+2. 기존 advice에 위 네 개의 좁은 handler(400/405/415/406)를 추가하고, 신규 handler뿐 아니라 **API 분기의 모든 오류 응답이 JSON `Content-Type`을 명시적으로 갖도록 보장**한다. 각 handler가 오류 `ResponseEntity`에 JSON Content-Type을 직접 지정하는 방식으로 구현한다 — `@ExceptionHandler(produces = "application/json")`로 handler 선택 자체를 제한하는 방식은 `Accept: text/html` 요청에서 handler가 선택되지 않는 별도 문제를 만들 수 있어 **대체 수단으로 쓰지 않는다**(v10 계획 리뷰 확인). `Accept: text/html` 요청도 API 오류를 HTML로 바꾸지 않는지 확인한다(정상 처리 가능한 조회 + 지원하지 않는 Accept 케이스 포함).
 3. catch-all에 안전한 서버 진단을 추가한다. 예외 원문은 client와 로그 모두에 무조건 노출하지 않는다.
-4. 일반 4xx에는 ERROR stack 기록을 추가하지 않는다. public advice·Security·controller·service에 동일 로그를 중복 삽입하지 않는다.
-5. 관련 문서의 상태 코드 계약만 갱신한다. advice 상속 구조·우선순위·public 오류 페이지를 전면 변경하지 않는다.
+4. `buildValidationMessage()`가 타입 변환 실패로 생성된 필드 오류를 감지하면 고정된 안전한 문구로 대체한다. 일반 Bean Validation 문구는 그대로 유지한다.
+5. 일반 4xx에는 ERROR stack 기록을 추가하지 않는다. public advice·Security·controller·service에 동일 로그를 중복 삽입하지 않는다.
+6. 관련 문서의 상태 코드 계약만 갱신한다. advice 상속 구조·우선순위·public 오류 페이지를 전면 변경하지 않는다.
 
 #### Tests to Add / Update
 
-- 400/401/403/404/405/409/415/429/500 행렬은 6절과 Gate E 참조.
+- 400/401/403/404/405/406/409/415/429/500 행렬은 6절과 Gate E 참조.
 - 405 `Allow`, API JSON type·4필드, malformed JSON/validation의 기존 code 유지.
+- **406**: 정상 처리 가능한 조회 + 지원하지 않는 `Accept` 조합에서 고정 메시지·JSON 응답·ERROR 이벤트 0개 확인. 기존 오류 요청에 `Accept: text/html`을 붙이는 회귀와는 별도 케이스로 둔다.
+- **JSON Content-Type 보장**: 신규 handler뿐 아니라 기존 validation/JSON 파싱/비즈니스 오류/catch-all 전부에서 기대 상태 + `application/json` Content-Type + 실제 4필드 본문을 함께 검증한다("HTML이 아님"만으로 판정하지 않음).
+- **BindException 메시지 비노출**: 열거형 등 타입 변환 실패로 생긴 필드 오류에 입력 표식(가짜 토큰 등)을 넣어 응답에 그대로 노출되지 않는지 확인. 일반 Bean Validation 문구(`@NotNull` 등)는 기존 문구가 그대로 유지되는지 함께 확인.
 - 예외 메시지·cause·body·query에 가짜 비밀번호/token 표식을 넣고 로그와 client response에 노출되지 않는지 확인. 개인정보가 담길 수 있는 raw 경로 대신 route pattern 사용 검증.
 - 별도 로그 없는 테스트 예외에 대해 이 handler의 ERROR 이벤트가 정확히 1개이며 class/진단 위치가 있음. 예상 4xx는 해당 ERROR 이벤트 0개.
 - 전체 시스템 로그가 무조건 1줄이라고 단정하지 않는다. DB 자체 로그나 감사 저장 실패는 다른 사건이다. 같은 예외를 catch-and-rethrow하면서 새 ERROR를 추가하는 변경은 금지한다.
-- public HTML 500, 관리자/공개 HTML 404, 공개 429 페이지 회귀. HTML 405/415 신규 화면 제작은 범위 밖이다.
+- public HTML 500, 관리자/공개 HTML 404, 공개 429 페이지 회귀. HTML 405/415/406 신규 화면 제작은 범위 밖이다.
 
 #### Existing Tests to Re-run
 
@@ -384,7 +398,16 @@ M-03 · Medium · Bug / Operational Risk.
 
 #### Completion Criteria
 
-전체 오류 행렬, Security precedence, HTML 회귀, 안전한 진단 로그 검증 통과. 새 예외 architecture·dependency·migration 없음.
+전체 오류 행렬(406 포함), Security precedence, API 분기 전체 JSON Content-Type 보장, BindException 타입 변환 메시지 비노출, HTML 회귀, 안전한 진단 로그 검증 통과. 새 예외 architecture·dependency·migration 없음.
+
+#### PR 3 실행 기록 — 2026-09-26
+
+- Context: 사용자가 `/suggestRoadmap` → PR 3 선택 → 계획 리뷰(codex CLI 2라운드, v9·v10, ship) → 구현 착수 순으로 승인. `fix/api-error-contract` 브랜치에서 작업했다.
+- 구현: `GlobalApiExceptionHandler`에 `@ExceptionHandler` 4종(`MethodArgumentTypeMismatchException`→400, `HttpRequestMethodNotSupportedException`→405+`Allow`헤더, `HttpMediaTypeNotSupportedException`→415, `HttpMediaTypeNotAcceptableException`→406) 신규 추가. 모든 handler(기존 12개+신규 4개)가 `jsonError(status, path, code, message)` 공통 조립 메서드를 거치도록 리팩터링해 응답 `Content-Type: application/json`을 중앙에서 보장(개별 handler의 `.contentType(...)` 누락 여지 제거). `buildValidationMessage()`에 `FieldError.isBindingFailure()` 분기를 추가해 타입 변환 실패 필드 오류는 고정 문구("입력값 형식이 올바르지 않습니다.")로 대체하고 일반 Bean Validation 문구는 그대로 유지. catch-all(`handleException`)에 안전한 진단 로그(`method`·`HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE` 라우트 패턴(없으면 `"unmatched"`)·`e.getClass().getName()`·`StackTraceElement[]` 상위 10개 프레임) 추가 — Throwable 인스턴스를 로거에 직접 넘기지 않아 message/cause 체인 자동 노출을 피함. `handleMethodNotSupported`는 `Set<HttpMethod>`를 `allow(HttpMethod...)`에 넘기려다 컴파일 오류(가변 인자 불일치)가 나 `toArray(new HttpMethod[0])`로 교정.
+- 신규 테스트: `GlobalApiExceptionHandlerTest`(순수 단위 13개 — ERROR 이벤트 정확히 1개·라우트 패턴 fallback·민감정보(예외 message/cause/raw URI) 미노출·400/405(Allow 유/무)/415/406 매핑·BindException 타입 변환 대체/일반 검증 문구 유지), `ApiErrorContractIntegrationTest`(실제 `SecurityConfig` 포함 슬라이스 7개 — 400/405+Allow/415/406/500/`Accept: text/html` 회귀/미인증 401). 기존 `MenuControllerTest`에 경로 변수 타입 불일치(`GET /admin/api/menus/abc`) 400 회귀 1건, `AdminMemberControllerTest`에 검색 열거형 필드 입력 표식 비노출(`?userType=FAKE_TOKEN_MARKER`) 1건 추가 — 둘 다 실제 프로덕션 엔드포인트 대상.
+- 이슈: 1라운드 계획 리뷰에서 `HttpMediaTypeNotAcceptableException`(406) 자체가 원 계획에서 완전히 빠져 있던 것을 발견해 구현 범위에 반영(계획 v9). 초기 `ApiErrorContractIntegrationTest`의 406 테스트가 `{id}` 경로에 `produces=APPLICATION_JSON_VALUE`를 얹은 상태로 `Accept: text/html` 타입 불일치 회귀 테스트와 같은 엔드포인트를 공유해, Accept 협상이 핸들러 매핑 단계에서 먼저 실패(406)해버려 기대한 400에 도달하지 못하는 테스트 설계 결함을 발견 — 406 전용 엔드포인트(`/admin/api/error-contract-test-strict`, produces 제약 있음)와 타입 불일치용 엔드포인트(produces 제약 없음)를 분리해 해결.
+- 검증 결과: `./gradlew compileJava compileTestJava` 성공. 신규·수정 테스트 클래스 개별 실행 통과 확인 후, `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 전체 실행(Docker Desktop 재기동 후 Testcontainers 포함) — **740개 전체 통과, 실패·오류 0**(신규 21개 순증: 단위 13·통합 7·기존 파일 확장 2, PR 2 이후 기준 720개에서 순증). `docs/troubleshooting.md`(애플리케이션/런타임 카테고리)·`.claude/skills/api-conventions/SKILL.md`(상태 코드 표에 405/406/415, JSON Content-Type 보장, BindException 비노출 반영) 문서 동기화 완료.
+- 후속: 없음. 감사 M-03 완료. `/code-review-loop` → `/commitPR` 단계 예정.
 
 ### PR 4 — 메뉴 같은 행 쓰기의 비관적 잠금 일관화
 
@@ -706,7 +729,7 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목은 
 | member `CLAUDE.md` | PR 2 | ACTIVE-only bootstrap 설명을 승인된 allowlist로 변경. 로그인 ACTIVE-only와 구분 |
 | `.env.example`, compose 주석 | PR 2/5 | bootstrap 적용 상태, timeout 선택값·단위·default. 실제 secret 추가 금지 |
 | `docs/deployment.md` | PR 2/5/6 | bootstrap 행렬·복구·SMTP 전달·정규 backup 모드·ingress 조건 |
-| API conventions 문서 | PR 3 | 405/415의 추가 계약, 기존 400/401/403/404/409/429 유지 |
+| API conventions 문서 | PR 3 | 405/415/406의 추가 계약, 기존 400/401/403/404/409/429 유지 |
 | menu `CLAUDE.md` | PR 4 | 같은 대상 update 잠금, 부모 경로의 실제 순서 |
 | `docs/troubleshooting.md` | 관련 PR | 원인·수정·회귀 증거만 기록; 해결하지 않은 것을 완료로 표시하지 않음 |
 | 신규 `docs/verification/*` | PR 1/6 | 브라우저 입력·예상 DOM, 격리 restore/ingress 실행 절차와 증거 |
@@ -723,8 +746,9 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목은 
 | C-01 평문 escape | 이메일 버튼 파손, 이중 escape | 실제 DOM 0, 원문 text 비교, 복사 버튼/프로필/편집 UI |
 | H-01 skip 조건 | MANAGER-only 통과, 폐기/수동 잠금 부활 | 8상태+수동/자동 LOCKED, DB 필드 불변, 로그인/reset 거절 |
 | H-01 reconciliation | 중복 충돌 과도 흡수, credential 덮어쓰기 | 같은 ID 역할/상태별 unique 충돌 DB 테스트 |
-| M-03 새 handler | Security/HTML 오류 precedence 회귀 | 전체 보안 포함 행렬, API JSON, 기존 public/admin HTML |
+| M-03 새 handler(400/405/415/406) | Security/HTML 오류 precedence 회귀, 406 handler-선택 제한 부작용 | 전체 보안 포함 행렬, API JSON Content-Type 전체 보장, 기존 public/admin HTML |
 | M-03 진단 로그 | body/token/예외 메시지 유출, 중복 ERROR | 민감 표식 부재, 안전한 위치 정보, handler 이벤트 수 |
+| M-03 BindException 비노출 | 타입 변환 실패 판별 오류(`isBindingFailure()`)로 일반 검증 문구까지 대체 | 일반 Bean Validation 문구 유지 확인, 타입 변환 실패 케이스만 고정 문구 확인 |
 | M-04 target lock | 대기·deadlock, stale 1차 캐시, 하위 불변식 위반 | MariaDB 양방향·부모/자식·생성 경합, 409/rollback |
 | M-02 timeout | 단위/키/전달 오류, 무한 fallback, 정상 메일 실패 | resolved Bean properties, invalid 설정 거절 Gate, local fault 및 정상 SMTP |
 | M-01 운영 절차 | 잘못된 daemon 파괴, 정지 앱 방치, 부분 복원 기동 | daemon 식별, checksum 선검사, 실패 단계별 정지/재개, file hash/UID |
@@ -817,10 +841,10 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목은 
 - [x] **PR 1 시작 전 기준선:** HEAD·작업 트리·기존 사용자 변경을 확인하고 `feat/admin-detail-safe-text` 브랜치에서 작업했다. 무관한 로드맵·portfolio는 변경하거나 커밋하지 않았다.
 - [x] **PR 1:** 상세의 텍스트/이메일 markup 분리와 escape만 구현했다.
 - [x] **PR 1 테스트:** 정적 보조/MVC와 실제 브라우저에서 새 DOM 0·원문 표시·이메일 UI·MANAGER 403을 확인했다. 상세 수치·skip은 PR 1 실행 기록 참조.
-- [ ] **PR 2:** 승인된 bootstrap allowlist와 같은 ID reconciliation 조건을 일치시키고 계정 상태를 자동 변경하지 않았다.
-- [ ] **PR 2 테스트:** 8상태·자동/수동 LOCKED·충돌·실제 prod JAR/복구 경로를 검증했다.
-- [ ] **PR 3:** 좁은 400/405/415 handler와 안전한 500 진단만 추가했다.
-- [ ] **PR 3 테스트:** Security 포함 전체 오류 행렬·민감 표식 미노출·기존 HTML 회귀 통과.
+- [x] **PR 2:** 승인된 bootstrap allowlist와 같은 ID reconciliation 조건을 일치시키고 계정 상태를 자동 변경하지 않았다. 커밋 `eaaccb6` #38 머지 완료.
+- [x] **PR 2 테스트:** 8상태·자동/수동 LOCKED·충돌·실제 prod JAR/복구 경로를 검증했다. `./gradlew test` 720개 전체 통과, CI(`gh pr checks 38`) `test` pass 확인.
+- [x] **PR 3:** 좁은 400/405/415/406 handler와 안전한 500 진단, API 전체 JSON Content-Type 보장, BindException 타입 변환 메시지 비노출만 추가했다. 커밋·PR·머지는 아직(`fix/api-error-contract` 브랜치).
+- [x] **PR 3 테스트:** Security 포함 전체 오류 행렬(406 포함)·민감 표식 미노출·기존 HTML 회귀 통과. `./gradlew test` 740개 전체 통과(신규 21개 순증).
 - [ ] **PR 4:** 일반 메뉴 update도 최초 대상 조회부터 기존 행 잠금을 사용한다.
 - [ ] **PR 4 테스트:** A/B 양방향 same-row 및 부모/자식 MariaDB 검증 통과. 잠금 후 불가능한 B 선커밋을 강요하는 하니스가 없다.
 - [ ] **PR 5:** 세 timeout 기본값·선택 override·compose/guard/.env.example 전달을 연결했다. 구현 착수 승인 후 필요하면 선행 가능하다.
