@@ -38,6 +38,7 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -181,6 +182,18 @@ class MenuControllerTest {
         mockMvc.perform(get("/admin/api/menus/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("메뉴 조회 경로 변수가 숫자가 아니면 400 INVALID_REQUEST (이전엔 500으로 오분류됨, 감사 M-03)")
+    @WithMockUser(roles = "ADMIN")
+    void getMenu_pathVariableTypeMismatch_returns400() throws Exception {
+        mockMvc.perform(get("/admin/api/menus/abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        verifyNoInteractions(menuService);
     }
 
     // ===================== accessRole =====================
