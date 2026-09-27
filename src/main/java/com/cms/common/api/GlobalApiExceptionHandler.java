@@ -6,8 +6,10 @@ import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -19,18 +21,28 @@ import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.io.IOException;
+import java.util.Set;
 
+@Slf4j
 @RestControllerAdvice
 public class GlobalApiExceptionHandler {
+
+    private static final int MAX_LOGGED_STACK_FRAMES = 10;
+    private static final String UNMATCHED_ROUTE = "unmatched";
 
     /**
      * /admin/api/** 여부 판정 — SecurityConfig가 인가 규칙에 쓰는 것과 동일한
@@ -43,6 +55,19 @@ public class GlobalApiExceptionHandler {
             PathPatternRequestMatcher.withDefaults().matcher("/admin/api/**");
 
     /**
+     * 이 advice의 모든 오류 응답이 {@code application/json} Content-Type을 명시적으로 갖도록
+     * 강제하는 공통 조립 지점이다. {@code @RestControllerAdvice}만으로는 {@code Accept: text/html}
+     * 요청에서도 JSON 응답이 보장되지 않는다(계획 리뷰 v9 반영) — handler 선택 자체를
+     * {@code @ExceptionHandler(produces=...)}로 제한하는 방식은 그 경우 handler가 아예
+     * 선택되지 않는 문제를 만들 수 있어 대신 응답 자체에 Content-Type을 지정한다.
+     */
+    private ResponseEntity<ApiErrorResponse> jsonError(HttpStatus status, String path, String code, String message) {
+        return ResponseEntity.status(status)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiErrorResponse.of(path, code, message));
+    }
+
+    /**
      * Validation 실패 (@Valid)
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -51,14 +76,7 @@ public class GlobalApiExceptionHandler {
             HttpServletRequest request
     ){
         String message = buildValidationMessage(e.getBindingResult());
-
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "VALIDATION_ERROR",
-                message
-        );
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "VALIDATION_ERROR", message);
     }
 
     /**
@@ -72,14 +90,7 @@ public class GlobalApiExceptionHandler {
             HttpServletRequest request
     ) {
         String message = buildValidationMessage(e.getBindingResult());
-
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "VALIDATION_ERROR",
-                message
-        );
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "VALIDATION_ERROR", message);
     }
 
     /**
@@ -88,6 +99,10 @@ public class GlobalApiExceptionHandler {
      *   <li>실제 선언 필드(FieldError)일 때: "필드명: 메시지" 형식 — 어느 필드인지 명시</li>
      *   <li>@AssertTrue 등 게터 기반 교차검증의 파생 프로퍼티명일 때: 메시지만 반환 — 내부 식별자 노출 방지</li>
      *   <li>클래스레벨 ObjectError(global error)일 때: 메시지만 반환</li>
+     *   <li>타입 변환 실패({@link FieldError#isBindingFailure()})일 때: 고정된 안전한 문구로 대체
+     *   — Spring이 만드는 기본 메시지는 요청 입력값 원문을 그대로 반영할 수 있다(계획 리뷰 v9 반영,
+     *   예: enum 필드에 임의 문자열을 보내면 그 값이 메시지에 나타남). 일반 Bean Validation
+     *   문구(@NotNull 등)는 바인딩 실패가 아니므로 그대로 유지된다.</li>
      * </ul>
      */
     private String buildValidationMessage(BindingResult bindingResult) {
@@ -97,10 +112,11 @@ public class GlobalApiExceptionHandler {
             return globalError != null ? globalError.getDefaultMessage() : "Validation error";
         }
         String field = fieldError.getField();
+        String message = fieldError.isBindingFailure() ? "입력값 형식이 올바르지 않습니다." : fieldError.getDefaultMessage();
         if (isDeclaredField(bindingResult.getTarget(), field)) {
-            return field + ": " + fieldError.getDefaultMessage();
+            return field + ": " + message;
         }
-        return fieldError.getDefaultMessage();
+        return message;
     }
 
     /**
@@ -133,14 +149,7 @@ public class GlobalApiExceptionHandler {
             HttpMessageNotReadableException e,
             HttpServletRequest request
     ) {
-
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "JSON_PARSE_ERROR",
-                "요청 JSON 형식이 올바르지 않습니다."
-        );
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "JSON_PARSE_ERROR", "요청 JSON 형식이 올바르지 않습니다.");
     }
 
 
@@ -152,14 +161,7 @@ public class GlobalApiExceptionHandler {
             InvalidRequestException e,
             HttpServletRequest request
     ) {
-
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "INVALID_REQUEST",
-                e.getMessage()
-        );
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "INVALID_REQUEST", e.getMessage());
     }
 
 
@@ -175,13 +177,7 @@ public class GlobalApiExceptionHandler {
             MaxUploadSizeExceededException e,
             HttpServletRequest request
     ) {
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "INVALID_REQUEST",
-                "첨부파일이 허용 크기를 초과했습니다."
-        );
-
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "INVALID_REQUEST", "첨부파일이 허용 크기를 초과했습니다.");
     }
 
     /**
@@ -194,13 +190,68 @@ public class GlobalApiExceptionHandler {
             MissingServletRequestPartException e,
             HttpServletRequest request
     ) {
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "INVALID_REQUEST",
-                "필수 요청 파트가 누락되었습니다: " + e.getRequestPartName()
-        );
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "INVALID_REQUEST",
+                "필수 요청 파트가 누락되었습니다: " + e.getRequestPartName());
+    }
 
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    /**
+     * 경로 변수/쿼리 파라미터 타입 불일치(예: 숫자 경로 변수에 문자열 전달). 이전에는 아래
+     * Exception catch-all(500)로 떨어져 정상적인 클라이언트 입력 오류가 서버 오류로
+     * 오분류됐다(계획 리뷰 v9 반영). 잘못 입력된 값 원문은 응답에 재출력하지 않는다.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(
+            MethodArgumentTypeMismatchException e,
+            HttpServletRequest request
+    ) {
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "INVALID_REQUEST",
+                "요청 파라미터 형식이 올바르지 않습니다: " + e.getName());
+    }
+
+    /**
+     * 지원하지 않는 HTTP 메서드. 서버가 실제로 지원하는 메서드 집합으로 {@code Allow} 헤더를
+     * 구성한다(계획 리뷰 v9 반영).
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodNotSupported(
+            HttpRequestMethodNotSupportedException e,
+            HttpServletRequest request
+    ) {
+        ApiErrorResponse body = ApiErrorResponse.of(request.getRequestURI(), "METHOD_NOT_ALLOWED", "지원하지 않는 HTTP 메서드입니다.");
+        ResponseEntity.BodyBuilder builder = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .contentType(MediaType.APPLICATION_JSON);
+        Set<HttpMethod> supportedMethods = e.getSupportedHttpMethods();
+        if (supportedMethods != null && !supportedMethods.isEmpty()) {
+            builder = builder.allow(supportedMethods.toArray(new HttpMethod[0]));
+        }
+        return builder.body(body);
+    }
+
+    /**
+     * 지원하지 않는 요청 {@code Content-Type}(계획 리뷰 v9 반영).
+     */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnsupportedMediaType(
+            HttpMediaTypeNotSupportedException e,
+            HttpServletRequest request
+    ) {
+        return jsonError(HttpStatus.UNSUPPORTED_MEDIA_TYPE, request.getRequestURI(), "UNSUPPORTED_MEDIA_TYPE",
+                "지원하지 않는 요청 Content-Type입니다.");
+    }
+
+    /**
+     * 서버가 응답 형식을 협상하지 못함(예: 정상 요청에 {@code Accept: text/html}만 붙은 경우).
+     * {@code HttpMediaTypeNotSupportedException}(요청 Content-Type 문제)과는 별개 예외이며,
+     * 원래 계획에는 없었으나 1라운드 계획 리뷰에서 이 예외가 catch-all(500)로 새는 구멍이
+     * 발견되어 추가됐다(계획 리뷰 v9 반영).
+     */
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ApiErrorResponse> handleNotAcceptable(
+            HttpMediaTypeNotAcceptableException e,
+            HttpServletRequest request
+    ) {
+        return jsonError(HttpStatus.NOT_ACCEPTABLE, request.getRequestURI(), "NOT_ACCEPTABLE",
+                "지원하지 않는 응답 형식(Accept) 요청입니다.");
     }
 
     /**
@@ -211,14 +262,7 @@ public class GlobalApiExceptionHandler {
             DuplicateResourceException e,
             HttpServletRequest request
     ) {
-
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "DUPLICATE_RESOURCE",
-                e.getMessage()
-        );
-
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+        return jsonError(HttpStatus.CONFLICT, request.getRequestURI(), "DUPLICATE_RESOURCE", e.getMessage());
     }
 
     /**
@@ -229,14 +273,7 @@ public class GlobalApiExceptionHandler {
             ConflictException e,
             HttpServletRequest request
     ) {
-
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "RESOURCE_CONFLICT",
-                e.getMessage()
-        );
-
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+        return jsonError(HttpStatus.CONFLICT, request.getRequestURI(), "RESOURCE_CONFLICT", e.getMessage());
     }
 
     /**
@@ -249,13 +286,7 @@ public class GlobalApiExceptionHandler {
             PessimisticLockingFailureException e,
             HttpServletRequest request
     ) {
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "RESOURCE_CONFLICT",
-                "동시 변경과 충돌했습니다. 다시 시도해주세요."
-        );
-
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+        return jsonError(HttpStatus.CONFLICT, request.getRequestURI(), "RESOURCE_CONFLICT", "동시 변경과 충돌했습니다. 다시 시도해주세요.");
     }
 
     /**
@@ -278,13 +309,7 @@ public class GlobalApiExceptionHandler {
             message = "이미 사용 중인 이메일입니다.";
         }
 
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "DUPLICATE_RESOURCE",
-                message
-        );
-
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+        return jsonError(HttpStatus.CONFLICT, request.getRequestURI(), "DUPLICATE_RESOURCE", message);
     }
 
 
@@ -296,13 +321,7 @@ public class GlobalApiExceptionHandler {
             ResourceNotFoundException e,
             HttpServletRequest request
     ) {
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "RESOURCE_NOT_FOUND",
-                e.getMessage()
-        );
-
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+        return jsonError(HttpStatus.NOT_FOUND, request.getRequestURI(), "RESOURCE_NOT_FOUND", e.getMessage());
     }
 
     /**
@@ -317,13 +336,7 @@ public class GlobalApiExceptionHandler {
                 ? e.getMessage()
                 : "권한이 없습니다.";
 
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "ACCESS_DENIED",
-                message
-        );
-
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+        return jsonError(HttpStatus.FORBIDDEN, request.getRequestURI(), "ACCESS_DENIED", message);
     }
 
 
@@ -349,31 +362,50 @@ public class GlobalApiExceptionHandler {
             HttpServletResponse response
     ) throws IOException {
         if (API_MATCHER.matches(request)) {
-            ApiErrorResponse body = ApiErrorResponse.of(
-                    request.getRequestURI(), "RESOURCE_NOT_FOUND", "요청하신 경로를 찾을 수 없습니다.");
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body);
+            return jsonError(HttpStatus.NOT_FOUND, request.getRequestURI(), "RESOURCE_NOT_FOUND", "요청하신 경로를 찾을 수 없습니다.");
         }
         response.sendError(HttpServletResponse.SC_NOT_FOUND);
         return null;
     }
 
     /**
-     * 예상 못한 서버 오류
+     * 예상 못한 서버 오류. client 응답은 일반 메시지만 유지하고, 서버 로그에는 method·라우트
+     * pattern·예외 class·제한된 stack frame 위치만 남긴다(계획 리뷰 v9 반영) — raw
+     * URI/query/body/header/cookie·비밀번호·reset token·예외 message/toString()/cause
+     * message는 넣지 않는다. Throwable 인스턴스를 로거에 직접 넘기지 않는 것은 SLF4J가
+     * 마지막 인자를 Throwable로 인식하면 그 message/cause 체인까지 자동으로 출력하기
+     * 때문이다 — 메일 본문·재설정 토큰을 담은 예외가 여기로 흘러올 수 있어 의도적으로 피한다.
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleException(
             Exception e,
             HttpServletRequest request
     ) {
+        log.error("API 처리 중 예상하지 못한 오류: method={}, route={}, exceptionClass={}, at=[{}]",
+                request.getMethod(), resolveRoutePattern(request), e.getClass().getName(), formatLimitedStackTrace(e));
 
-        ApiErrorResponse response = ApiErrorResponse.of(
-                request.getRequestURI(),
-                "INTERNAL_ERROR",
-                "서버 오류가 발생했습니다."
-        );
+        return jsonError(HttpStatus.INTERNAL_SERVER_ERROR, request.getRequestURI(), "INTERNAL_ERROR", "서버 오류가 발생했습니다.");
+    }
 
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+    private String resolveRoutePattern(HttpServletRequest request) {
+        Object pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        return pattern != null ? pattern.toString() : UNMATCHED_ROUTE;
+    }
+
+    /**
+     * 예외의 상위 stack frame 일부만 안전하게 문자열로 남긴다. {@link StackTraceElement#toString()}은
+     * 클래스명·메서드명·파일명·라인 번호만 포함하며 예외 message는 포함하지 않는다.
+     */
+    private String formatLimitedStackTrace(Exception e) {
+        StackTraceElement[] frames = e.getStackTrace();
+        int limit = Math.min(frames.length, MAX_LOGGED_STACK_FRAMES);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < limit; i++) {
+            if (i > 0) {
+                sb.append(" | ");
+            }
+            sb.append(frames[i]);
+        }
+        return sb.toString();
     }
 }

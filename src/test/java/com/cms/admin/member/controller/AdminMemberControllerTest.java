@@ -479,6 +479,23 @@ class AdminMemberControllerTest {
         verifyNoInteractions(adminMemberService);
     }
 
+    @Test
+    @DisplayName("검색 userType에 열거형 밖 값을 보내면 400 VALIDATION_ERROR이며 입력값 원문을 메시지에 반영하지 않는다 (계획 리뷰 v9, 감사 M-03)")
+    @WithMockUser(roles = "ADMIN")
+    void getAdminMembers_userType_invalidEnum_returns400WithoutEchoingInput() throws Exception {
+        String inputMarker = "FAKE_TOKEN_MARKER";
+
+        mockMvc.perform(get("/admin/api/members")
+                        .param("userType", inputMarker)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString(inputMarker))));
+
+        verifyNoInteractions(adminMemberService);
+    }
+
     // ===================== getAdminMember =====================
 
     @Test

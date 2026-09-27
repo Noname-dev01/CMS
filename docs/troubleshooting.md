@@ -547,6 +547,34 @@ Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plu
 
 **검증**: `spring.mvc.throw-exception-if-no-handler-found`는 Spring Boot 3.5.16에 존재하지 않는 프로퍼티다(javap로 `WebMvcProperties`에 대응 필드 없음 확인) — `DispatcherServlet`(Spring Framework 6.2.19)의 `throwExceptionIfNoHandlerFound` 기본값이 이미 `true`이므로(생성자 바이트코드 `iconst_1` 확인) `spring.web.resources.add-mappings=false` 단독으로 실제 `NoHandlerFoundException` 디스패치를 재현할 수 있다(`NoHandlerFoundDispatchTest`). 관련 코드: `GlobalApiExceptionHandler.handleNoHandlerFound()`, `CustomErrorController.isAdminPath()`. 상세 설계 결정·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-not-found-handling.md` 참조.
 
+### 일반적인 클라이언트 입력 오류(경로 변수 타입 불일치·미지원 메서드/미디어타입/Accept)가 500으로 오분류됨 (감사 M-03, 2026-09-26)
+
+#### 오류 메시지
+
+```
+GET /admin/api/menus/abc (경로 변수 id는 Long) 요청 시
+{"timestamp":"...","path":"/admin/api/menus/abc","code":"INTERNAL_ERROR","message":"서버 오류가 발생했습니다."}
+같은 JSON 500이 응답됨 (405/415/406 상황도 동일하게 500으로 떨어짐)
+```
+
+#### 원인
+
+바로 위 항목("핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨")과 같은 근본 패턴이 반복됐다 — `GlobalApiExceptionHandler`의 `Exception` catch-all이 `MethodArgumentTypeMismatchException`(경로 변수/쿼리 파라미터 타입 불일치)·`HttpRequestMethodNotSupportedException`(미지원 HTTP 메서드)·`HttpMediaTypeNotSupportedException`(미지원 요청 Content-Type)까지 전부 잡아 정상적인 클라이언트 입력 오류를 서버 오류로 바꿔버렸다. 계획 리뷰(codex CLI) 1라운드에서 네 번째 예외인 `HttpMediaTypeNotAcceptableException`(응답 형식/Accept 협상 실패)도 원래 계획의 세 handler에 빠져 있어 같은 catch-all로 새는 구멍이 추가로 발견됐다 — `HttpMediaTypeNotSupportedException`(요청 Content-Type 문제)과는 서로 다른 예외라는 점이 계획 단계에서는 간과됐다.
+
+부수적으로 발견된 문제 2건: (1) 신규 handler를 추가해도 `@RestControllerAdvice`만으로는 `Accept: text/html` 요청에 JSON 응답이 보장되지 않는다 — 기존 handler 대부분이 응답 `Content-Type`을 명시하지 않았다. (2) 기존 `BindException` 처리(`buildValidationMessage()`)가 `FieldError.getDefaultMessage()`를 그대로 응답해, 타입 변환 실패(예: 열거형 필드에 정의되지 않은 값)로 생기는 Spring 기본 메시지에 입력값 원문이 그대로 반영되는 실제 경로가 있었다(`GET /admin/api/members?userType=FAKE_TOKEN_MARKER` 등).
+
+#### 해결 방법
+
+`GlobalApiExceptionHandler`에 4개의 좁은 `@ExceptionHandler`(400/405/415/406)를 `Exception` catch-all보다 먼저 추가했다. `MethodArgumentTypeMismatchException`은 `e.getName()`(파라미터명)만 메시지에 담고 잘못 입력된 값 원문은 재출력하지 않는다. `HttpRequestMethodNotSupportedException`은 `e.getSupportedHttpMethods()`로 실제 지원 메서드 집합을 `Allow` 헤더에 구성한다(`ResponseEntity.BodyBuilder.allow(HttpMethod...)`는 가변 인자라 `Set<HttpMethod>`를 그대로 넘기면 컴파일 오류 — `toArray(new HttpMethod[0])`로 변환해야 한다).
+
+모든 오류 응답의 JSON Content-Type 보장은 `jsonError(status, path, code, message)` 공통 조립 메서드로 중앙화했다 — 기존 12개 handler 전부가 이 메서드를 거치도록 리팩터링해 개별 handler에서 `.contentType(...)` 누락 여지를 없앴다. `@ExceptionHandler(produces = "application/json")`로 handler 선택 자체를 제한하는 방식은 `Accept: text/html`에서 handler가 아예 선택되지 않는 별도 문제를 만들 수 있어 채택하지 않았다(계획 리뷰 2라운드에서 확인).
+
+`buildValidationMessage()`는 `FieldError.isBindingFailure()`로 타입 변환 실패와 일반 Bean Validation 실패를 구분한다 — 문구·언어에 의존하지 않는 신뢰성 있는 판별 수단이며, `@Valid @ModelAttribute` 바인딩 실패(`MethodArgumentNotValidException`, `BindException`의 하위 타입)도 같은 공통 함수를 호출하므로 두 경로 모두 함께 보호된다. 타입 변환 실패로 판정되면 고정된 안전한 문구("입력값 형식이 올바르지 않습니다.")로 대체하고, 일반 Bean Validation 문구는 그대로 유지한다.
+
+catch-all의 진단 로그는 `request.getMethod()`·`HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`(라우트 패턴, 없으면 고정 `"unmatched"`)·`e.getClass().getName()`·`StackTraceElement[]` 상위 10개 프레임만 남긴다. 예외 인스턴스를 SLF4J 로거의 마지막 인자(Throwable)로 직접 넘기지 않은 것은, 그렇게 하면 로거가 `message`/`cause` 체인까지 자동 출력하기 때문이다 — 메일 본문·재설정 토큰을 담은 예외가 이 catch-all로 흘러올 수 있어 의도적으로 피했다. raw URI/query/body/header/cookie도 로그에 넣지 않는다.
+
+**검증**: `GlobalApiExceptionHandlerTest`(순수 단위, ERROR 이벤트 정확히 1개·민감정보 미노출·Allow 헤더 구성·타입 변환 메시지 대체 검증)·`ApiErrorContractIntegrationTest`(실제 `SecurityConfig` 포함 400/405/406/415/500 요청 행렬, `Accept: text/html`에도 JSON 유지 회귀)·`MenuControllerTest`/`AdminMemberControllerTest`의 실제 프로덕션 엔드포인트 신규 케이스(경로 변수 타입 불일치, 검색 열거형 필드에 입력 표식을 담은 값) 전부 통과. `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 전체 통과(신규 순증). 관련 코드: `GlobalApiExceptionHandler`. 상세 설계 결정·적대적 리뷰 2라운드 기록은 `adversarial-review/remediation-plan.md` "PR 3" 섹션 참조.
+
 ### Spring Data JPA 리포지토리를 `Mockito.spy()`로 감싸면 `UnfinishedStubbingException`이 난다 (2026-08-11)
 
 #### 오류 메시지
