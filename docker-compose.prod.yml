@@ -38,6 +38,12 @@ services:
       DB_PASS: ${MYSQL_PASSWORD:?필수 환경변수입니다}
       MAIL_USER: ${MAIL_USER:?필수 환경변수입니다}
       MAIL_PASS: ${MAIL_PASS:?필수 환경변수입니다}
+      # SMTP socket timeout 3종은 선택 입력이다 — 안전한 유한 기본값(application-prod.yml과
+      # 동일한 10000/30000/30000ms)이 있으므로 Compose가 무조건 요구하지 않는다(감사 M-02,
+      # remediation-plan.md PR 5). 값이 비어 있어도(`:-`) 기본값으로 대체된다.
+      MAIL_SMTP_CONNECTION_TIMEOUT_MS: ${MAIL_SMTP_CONNECTION_TIMEOUT_MS:-10000}
+      MAIL_SMTP_READ_TIMEOUT_MS: ${MAIL_SMTP_READ_TIMEOUT_MS:-30000}
+      MAIL_SMTP_WRITE_TIMEOUT_MS: ${MAIL_SMTP_WRITE_TIMEOUT_MS:-30000}
       APP_BASE_URL: ${APP_BASE_URL:?필수 환경변수입니다}
       # 컨테이너 내부 절대경로 — named volume 마운트 지점과 동일해야 한다(dev compose와 동일 패턴).
       APP_FILE_STORAGE_ROOT: /app/data/attachments

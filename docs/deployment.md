@@ -28,8 +28,18 @@
 | `MYSQL_DATABASE` | 필수 | app의 `DB_URL`이 이 값에서 직접 조합된다 |
 | `MYSQL_USER` / `MYSQL_PASSWORD` | 필수 | app의 `DB_USER`/`DB_PASS`가 이 값을 직접 참조한다(별도 키 없음 — 값 drift 방지) |
 | `MAIL_USER` / `MAIL_PASS` | 필수 | 비밀번호 재설정 메일 발송용 |
+| `MAIL_SMTP_CONNECTION_TIMEOUT_MS`·`_READ_TIMEOUT_MS`·`_WRITE_TIMEOUT_MS` | **선택** | 아래 "SMTP timeout" 참조. 기본값 10000/30000/30000(ms) |
 | `APP_BASE_URL` | 필수 | 비밀번호 재설정 메일 링크 생성에 사용. 실제 접속 가능한 URL이어야 한다 |
 | `ADMIN_BOOTSTRAP_USER_ID`·`_PASSWORD`·`_EMAIL` | **선택** | 아래 "초기 관리자 계정" 참조 |
+
+## SMTP timeout (감사 M-02, remediation-plan.md PR 5)
+
+`application-prod.yml`은 `mail.smtp.connectiontimeout`·`mail.smtp.timeout`(read)·`mail.smtp.writetimeout` 세 socket 단계 timeout을 설정한다 — SMTP 서버가 무응답이어도 비밀번호 재설정 메일 발송 스레드가 무한정 점유되지 않게 하기 위함이다.
+
+- **기본값**: connection 10초 / read 30초 / write 30초. 관측 기반 최종 최적값이 아닌 시작점이며, 필요하면 위 세 환경변수(ms 단위)로 override한다.
+- **범위 한정**: 이 세 timeout은 socket 단계만 제한한다. DNS 조회(EHLO용 로컬 호스트명 조회 포함)·짧은 간격으로 계속되는 미완성 응답·메일 발송 밖의 큐/DB 대기는 이 설정으로 해결되지 않는다. `application-dev.yml`은 범위 밖(변경하지 않음) — dev도 동일한 무한 대기 위험이 남는다.
+- **값 검증은 수동이다**: `spring.mail.properties`는 `Map<String,String>`이라 Spring이 잘못된 값(단위 문자열·0·음수·비정수)을 기동 시점에 거부하지 않는다 — 잘못된 값이 조용히 무한대(JavaMail 기본값)로 되돌아갈 수 있다. 값을 바꾼 뒤에는 반드시 컨테이너 내부 로그나 진단 코드로 **실제 적용된 `JavaMailSenderImpl` 속성**이 승인된 값과 정확히 일치하는지 확인한다 — `.env.prod`/compose 파일에 적힌 값만으로 적용을 단정하지 않는다.
+- **값 변경 시 재생성 필요**: `.env.prod`만 수정하고 기존 컨테이너를 `restart`하는 것으로는 새 환경변수가 반영되지 않는다 — `make prod-up`(내부적으로 `up -d --build`)으로 컨테이너를 재생성해야 한다.
 
 ## 초기 관리자 계정 (부트스트랩)
 
