@@ -67,5 +67,7 @@ src/main/generated/
 ### 공지사항 첨부파일 로컬 저장 경로(app.file-storage.root 기본값) ###
 /data/attachments
 
-### DB·파일 백업 산출물 (scripts/prod-backup.sh, 기본 BACKUP_DIR) ###
+### DB·파일 백업 산출물 (scripts/prod-backup.sh, BACKUP_DIR — 기본값·정규(quiesced)·drill 전용 경로 전부 포함) ###
 /backups
+/backups-quiesced
+/backups-drill
