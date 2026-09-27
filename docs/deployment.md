@@ -105,26 +105,66 @@ make prod-backup
 
 | 환경변수 | 기본값 | 설명 |
 |---|---|---|
-| `BACKUP_DIR` | `./backups` | 백업 산출물 저장 위치(운영자 셸 변수 — `.env.prod` 소관 아님) |
-| `BACKUP_RETENTION_DAYS` | `14` | 이 일수보다 오래된 백업 자동 삭제 |
-| `CMS_BACKUP_LOCK_DIR` | `${TMPDIR:-/tmp}/cms-prod-backup.lock.d` | 동시 실행 방지 잠금 디렉터리 |
+| `BACKUP_DIR` | `./backups` | 백업 산출물 저장 위치(운영자 셸 변수 — `.env.prod` 소관 아님). 아래 "정규/보조 백업 모드"에 따라 값을 다르게 지정한다 |
+| `BACKUP_RETENTION_DAYS` | `14` | 이 일수보다 오래된 백업 자동 삭제. `BACKUP_DIR`별로 독립 적용된다 |
+| `CMS_BACKUP_LOCK_DIR` | `${TMPDIR:-/tmp}/cms-prod-backup.lock.d` | 동시 실행 방지 잠금 디렉터리(모드와 무관하게 항상 공유 — 동시 실행 자체를 막기 위함) |
 
 **범위 한계(굵게 명시)**: 이 백업은 **논리적 오삭제·볼륨 오염으로부터의 로컬 롤백**만을 목표로 한다. **물리 디스크 손상·호스트 전체 유실은 대비하지 못한다** — 기본 `BACKUP_DIR`이 DB 볼륨과 같은 호스트 디스크에 있기 때문이다. 오프사이트/원격 백업은 실배포 호스트가 정해진 뒤의 후속 과제다. 이 도구는 또한 **단일 prod 환경**을 전제로 한다(같은 컨테이너·볼륨 명명 관례를 공유하는 다중 인스턴스 배포는 범위 밖).
 
-**시점 정합성은 약한 보장이다** — DB 덤프를 먼저 뜨고 파일 볼륨을 나중에 압축하므로 두 방향의 불일치가 모두 가능하다: (1) 덤프 이후 새 업로드가 커밋되면 파일만 있고 DB 행이 없는 orphan이 남는다(PII 잔존 가능성 있음, 복구해도 무해 — 그냥 안 쓰이는 파일). (2) **반대로 덤프 이후 첨부 삭제·프로필 이미지 교체가 커밋되면, 덤프에는 옛 storageKey를 참조하는 DB 행이 남아 있는데 정작 파일 압축 시점엔 이미 지워져 있어 tar에 담기지 않는다 — 복구하면 해당 행이 가리키는 파일이 영영 없어 다운로드가 404로 실패한다.** 순서를 반대로 해도 위험이 사라지지 않고 삽입↔삭제 중 어느 쪽이 위험해지는지만 바뀐다(운영 중 삭제보다 업로드가 흔하다는 전제로 현재 순서를 택함). **완전 정합이 필요하면 앱만 정지한 "정지 상태 백업(quiesced backup)"을 쓴다**:
+### 정규/보조 백업 모드 (감사 M-01·H-04, remediation-plan.md PR 6)
+
+DB 덤프를 먼저 뜨고 파일 볼륨을 나중에 압축하므로 **시점 정합성은 약한 보장이다** — 두 방향의 불일치가 모두 가능하다: (1) 덤프 이후 새 업로드가 커밋되면 파일만 있고 DB 행이 없는 orphan이 남는다(PII 잔존 가능성 있음, 복구해도 무해 — 그냥 안 쓰이는 파일). (2) **반대로 덤프 이후 첨부 삭제·프로필 이미지 교체가 커밋되면, 덤프에는 옛 storageKey를 참조하는 DB 행이 남아 있는데 정작 파일 압축 시점엔 이미 지워져 있어 tar에 담기지 않는다 — 복구하면 해당 행이 가리키는 파일이 영영 없어 다운로드가 404로 실패한다.** 순서를 반대로 해도 위험이 사라지지 않고 삽입↔삭제 중 어느 쪽이 위험해지는지만 바뀐다.
+
+이 시점 불일치를 해소하려면 앱만 정지한 **"정지 상태 백업(quiesced backup)"**이 필요하다 — 이 프로젝트는 현재 규모(단독 운영자, 로컬/검증 단계)에서 quiesced를 **정규(regular) recovery backup**으로 채택하고, 기존 online 백업은 **보조(참고용) 백업**으로 격을 낮춘다. 스크립트 자체(`prod-backup.sh`/`prod-restore.sh`)는 두 모드를 구분하지 않으며 **코드 변경 없이 `BACKUP_DIR` 환경변수만 다르게 지정**해 운용한다.
+
+| 구분 | 보조(Online) | **정규(Quiesced) — 권장** |
+|---|---|---|
+| 앱 쓰기 | 계속 허용 | 정지 확인 후 실행(진행 중 쓰기 없음) |
+| `BACKUP_DIR` | `./backups`(기본값) | `./backups-quiesced` |
+| 시점 정합성 | 약한 보장(위 orphan/누락 가능) | DB/파일 동일 시점 보장 |
+| 실행 방식 | cron 등 무인 자동 실행 가능 | **운영자가 매일 수동 실행**(자동화 없음 — 이번 범위 밖) |
+| 실패 시 | 다음 실행에서 재시도, 기존 유효 백업 유지 | 그 시점 실행을 실패로 기록, 앱을 정지 상태로 유지한 채 운영자가 원인 조사 후 재개(`docker start` 실패·health 미회복 포함) |
+| 정규 복구 수단으로 사용 | **아님** — 참고용일 뿐 | **예** — 실제 복구는 이 백업을 기준으로 판단 |
 
 ```bash
+# 정규(quiesced) 백업 — 운영자가 매일 수동 실행
 docker stop cms-app-prod
-make prod-backup
+BACKUP_DIR=./backups-quiesced make prod-backup
 docker start cms-app-prod
+
+# docker start 직후 단발성 확인은 앱이 기동 중이어도 실패할 수 있다(Spring Boot 기동에
+# 수 초 소요 — recovery-drill.md 실기 검증에서 첫 확인 실패 후 재폴링에서 성공 확인).
+# prod-up.sh와 동일하게 최대 60초 폴링한 뒤 최종 실패를 판단한다.
+deadline=$((SECONDS + 60))
+while true; do
+  if curl -f -s --connect-timeout 2 --max-time 4 http://127.0.0.1:8080/actuator/health >/dev/null; then
+    echo "OK"; break
+  fi
+  if (( SECONDS >= deadline )); then
+    # 60초 내 회복하지 못하면 앱을 정지 상태로 유지하고 원인을 조사한다.
+    # 재개 전에는 앱을 임의로 재기동하지 않는다.
+    echo "FAILED — 앱을 정지 상태로 유지하고 원인을 조사한다"; docker stop cms-app-prod; break
+  fi
+  sleep 3
+done
 ```
 
 `docker exec cms-db-prod`를 전제로 하므로 **`make prod-down` 후에는 백업이 동작하지 않는다** — DB 컨테이너까지 내려가기 때문이다.
 
-**정기 실행(cron) 예시** (실배포 호스트가 정해진 뒤 등록):
+**정기 실행(cron) 예시 — 보조(online) 백업 전용, 정규 복구 수단 아님** (실배포 호스트가 정해진 뒤 등록):
 ```
 0 4 * * * cd /path/to/CMS && make prod-backup >> /var/log/cms-backup.log 2>&1
 ```
+이 cron은 `BACKUP_DIR` 기본값(`./backups`)을 그대로 쓰는 **보조** 백업이다. 정규(quiesced) 백업과 혼동하지 않는다 — 둘의 `BACKUP_DIR`이 분리돼 있어 이 cron의 `BACKUP_RETENTION_DAYS` 정리가 정규 백업을 지우지 않는다.
+
+**RPO·RTO·허용 중단 시간(목표 vs 실측, 순수 로컬 학습 단계 전제)**:
+
+- **담당자**: 프로젝트 단독 운영자.
+- **RPO 24시간(목표치)**: 호스트와 마지막 유효 quiesced 백업이 모두 생존하는 논리적 오삭제 시나리오를 전제로 한 목표. 수동 실행이 누락되면 실제로는 더 길어질 수 있다 — 매회 마지막 성공 시각을 기록해 실측 확인한다.
+- **실제 복구 가능 시점**: 목표치가 아니라 마지막으로 **성공이 확인된** quiesced 백업의 데이터 기준 시점.
+- **호스트 전체 유실**: 오프사이트 백업 미포함으로 이 범위에서 복구 보장 없음(아래 "알려진 제약" 참조).
+- **RTO(실측)**: 목표를 정하지 않고 `docs/verification/recovery-drill.md`의 drill 실측 소요 시간을 관측치로 기록한다(허용 한도가 아니다).
+- **허용 중단 시간**: 앱 정지 시작부터 재기동·health 확인·(복구의 경우) 아래 "복구 후 체크리스트" 완료 후 서비스 재개까지의 전체 구간으로 측정한다.
 
 ## 복구
 
@@ -136,6 +176,23 @@ docker start cms-app-prod
 2. **이중 검증**: manifest에 기록된 DB명이 현재 DB명과 다르면 자동 중단, 백업 SQL의 `USE` 문이 현재 DB명과 다르면(또는 정확히 1개를 찾지 못하면) 자동 중단 — 다른 백업을 잘못 지정하는 실수를 막는다. **이 검증은 단일 Docker 데몬·단일 prod 인스턴스·백업 디렉터리 출처가 신뢰됨을 전제한다** — 다른 호스트의 동일 이름 컨테이너나 위조된 백업까지는 막지 못한다.
 3. 실제 DB명을 정확히 타이핑해야 진행되는 대화형 확인(**복구가 성공하면 앱은 복구 전 상태와 무관하게 항상 재기동됨**을 안내)
 4. 앱 정지 → 복구 전 상태의 안전 백업 자동 생성 → 대상 볼륨 여유 공간 확인(보수적 추정치, 부족하면 중단) → DB 복구 → 파일 복구(볼륨 내부 스테이징 후 교체) → 재기동 → health/RestartCount 안정성 확인
+
+**복구 전 안전 백업의 `BACKUP_DIR`**: `prod-restore.sh`가 내부적으로 호출하는 안전 백업(`_CMS_BACKUP_INTERNAL_CALL=1`)은 `BACKUP_DIR`을 인자로 받지 않고 **복구 스크립트를 실행하는 셸의 환경변수를 그대로 물려받는다**. 정규(quiesced) 위치에 안전 백업을 남기고 싶다면 복구 명령 **앞에만** 값을 지정한다 — `export`로 셸에 영구히 남기지 않는다(이후 같은 셸에서 기본 `make prod-backup`을 실행하면 online 백업까지 정규 경로에 섞여 들어간다):
+
+```bash
+BACKUP_DIR=./backups-quiesced bash scripts/prod-restore.sh <백업디렉터리>
+```
+
+지정하지 않으면 기본값(`./backups`)에 안전 백업이 생성된다.
+
+**복구 후 체크리스트(감사 H-04, 매 실제 운영 복구마다 수행 — 자동화 없음)**: `prod-restore.sh`는 health·`RestartCount` 안정성만 확인하고 종료하며, DB가 참조하는 첨부·프로필 파일이 실제로 존재하는지는 확인하지 않는다. 복구 스크립트 성공 직후, 서비스를 재개하기 전에 운영자가 직접 다음을 확인한다 — **통과 전에는 그 복구 결과를 신뢰하지 않는다**:
+
+1. 복구 대상 DB의 공지 첨부·회원 프로필(`kind=UPLOADED`) storageKey 목록을 조회한다.
+2. 목록의 각 파일이 `cms_notice_attachments_prod` 볼륨 안에 실제로 존재하는지 확인한다(대표 표본이 아니라 전수 — 규모가 커지면 스크립트로 자동화하되 이번 범위에서는 수동).
+3. 공개 공지 첨부는 실제로 다운로드해 확인하고, 비공개 첨부·프로필은 관리자 로그인 후 조회해 확인한다.
+4. 하나라도 실패하면 서비스를 외부/사용자에게 공개하지 않고 안전 백업(위 문단)으로 재복구를 판단한다.
+
+이 체크리스트가 검증하는 설계 자체는 `docs/verification/recovery-drill.md`의 격리 drill로 1회 확인됐다 — drill은 이미지·스키마·스토리지 계약이 바뀔 때마다 재실행한다(계약이 바뀌지 않는 한 매 실제 복구마다 drill 전체를 반복하지는 않는다).
 
 **재해복구(볼륨이 없는 상태에서 새로 시작)**: 새 prod 스택을 `make prod-up`으로 먼저 올린다(compose가 빈 볼륨을 자동 생성) — 임의의 유효한 새 `.env.prod`면 되고, 원래 백업의 비밀번호와 일치할 필요는 없다. 그 위에 `prod-restore.sh`를 실행한다.
 
@@ -162,7 +219,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 | `/actuator/**` (health 제외) | `denyAll()`(공통) | `denyAll()`(공통) |
 | `ddl-auto` | `validate`(공통) | `validate`(공통) |
 | SQL 로그(`show-sql`) | `true` | `false` |
-| 초기 관리자 계정 | `TestMemberLoader`(고정 `admin`/`1234`, 회원 0명일 때만) | `AdminBootstrapLoader`(환경변수 기반, ACTIVE ROLE_ADMIN 없을 때만) |
+| 초기 관리자 계정 | `TestMemberLoader`(고정 `admin`/`1234`, 회원 0명일 때만) | `AdminBootstrapLoader`(환경변수 기반, `ROLE_ADMIN`+`ACTIVE`/`LOCKED`/`PASSWORD_EXPIRED` 중 하나도 없을 때만 — 감사 H-01, 위 "초기 관리자 계정" 절 참조) |
 
 ## 무인증 공개 엔드포인트 레이트리밋
 
@@ -171,12 +228,22 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 - **운영 튜닝**: `CMS_RATE_LIMIT_ENABLED`(기본 `true`)로 전체를 켜고 끌 수 있다. 개별 규칙의 한도는 `application.yml`을 수정해야 한다(환경변수 인덱스 오버라이드는 지원하지 않음 — Spring Boot relaxed binding은 리스트 프로퍼티의 환경변수 오버라이드를 신뢰하기 어렵다).
 - **다중 인스턴스 배포 시 한도가 사실상 배가된다** — 각 인스턴스가 독립된 Caffeine 캐시를 가지므로, 로드밸런서 뒤에 인스턴스 N개를 두면 실질 한도는 설정값의 최대 N배가 된다(현재 단일 인스턴스 전제와 일치, `docker-compose.prod.yml` 변경 없이는 발생하지 않는 시나리오).
 - **fail-open 잔여 위험**: 캐시가 포화되는 극단적 상황(대량 IP 회전 공격 등)에서는 개별 IP의 정확한 누적치 보장이 흐트러질 수 있다 — 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단하는 최소 방어"가 목표이기 때문이다. 완전한 정확성이 필요하면 Redis 등 외부 원자적 저장소가 필요하나 이번 범위를 벗어난다.
-- nginx 리버스 프록시 도입 시 `server.forward-headers-strategy=native`를 설정하면 레이트리밋의 IP 추출(`request.getRemoteAddr()`) 코드는 변경 없이 실 클라이언트 IP를 기준으로 동작한다 — 단, nginx가 클라이언트 제공 `X-Forwarded-For`를 그대로 통과시키지 않고 자신이 관측한 실제 peer IP로 재작성해야 하고, 애플리케이션 포트(8080)에 외부에서 직접 접근할 수 없어야 한다(로드맵 "실배포 인프라" 항목 범위).
+- nginx 리버스 프록시 도입 시 `server.forward-headers-strategy=native`를 설정하면 레이트리밋의 IP 추출(`request.getRemoteAddr()`) 코드는 변경 없이 실 클라이언트 IP를 기준으로 동작한다 — 단, nginx가 클라이언트 제공 `X-Forwarded-For`를 그대로 통과시키지 않고 자신이 관측한 실제 peer IP로 재작성해야 하고, 애플리케이션 포트(8080)에 외부에서 직접 접근할 수 없어야 한다(아래 "배포 대상(ingress)" 참조).
+
+## 배포 대상(ingress) (감사 M-05, remediation-plan.md PR 6)
+
+**실제 ingress(리버스 프록시·TLS 종료 위치·호스팅)가 아직 정해지지 않았다** — 이 문서·`docker-compose.prod.yml`은 `127.0.0.1:8080` 루프백 바인딩까지만 다루며, 그대로 인터넷에 노출하면 안 된다. ingress topology가 확정되지 않은 상태에서 특정 제품(nginx 등) 설정을 미리 만들지 않는다 — 대신 실제 외부 공개 전에 통과해야 할 체크리스트만 `docs/verification/deployment-edge.md`에 문서화해뒀다.
+
+**현재 코드에 이미 존재하는 IP 소스 불일치(체크리스트에서 짚음)**: `RateLimitFilter`는 `request.getRemoteAddr()`(위조 불가)를 쓰지만, `AdminActionLogAspect`(감사 로그)는 `X-FORWARDED-FOR`/`X-Real-IP` 헤더를 검증 없이 우선 사용한다 — 리버스 프록시 뒤에서는 두 코드가 서로 다른 IP를 신뢰하게 될 수 있다. 이 불일치 자체는 이번 문서화 작업의 범위가 아니며(로드맵 Top5 ③ H-03·M-01 "감사 로그 신뢰성 강화" 항목 참조), 외부 공개 전 실제 ingress 경로에서 반드시 재확인해야 한다.
+
+**`docs/verification/deployment-edge.md`의 체크리스트는 전부 "미검증(ingress 미확정)"으로 남아 있다.** 이 문서화 작업의 완료는 로드맵 "후속 과제 — ① 실배포 인프라"(nginx·TLS 인증서·실제 호스팅·CD 파이프라인까지 포함) 항목 자체의 완료를 의미하지 않는다 — 그 항목은 실제 ingress가 구축·검증돼야 완료된다.
 
 ## 알려진 제약
 
-- `GET /swagger-ui.html`·`/v3/api-docs`는 springdoc 비활성 시 404가 아니라 500을 반환한다(기존 결함 — `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조). 보안 실질 피해는 없다(문서가 새는 게 아니라 그냥 500).
+- `GET /swagger-ui.html`·`/v3/api-docs`는 springdoc 비활성 시(prod) 핸들러가 등록되지 않는다. `/admin/api/**` 밖 경로라 `GlobalApiExceptionHandler.API_MATCHER`에 걸리지 않고 `CustomErrorController`의 일반 HTML 404(`error/404.html`)로 응답한다(2026-08-06 `7c64307` #26로 해결됨 — 이전에는 500이었다. 상세는 `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조).
 - 이 문서의 절차는 로컬/서버에서 사람이 직접 실행하는 것을 전제로 한다(`prod-up.sh`는 호스트 `curl`이 필요) — CI에 그대로 재사용할 계획은 없다.
 - **백업은 오프사이트 보관을 포함하지 않는다** — 같은 호스트 디스크에만 있는 백업은 디스크 전체 손실을 막지 못한다(범위 밖, 후속 과제로 로드맵에 기록 예정).
 - **파일 복구가 중단되면 이전 상태·빈 상태·일부만 새 데이터로 교체된 혼합 상태 중 하나로 남을 수 있다** — 볼륨 내부 스테이징 후 최상위 항목 단위로 교체하는 방식이라 완전한 원자성은 아니다. 이 경우 `scripts/prod-restore.sh`의 트랩이 앱을 정지 상태로 유지하고 복구 직전 안전 백업 경로를 안내한다.
 - **`_CMS_BACKUP_INTERNAL_CALL` 환경변수를 수동으로 설정하면 잠금·보존 정리를 우회할 수 있다** — 단일 신뢰 운영자가 로컬에서 수동 실행하는 도구라는 위협 모델을 전제로 문서화된 제약으로만 남긴다(직접 설정하지 않는다).
+- **정규(quiesced) 백업은 자동화돼 있지 않다** — 운영자가 매일 수동으로 실행해야 하며, 실행을 잊으면 RPO 24시간 목표가 실제로는 지켜지지 않는다(스크립트가 실행 누락 자체를 감지·알리지 않음). 실사용자 운영 규모가 커지면 무인 자동화(cron이 stop/start까지 수행)를 재검토한다.
+- **격리 drill 1회가 향후 모든 개별 복구를 보증하지 않는다** — `docs/verification/recovery-drill.md`는 특정 이미지·fixture·백업 세트의 복구 가능성만 증명한다. 매 실제 운영 복구 후에는 위 "복구" 절의 체크리스트를 별도로 수행해야 한다.

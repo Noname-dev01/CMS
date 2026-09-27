@@ -6,10 +6,16 @@
 
 최종 판단 근거: [INDEPENDENT VERIFICATION REVIEW](deploy-check-2026-09-23.md). [PROJECT TECHNICAL AUDIT](deploy-check-2026-09-22.md)은 배경 및 과거 판정 이력으로만 사용한다.
 
-상태: **PR 1·PR 2·PR 3·PR 4 구현·검증·커밋·PR·머지 완료(PR 1 2026-09-24 `9294af5` #37, PR 2 2026-09-24 `eaaccb6` #38, PR 3 2026-09-27 `e9bd961` #39, PR 4 2026-09-27 `935165e` #40) / PR 5 구현·범위 내 검증 완료(2026-09-27, 워킹트리 직접 작업 · 커밋·PR·머지 전) / PR 6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1·PR 2·PR 3·PR 4·PR 5 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인을 의미하지는 않는다.
+상태: **PR 1·PR 2·PR 3·PR 4·PR 5 구현·검증·커밋·PR·머지 완료(PR 1 2026-09-24 `9294af5` #37, PR 2 2026-09-24 `eaaccb6` #38, PR 3 2026-09-27 `e9bd961` #39, PR 4 2026-09-27 `935165e` #40, PR 5 2026-09-27 `affc41f` #41) / PR 6 구현·격리 drill 실기 검증 완료(2026-09-27, `chore/backup-ingress-deployment-contract` 브랜치 워킹트리 직접 작업 · 커밋·PR·머지 전)**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1~6 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인을 의미하지는 않는다.
+
+**PR 6 통합 범위 확장(2026-09-27, `/feature` 착수)**: 사용자가 `project-direction-roadmap.md`의 세 항목 — 본 PR 6(M-01·M-05) · "Top 5(2026-09-05 선정) ⑤ 백업 시점 정합성 확보(H-04)" · "후속 과제 — ① prod 프로파일 완료 시 발견"의 "실배포 인프라(nginx·TLS·forward-headers-strategy)" 항목 — 을 로드맵 자체의 통합 검토 권고에 따라 하나의 작업으로 묶어 진행하기로 승인했다. H-04는 M-01과 발견 코드는 다르지만 동일한 백업 시점 불일치 문제이며, 실배포 인프라 항목은 M-05의 ingress 체크리스트와 동일한 문제(리버스 프록시 미확정 상태에서의 배포 경계)다 — 아래 PR 6 섹션이 세 항목을 모두 흡수해 다룬다. 구현 완료 후 `/updateRoadmap`이 로드맵의 해당 세 항목을 함께 갱신한다.
 
 개정 이력:
 
+- v21 변경(2026-09-27): PR 6(M-01·M-05) 구현 착수 전 계획 리뷰 3라운드(codex CLI, v20 수정 검증) — **ship 판정.** 2라운드 지적 3건(`.gitignore` 제외 누락, drill 백업 경로·환경변수 격리, 전체/대표 검증 혼재) 전부 해소를 재확인(`.gitignore` 세 경로 규칙 존재, drill 전용 경로+양쪽 호출 export 명시, PR 6·7절·Gate G 전부 전수 검증 요구로 일치). 비차단 지적 2건(수용) — (1) PR 6 본문의 "3절 drill 절차" 참조가 실제로는 "7절 격리 restore drill"이어야 함(오기) → 정정. (2) Implementation Steps 3·4와 12절 최종 체크리스트에 "전용 daemon"↔로컬 disposable 예외 연결을 더 명시적으로 반복하면 좋겠다는 제안 → 이미 표·7절·완료 기준에서 요구가 명확해 비차단으로 판단, 반영은 구현 단계에서 실제 런북 작성 시 자연히 이어지도록 둠(기각 아님, 우선순위 낮은 다듬기로 분류). 이로써 PR 6 계획 리뷰 루프 종료 — 구현 착수는 사용자 승인 필요. 계획 통과가 Gate G 실증·Gate H 외부 공개 검증의 완료를 의미하지 않음을 codex도 명시.
+- v20 변경(2026-09-27): PR 6(M-01·M-05) 구현 착수 전 계획 리뷰 2라운드(codex CLI, v19 수정 검증) — **needs-attention, 신규/잔여 지적 3건 전부 수용**(1라운드 지적 1·2·3·5·7은 해소로 재확인, 4·6은 부분 해소로 재확인). (1) [높음·신규] `.gitignore`가 `/backups`만 제외해 신규 `./backups-quiesced`의 DB 덤프·민감정보가 커밋될 수 있음 — `.gitignore`에 `/backups-quiesced`·`/backups-drill` 추가. (2) [높음·잔여] drill의 격리 범위에 호스트 백업 디렉터리가 빠져 과거 `./backups`/`./backups-quiesced`가 drill의 보존 정리 대상이 되거나, restore의 내부 안전 백업 호출이 `BACKUP_DIR` 미지정 시 기본값(`./backups`)으로 되돌아가 backup 호출에만 지정한 환경변수가 restore에 이어지지 않는 문제 — **drill 전용 3번째 경로 `./backups-drill`**을 신설해 backup·restore 양쪽 호출 모두에 명시적으로 export하도록 수정, drill 전 체크리스트에 "과거 세 `BACKUP_DIR` 산출물 잔존 확인" 추가. (3) [중간·잔여] "전체 파일 검증"이 PR 6 본문만 수정되고 7절 drill 3·6단계·Gate G는 여전히 "대표 hash"로 남아 표본 검사로 통과 처리될 여지 — 세 위치를 전부 "synthetic fixture 전체"로 통일하고 drill 3단계에 "백업 전 전체 참조 목록·파일별 hash 기록 → 복구 후 전수 대조" 절차 명시. 반영 위치: PR 6 Target Behavior 표("백업 산출물 경로 분리"·"격리 환경 구성"·Files Likely Affected·Completion Criteria), 7절 "격리 restore drill"(v20 각주 추가, 1~9단계 개정), 10절 Gate G. 반박·기각 항목 없음(3건 전부 수용). 다음 라운드(codex, v20 수정 검증) 자동 진행.
+- v19 변경(2026-09-27): PR 6(M-01·M-05) 구현 착수 전 계획 리뷰 1라운드(codex CLI, `codex exec -s read-only`, 실제 `prod-backup.sh`/`prod-restore.sh`/compose 파일 대조) — **needs-attention, 지적 7건 전부 수용**. (1) [높음] "cron 변경 없음"과 "cron을 quiesced로 전환"이 동시에 명시돼 모순 — 정규 백업을 **운영자 매일 수동 실행**으로 확정하고 기존 cron은 "참고용 보조, 정규 아님"으로 재라벨, 실패(`docker start`/health 미회복) 시 정지 유지·조사 절차 추가, 무인 자동화(stop/start 자동화)와 무중단 snapshot을 같은 근거로 묶은 것 정정. (2) [높음] `prod-backup.sh`의 보존 정리가 백업 모드를 구별하지 않아 online cron만 계속 성공하면 마지막 quiesced 백업이 삭제될 수 있음 — 정규/보조 백업의 `BACKUP_DIR`을 분리(`./backups-quiesced` vs 기존 `./backups`), 잠금 디렉터리는 공유 유지. (3) [높음] drill 1회가 향후 개별 복구의 정합성을 보증하지 않고 `prod-restore.sh`가 참조 파일 검증 전에 이미 health만으로 성공을 출력 — drill 범위를 "설계 검증 1회"로 좁히고 **매 실제 복구 후** 운영자가 수행할 복구 후 체크리스트·drill 재실행 조건(이미지/스키마/스토리지 계약 변경 시)을 런북에 추가. (4) [높음] `docker ps` 이름 비교만으로 로컬 prod를 격리 대상으로 판정 불가 — `prod-down`의 볼륨 보존으로 인한 잔존 데이터, dev(`8080:8080`)/prod(`127.0.0.1:8080:8080`) 포트 경합, 공유 daemon 자원 경합 가능성을 반영해 drill 시작 전(`docker ps -a`·`docker volume ls`·포트 점유 확인) / 종료 후("이번 생성분만 삭제") 체크리스트 추가, Gate G 등의 "전용 daemon/VM" 문구를 로컬 disposable 스택 인정 각주로 동기화. (5) [중간] "일 1회=RPO 24시간"이 목표와 실측을 혼동 — RPO(목표)/실제 복구 가능 시점/RTO(실측, 목표 아님)/허용 중단(정지~서비스 재개 전체 구간)을 분리 정의. (6) [중간] Completion Criteria는 "모든 참조 파일"을 요구하는데 drill 절차는 "대표 파일"만 명시 — synthetic fixture는 작으므로 drill을 "전체 파일" 검증으로 수정. (7) [중간] ingress 문서화 완료를 로드맵 "후속 과제 — ① 실배포 인프라"(nginx·TLS·호스팅·CD 포함) 완료로 승계할 수 없음, SameSite 쿠키 확인 누락 — 체크리스트에 SameSite를 10번째 항목으로 추가하고, PR 6 완료와 그 로드맵 항목의 완료를 분리 표시하도록 명시. 반영 위치: 위 "PR 6 — Backup/Restore 및 ingress 배포 계약"의 Target Behavior 표·Implementation Steps·Regression Risks·Completion Criteria. 반박·기각 항목 없음(7건 전부 수용). 다음 라운드(codex, v19 수정 검증) 자동 진행.
+- v18 변경(2026-09-27): PR 6(M-01·M-05) 구현 착수 전 설계 초안 — 로드맵 Top5⑤(H-04)·후속과제①(실배포 인프라)을 통합 흡수(위 "PR 6 통합 범위 확장" 참조). 아래 PR 6 섹션에 설계 결정 6건을 명시하고 반영했다: (1) **정규 backup 자동화 수준** — `prod-backup.sh`/cron을 수정하지 않고 quiesced(`docker stop`→`make prod-backup`→`docker start`)를 런북·문서로 "정규" 절차로 격상, online은 보조 수단으로 명시(스크립트는 이미 5라운드 리뷰로 안정화됐고 v5 결정("컨테이너/볼륨명 고정, 오버라이드 폐기")과 같은 최소-변경 기조를 유지하기 위함 — 무인 stop/start 자동화는 Deferred Work의 "무중단 backup snapshot"과 실질적으로 같은 방향의 확장이라 범위 밖으로 유지). (2) **복구 후 참조 파일 검증** — `prod-restore.sh`에 자동 검증 로직(SQL 질의+HTTP 확인)을 추가하지 않고, 격리 drill 1회로 검증해 `docs/verification/recovery-drill.md`에 기록(기존 Gate G·"격리 restore drill" 5~6단계가 이미 요구하는 범위와 일치, 자동화는 새 실패 모드를 늘려 "새 backup platform 도입 없음" 완료 기준과 충돌). (3) **격리 환경 구성** — 별도 물리 daemon/VM 대신 이 머신의 로컬 `docker-compose.prod.yml` 스택 자체를 격리 drill 환경으로 사용(이유: 이 프로젝트에 실제 배포된 prod가 아직 존재하지 않아 로컬 prod 스택 자체가 유일한 "prod"이자 곧 disposable 검증 대상이다 — `docker ps` 확인 결과 dev 컨테이너(`cms-*-dev`)만 실행 중이고 prod 컨테이너는 없음. synthetic 데이터만 사용하고 drill 종료 후 `make prod-down`+`docker volume rm`으로 완전 제거. 실배포 이후 진짜 prod가 생기면 그 시점부터는 별도 daemon/VM이 필요함을 명시). (4) **RPO/RTO/담당자/허용 중단**(순수 로컬 학습 단계 전제, 승인 단계에서 사용자 확정 요청) — 담당자: 프로젝트 단독 운영자, 주기: 일 1회(기존 새벽 cron 예시 유지, quiesced로 전환), RPO: 24시간(백업 주기와 동일), RTO: drill 실측치를 그대로 문서화(목표치 아님), 허용 중단: 앱 정지~백업 완료까지(drill에서 실측). (5) **ingress 체크리스트** — 7절 M-05의 9개 항목을 그대로 `docs/verification/deployment-edge.md`로 옮기고 전부 "미검증(ingress 미확정)"으로 표시, `forward-headers-strategy`·리버스 프록시 설정 등 코드 구현은 하지 않음(로드맵 후속과제① 범위와 일치). (6) **문서 정합성 부수 수정** — `docs/deployment.md:165` 요약 표가 PR 2(H-01) 이후에도 "ACTIVE ROLE_ADMIN 없을 때만"으로 남은 stale 표현을 발견해 allowlist(ACTIVE/LOCKED/PASSWORD_EXPIRED)로 수정 예정, "알려진 제약"의 Swagger 500 서술도 2026-08-06에 이미 404(HTML)로 해결된 사실과 대조해 갱신 예정(8절이 이미 요구하는 정정) — 계획 리뷰 라운드는 이 설계를 대상으로 진행한다.
 - v17 변경(2026-09-27): PR 5(M-02) `/code-review-loop` 4라운드(codex CLI) 완료 — 3건 수용(전부 `PasswordResetMailTimeoutIntegrationTest`의 검증 신뢰성 결함: 서버 자체 종료 시각이 JUnit @Timeout보다 짧아 timeout 미작동 회귀를 놓칠 수 있던 문제, write timeout이 read timeout에 가려질 수 있던 문제, write block이 클라이언트 OS 송신 버퍼 크기에 의존해 플랫폼별로 재현되지 않을 수 있던 문제), 4라운드 지적 없이 통과. 상세는 "PR 5 실행 기록" 참조.
 - v16 변경(2026-09-27): PR 5(M-02) 구현 완료(코드는 "PR 5 실행 기록" 참조). 구현 중 connection timeout 자동 시험을 backlog 포화 기법으로 시도했으나 Windows loopback에서 재현되지 않음을 실측(0ms 즉시 연결) — 크로스플랫폼 신뢰성 문제로 자동화 시험에서 제외하고 Completion Criteria 문구를 "connection timeout은 설정 전달 계약으로 검증, 실제 소켓 fault 재현은 범위 제외"로 수정. read timeout 2단계(pre-TLS greeting·STARTTLS handshake)·write timeout(negotiation 이후 실제 write block)은 loopback 소켓 fixture로 실측 검증 완료. Final Execution Checklist의 PR 5 두 항목을 `[x]`로 갱신. 커밋·PR·머지는 아직.
 - v15 변경(2026-09-27): PR 5(M-02) 계획 리뷰 2라운드(codex CLI, v14 수정 검증) — **ship 판정.** 1라운드 지적 6건 전부 실질적으로 해소됐음을 재확인(fixture 검증과 실제 배포 검증 구분, STARTTLS 3단계 시험 계약, socket timeout과 전체 작업 deadline 구분, dev 위험 명시·prod 로드 증거 요구, YAML/compose 기본값·guard 대상 정합성, executor 표현 정정). 비차단 명료화 2건 — (1) Completion Criteria가 read 3단계만 명시하고 connection/write 시험 요구가 Tests to Add에만 있어 완료 체크 시 누락 가능성 → Completion Criteria에 connection timeout·negotiation 이후 실제 write block write timeout 시험을 명시 추가. (2) "컨테이너 재생성/재기동" 문구가 단순 restart 허용으로 읽힐 수 있다는 지적은 Implementation Steps 5행("파일만 편집하거나 기존 컨테이너 restart만으로 새 환경이 적용된다고 가정하지 않는다")에 이미 명시돼 있어 실제로는 해소됨을 재확인, 기각(반영 불필요). 이로써 PR 5 계획 리뷰 루프 종료 — 구현 착수는 별도 사용자 확인 필요.
@@ -631,7 +637,7 @@ prod 기본/override 적용 확인, 세 timeout의 유효한 값(범위·형식)
 
 #### Finding
 
-M-01 · Medium Operational Risk, M-05 · Low Deployment Requirement.
+M-01 · Medium Operational Risk, M-05 · Low Deployment Requirement. **통합**: `project-direction-roadmap.md`의 "Top 5(2026-09-05) ⑤ 백업 시점 정합성 확보(H-04)"(M-01과 발견 코드는 다르지만 동일한 백업 시점 불일치 문제) · "후속 과제 — ① prod 프로파일 완료 시 발견"의 "실배포 인프라(nginx·TLS·forward-headers-strategy)"(M-05의 ingress 체크리스트와 동일 문제)를 이 PR이 함께 다룬다(2026-09-27 사용자 승인, 위 "PR 6 통합 범위 확장" 참조).
 
 #### Current Behavior
 
@@ -639,27 +645,44 @@ M-01 · Medium Operational Risk, M-05 · Low Deployment Requirement.
 
 `docs/deployment.md`는 online 불일치와 quiesced 절차를 이미 설명하지만 정기 cron 예시는 online이다. 정규 recovery 기준을 명확히 선택할 필요가 있다. 앱은 loopback에 게시되고 실제 ingress 제품은 정해져 있지 않다.
 
+**문서 drift 추가 발견(2026-09-27 재확인)**: `docs/deployment.md:165`의 "prod에서 잠기는 항목" 요약 표가 PR 2(H-01, `eaaccb6` #38) 이후에도 "`AdminBootstrapLoader`(환경변수 기반, **ACTIVE ROLE_ADMIN 없을 때만**)"로 남아 있다 — 같은 문서 44~52행의 상세 설명은 이미 allowlist(`ACTIVE`/`LOCKED`/`PASSWORD_EXPIRED`)로 정확히 갱신됐는데 요약 표만 갱신에서 누락됐다. `docs/deployment.md:178`의 Swagger 500 서술도 실제로는 2026-08-06(`7c64307` #26)에 이미 404(HTML, `admin` 접두사 기준)로 해결된 사실과 어긋난다(8절이 이미 요구하는 정정).
+
 #### Target Behavior
 
-현재 규모에서는 **quiesced를 정규 recovery backup으로 추천**한다. 중단 시간·주기·담당자는 운영자가 확정한다. online은 서비스 연속성을 우선하는 보조 백업으로 남길 수 있으나 동일 시점 복구 보장으로 표시하지 않는다.
+현재 규모에서는 **quiesced를 정규 recovery backup으로 추천**한다. online은 서비스 연속성을 우선하는 보조 백업으로 남기되 동일 시점 복구 보장으로 표시하지 않는다.
 
 실제 ingress가 결정되기 전에는 특정 proxy 설정이나 새 IP abstraction을 구현하지 않는다. 7절의 checklist를 실제 경로에서 통과해야 인터넷 공개할 수 있다.
 
+**설계 결정(v19 — codex 계획 리뷰 1라운드 반영, 순수 로컬/단독 운영자 전제 — 승인 단계에서 사용자 확정 요청)**:
+
+| 항목 | 결정 | 근거 |
+|---|---|---|
+| 정규 백업 자동화 수준 | `prod-backup.sh`/cron 코드 변경 없음. **정규 백업은 운영자(단독)가 매일 수동으로** quiesced 3단계(`docker stop`→`BACKUP_DIR=./backups-quiesced make prod-backup`→`docker start`)를 실행한다(자동화 없음). 기존 online cron 예시는 "**참고용 보조 백업 — 정규 복구 수단 아님**"으로 재라벨하고 그대로 둔다. `docker start` 실패·health 미회복 시 그 시점에서 실행을 실패로 기록하고 앱을 정지 상태로 유지한 채 운영자가 원인을 조사한다(restore의 "파괴적 실패 시 정지 유지" 철학과 동일하게 맞춤) | 스크립트는 이미 5라운드 리뷰로 안정화됨(v5 "컨테이너/볼륨명 고정, 오버라이드 폐기" 결정과 같은 최소-변경 기조). 수동/자동을 하나로 확정하지 않으면 "정규"라는 라벨만으로 실제 실행 여부가 보장되지 않는다(계획 리뷰 1라운드 지적 1 수용). 무인 stop/start 자동화(cron이 정지까지 수행)와 무중단 snapshot(정지 자체를 없앰)은 서로 다른 작업이며, 둘 다 이번 범위에서 제외하지만 같은 근거로 묶지 않는다(지적 1 수용) |
+| 백업 산출물 경로 분리 | 정규(quiesced) 백업은 `BACKUP_DIR=./backups-quiesced`에, 기존 online cron은 기존 `./backups`(기본값)에, **drill은 별도 `./backups-drill`**에 각각 저장한다(셋 다 `.gitignore` 제외 대상, v20 갱신). `CMS_BACKUP_LOCK_DIR`(잠금)은 공유해 동시 실행을 계속 방지한다. 각 디렉터리는 자신의 `BACKUP_RETENTION_DAYS`로 독립적으로 정리된다(스크립트 코드 변경 없이 환경변수만 다르게 호출). **drill에서는 backup·restore 양쪽 호출 모두에 같은 `BACKUP_DIR=./backups-drill`을 명시적으로 export**한다 — restore의 내부 안전 백업 호출(`_CMS_BACKUP_INTERNAL_CALL=1 bash prod-backup.sh`)은 `BACKUP_DIR`을 인자로 받지 않고 호출 시점 환경변수를 그대로 물려받으므로, backup 호출에만 지정하면 restore 단계에서 기본값(`./backups`)으로 되돌아가 정규/보조 산출물과 섞인다(v20 갱신, 지적 2 재점검) | `prod-backup.sh`가 백업 모드를 구별하지 않고 같은 `BACKUP_DIR`의 오래된 디렉터리를 삭제하므로, 경로를 공유하면 online cron만 계속 성공하는 동안 마지막 유효 quiesced 백업이 보존 기간을 넘어 삭제될 수 있다(지적 2 수용). drill까지 같은 경로를 쓰면 과거 정규/보조 백업까지 drill의 보존 정리 대상이 될 수 있어(2라운드 지적 2) drill 전용 3번째 경로로 완전히 분리한다 |
+| 복구 후 참조 파일 검증 | `prod-restore.sh`에 자동 검증 로직(SQL 질의+HTTP 확인) 추가 안 함. 격리 drill에서 **synthetic fixture 전체**(표본이 아니라 모든 첨부·프로필 파일, 7절 "격리 restore drill" 3·6단계 참조)의 존재·해시·권한·애플리케이션 조회를 1회 검증해 `docs/verification/recovery-drill.md`에 기록. **더해서** 런북에 "매 실제 운영 복구 직후 운영자가 수행할 복구 후 체크리스트"(참조 파일 존재·해시 재확인, 공개/비공개 첨부·프로필의 애플리케이션 조회 확인 — 통과 전에는 그 복구 결과를 신뢰하지 않음)를 남기고, 이미지·스키마·스토리지 계약이 바뀌면 drill을 재실행하도록 조건을 명시 | 기존 Gate G·"격리 restore drill" 단계가 요구하는 범위와 일치하되, drill 1회가 향후 개별 복구까지 보증하지 않는다는 점(지적 3)과 `prod-restore.sh`가 참조 파일 검증 전에 이미 health만 보고 성공을 출력한다는 점을 반영해 "매 실제 복구 후 수동 체크리스트"를 별도로 요구한다. 자동화하지 않는 이유는 기존과 동일(스크립트가 DB 직접 질의+HTTP 호출까지 해야 해 새 실패 모드 증가, "새 backup platform 도입 없음" 기준과 충돌) |
+| 격리 환경 구성 | 별도 물리 daemon/VM 대신 이 머신의 로컬 `docker-compose.prod.yml` 스택을 격리 drill 환경으로 쓰되, **drill 시작 전** `docker ps -a`(정지된 컨테이너 포함)로 기존 `cms-*-prod` 잔존 여부, `docker volume ls`로 `cms_db_data_prod`/`cms_notice_attachments_prod` 기존 데이터 잔존 여부, 호스트 8080 포트 점유 여부(dev 스택은 `8080:8080`, prod는 `127.0.0.1:8080:8080`으로 바인딩이 달라도 같은 호스트 포트를 두고 충돌할 수 있음 — drill 동안 dev 스택을 내려 확보), **과거 `./backups`·`./backups-quiesced`·`./backups-drill` 산출물 잔존 여부**(v20 추가, 지적 2)를 확인한다. 기존 자원이 발견되면 자동으로 재사용·삭제하지 않고 drill을 중단한다. **drill 종료 시에는 이번에 새로 만든 컨테이너/볼륨/`./backups-drill` 산출물만** 식별해 그것만 제거한다(`make prod-down` + 이번 생성분 한정 `docker volume rm`, 검증 증거는 `docs/verification/recovery-drill.md`로 별도 보존 후 삭제) | 이 프로젝트에 실제 배포된 prod가 아직 존재하지 않아 로컬 prod 스택 자체가 유일한 "prod"이자 disposable 검증 대상이다(`docker ps` 확인 결과 dev 컨테이너만 실행 중, prod 컨테이너 없음 — 2026-09-27 확인). 다만 이름이 다르다는 사실만으로 격리를 보장할 수 없다(지적 4) — `prod-down`이 볼륨을 보존하므로 과거 잔존 데이터가 있을 수 있고, 포트·디스크·백업 디렉터리 등 공유 daemon/호스트 자원 경합 가능성이 있어 사전/사후 체크리스트로 보완한다. **실배포 이후 진짜 prod가 생기면 그 시점부터는 반드시 별도 daemon/VM 필요** — 이번 결정은 그때까지만 유효하며, 7절 "격리 restore drill"·Gate G·12절 최종 체크리스트의 "전용 daemon/VM" 문구도 "실배포된 prod가 없는 동안은 이 사전/사후 체크리스트를 통과한 로컬 disposable 스택을 격리 환경으로 인정한다"는 각주로 동기화한다 |
+| 담당자·RPO·RTO·허용 중단(목표 vs 실측 분리) | 담당자: 프로젝트 단독 운영자. **RPO 24시간**: 호스트와 마지막 유효 quiesced 백업이 모두 생존하는 논리적 오삭제 시나리오의 *목표치*(수동 실행 누락 시 실제로는 더 길어질 수 있음 — 매회 실측 기록). **실제 복구 가능 시점**: 마지막으로 성공이 확인된 quiesced 백업의 데이터 기준 시점. **호스트 전체 유실**: 오프사이트 백업 미포함으로 현재 범위에서 복구 보장 없음(기존 로드맵 후속과제에 이미 기록됨, 재확인만). **RTO**: 목표치를 정하지 않고 drill 실측 소요 시간을 그대로 관측치로 기록(허용 한도 아님). **허용 중단 시간**: 앱 정지 시작부터 재기동·health 확인·(복구의 경우) 참조 파일 검증 완료 후 서비스 재개까지 전체 구간을 측정 | "일 1회 계획 = RPO 24시간 확보"라는 등식은 실행 누락·실패를 반영하지 못한다(지적 5) — 목표·실측·미보장 범위를 명시적으로 분리해 과대 주장을 막는다. 순수 로컬 학습 단계 — 실사용자·SLA 없음. 실배포 시 재확인 필요 |
+| ingress 체크리스트 | 7절 M-05의 9개 항목에 **SameSite 쿠키 확인**(로드맵 후속과제①이 명시한 `forward-headers-strategy`·secure/SameSite 쿠키)을 10번째 항목으로 추가해 `docs/verification/deployment-edge.md`로 옮기고 전부 "미검증(ingress 미확정)"으로 표시. `forward-headers-strategy`·리버스 프록시 설정 등 코드 구현 안 함. **이 문서화의 완료는 로드맵 "후속 과제 — ① 실배포 인프라"(nginx·TLS·실제 호스팅·CD 파이프라인까지 포함) 자체의 완료를 의미하지 않는다** — `/updateRoadmap` 반영 시 PR 6은 완료로, 그 로드맵 항목은 "체크리스트만 준비됨, 구축은 여전히 미완료"로 구분해 표시한다 | ingress topology가 없는 상태에서 특정 제품 설정을 미리 만들지 않는다는 기존 원칙은 유지하되(지적 7), 체크리스트 문서화와 실제 인프라 구축 완료를 동일시하지 않아야 한다. 현재 코드의 `RateLimitFilter`는 `remoteAddr`를, `AdminActionLogAspect`는 전달 헤더를 우선 사용하는 불일치가 이미 존재하므로(별도 위험, PR 6 범위에서 신규 계층을 강제하지 않되 체크리스트에서 짚음), 외부 공개 전 실제 경로에서 해결·검증해야 함을 명시 |
+
+**Out of Scope**(위 결정에 따른 범위 밖 — 실배포 이후 재평가): 무인 자동 quiesced 백업(cron이 stop/start까지 수행), 무중단 backup snapshot, 복구 후 자동 참조 파일 검증(스크립트 내장), 별도 물리 격리 VM, 실제 nginx/TLS 설정, 공통 IP 해석 계층(rate limiter/감사 로그 IP 소스 통일 — 별도 항목).
+
 #### Files Likely Affected
 
-- `docs/deployment.md`.
-- 신규 후보: `docs/verification/recovery-drill.md`, `docs/verification/deployment-edge.md`.
-- `docs/troubleshooting.md`에 새로 검증한 운영 실패 처리만 필요 시 기록.
+- `docs/deployment.md` — 백업 섹션(정규/보조/drill 세 `BACKUP_DIR` 라벨 재정리, RPO/RTO/담당자/허용 중단 명시), 복구 섹션(drill 결과 링크), ingress 섹션(신규, `deployment-edge.md` 링크), **165행 요약 표(bootstrap allowlist 반영)**, **178행 Swagger 500→404 정정**.
+- `.gitignore` — `/backups-quiesced`·`/backups-drill` 제외 규칙 추가(v20 갱신, 기존 `/backups`는 이미 있음).
+- 신규: `docs/verification/recovery-drill.md`, `docs/verification/deployment-edge.md`.
+- `docs/troubleshooting.md`에 drill 중 발견한 비자명한 운영 이슈만 필요 시 기록.
 - backup/restore scripts·Makefile·Dockerfile·SecurityConfig·limiter·IP resolver 제품 코드 변경 없음.
 
 #### Implementation Steps
 
-1. online/quiesced 모드의 보장과 정규 복구 기준을 분리한다. 기존 online cron 예시는 online이라고 표시하고 정규 recovery backup과 혼동하지 않게 한다.
-2. 정지 확인·DB 유지·backup 성공/실패·앱 재개·health 확인·운영자 통보 책임을 runbook에 적는다.
-3. **격리 Docker daemon/폐기 가능한 VM**을 준비한다. 고정 container/volume 때문에 같은 daemon의 `compose -p`만 바꾸는 것은 격리가 아니다. 이름 override를 지원하도록 script를 바꾸지 않는다. restore의 health probe는 Docker context가 아니라 실행 셸의 `127.0.0.1:8080`을 보므로, **스크립트 실행 셸과 검증용 앱의 localhost가 같은 격리 VM 안에 있도록 한다.** 호스트에서 원격 Docker context만 바꾼 실행은 충분하지 않다.
-4. dummy 데이터로 quiesced backup→변경→restore drill을 실행하고 참조 파일·공지·프로필·권한·재기동을 확인한다. 손상 checksum은 별도 복사본으로 시험한다.
-5. M-05 체크리스트를 제품 중립적으로 추가한다. 기존 nginx 예시는 최종 제품 선택이나 설정 검증 완료로 읽히지 않게 정리한다.
-6. 동작이 바뀐 bootstrap/SMTP 문서를 다시 통합 검토하되 각 PR의 코드 변경을 재혼합하지 않는다.
+1. online/quiesced 모드의 보장과 정규 복구 기준을 분리한다. 기존 online cron 예시는 "보조"라고 표시하고 정규 recovery backup(quiesced)과 혼동하지 않게 한다. RPO/RTO/담당자/허용 중단을 위 표대로 문서화한다.
+2. 정지 확인·DB 유지·backup 성공/실패(특히 `docker start` 실패·health 미회복 시 실패 종료·정지 유지·증거 기록)·앱 재개·운영자 통보 책임을 runbook에 적는다. 정규(quiesced)와 보조(online) 백업의 `BACKUP_DIR`을 분리해 문서화한다(위 표 "백업 산출물 경로 분리").
+3. drill 시작 전 체크리스트를 수행한다: `docker ps -a`로 기존 `cms-*-prod` 컨테이너(정지 포함) 없음 확인, `docker volume ls`로 `cms_db_data_prod`/`cms_notice_attachments_prod` 기존 데이터 없음 확인, 호스트 8080 포트 미점유 확인(필요 시 dev 스택 임시 정지). 하나라도 걸리면 drill을 중단하고 원인을 먼저 해소한다. restore의 health probe가 보는 `127.0.0.1:8080`과 스크립트를 실행하는 셸이 같은 머신임을 확인한다(원격 Docker context 사용 안 함).
+4. synthetic fixture로 quiesced backup→변경→restore drill을 실행하고 **모든** 첨부·프로필 파일(대표 표본 아님)의 존재·해시·권한·재기동·애플리케이션 조회(공개/비공개 구분)를 확인한다. 손상 checksum은 별도 복사본으로 시험한다. drill 종료 시 이번에 새로 만든 컨테이너/볼륨만 식별해 `make prod-down`+해당 볼륨 한정 `docker volume rm`으로 제거한다.
+5. 런북에 "매 실제 운영 복구 직후 수행할 복구 후 체크리스트"(참조 파일 재확인, 애플리케이션 조회 확인, 통과 전 결과 불신뢰 원칙)와 drill 재실행 조건(이미지/스키마/스토리지 계약 변경 시)을 추가한다.
+6. M-05 체크리스트(SameSite 쿠키 확인 포함 10개 항목)를 제품 중립적으로 `deployment-edge.md`에 옮긴다. 기존 nginx 예시는 최종 제품 선택이나 설정 검증 완료로 읽히지 않게 정리하고, 이 문서화가 로드맵 "후속 과제 — ① 실배포 인프라" 자체의 완료를 의미하지 않음을 명시한다.
+7. `docs/deployment.md`의 stale 표(165행 bootstrap 요약, 178행 Swagger 500) 및 동작이 바뀐 bootstrap/SMTP 문서를 다시 통합 검토하되 각 PR의 코드 변경을 재혼합하지 않는다. 7절 "격리 restore drill"·Gate G·12절 최종 체크리스트의 "전용 daemon/VM" 문구를 "실배포된 prod가 없는 동안은 3번 체크리스트를 통과한 로컬 disposable 스택을 격리 환경으로 인정한다"는 각주로 동기화한다.
 
 #### Tests to Add / Update
 
@@ -671,7 +694,7 @@ M-01 · Medium Operational Risk, M-05 · Low Deployment Requirement.
 
 #### Regression Risks
 
-고정 이름의 운영 컨테이너를 테스트 대상으로 오인, backup 실패 후 앱 방치, restore 실패 후 부분 복원 앱을 잘못 재기동, 권한/UID 손실, 기존 online cron을 정합 백업으로 오표기, 실제 client IP 대신 proxy IP로 quota 공유.
+고정 이름의 운영 컨테이너를 테스트 대상으로 오인, backup 실패 후 앱 방치, restore 실패 후 부분 복원 앱을 잘못 재기동, 권한/UID 손실, 기존 online cron을 정합 백업으로 오표기, 실제 client IP 대신 proxy IP로 quota 공유, **online 보존 정리가 별도 경로 분리 전 마지막 quiesced 백업을 삭제**, **drill이 공유 daemon의 잔존 dev/prod 자원과 충돌하거나 포트 경합으로 dev 스택에 영향**, **PR 6 문서화 완료를 실배포 인프라 항목 전체의 완료로 오인**.
 
 #### Rollback
 
@@ -683,7 +706,17 @@ drill의 최종 대상 이미지는 PR 2/5를 포함해야 한다. ingress 검�
 
 #### Completion Criteria
 
-정규 backup 모드·중단 허용·담당자 확정, 격리 복원 증거 확보, 실패 처리 확인, ingress checklist와 미검증 범위 명시. 새 backup platform·proxy abstraction 없음.
+정규(quiesced) backup을 **수동 일일 실행**으로 확정하고 실패 종료·정지 유지 절차를 문서화, 정규/보조/drill **세 `BACKUP_DIR`을 완전히 분리**(backup·restore 양쪽 호출 모두 동일 값 export 확인)하고 전부 `.gitignore` 제외 확인, 격리 환경에서 DB 복구 후 **synthetic fixture 전체**(표본 아님, 7절 "격리 restore drill"과 Gate G까지 일관되게 "전체"로 동기화)의 존재·해시·권한과 애플리케이션 조회까지 확인한 증거 확보 + 매 실제 복구 후 체크리스트 문서화(로드맵 Top5⑤/H-04 완료 기준 흡수), RPO(목표)/실제 복구 가능 시점/RTO(실측)/허용 중단(정지~서비스 재개 전체 구간)을 분리 정의, drill 시작 전(컨테이너/볼륨/포트/과거 백업 산출물 잔존)/후(이번 생성분만 삭제) 자원 격리 체크리스트 통과, ingress checklist(SameSite 포함 10항목)와 미검증 범위 명시 + **PR 6 완료와 로드맵 후속과제①(실배포 인프라) 완료를 분리 표시**(로드맵 후속과제① 범위와 완료 기준을 구분해 흡수). 새 backup platform·proxy abstraction 없음, 제품 코드 변경 없음.
+
+#### PR 6 실행 기록 — 2026-09-27
+
+- Context: `/suggestRoadmap` → "백업·ingress 통합 처리(PR 6 + Top5⑤ + 후속과제① 실배포 인프라)" 선택 → `/feature` 8단계 워크플로우 → `/plan-review-loop`(codex CLI 3라운드, v19·v20·v21, ship) → 사용자 구현 승인 순으로 진행. `chore/backup-ingress-deployment-contract` 브랜치에서 작업(커밋·PR·머지는 이후 `/code-review-loop` → `/commitPR` 단계 예정).
+- 구현(문서·설정, 제품 코드 변경 없음): `docs/deployment.md` — "정규/보조 백업 모드" 절 신설(quiesced를 정규로, online을 보조로 재라벨 + 3-way `BACKUP_DIR` 분리 + RPO/RTO/담당자/허용중단 목표-실측 분리 표), "복구" 절에 내부 안전 백업의 `BACKUP_DIR` 상속 설명과 "복구 후 체크리스트"(매 실제 복구마다 수행) 신설, "배포 대상(ingress)" 절 신설(M-05 범위·현재 IP 소스 불일치 고지·`deployment-edge.md` 링크), 165행 bootstrap 요약 표를 allowlist(`ACTIVE`/`LOCKED`/`PASSWORD_EXPIRED`)로 정정, 178행 Swagger 500 서술을 실제 동작(404 HTML, `7c64307` #26로 이미 해결)으로 정정, "알려진 제약"에 수동 백업 미실행 위험·drill 1회의 한계 추가. `.gitignore`에 `/backups-quiesced`·`/backups-drill` 추가(계획 리뷰 중 이미 반영, 위 v20 참조). 신규 `docs/verification/deployment-edge.md`(M-05 9항목+SameSite 10번째 항목, 전부 미검증으로 명시)·`docs/verification/recovery-drill.md`(아래 drill 실행 기록).
+- **격리 drill 실행 결과**(상세는 `docs/verification/recovery-drill.md`): 사전 체크리스트에서 stale `cms_db_data_prod`/`cms_notice_attachments_prod` 볼륨(PR 2 실기 검증 잔존 추정) 발견 → 사용자 승인 후 삭제. dev 스택(`cms-app-dev`)이 host 8080을 점유해 사용자 승인 후 drill 동안 임시 정지. synthetic ADMIN + 공개/비공개 공지 각 1건(첨부 포함) + 프로필 이미지(UPLOADED) fixture 구성 → 백업 전 3개 파일 전체 해시 기록 → **quiesced 백업(`BACKUP_DIR=./backups-drill`)** → fixture 변경(제목 수정·첨부 삭제·프로필 교체) → **손상 checksum 사본으로 파괴적 변경 전 거절 확인**(앱 컨테이너 `Running` 무변경) → **신뢰 백업으로 실제 복구**(`BACKUP_DIR=./backups-drill` export가 내부 안전 백업 호출에도 정확히 전달돼 정규/보조 경로와 분리됨을 실측 확인 — v20 지적 2 해소 검증) → 복구 후 DB 재조회로 mutation 전부 원복 확인 → **전체 3개 파일**(표본 아님) 해시·UID:GID(`10001:10001`) 전수 일치 확인 → 공개 첨부 비인증 200+바이트 동일, 비공개 공지/첨부 비인증 404, 비공개 첨부·프로필 관리자 인증 200+바이트 동일 확인 → Flyway validate 11 migrations·health UP·`RestartCount=0` 확인. 종료 후 이번 생성 볼륨·`./backups-drill` 전체 제거, dev 스택 재기동(`GET /admin/login` 200 재확인), drill 전용 `.env.prod`(synthetic) 삭제.
+- 계획 대비 조정: 없음 — 계획(v21, ship)에 명시된 절차를 그대로 실행했다. 재해복구(빈 볼륨) 시나리오는 계획대로 `PLAN-db-backup.md`(PR #30) 기존 검증으로 갈음하고 반복하지 않았다. H-01 LOCKED/EXPIRED 계정 기동 무변경도 계획대로 PR 2의 `AdminBootstrapStartupIntegrationTest`로 갈음했다.
+- 검증 결과: `SPRING_PROFILES_ACTIVE=dev ./gradlew test` — 제품 코드 변경이 없어 Gradle이 `UP-TO-DATE`로 스킵(직전 763개 전체 통과 상태 유지, 회귀 없음). drill 실기 검증 10단계 전부 통과(위 표, `docs/verification/recovery-drill.md` 참조).
+- `/code-review-loop` 2라운드(codex-companion, working-tree diff 대상) 거침. 1라운드 지적 2건 전부 수용: (1) quiesced 백업 예시의 `docker start` 직후 단발성 health 확인이 정상 기동 중에도 실패로 오판할 수 있음(recovery-drill.md 실기 검증에서 이미 실증된 현상) — `prod-up.sh`와 동일한 60초 폴링 루프로 교체. (2) 복구 전 안전 백업 위치 안내의 `export BACKUP_DIR=...`가 셸에 영구히 남아 이후 online 백업까지 정규 경로에 섞일 위험 — 해당 명령 앞에만 값을 지정하는 인라인 형태로 교정. 2라운드 신규 지적 없이 통과.
+- 후속: `docs/verification/deployment-edge.md`의 ingress 체크리스트 10항목은 실제 ingress 확정 전까지 미검증으로 유지(계획대로, 완료 기준 아님). 로드맵 갱신은 `/updateRoadmap`에서 PR 6·Top5⑤·후속과제①(실배포 인프라, 체크리스트만 준비된 상태로 구분)을 사실확인 후 반영.
 
 ## 6. Test Plan
 
@@ -742,15 +775,17 @@ Gradle test 태스크는 기본적으로 `SPRING_PROFILES_ACTIVE=dev`, `CMS_RATE
 
 ### 격리 restore drill
 
-1. **전용 Docker daemon/VM**을 식별하고 운영과 연결되지 않음을 확인한다. 현재 스크립트의 고정 `cms-*-prod`, volume 이름, `127.0.0.1:8080`을 그 환경 안에서만 사용한다. 단순 compose project-name 변경으로 격리를 주장하지 않는다. 스크립트도 격리 VM 안에서 실행해 Docker 대상과 host-side curl의 localhost 대상이 일치하게 한다. 원격 context만 바꾸고 로컬 운영 앱의 health를 잘못 확인해서는 안 된다.
+> **v20 갱신(codex 계획 리뷰 2라운드 지적 2·3 반영)**: "전용 Docker daemon/VM" 요구는, 이 프로젝트에 실배포된 prod가 아직 없는 동안은 PR 6 Target Behavior 표의 "격리 환경 구성" 결정(로컬 disposable `docker-compose.prod.yml` 스택 + drill 전/후 체크리스트)으로 대체 인정한다 — 실배포 이후에는 이 각주가 무효화되고 원 요구(전용 daemon/VM)가 다시 적용된다. 아래 "대표"로 쓰인 표현은 모두 **synthetic fixture 전체**(대표 표본 아님)로 읽는다.
+
+1. drill 전용 `BACKUP_DIR`(예: `./backups-drill` — 정규 `./backups-quiesced`·보조 `./backups`와 별개, `.gitignore` 제외 대상)을 만든다. **backup과 restore 양쪽 호출 모두에 같은 `BACKUP_DIR`을 명시적으로 export**한다 — restore의 내부 안전 백업 호출은 `BACKUP_DIR`을 인자로 받지 않고 호출 시점 환경변수를 그대로 물려받으므로, backup에만 지정하면 restore 단계에서 기본값(`./backups`)으로 되돌아가 정규/보조 산출물과 섞인다. PR 6 Target Behavior 표 "격리 환경 구성"의 drill 전 체크리스트(컨테이너/볼륨/포트)에 "과거 `./backups`·`./backups-quiesced`·`./backups-drill` 잔존 여부 확인"도 포함한다 — 잔존 시 drill을 중단한다.
 2. synthetic ADMIN/MANAGER, 공개/비공개 공지, 공지 첨부, 업로드 프로필, preset/legacy 예외 fixture를 준비한다. 진짜 사용자 데이터·secret은 사용하지 않는다.
-3. backup 직전 DB 참조 목록과 대표 파일 hash를 기록하고 quiesced backup을 생성한다.
-4. fixture를 변경한 뒤 **신뢰한 백업**으로 restore해 변경 전 데이터가 돌아오는지 확인한다. 필요하면 동일한 이름의 빈 스택을 전용 환경에서 구성하여 새 volume 복구도 검증한다.
-5. 공지 attachment의 모든 key와 `UPLOADED` 프로필의 `profile/` namespace 파일 존재를 확인한다. PRESET/NONE/LEGACY_INLINE을 업로드 파일로 잘못 판정하지 않는다. 공개 첨부는 공개 조건을 만족하는 fixture에서 실제 다운로드한다.
-6. 대표 첨부·프로필 바이트 hash, content type, 공지 공개/비공개, 관리자 프로필 표시, 파일 UID/GID `10001:10001`, 앱 사용자의 읽기·새 업로드·삭제 가능 여부를 확인한다.
+3. backup 직전 DB 참조 목록(모든 첨부·프로필 storageKey)과 **fixture 전체 파일**의 hash를 기록하고 quiesced backup을 생성한다(위 1번의 drill 전용 `BACKUP_DIR` 사용).
+4. fixture를 변경한 뒤 **신뢰한 백업**으로 restore해 변경 전 데이터가 돌아오는지 확인한다(restore 호출에도 같은 `BACKUP_DIR` export). 필요하면 동일한 이름의 빈 스택을 구성해 새 volume 복구도 검증한다.
+5. 공지 attachment의 모든 key와 `UPLOADED` 프로필의 `profile/` namespace 파일 존재를 확인한다. PRESET/NONE/LEGACY_INLINE을 업로드 파일로 잘못 판정하지 않는다. 공개 첨부는 공개 조건을 만족하는 fixture에서 실제 다운로드하고, 비공개 첨부는 무인증 거절과 권한 있는 조회를 구분해 확인한다.
+6. **fixture의 모든 첨부·프로필 파일**(3번에서 기록한 전체 목록과 1:1 대조)의 바이트 hash, content type, 공지 공개/비공개, 관리자 프로필 표시, 파일 UID/GID `10001:10001`, 앱 사용자의 읽기·새 업로드·삭제 가능 여부를 확인한다. 표본 추출로 대체하지 않는다.
 7. Flyway validate, 최종 runner 완료, health와 RestartCount 안정성을 확인한다. H-01의 LOCKED/EXPIRED가 있는 복원본도 상태를 바꾸지 않고 기동해야 한다.
 8. 백업 복사본의 checksum을 고의로 불일치시켜 복구가 **파괴적 변경 전** 거절되고 기존 fixture가 유지되는지 확인한다. 원본 유효 백업은 보존한다.
-9. 파괴적 단계 이후의 통제된 실패는 이 격리 환경에서만 시험하고, 앱 정지·안전 백업 안내·수동 재복구를 확인한다. 테스트 종료 후 환경을 폐기하되 검증 증거는 남긴다.
+9. 파괴적 단계 이후의 통제된 실패는 이 환경에서만 시험하고, 앱 정지·안전 백업 안내·수동 재복구를 확인한다. drill 종료 후 이번에 새로 만든 컨테이너·볼륨·`./backups-drill` 산출물만 식별해 제거하되 검증 증거(로그·스크린샷·기록)는 `docs/verification/recovery-drill.md`에 보존한다.
 
 ### M-02 — SMTP 운영 설정
 
@@ -853,11 +888,13 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목은 
 
 ### Gate G — Backup / Restore
 
-- [ ] quiesced를 정규 recovery backup으로 쓸지 운영자가 승인하고 담당자·주기·허용 중단을 기록했다.
-- [ ] 전용 daemon/VM의 synthetic 데이터로 실제 script backup→restore를 수행했다.
-- [ ] DB key 참조 파일·공지·프로필·대표 hash·UID/GID·앱 쓰기 권한을 확인했다.
+- [ ] quiesced를 정규 recovery backup으로 쓸지 운영자가 승인하고 담당자·주기(수동 일일)·RPO(목표)·RTO(실측)·허용 중단(정지~서비스 재개 전체 구간)을 기록했다.
+- [ ] 정규(quiesced)·보조(online)·drill 세 `BACKUP_DIR`이 분리돼 있고 `.gitignore`에 전부 제외됨을 확인했다(PR 6 v19/v20 참조).
+- [ ] 격리 환경(실배포 전까지는 로컬 disposable 스택 + drill 전/후 체크리스트, 실배포 후에는 전용 daemon/VM)의 synthetic 데이터로 실제 script backup→restore를 수행했다.
+- [ ] DB key 참조 파일·공지·프로필의 **전체**(대표 표본 아님) hash·UID/GID·앱 쓰기 권한을 확인했다.
 - [ ] Flyway validate·runner 완료·안정 health를 확인했다.
 - [ ] checksum 실패는 파괴 전 차단, 파괴 후 실패는 앱 정지 유지, 일반 backup 실패는 담당자의 재개 확인으로 구분했다.
+- [ ] 매 실제 운영 복구 후 수행할 참조 파일 재확인·애플리케이션 조회 체크리스트와 drill 재실행 조건(이미지/스키마/스토리지 계약 변경 시)이 런북에 있다.
 - [ ] 같은-host 백업의 한계와 미수행 검증을 숨기지 않았다.
 
 ### Gate H — Deployment Edge
