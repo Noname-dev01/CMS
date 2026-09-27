@@ -6,10 +6,13 @@
 
 최종 판단 근거: [INDEPENDENT VERIFICATION REVIEW](deploy-check-2026-09-23.md). [PROJECT TECHNICAL AUDIT](deploy-check-2026-09-22.md)은 배경 및 과거 판정 이력으로만 사용한다.
 
-상태: **PR 1·PR 2 구현·검증·커밋·PR·머지 완료(PR 1 2026-09-24 `9294af5` #37, PR 2 2026-09-24 `eaaccb6` #38) / PR 3 구현·검증 완료(2026-09-26, `fix/api-error-contract` 브랜치 · 커밋·PR·머지 전) / PR 4~6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1·PR 2·PR 3 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인을 의미하지는 않는다.
+상태: **PR 1·PR 2·PR 3 구현·검증·커밋·PR·머지 완료(PR 1 2026-09-24 `9294af5` #37, PR 2 2026-09-24 `eaaccb6` #38, PR 3 2026-09-27 `e9bd961` #39) / PR 4 구현·범위 내 검증 완료(2026-09-27, `fix/menu-update-lock-consistency` 브랜치 · 커밋·PR·머지 전) / PR 5~6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1·PR 2·PR 3·PR 4 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인을 의미하지는 않는다.
 
 개정 이력:
 
+- v13 변경(2026-09-27): PR 4(M-04) 구현·테스트·실기 검증 완료(코드는 "PR 4 실행 기록" 참조). Final Execution Checklist의 PR 4 두 항목을 `[x]`로 갱신. 커밋·PR·머지는 아직.
+- v12 변경(2026-09-27): PR 4(M-04) 구현 착수 전 계획 리뷰 1라운드(codex CLI, 실제 코드 대조, 모델 gpt-6-astra) — needs-attention, 지적 1건 수용. `templates/admin/menu/manage.html:521`의 `buildPayload()`가 편집 여부와 무관하게 매 PATCH에 `useYn` 체크박스 상태를 항상 포함함을 코드로 확인 — "화면이 이름만 PATCH한다"는 원 계획의 테스트 3 전제가 실제 구현과 달랐다. Goal·Completion Criteria를 "`useYn`을 생략/null로 보낸 일반 수정" 범위로 명확히 한정하고, "Out of Scope" 절 신설(화면의 stale-form 전체 재전송은 row-lock만으로 해결 불가 — 서버가 명시적 `useYn=true`와 우연히 오래된 값을 구분할 수 없어 무시 처리 시 기존 재활성화 계약 파손, 근본 해결은 UI 변경/버전 컬럼 도입이 필요해 별도 후속 과제로 분리), 테스트 3을 "API 레벨 회귀"로 좁혀 재정의. 이로써 PR 4 계획 리뷰 라운드 종료 — 구현 착수는 별도 사용자 확인 필요.
+- v11 변경(2026-09-27): `/updateRoadmap` 사실확인 후 PR 3의 커밋·PR·머지 완료를 문서에 반영. 커밋 `e9bd961` "수정: API 일반 클라이언트 오류 500 오분류 해소 + 안전한 진단 로그 추가 (감사 M-03) (#39)"로 머지됨(`gh pr view 39` state=MERGED·mergedAt=2026-09-27T03:43:26Z, `gh pr checks 39` test pass 1m43s). Final Execution Checklist의 PR 3 항목을 갱신.
 - v10 변경(2026-09-25): PR 3(M-03) 계획 리뷰 2라운드(codex CLI, v9 수정 검증) — **ship 판정.** 406 handler 추가가 기존 handler 우선순위와 충돌하지 않음(`Exception` catch-all보다 구체적 handler 우선), `FieldError.isBindingFailure()`로 타입 변환 실패를 문구·언어에 의존하지 않고 신뢰성 있게 판별 가능(`MethodArgumentNotValidException` 경로도 같은 `buildValidationMessage()`를 공유해 함께 보호됨), 오류 `ResponseEntity`에 JSON Content-Type을 직접 지정하는 접근이 유효함(단 `@ExceptionHandler(produces=...)`로 handler 선택 자체를 제한하는 방식은 `Accept: text/html`에서 handler 미선택 문제를 만들 수 있어 대체 수단으로 사용 금지 — Implementation Steps에 반영) 확인. 비차단 지적 1건(수용) — 6절 오류 행렬·Gate E·Final Execution Checklist가 아직 406·확장 범위(JSON Content-Type 전체 보장·BindException 비노출)를 반영하지 않아 PR 3 본문과 동기화했다. 이로써 PR 3 계획 리뷰 루프 종료 — 구현 착수는 별도 사용자 확인 필요.
 - v9 변경(2026-09-25): PR 3(M-03) 구현 착수 전 계획 리뷰 1라운드(codex CLI, 실제 코드 대조) — needs-attention, 지적 3건 전부 수용. (1) `HttpMediaTypeNotAcceptableException`(406, Accept 협상 실패)이 계획의 세 handler에 빠져 catch-all(500)로 새는 구멍 발견 → 4번째 handler로 추가. (2) "기존 JSON Content-Type 유지"가 실제 코드(기존 handler들이 Content-Type 미지정)와 맞지 않음 → API 분기 전체의 JSON Content-Type 보장을 범위에 포함, 회귀 테스트를 "HTML 아님" 대신 "상태+Content-Type+4필드 본문" 동시 검증으로 강화. (3) 기존 `BindException` 처리(`buildValidationMessage()`)가 타입 변환 실패 메시지를 그대로 노출해(예: enum 필드에 임의 문자열 입력 시 그 값이 메시지에 반영) 이번 PR의 "안전한 진단·민감정보 미노출" 완료 기준과 충돌 → 사용자 확인 후 PR 3 범위에 포함, 타입 변환 실패 필드 오류만 고정 문구로 대체(일반 Bean Validation 문구는 유지). Target Behavior·Implementation Steps·Tests to Add·Completion Criteria 갱신.
 - v8 변경(2026-09-25): `/updateRoadmap` 사실확인 후 PR 1·PR 2의 커밋·PR·머지 완료를 문서에 반영. PR 2는 커밋 `eaaccb6` "보안: ADMIN bootstrap 기동 조건을 상태 allowlist로 확장 (감사 H-01) (#38)"로 머지됨(`gh pr view 38` state=MERGED·mergedAt=2026-09-24T11:52:37Z, `gh pr checks 38` test pass 2m0s). PR 1은 `9294af5` #37(기존에 이미 반영됨). Final Execution Checklist의 PR 2 두 항목을 `[x]`로 갱신.
@@ -407,13 +410,13 @@ M-03 · Medium · Bug / Operational Risk.
 - 신규 테스트: `GlobalApiExceptionHandlerTest`(순수 단위 13개 — ERROR 이벤트 정확히 1개·라우트 패턴 fallback·민감정보(예외 message/cause/raw URI) 미노출·400/405(Allow 유/무)/415/406 매핑·BindException 타입 변환 대체/일반 검증 문구 유지), `ApiErrorContractIntegrationTest`(실제 `SecurityConfig` 포함 슬라이스 7개 — 400/405+Allow/415/406/500/`Accept: text/html` 회귀/미인증 401). 기존 `MenuControllerTest`에 경로 변수 타입 불일치(`GET /admin/api/menus/abc`) 400 회귀 1건, `AdminMemberControllerTest`에 검색 열거형 필드 입력 표식 비노출(`?userType=FAKE_TOKEN_MARKER`) 1건 추가 — 둘 다 실제 프로덕션 엔드포인트 대상.
 - 이슈: 1라운드 계획 리뷰에서 `HttpMediaTypeNotAcceptableException`(406) 자체가 원 계획에서 완전히 빠져 있던 것을 발견해 구현 범위에 반영(계획 v9). 초기 `ApiErrorContractIntegrationTest`의 406 테스트가 `{id}` 경로에 `produces=APPLICATION_JSON_VALUE`를 얹은 상태로 `Accept: text/html` 타입 불일치 회귀 테스트와 같은 엔드포인트를 공유해, Accept 협상이 핸들러 매핑 단계에서 먼저 실패(406)해버려 기대한 400에 도달하지 못하는 테스트 설계 결함을 발견 — 406 전용 엔드포인트(`/admin/api/error-contract-test-strict`, produces 제약 있음)와 타입 불일치용 엔드포인트(produces 제약 없음)를 분리해 해결.
 - 검증 결과: `./gradlew compileJava compileTestJava` 성공. 신규·수정 테스트 클래스 개별 실행 통과 확인 후, `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 전체 실행(Docker Desktop 재기동 후 Testcontainers 포함) — **740개 전체 통과, 실패·오류 0**(신규 21개 순증: 단위 13·통합 7·기존 파일 확장 2, PR 2 이후 기준 720개에서 순증). `docs/troubleshooting.md`(애플리케이션/런타임 카테고리)·`.claude/skills/api-conventions/SKILL.md`(상태 코드 표에 405/406/415, JSON Content-Type 보장, BindException 비노출 반영) 문서 동기화 완료.
-- 후속: 없음. 감사 M-03 완료. `/code-review-loop` → `/commitPR` 단계 예정.
+- 후속: 없음. 감사 M-03 완료. 커밋 `e9bd961` "수정: API 일반 클라이언트 오류 500 오분류 해소 + 안전한 진단 로그 추가 (감사 M-03) (#39)"로 반영, PR #39 머지 확인(`gh pr view 39` state=MERGED, mergedAt=2026-09-27T03:43:26Z) + CI(`gh pr checks 39`) `test` pass(1m43s) — 커밋·PR·머지까지 완료.
 
 ### PR 4 — 메뉴 같은 행 쓰기의 비관적 잠금 일관화
 
 #### Goal
 
-메뉴 이름 변경이 다른 트랜잭션이 완료한 비활성화를 되돌리지 않게 한다.
+`useYn` 필드를 생략하거나 null로 보낸 메뉴 일반 수정(이름 등)이 다른 트랜잭션이 완료한 비활성화를 되돌리지 않게 한다. (v12 계획 리뷰로 범위 한정 — 아래 "Out of Scope" 참조)
 
 #### Finding
 
@@ -428,6 +431,12 @@ M-04 · Medium · 재현된 Bug / Data Integrity Risk.
 #### Target Behavior
 
 일반 update도 **최초 대상 엔티티 조회부터 `findByIdForUpdate()`**를 사용한다. 별도 일반 조회로 엔티티를 먼저 로드한 후 잠금만 추가하지 않는다. null 필드는 **잠금 획득 후 읽은 최신 값**을 유지한다. 조회 API와 사이드바까지 잠그지 않는다.
+
+##### Out of Scope (v12 계획 리뷰로 추가)
+
+`templates/admin/menu/manage.html:521`의 `buildPayload()`는 어떤 필드를 편집했는지와 무관하게 매 PATCH 요청에 `useYn: menuUseYnInput.checked`(화면에 로드된 시점의 체크박스 상태)를 항상 포함한다. 따라서 "A가 메뉴를 화면에 로드(활성 상태) → B가 비활성화 커밋 → A가 이름만 편집해 저장"하는 실제 UI 순서에서는, A의 요청에 여전히 명시적 `useYn=true`가 실려 있어 이번 row-lock 수정 이후에도 서버가 이를 "의도된 재활성화"로 처리해 비활성화가 되돌아갈 수 있다.
+
+이는 이번 PR이 해결하는 "같은 서비스 메서드가 분기에 따라 잠금 유무를 달리하는" 버그와는 **다른 문제**(고전적인 stale-form 전체 덮어쓰기)이며, 서버가 "명시적으로 보낸 true"와 "우연히 오래된 화면 값인 true"를 구분할 방법이 없어 row-lock만으로는 근본 해결이 불가능하다 — 서버가 명시적 `useYn=true`를 임의로 무시하면 기존의 정상적인 재활성화 계약이 깨진다. 근본 해결(변경 필드만 전송하도록 UI 변경, 또는 optimistic lock 버전 컬럼 도입)은 완료 기준이 신규 version 컬럼·migration을 명시적으로 배제하므로 이번 PR 범위 밖이며, 별도 후속 과제로 로드맵에 남긴다.
 
 #### Files Likely Affected
 
@@ -467,7 +476,7 @@ M-04 · Medium · 재현된 Bug / Data Integrity Risk.
 
 1. **같은 사건의 A 선행 회귀:** A의 실제 서비스 조회 후 대기 → B 비활성화 시작. 구버전에서는 B가 먼저 완료해 최종 true가 되는 것을 확인한다. 수정 후에는 B가 같은 행 잠금을 기다리는 것을 관찰하고 A를 해제한다 → A 이름 commit → B 비활성화 commit → 최종 이름은 A 값, `useYn=false`. coordinator는 B commit만을 기다리지 않고 A 해제를 보장한다. query 진입 latch와 bounded future 대기를 사용해 무한 대기를 막는다. **Future 미완료만을 잠금 증거로 삼지 않는다.** 실제 서비스/저장소 호출 진입, SQL과 connection 식별 또는 검증용 DB lock-wait 관측, 해제 뒤 양쪽 commit 및 최종 값을 함께 확인한다. 관측에 필요한 권한은 일회용 테스트 DB에만 사용하며 운영 계정 권한을 넓히지 않는다.
 2. **B 선행 회귀:** B가 비활성화 잠금을 잡은 상태에서 A update 진입 → B commit → A가 최신 false를 읽고 이름 수정 → 최종 false와 새 이름 유지.
-3. 화면에서 A가 먼저 GET한 뒤 B가 비활성화하고 A가 이름만 PATCH하는 실제 HTTP 순서도 확인한다. GET과 PATCH는 서로 다른 transaction이므로 원래 서비스 내부 stale entity 문제와 구분한다.
+3. **API 레벨 회귀 (이 PR의 핵심 계약, v12 계획 리뷰로 범위 명확화):** 요청 본문에 `useYn` 필드 자체를 포함하지 않는(=null) `{"menuName": "..."}` PATCH가 동시 비활성화를 되돌리지 않음을 확인한다. **화면(manage.html)이 실제로 이 payload를 보낸다고 가정하지 않는다** — 화면은 항상 `useYn`을 포함하므로(Out of Scope 참조), 이 테스트는 API 계약 자체의 회귀만 검증한다. GET과 PATCH가 서로 다른 transaction이라는 점에서 오는 stale entity 문제(서비스 내부 잠금과 무관)는 이 테스트의 검증 대상이 아니다.
 4. 기존 부모 비활성화 vs 자식 재활성화 테스트 유지. 양방향 latch 순서에서도 비활성 부모 아래 활성 자식이 남지 않아야 한다.
 5. 부모 비활성화 vs 활성 자식 생성, 같은 행 일반 수정끼리의 서로 다른 필드 보존, lock timeout의 409 및 전체 transaction rollback 확인.
 6. 실제 생성 SQL에 잠금이 적용되는지 확인한다. 전체 컬럼 UPDATE 자체를 없애는 것이 완료 기준은 아니다. 최신 상태를 잠금 안에서 유지하는 것이 기준이다.
@@ -494,7 +503,17 @@ migration 없이 서비스 변경 revert 가능. 다만 lost update가 재발하
 
 #### Completion Criteria
 
-same-row 양방향 실제 MariaDB 회귀에서 비활성화·이름 수정 모두 보존. 기존 부모/자식 불변식 유지. 예상 밖 deadlock/timeout을 숨기지 않음. 신규 version column/migration 없음.
+same-row 양방향 실제 MariaDB 회귀에서 비활성화·이름 수정 모두 보존(단, `useYn` 필드를 생략/null로 보낸 경우로 범위 한정 — Out of Scope 참조). 기존 부모/자식 불변식 유지. 예상 밖 deadlock/timeout을 숨기지 않음. 신규 version column/migration 없음. 화면의 stale-form 전체 재전송 문제(Out of Scope)는 이번 완료 기준에 포함하지 않으며, `docs/troubleshooting.md`에 별도 후속 과제로 기록한다.
+
+#### PR 4 실행 기록 — 2026-09-27
+
+- Context: `/suggestRoadmap` → PR 4 선택 → `/feature` 8단계 워크플로우(정찰→설계→계획 리뷰→승인→구현→테스트→실기검증→기록) → 계획 리뷰(codex CLI 2라운드, v12, ship) → 사용자 구현 승인 순으로 진행. `fix/menu-update-lock-consistency` 브랜치에서 작업했다.
+- 구현: `MenuService.updateMenu()`의 `deactivationRequested` 조건부 조회 분기(`findByIdForUpdate` vs `findById`)를 제거하고, 모든 수정이 최초 조회부터 `menuRepository.findByIdForUpdate()`를 쓰도록 통일했다. 그 외 로직(null 필드 보존, 활성 자식 검사, 부모 재활성화 검증)은 변경하지 않음 — 스키마·API 계약·DTO 무변경.
+- 신규 테스트: `MenuServiceTest`의 일반 수정 관련 stub 6개를 `findById` → `findByIdForUpdate`로 전환하고, "일반 수정도 잠근다"는 신규 단위 테스트 1개(`updateMenu_generalEdit_locksTargetRow`) 추가(32개 전부 통과). `MenuConcurrencyIntegrationTest`에 실 MariaDB 기반 same-row 시나리오 2개 추가 — (1) `generalEditHoldsLock_blocksConcurrentDeactivate`: `findByIdForUpdate`로 잠근 행에 대한 동시 `deactivateMenu()`가 `innodb_lock_wait_timeout` 단축 세션에서 락 대기 타임아웃으로 실패함을 실증(`AdminMemberUpdateConcurrencyIntegrationTest.guardQuery_actuallyAcquiresRowLocks`와 동일 기법 재사용 — 단, 이 테스트 자체는 수정 전/후 모두 통과함을 확인했다. `deactivateMenu()`는 수정 전부터 이미 잠금을 썼으므로, 이 테스트는 "잠금 프리미티브가 실제로 경합을 막는다"는 사실만 보증하고 M-04 버그 자체의 회귀 재현은 아래 두 번째 테스트가 담당한다), (2) `concurrentGeneralEditAndDeactivate_preservesDeactivation`: barrier로 동시 제출한 일반 수정(useYn 생략)과 비활성화가 실행 순서와 무관하게 항상 "비활성화 유지 + 새 이름 반영"으로 귀결됨을 확인.
+- 계획 대비 조정: 계획(Tests to Add 1·2)은 "query-entry latch + bounded wait"로 A-선행/B-선행 두 순서를 각각 결정적으로 강제하는 설계였으나, 구현 단계에서 이미 검증된(H-02, `AdminMemberUpdateConcurrencyIntegrationTest`) 더 단순한 패턴 — 락 실증 테스트(TransactionTemplate+CountDownLatch) + barrier 기반 순서 무관 lost-update 검증 — 으로 대체했다. 이유: (1) MenuService.updateMenu()가 단일 `@Transactional` 메서드라 중간에 pause를 넣으려면 운영 코드에 테스트 latch를 심어야 하는데 계획 자체가 이를 금지한다, (2) barrier 기반 방식은 두 실행 순서 모두에서 불변식이 성립함을 요구하므로 결정적 순서 강제 없이도 동등한 보증을 준다, (3) 같은 프로젝트에서 이미 ship된 동일 유형 버그(H-02)의 검증 패턴과 일관성을 유지. 수정 전 코드로 되돌려 재실행해 `concurrentGeneralEditAndDeactivate_preservesDeactivation`이 실제로 실패(`useYn=true`, 기대 `false`)함을 확인한 뒤 복원 — 회귀 재현·수정 증명을 모두 거쳤다.
+- 검증 결과: `./gradlew compileJava compileTestJava` 성공. `MenuServiceTest`(32개)·`MenuConcurrencyIntegrationTest`(3개, Docker Desktop 재기동 후 Testcontainers)·`MenuControllerTest`·`AdminSidebarAdviceTest`·`SecurityConfigTest` 개별 재실행 통과 확인 후, `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 전체 실행 — **743개 전체 통과, 실패·오류 0**(신규 2개 순증, 기존 Windows symlink 테스트 1개만 스킵). Playwright로 사용자의 기존 dev 스택(`cms-app-dev`/`cms-db-dev` 컨테이너)과 별도로 격리 포트(host `bootRun --server.port=8099`, 같은 공유 dev DB)에서 실기 검증: ADMIN 로그인 → "메뉴 관리" 이름만 수정(저장→트리 반영 확인→원복) → "활동 로그" 비활성화(트리에서 사라짐 확인) → "비활성 포함" 토글로 재확인 → 재활성화(저장→JSON API로 `useYn:true` 확인) → "회원 관리"(활성 자식 있음) 비활성화 시도 시 기존 409("활성 하위 메뉴가 있어 비활성화할 수 없습니다.") 회귀 확인. 검증 후 DB는 원래 상태로 복원, 사용자의 `cms-app-dev`/`cms-db-dev` 컨테이너는 재기동·수정 없이 그대로 유지됨을 확인.
+- 후속: `docs/troubleshooting.md`(애플리케이션/런타임 카테고리, stale-form 잔여 위험 포함)·`com.cms.admin.menu/CLAUDE.md` 문서 동기화 완료. 감사 M-04 완료(단, "화면이 stale한 `useYn`을 재전송하는 문제"는 계획된 대로 범위 밖으로 남아 별도 후속 과제). 커밋·PR·머지는 아직 — `/code-review-loop` → `/commitPR` 단계 예정.
+- `/code-review-loop` 2라운드(codex CLI, 워킹트리 diff 대상) 거침. 1라운드 지적 2건 전부 수용: (1) 락 실증 테스트가 `SET SESSION innodb_lock_wait_timeout = 1`을 건 뒤 원복하지 않아, HikariCP가 세션 변수를 초기화하지 않는 이 물리 커넥션을 재사용하는 다른 테스트가 의도치 않게 1초 잠금 대기로 실행될 수 있는 문제 — 원래 값을 조회해 `finally`에서 복원하도록 수정. (2) lost-update 방지 테스트가 일반 수정의 `PessimisticLockingFailureException`을 "정상 결과"로 흡수해, 일반 수정이 조용히 실패해도(이름 미반영) 테스트가 통과하던 문제 — 이 테스트는 단일 행을 같은 순서로만 잠그므로 실제 데드락이 불가능해 예외 흡수 자체가 부당했음을 확인, 예외 흡수를 제거하고 최종 `menuName` 단언을 추가. 2라운드는 지적 없이 ship. 수정 후 `MenuConcurrencyIntegrationTest` 3개 재확인 + 전체 스위트 재실행 통과.
 
 ### PR 5 — SMTP timeout 설정과 운영 전달
 
@@ -843,10 +862,10 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목은 
 - [x] **PR 1 테스트:** 정적 보조/MVC와 실제 브라우저에서 새 DOM 0·원문 표시·이메일 UI·MANAGER 403을 확인했다. 상세 수치·skip은 PR 1 실행 기록 참조.
 - [x] **PR 2:** 승인된 bootstrap allowlist와 같은 ID reconciliation 조건을 일치시키고 계정 상태를 자동 변경하지 않았다. 커밋 `eaaccb6` #38 머지 완료.
 - [x] **PR 2 테스트:** 8상태·자동/수동 LOCKED·충돌·실제 prod JAR/복구 경로를 검증했다. `./gradlew test` 720개 전체 통과, CI(`gh pr checks 38`) `test` pass 확인.
-- [x] **PR 3:** 좁은 400/405/415/406 handler와 안전한 500 진단, API 전체 JSON Content-Type 보장, BindException 타입 변환 메시지 비노출만 추가했다. 커밋·PR·머지는 아직(`fix/api-error-contract` 브랜치).
+- [x] **PR 3:** 좁은 400/405/415/406 handler와 안전한 500 진단, API 전체 JSON Content-Type 보장, BindException 타입 변환 메시지 비노출만 추가했다. 커밋 `e9bd961` #39 머지 완료(mergedAt=2026-09-27T03:43:26Z).
 - [x] **PR 3 테스트:** Security 포함 전체 오류 행렬(406 포함)·민감 표식 미노출·기존 HTML 회귀 통과. `./gradlew test` 740개 전체 통과(신규 21개 순증).
-- [ ] **PR 4:** 일반 메뉴 update도 최초 대상 조회부터 기존 행 잠금을 사용한다.
-- [ ] **PR 4 테스트:** A/B 양방향 same-row 및 부모/자식 MariaDB 검증 통과. 잠금 후 불가능한 B 선커밋을 강요하는 하니스가 없다.
+- [x] **PR 4:** 일반 메뉴 update도 최초 대상 조회부터 기존 행 잠금을 사용한다. 화면의 stale `useYn` 재전송 문제는 계획대로 범위 밖(Out of Scope)으로 남겼다.
+- [x] **PR 4 테스트:** same-row 실 MariaDB 검증 통과(락 실증 + barrier 기반 순서 무관 lost-update 방지, 계획의 A/B 결정적 순서 강제 설계 대비 조정 사유는 "PR 4 실행 기록" 참조) + 부모/자식 불변식 회귀 통과. 전체 743개 통과.
 - [ ] **PR 5:** 세 timeout 기본값·선택 override·compose/guard/.env.example 전달을 연결했다. 구현 착수 승인 후 필요하면 선행 가능하다.
 - [ ] **PR 5 테스트:** 실제 resolved properties·invalid override 배포 거절·로컬 fault·token 정리·정상 reset flow 검증 통과.
 - [ ] **PR 6:** online/quiesced 계약, backup/restore 실패 시 서로 다른 재개 정책, 제품 중립 ingress checklist를 기록했다.

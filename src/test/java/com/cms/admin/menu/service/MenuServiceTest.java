@@ -220,7 +220,7 @@ class MenuServiceTest {
         Menu inactiveChild = menu(2L, "자식", 1L, false, 0);
         Menu inactiveParent = menu(1L, "부모", null, false, 0);
 
-        given(menuRepository.findById(2L)).willReturn(Optional.of(inactiveChild));
+        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(inactiveChild));
         given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(inactiveParent));
 
         MenuUpdateRequest request = MenuUpdateRequest.builder().useYn(true).build();
@@ -274,7 +274,7 @@ class MenuServiceTest {
     @DisplayName("PATCH 시 useYn 누락/null은 기존값을 유지")
     void updateMenu_useYnNullKeepsExisting() {
         Menu existing = menu(1L, "메뉴", null, true, 0);
-        given(menuRepository.findById(1L)).willReturn(Optional.of(existing));
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
 
         MenuUpdateRequest request = MenuUpdateRequest.builder().menuName("변경된 이름").build();
 
@@ -282,14 +282,14 @@ class MenuServiceTest {
 
         assertTrue(response.getUseYn());
         assertEquals("변경된 이름", response.getMenuName());
-        verify(menuRepository, never()).findByIdForUpdate(any());
+        verify(menuRepository, never()).findById(any());
     }
 
     @Test
     @DisplayName("PATCH 시 ord 누락/null은 기존값을 유지")
     void updateMenu_ordNullKeepsExisting() {
         Menu existing = menu(1L, "메뉴", null, true, 5);
-        given(menuRepository.findById(1L)).willReturn(Optional.of(existing));
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
 
         MenuUpdateRequest request = MenuUpdateRequest.builder().menuName("변경된 이름").build();
 
@@ -302,7 +302,7 @@ class MenuServiceTest {
     @DisplayName("PATCH 시 accessRole 누락/null은 기존값을 유지")
     void updateMenu_accessRoleNullKeepsExisting() {
         Menu existing = menuWithAccessRole(1L, "메뉴 관리", null, MenuAccessRole.ADMIN);
-        given(menuRepository.findById(1L)).willReturn(Optional.of(existing));
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
 
         MenuUpdateRequest request = MenuUpdateRequest.builder().menuName("변경된 이름").build();
 
@@ -315,13 +315,27 @@ class MenuServiceTest {
     @DisplayName("PATCH로 accessRole=ALL을 보내면 ADMIN 전용 메뉴를 공용으로 되돌릴 수 있다")
     void updateMenu_accessRoleRevertsToAll() {
         Menu existing = menuWithAccessRole(1L, "메뉴 관리", null, MenuAccessRole.ADMIN);
-        given(menuRepository.findById(1L)).willReturn(Optional.of(existing));
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
 
         MenuUpdateRequest request = MenuUpdateRequest.builder().accessRole(MenuAccessRole.ALL).build();
 
         MenuResponse response = menuService.updateMenu(1L, request);
 
         assertEquals(MenuAccessRole.ALL, response.getAccessRole());
+    }
+
+    @Test
+    @DisplayName("동시성 방어: 일반 수정(useYn 미포함)도 findByIdForUpdate로 대상 row를 잠근다")
+    void updateMenu_generalEdit_locksTargetRow() {
+        Menu existing = menu(1L, "메뉴", null, true, 0);
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
+
+        MenuUpdateRequest request = MenuUpdateRequest.builder().menuName("변경된 이름").build();
+
+        menuService.updateMenu(1L, request);
+
+        verify(menuRepository).findByIdForUpdate(1L);
+        verify(menuRepository, never()).findById(any());
     }
 
     // ── 비활성화(삭제) ──────────────────────────────────
@@ -373,7 +387,7 @@ class MenuServiceTest {
         Menu inactiveChild = menu(2L, "자식", 1L, false, 0);
         Menu activeParent = menu(1L, "부모", null, true, 0);
 
-        given(menuRepository.findById(2L)).willReturn(Optional.of(inactiveChild));
+        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(inactiveChild));
         given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(activeParent));
 
         MenuUpdateRequest request = MenuUpdateRequest.builder().useYn(true).build();

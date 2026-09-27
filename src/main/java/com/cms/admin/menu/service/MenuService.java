@@ -74,13 +74,12 @@ public class MenuService {
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.MENU_UPDATE, targetType = "MENU", targetIdExpression = "menuNo")
     public MenuResponse updateMenu(Long menuNo, MenuUpdateRequest request) {
-        // useYn=false 요청은 비활성화 전환 가능성이 있으므로, deactivateMenu()와 동일하게
-        // 대상 row를 비관적 락(PESSIMISTIC_WRITE)으로 잠근 뒤 조회한다. 이렇게 해야 아래
-        // 활성 하위 메뉴 검사와 상태 반영이 동시 createMenu(활성 자식)와 직렬화된다.
-        boolean deactivationRequested = Boolean.FALSE.equals(request.getUseYn());
-        Menu target = (deactivationRequested
-                ? menuRepository.findByIdForUpdate(menuNo)
-                : menuRepository.findById(menuNo))
+        // 일반 수정(이름 등)만 잠금 없는 조회를 쓰면, "일반 수정 조회 → 비활성화 커밋 → 일반
+        // 수정 커밋" 순서로 겹칠 때 방금 커밋된 비활성화가 되돌아가는 lost update가 발생한다
+        // (감사 M-04, adversarial-review/remediation-plan.md PR 4 참조). 어떤 수정이든 최초
+        // 조회부터 비관적 락(PESSIMISTIC_WRITE)으로 대상 row를 잠근다 — deactivateMenu()와
+        // 동일하게, 아래 활성 하위 메뉴 검사와 상태 반영이 동시 createMenu(활성 자식)와도 직렬화된다.
+        Menu target = menuRepository.findByIdForUpdate(menuNo)
                 .orElseThrow(() -> new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
 
         String effectiveMenuName = target.getMenuName();
