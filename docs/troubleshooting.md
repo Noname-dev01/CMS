@@ -642,6 +642,31 @@ mockMvc.perform(get("/notices").with(from("10.10.10.1"))).andExpect(status().isO
 
 **검증**: `PasswordResetControllerTest`에 `@TestPropertySource`를 추가한 뒤 CSRF-레이트리밋 순서 검증 테스트(운영 설정 `capacity=5` 그대로 사용)가 안정적으로 통과함을 확인. 관련 코드: `com.cms.admin.member.controller.PasswordResetControllerTest`.
 
+### 메뉴 일반 수정과 비활성화가 같은 행에서 겹치면 방금 커밋된 비활성화가 되돌아간다 (감사 M-04, 2026-09-27)
+
+#### 오류 메시지
+
+```
+스레드 A: PATCH /admin/api/menus/1 {"menuName": "새 이름"} (useYn 미포함)
+스레드 B: PATCH /admin/api/menus/1 {"useYn": false} (비활성화)
+A 조회 → B 비활성화 커밋(useYn=false) → A가 낡은 useYn=true를 그대로 재반영해 커밋
+→ 최종 useYn=true (B의 비활성화가 유실됨, lost update)
+```
+
+별도 오류·예외 없이 조용히 실패(assertion만 실패) — 독립 검증이 실제 MariaDB 서비스 경합으로 재현해 확정했다.
+
+#### 원인
+
+`MenuService.updateMenu()`가 `useYn=false`(비활성화) 요청일 때만 `menuRepository.findByIdForUpdate()`(`PESSIMISTIC_WRITE`)를 쓰고, 그 외 일반 수정(이름·URL 등, `useYn` 필드를 생략/null로 보낸 요청)은 잠금 없는 `findById()`를 썼다. 같은 서비스의 한 메서드가 분기에 따라 잠금 유무를 달리한 것 — 위 Top5(2026-09-05)의 `AdminMemberService.updateMyInfo` 행 잠금 누락(감사 H-02)과 같은 결함군이 메뉴 도메인에서도 발견된 것이다.
+
+#### 해결 방법
+
+`updateMenu()`의 `deactivationRequested` 조건부 조회 분기를 제거하고, 어떤 수정이든 최초 조회부터 `findByIdForUpdate()`를 쓰도록 통일했다(`deactivateMenu()`와 동일한 잠금). null 필드는 잠금 획득 후 읽은 최신 값을 그대로 유지한다.
+
+**범위 밖으로 남은 잔여 위험(Out of Scope, 계획 리뷰에서 확인)**: Thymeleaf 화면(`templates/admin/menu/manage.html`의 `buildPayload()`)은 어떤 필드를 편집했는지와 무관하게 매 PATCH 요청에 `useYn: menuUseYnInput.checked`(화면에 로드된 시점의 체크박스 상태)를 항상 포함한다. 따라서 "A가 메뉴를 화면에 로드(활성 상태) → B가 비활성화 커밋 → A가 이름만 편집해 저장"하는 실제 UI 순서에서는, A의 요청에 여전히 명시적 `useYn=true`가 실려 있어 이번 수정 이후에도 서버가 이를 "의도된 재활성화"로 처리해 비활성화가 되돌아갈 수 있다. 이는 고전적인 stale-form 전체 재전송 문제이며, 서버는 "명시적으로 보낸 true"와 "우연히 오래된 화면 값인 true"를 구분할 방법이 없어 행 잠금만으로는 해결할 수 없다(무시 처리하면 정상 재활성화 계약이 깨진다). 근본 해결(변경 필드만 전송하는 UI 개편, 또는 optimistic lock 버전 컬럼 도입)은 별도 후속 과제다.
+
+**검증**: `MenuServiceTest`(잠금 stub 전환, `useYn` 생략 시에도 `findByIdForUpdate` 호출 확인) + `MenuConcurrencyIntegrationTest`에 실 MariaDB 기반 시나리오 2건 추가 — (1) 락 실증: `findByIdForUpdate`로 잠근 행에 대한 동시 `deactivateMenu()`가 `innodb_lock_wait_timeout` 단축 세션에서 락 대기 타임아웃으로 실패함을 확인, (2) lost update 방지: barrier로 동시 제출한 일반 수정과 비활성화가 실행 순서와 무관하게 항상 "비활성화 유지 + 새 이름 반영"으로 귀결됨을 확인(수정 전 코드로 되돌려 재실행하면 실제로 `useYn=true`로 되돌아가 실패함을 별도로 확인). `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 743개 전체 통과(신규 2개 순증). Playwright로 실 기동 앱에서 일반 수정(이름만)·비활성화·재활성화 골든 패스와 활성 하위 메뉴가 있는 부모 비활성화 시 409 회귀를 확인. 관련 코드: `MenuService.updateMenu()`. 상세 설계 결정·계획 리뷰 기록은 `adversarial-review/remediation-plan.md` "PR 4" 섹션 참조.
+
 ---
 
 # 정리
