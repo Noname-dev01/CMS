@@ -21,6 +21,13 @@ spring:
           auth: true
           starttls:
             enable: true
+          # SMTP 무응답 시 발송 스레드가 무한정 점유되는 것을 막는 socket 단계 timeout이다
+          # (감사 M-02, remediation-plan.md PR 5). DNS 조회·큐 대기·전체 작업 deadline은
+          # 이 세 값으로 제한되지 않는다 — PR 5 "잔여 위험 및 범위 한정" 절 참조.
+          # 10/30/30초는 관측 기반 최종값이 아닌 시작점이며 staging 검증 후 조정한다.
+          connectiontimeout: ${MAIL_SMTP_CONNECTION_TIMEOUT_MS:10000}
+          timeout: ${MAIL_SMTP_READ_TIMEOUT_MS:30000}
+          writetimeout: ${MAIL_SMTP_WRITE_TIMEOUT_MS:30000}
 
 app:
   # 공통(application.yml)의 기본값(localhost/상대경로)을 compose 없이 prod 프로파일을

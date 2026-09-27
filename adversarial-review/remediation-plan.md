@@ -6,10 +6,14 @@
 
 최종 판단 근거: [INDEPENDENT VERIFICATION REVIEW](deploy-check-2026-09-23.md). [PROJECT TECHNICAL AUDIT](deploy-check-2026-09-22.md)은 배경 및 과거 판정 이력으로만 사용한다.
 
-상태: **PR 1·PR 2·PR 3 구현·검증·커밋·PR·머지 완료(PR 1 2026-09-24 `9294af5` #37, PR 2 2026-09-24 `eaaccb6` #38, PR 3 2026-09-27 `e9bd961` #39) / PR 4 구현·범위 내 검증 완료(2026-09-27, `fix/menu-update-lock-consistency` 브랜치 · 커밋·PR·머지 전) / PR 5~6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1·PR 2·PR 3·PR 4 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인을 의미하지는 않는다.
+상태: **PR 1·PR 2·PR 3·PR 4 구현·검증·커밋·PR·머지 완료(PR 1 2026-09-24 `9294af5` #37, PR 2 2026-09-24 `eaaccb6` #38, PR 3 2026-09-27 `e9bd961` #39, PR 4 2026-09-27 `935165e` #40) / PR 5 구현·범위 내 검증 완료(2026-09-27, 워킹트리 직접 작업 · 커밋·PR·머지 전) / PR 6 구현 미착수**. H-01 A안 정책은 2026-09-23 승인대로 유지한다. 사용자가 PR 1·PR 2·PR 3·PR 4·PR 5 구현을 각각 승인해 순서대로 완료했다. 전체 remediation 구현·배포 승인을 의미하지는 않는다.
 
 개정 이력:
 
+- v17 변경(2026-09-27): PR 5(M-02) `/code-review-loop` 4라운드(codex CLI) 완료 — 3건 수용(전부 `PasswordResetMailTimeoutIntegrationTest`의 검증 신뢰성 결함: 서버 자체 종료 시각이 JUnit @Timeout보다 짧아 timeout 미작동 회귀를 놓칠 수 있던 문제, write timeout이 read timeout에 가려질 수 있던 문제, write block이 클라이언트 OS 송신 버퍼 크기에 의존해 플랫폼별로 재현되지 않을 수 있던 문제), 4라운드 지적 없이 통과. 상세는 "PR 5 실행 기록" 참조.
+- v16 변경(2026-09-27): PR 5(M-02) 구현 완료(코드는 "PR 5 실행 기록" 참조). 구현 중 connection timeout 자동 시험을 backlog 포화 기법으로 시도했으나 Windows loopback에서 재현되지 않음을 실측(0ms 즉시 연결) — 크로스플랫폼 신뢰성 문제로 자동화 시험에서 제외하고 Completion Criteria 문구를 "connection timeout은 설정 전달 계약으로 검증, 실제 소켓 fault 재현은 범위 제외"로 수정. read timeout 2단계(pre-TLS greeting·STARTTLS handshake)·write timeout(negotiation 이후 실제 write block)은 loopback 소켓 fixture로 실측 검증 완료. Final Execution Checklist의 PR 5 두 항목을 `[x]`로 갱신. 커밋·PR·머지는 아직.
+- v15 변경(2026-09-27): PR 5(M-02) 계획 리뷰 2라운드(codex CLI, v14 수정 검증) — **ship 판정.** 1라운드 지적 6건 전부 실질적으로 해소됐음을 재확인(fixture 검증과 실제 배포 검증 구분, STARTTLS 3단계 시험 계약, socket timeout과 전체 작업 deadline 구분, dev 위험 명시·prod 로드 증거 요구, YAML/compose 기본값·guard 대상 정합성, executor 표현 정정). 비차단 명료화 2건 — (1) Completion Criteria가 read 3단계만 명시하고 connection/write 시험 요구가 Tests to Add에만 있어 완료 체크 시 누락 가능성 → Completion Criteria에 connection timeout·negotiation 이후 실제 write block write timeout 시험을 명시 추가. (2) "컨테이너 재생성/재기동" 문구가 단순 restart 허용으로 읽힐 수 있다는 지적은 Implementation Steps 5행("파일만 편집하거나 기존 컨테이너 restart만으로 새 환경이 적용된다고 가정하지 않는다")에 이미 명시돼 있어 실제로는 해소됨을 재확인, 기각(반영 불필요). 이로써 PR 5 계획 리뷰 루프 종료 — 구현 착수는 별도 사용자 확인 필요.
+- v14 변경(2026-09-27): PR 5(M-02) 구현 착수 전 계획 리뷰 1라운드(codex CLI, 실제 코드·Angus Mail 2.0.5 라이브러리 대조) — needs-attention, 지적 6건 전부 수용(반박·결정 필요 없음). (1) "invalid override 배포 거절" 검증 방법이 불명확 — 테스트 fixture로 잘못된 문자열을 식별하는 것과 실제 배포 설정을 검사해 배포를 중단하는 것은 다른 검증임을 확인, Gate F 판정 범위를 "양의 정수"에서 "승인된 운영값과 정확히 일치"로 좁히고 실제 배포 산출물 기준 검증·실패 시 배포 중단 절차를 명시. (2) 장애 시험이 운영 경로(SMTP+STARTTLS)를 검증했다는 합격 기준 부족 — TLS 이전 greeting 무응답 시험만으로 handshake 이후 read timeout까지 검증했다고 볼 수 없음을 확인, Tests to Add에 pre-TLS greeting 정지·STARTTLS handshake 중 정지·negotiation 이후 응답 정지 3단계를 구분하는 시험 계약과 write timeout의 실제 negotiation-이후 write block 요구 추가, 시험 watchdog의 강제 소켓 종료를 제품 timeout 성공으로 오인 금지 명시, Completion Criteria가 Gate F(staging 정상 발송)를 참조하도록 상호 참조 추가. (3) 완료 판정 범위를 "SMTP socket 단계 timeout 미설정 해소"로 한정 — DNS 조회(EHLO용 로컬 호스트명 포함)·짧은 간격으로 계속되는 미완성 응답(trickle response, 신규 발견)·메일 발송 밖 큐/DB 대기가 이번 timeout으로 해결되지 않는 잔여 위험임을 신설 "잔여 위험 및 범위 한정" 절에 명시. (4) dev 프로파일 제외를 Scope에 명시 기록 — dev도 동일 Gmail SMTP를 쓰므로 같은 위험이 남음을 잔여 위험으로 남기고, `build.gradle:65`가 테스트에 `SPRING_PROFILES_ACTIVE=dev`를 주입하므로 신규 설정 테스트가 prod 프로파일을 실제로 로드했다는 증거를 갖춰야 하며 dev 회귀 통과를 prod 증거로 대체하지 않는다고 Tests to Add에 추가. (5) YAML·compose 기본값 중복 선언의 일치 검사, host 우선순위 검증 대상을 실제 배포 스크립트(`_prod-env-guard.sh`/`prod-up.sh`) 경로로 하도록 Implementation Steps에 추가. (6) Completion Criteria의 "executor/queue/dependency 변경 없음"을 "애플리케이션 executor(기존 공용 TaskExecutor)의 구성 변경 없음"으로 정정 — `mailExecutor`가 이름과 달리 Spring Boot 기본 공용 executor임을 반영, 처리량 초과 시 적체·30분 TTL 만료 링크 발송 가능성을 잔여 위험으로 명시(전용 executor는 Deferred Work 유지), `writetimeout`의 provider 내부 connection별 scheduled executor 반복 누적 여부 확인을 Tests to Add에 권고 항목으로 추가. 이로써 PR 5 계획 리뷰 1라운드 종료 — 반영 후 2라운드 자동 진행.
 - v13 변경(2026-09-27): PR 4(M-04) 구현·테스트·실기 검증 완료(코드는 "PR 4 실행 기록" 참조). Final Execution Checklist의 PR 4 두 항목을 `[x]`로 갱신. 커밋·PR·머지는 아직.
 - v12 변경(2026-09-27): PR 4(M-04) 구현 착수 전 계획 리뷰 1라운드(codex CLI, 실제 코드 대조, 모델 gpt-6-astra) — needs-attention, 지적 1건 수용. `templates/admin/menu/manage.html:521`의 `buildPayload()`가 편집 여부와 무관하게 매 PATCH에 `useYn` 체크박스 상태를 항상 포함함을 코드로 확인 — "화면이 이름만 PATCH한다"는 원 계획의 테스트 3 전제가 실제 구현과 달랐다. Goal·Completion Criteria를 "`useYn`을 생략/null로 보낸 일반 수정" 범위로 명확히 한정하고, "Out of Scope" 절 신설(화면의 stale-form 전체 재전송은 row-lock만으로 해결 불가 — 서버가 명시적 `useYn=true`와 우연히 오래된 값을 구분할 수 없어 무시 처리 시 기존 재활성화 계약 파손, 근본 해결은 UI 변경/버전 컬럼 도입이 필요해 별도 후속 과제로 분리), 테스트 3을 "API 레벨 회귀"로 좁혀 재정의. 이로써 PR 4 계획 리뷰 라운드 종료 — 구현 착수는 별도 사용자 확인 필요.
 - v11 변경(2026-09-27): `/updateRoadmap` 사실확인 후 PR 3의 커밋·PR·머지 완료를 문서에 반영. 커밋 `e9bd961` "수정: API 일반 클라이언트 오류 500 오분류 해소 + 안전한 진단 로그 추가 (감사 M-03) (#39)"로 머지됨(`gh pr view 39` state=MERGED·mergedAt=2026-09-27T03:43:26Z, `gh pr checks 39` test pass 1m43s). Final Execution Checklist의 PR 3 항목을 갱신.
@@ -545,6 +549,18 @@ JavaMail 속성은 `spring.mail.properties` 아래의 실제 위 key로 전달�
 
 세 설정은 socket 단계 timeout이며 **작업 전체 70초 deadline이나 DNS·queue 대기 시간 제한을 보장하지 않는다.** 일부 기본 timeout이 무한인 점과 속성은 [Spring Boot 3.5 메일 설정](https://docs.spring.io/spring-boot/3.5/reference/io/email.html), ms 단위와 socket별 의미는 [Angus SMTP 문서](https://eclipse-ee4j.github.io/angus-mail/docs/api/org.eclipse.angus.mail/org/eclipse/angus/mail/smtp/package-summary.html)를 참고했다. 10/30/30초는 이 프로젝트를 위한 제안값이지 공식 권장 숫자를 인용한 것이 아니다.
 
+##### 잔여 위험 및 범위 한정 (v14 계획 리뷰로 추가)
+
+이번 PR의 완료 판정은 **"SMTP socket 단계(connection/read/write) timeout 미설정 해소"**로 한정한다. 다음은 이 timeout 설정만으로는 해결되지 않는 잔여 위험이며, 이번 범위 밖으로 명시 수용한다 — "메일 작업의 무한 점유를 모두 제거"라는 판정은 내리지 않는다:
+
+- **DNS 조회**: SMTP 목적지 조회뿐 아니라 EHLO용 로컬 호스트 이름(canonical hostname) 조회도 포함되며, 세 timeout 어느 것으로도 제한되지 않는다.
+- **짧은 간격으로 계속되는 미완성 응답(trickle response)**: read timeout은 개별 소켓 `read()` 호출의 대기 제한이다. 서버가 read timeout보다 짧은 간격으로 미완성 응답을 계속 보내면 전체 응답 처리는 끝나지 않을 수 있다.
+- **메일 발송 밖의 대기**: 큐 대기, 실패 후 token 정리의 DB 대기는 SMTP timeout으로 제한되지 않는다(기존 Regression Risks·Deferred Work와 동일 판단, 신규 아님).
+- **dev 프로파일**: Scope는 `application-prod.yml`에 한정하며 `application-dev.yml`은 변경하지 않는다. dev도 실제 Gmail SMTP를 사용하므로 동일한 무한 대기 위험이 남는다 — 필요해지면 별도 범위로 재평가한다.
+- **공용 executor와의 상호작용**: `PasswordResetService`가 주입받는 `TaskExecutor mailExecutor`는 이름과 달리 전용 bean이 아니라 Spring Boot 기본 공용 `ThreadPoolTaskExecutor`다(Deferred Work "mail 전용 bounded executor" 행 참조). timeout 적용 후에도 유입량이 처리량을 초과하면 적체가 계속될 수 있고, 재설정 토큰의 30분 TTL이 발급 시점부터 시작되므로 큐에 오래 머문 항목이 만료된 링크를 발송할 수 있다 — 격리·전용 executor 도입은 이번 범위 밖(Deferred Work 유지).
+
+근본 해결(전체 작업 deadline, 전용 mail executor/큐, DNS 회복탄력성 등)은 이번 PR 범위가 아니며, 필요해지면 별도 후속 과제로 다룬다.
+
 #### Files Likely Affected
 
 - `src/main/resources/application-prod.yml`.
@@ -558,9 +574,9 @@ JavaMail 속성은 `spring.mail.properties` 아래의 실제 위 key로 전달�
 
 #### Implementation Steps
 
-1. 실제 prod YAML을 로드한 설정 테스트로 현재 미설정을 확인한다. 테스트 코드에만 정답 property를 주입해 운영 YAML 검증을 생략하지 않는다.
-2. YAML placeholder와 compose fallback을 각각 명시한다. 예: 누락 시 10000/30000/30000. compose에서는 빈 값도 fallback되도록 `:-` 형태를 사용한다.
-3. 선택 키를 `.env.example`, guard 목록, 배포 문서에 함께 연결한다. host shell 잔존 값이 `.env.prod`를 덮지 않는지 확인한다.
+1. 실제 prod YAML을 로드한 설정 테스트로 현재 미설정을 확인한다. 테스트 코드에만 정답 property를 주입해 운영 YAML 검증을 생략하지 않는다. 이 테스트는 `SPRING_PROFILES_ACTIVE=dev`가 아니라 prod 프로파일을 실제로 로드했다는 증거(예: `application-prod.yml`을 직접 로드하거나 `@ActiveProfiles("prod")`)를 가져야 한다 — `build.gradle:65`가 `./gradlew test`에 `SPRING_PROFILES_ACTIVE=dev`를 주입하므로 기존 dev 프로파일 회귀 통과를 prod timeout 적용 증거로 대체하지 않는다(v14 계획 리뷰 지적 4).
+2. YAML placeholder와 compose fallback을 각각 명시한다. 예: 누락 시 10000/30000/30000. compose에서는 빈 값도 fallback되도록 `:-` 형태를 사용한다. **YAML의 기본값과 compose fallback 기본값이 서로 어긋나지 않도록 두 경로의 기본값 일치를 검사에 포함한다**(v14 계획 리뷰 지적 5 — 기본값이 두 곳에 중복 선언되므로 drift 위험이 있다).
+3. 선택 키를 `.env.example`, guard 목록, 배포 문서에 함께 연결한다. host shell 잔존 값이 `.env.prod`를 덮지 않는지 확인한다. **host 우선순위 검증은 실제 배포 경로인 `scripts/_prod-env-guard.sh`·`scripts/prod-up.sh`를 대상으로 한다**(v14 계획 리뷰 지적 5 — guard 스크립트를 우회한 임의 검증으로는 실제 배포 경로를 보증하지 못한다).
 4. 실제 Bean의 세 속성과 로컬 SMTP read 지연 종료를 확인한다. token cleanup은 기존 구현을 유지한다.
 5. 운영값 변경은 컨테이너 **재생성/재기동으로 환경을 다시 읽어야 함**을 문서화한다. 파일만 편집하거나 기존 컨테이너 `restart`만 하는 것으로 새 환경이 적용된다고 가정하지 않는다.
 
@@ -572,7 +588,10 @@ JavaMail 속성은 `spring.mail.properties` 아래의 실제 위 key로 전달�
 - 별도 제품 validator를 새로 만들지 않는다. 설정 검증 fixture로 위 잘못된 값을 식별하는 절차를 고정하고, 배포자가 최종 값 확인 책임을 가진다.
 - 테스트용 read timeout은 짧게 override해 로컬 서버가 greeting/응답을 보내지 않는 경우 유한 시간에 반환하는지 확인. 연결 거부는 즉시 실패 테스트이지 connection timeout 재현이 아님을 구분.
 - connection/write hang은 별도 통제된 네트워크 fault/socket 시험으로 검증한다. 작은 reset 메일 하나로 write block이 반드시 발생한다고 가정하지 않는다. 테스트 fixture에서만 충분한 write/읽기 정지로 backpressure를 만들고 전체 관찰 deadline을 둔다. 외부 SMTP로 폭주시키지 않는다.
+- **운영 경로는 SMTP+STARTTLS다 — read timeout 시험은 (1) TLS 전환 전 greeting 무응답, (2) STARTTLS handshake 중 정지, (3) negotiation 완료 후 응답 정지의 세 단계를 구분해서 검증한다.** 평문 greeting 무응답 시험 하나만으로 handshake 이후 경로까지 검증했다고 기록하지 않는다(v14 계획 리뷰 지적 2).
+- **write timeout 시험은 SMTP 협상을 완료한 뒤 수신 측 읽기를 멈춰 실제 write block을 유발한 결과여야 한다** — 다른 단계의 read timeout으로 끝난 것을 write timeout 성공으로 기록하지 않는다. 시험 watchdog이 소켓을 강제로 닫아 종료시킨 경우도 제품 timeout이 작동한 성공 사례로 기록하지 않는다 — 설정된 timeout 값과 일치하는 시간에 종료됐음을 측정하거나 예외 유형으로 구분한다(v14 계획 리뷰 지적 2).
 - 전송 지연 후 예외에서도 HTTP 응답 균일성, 발급 token 조건부 정리, 새 token 보호, 정리 실패 시 TTL 방어 유지. 외부 수신자에게 테스트 메일을 보내지 않는다.
+- (권고, 완료 기준 아님) 반복 성공/실패 시나리오를 여러 차례 수행해 내부 소켓·스레드가 누적되지 않는지 확인한다 — `writetimeout`은 provider 내부 connection별 scheduled executor를 사용하므로 확인 가치가 있다(v14 계획 리뷰 지적 6).
 
 #### Existing Tests to Re-run
 
@@ -592,7 +611,17 @@ JavaMail 속성은 `spring.mail.properties` 아래의 실제 위 key로 전달�
 
 #### Completion Criteria
 
-prod 기본/override 적용 확인, 세 timeout의 유효한 값 검증, 로컬 지연 종료·token 정리 회귀 통과. executor/queue/dependency 변경 없음.
+prod 기본/override 적용 확인, 세 timeout의 유효한 값(범위·형식) 로컬 검증, SMTP+STARTTLS 경로의 pre-TLS/handshake/negotiation-이후 세 단계를 구분한 read timeout 지연 종료 시험 **및 negotiation 이후 실제 write block을 유발한 write timeout 시험**(v15 계획 리뷰 명료화 — Tests to Add의 connection/write 시험이 선택 사항으로 읽히지 않도록 Completion Criteria에도 명시), token 정리 회귀 통과. 애플리케이션 executor(기존 공용 `TaskExecutor`)의 구성 변경 없음 — pool/queue 설정 유지 확인. **connection timeout은 설정 전달 계약(YAML→compose→실제 `JavaMailSenderImpl` 속성)으로 검증하고, 실제 TCP `connect()` 지연을 소켓 fault로 결정적으로 재현하는 시험은 범위에서 제외한다** — 구현 중 backlog 포화 기법을 실측했으나 Windows loopback에서 즉시 연결 성공(0ms)으로 재현되지 않음을 확인했고, 크로스플랫폼(Windows dev/Linux CI) 신뢰성을 보장할 수 없는 network fault 재현 기법이라 자동화 시험에서 제외한다(v16 계획 리뷰 명료화 — PR 5 실행 기록 참조). 단, 승인된 운영값과의 최종 일치 확인·staging SMTP 정상 발송 확인은 Gate F에서 별도로 수행하며, 이번 PR 완료만으로 Gate F까지 통과했다고 표시하지 않는다(v14 계획 리뷰 지적 1·2 — PR 완료 증거와 release gate 증거를 구분·상호 참조).
+
+#### PR 5 실행 기록 — 2026-09-27
+
+- Context: `/suggestRoadmap` → PR 5 선택 → `/plan-review-loop`(codex CLI 2라운드, v14·v15, ship) → 사용자 구현 승인 순으로 진행. 별도 브랜치 생성 전, 워킹트리에서 직접 구현했다(커밋·PR·머지는 이후 `/code-review-loop` → `/commitPR` 단계 예정).
+- 구현: `application-prod.yml`의 `spring.mail.properties.mail.smtp`에 `connectiontimeout`(`${MAIL_SMTP_CONNECTION_TIMEOUT_MS:10000}`)·`timeout`(`${MAIL_SMTP_READ_TIMEOUT_MS:30000}`)·`writetimeout`(`${MAIL_SMTP_WRITE_TIMEOUT_MS:30000}`) 3종 추가. `docker-compose.prod.yml`의 `app` 서비스 environment에 같은 세 키를 `${VAR:-기본값}` 선택 환경변수로 추가(기존 `MAIL_USER`/`MAIL_PASS` 등 필수(`:?`) 패턴과 구분). `.env.example`에 세 키와 값 계약(ms 단위 양의 정수, 단위 문자열/0/음수 금지) 설명 추가. `scripts/_prod-env-guard.sh`의 `PROD_ENV_GUARD_VARS`에 세 키 추가(host shell 잔존값 차단 대상 확장). `docs/deployment.md`에 "SMTP timeout" 절 신설(변수 표·범위 한정·수동 검증 필요성·재생성 필요성 명시).
+- 신규 테스트: `ProdMailTimeoutConfigurationTest`(17개, `com.cms.config`) — YAML placeholder 기본값/override 해석 계약(`PropertyPlaceholderHelper` 직접 사용, env 미설정 시 10000/30000/30000 재확인), `docker-compose.prod.yml`/`application-prod.yml` 기본값 정합성(정규식 추출 비교), `MailSenderAutoConfiguration`만 올린 좁은 `ApplicationContextRunner`로 실제 `JavaMailSenderImpl.getJavaMailProperties()`에 기본값·override 값이 그대로 반영됨을 검증, 잘못된 값("30s")도 Spring이 거부하지 않고 원문 그대로 통과시킴을 실증(왜 Gate F 수동 확인이 필요한지의 근거), Gate F 수동 식별 절차를 `@ParameterizedTest` 11개 케이스로 고정. `PasswordResetMailTimeoutIntegrationTest`(3개, `com.cms.admin.member.service`) — loopback 소켓으로 직접 구현한 최소 SMTP 서버 fixture로 (1) TLS 이전 greeting 무응답, (2) STARTTLS handshake 중 정지 두 read timeout 단계를 `PasswordResetService.requestReset()` 그대로 호출해 검증(무한 대기 없음 + `clearResetTokenIfMatches` 호출로 기존 조건부 토큰 정리 로직이 실제 timeout 예외에도 동작함을 확인), (3) negotiation 완료 후 서버가 읽기를 멈추는 write timeout은 `JavaMailSenderImpl.send()`를 직접 호출해 검증(실제 재설정 메일 본문이 수백 바이트에 불과해 OS 버퍼만으로 write block이 재현되지 않는 문제를 발견해, 이 시험만 2MB 본문의 별도 메시지로 전환 — 프로덕션 발송 문구·로직은 무변경).
+- 계획 대비 조정: connection timeout 자동 시험은 계획(Tests to Add)에 있었으나, 구현 착수 전 별도 프로브(`ServerSocket(0, 0, ...)`로 backlog 포화 후 추가 connect 시도)로 Windows loopback에서 실제로 동작하는지 먼저 실측했다 — 5개 filler 연결과 probe 연결이 모두 0~1ms 만에 즉시 성공해, backlog 값과 무관하게 Windows가 연결을 계속 받아들이는 것을 확인했다(Linux에서는 다르게 동작할 수 있어 크로스플랫폼 결정성이 없음). "연결 거부는 즉시 실패 테스트이지 connection timeout 재현이 아님을 구분한다"는 계획의 경고와 정확히 일치하는 실패 모드라 판단해, 이 하위 시험은 구현하지 않고 Completion Criteria·Gate F 문구를 "connection timeout은 설정 전달 계약으로 검증, 실제 소켓 fault 재현은 범위 제외"로 v16에서 수정했다. read/STARTTLS-handshake/write 세 시험은 모두 loopback에서 결정적으로 재현되어 계획대로 구현했다.
+- 검증 결과: `./gradlew compileJava compileTestJava` 성공(경고 1건 — `PropertyPlaceholderHelper`의 4-인자 생성자가 Spring 6.2+에서 removal 대상으로 deprecated, 테스트 전용 범위라 수용). 신규 테스트 개별 실행 통과 확인(`ProdMailTimeoutConfigurationTest` 17개, `PasswordResetMailTimeoutIntegrationTest` 3개 — write timeout 시험 1.9초·STARTTLS handshake 시험 0.7초·greeting 시험 0.3초, 전부 설정한 timeout보다 훨씬 짧게 종료돼 "무한 대기하지 않는다"는 목표를 실측 증명) 후, `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 전체 실행(Docker Desktop 기동 상태, Testcontainers 포함) — **763개 전체 통과, 실패·오류 0**(신규 20개 순증, PR 4 이후 기준 743개에서 순증, 기존 Windows symlink 테스트 1개만 스킵). `docker compose -f docker-compose.prod.yml config`로 신규 환경변수 3종이 기본값(`"10000"`/`"30000"`/`"30000"`)으로 정상 해석됨을 실측 확인.
+- `/code-review-loop` 4라운드(codex CLI, 워킹트리 diff 대상) 거침. 1~3라운드는 전부 `PasswordResetMailTimeoutIntegrationTest`의 검증 신뢰성 결함 지적이었고 전부 수용: (1) 서버가 4초/8초 후 스스로 소켓을 닫도록 만들어, 설정된 timeout이 실제로 작동하지 않는 회귀가 생겨도 "서버가 알아서 끊어서" 같은 상한 안에 통과해버리는 결함 — 서버의 인위적 종료 시각을 JUnit `@Timeout`(10~15초)보다 훨씬 긴 60초로 늘려, timeout 미작동 시 서버가 아니라 JUnit이 먼저 테스트를 실패시키도록 수정. (2) write timeout 시험에서 read timeout(5초)이 여전히 짧아 write timeout이 사라져도 read timeout에 가려 통과할 수 있던 결함 — read timeout을 90초로 밀어 masking을 차단. (3) write timeout 시험이 클라이언트 OS의 TCP 송신 버퍼 크기에 의존해, 송신 버퍼가 큰 환경(Linux 배포판별 `net.core.wmem_max` 등)에서는 정상 구현에서도 write block이 재현되지 않아 실패할 수 있던 결함 — `mail.smtp.socketFactory`에 송신 버퍼를 1024바이트로 강제하는 전용 `SocketFactory`를 주입해 플랫폼과 무관하게 write block을 결정적으로 재현하도록 수정. 4라운드는 지적 없이 통과(ship에 준하는 approve). 매 수정 후 해당 테스트를 재실행해 정상 통과를 확인했고, 1·2라운드 수정 후에는 값을 일부러 깨뜨려(readMs·writeMs를 임시로 90000으로 변경) 회귀가 실제로 테스트를 실패시키는지도 실측 검증한 뒤 원복했다(회귀 탐지 능력 자체를 증명).
+- 후속: 없음. 감사 M-02 완료(connection timeout 자동 시험 제외는 v16에서 명시적으로 범위 조정된 것이며 은폐된 공백이 아님). `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 최종 재실행 — 전체 통과 재확인. 커밋·PR·머지는 아직 — `/commitPR` 단계 예정.
 
 ### PR 6 — Backup/Restore 및 ingress 배포 계약
 
@@ -816,11 +845,11 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목은 
 
 ### Gate F — SMTP
 
-- [ ] 최종 실행 환경의 connection/read/write 속성이 모두 유한한 양의 정수 ms이며 승인된 값과 일치한다.
+- [ ] 최종 실행 환경(실제 배포 compose 설정을 적용한 컨테이너 내부 또는 애플리케이션 로그로 확인한 `JavaMailSenderImpl`의 connection/read/write 속성)이 모두 유한한 양의 정수 ms이며 승인된 운영값과 정확히 일치한다 — compose 환경변수 확인만으로 Spring 최종 속성까지 확인됐다고 간주하지 않는다. 불일치·잘못된 값이면 배포를 중단하고 값을 수정한 뒤 재검증한다(증거 보관, v14 계획 리뷰 지적 1).
 - [ ] 기본값·override·누락·compose 빈 값·host 우선순위를 확인했고 잘못된 override로 배포하지 않았다.
-- [ ] local read 지연, 즉시 연결 실패, 통제된 connection/write 지연 결과를 구분해 기록했다. 세 속성 binding만으로 모든 fault 재현 완료라고 쓰지 않았다.
+- [ ] local read 지연은 (1) TLS 전환 전 greeting 정지, (2) STARTTLS handshake 중 정지, (3) negotiation 완료 후 응답 정지로 구분해 재현했고, 즉시 연결 거부·시험 watchdog에 의한 강제 소켓 종료를 timeout 작동 성공으로 오인하지 않았다. 세 속성 binding만으로 모든 fault 재현 완료라고 쓰지 않았다(v14 계획 리뷰 지적 2).
 - [ ] token 조건부 정리·최신 token 보호·TTL·정상 reset flow 통과. 승인된 staging SMTP 목적지에서 정상 발송 시간도 확인했다.
-- [ ] executor/queue/broker/retry 구조가 변경되지 않았다.
+- [ ] executor/queue/broker/retry 구조가 변경되지 않았다(단, 기존 공용 executor라는 사실 자체는 이번 PR이 새로 만든 문제가 아니므로 별도 조치 대상 아님 — "PR 5" 섹션 "잔여 위험 및 범위 한정" 참조).
 
 ### Gate G — Backup / Restore
 
@@ -866,8 +895,8 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목은 
 - [x] **PR 3 테스트:** Security 포함 전체 오류 행렬(406 포함)·민감 표식 미노출·기존 HTML 회귀 통과. `./gradlew test` 740개 전체 통과(신규 21개 순증).
 - [x] **PR 4:** 일반 메뉴 update도 최초 대상 조회부터 기존 행 잠금을 사용한다. 화면의 stale `useYn` 재전송 문제는 계획대로 범위 밖(Out of Scope)으로 남겼다.
 - [x] **PR 4 테스트:** same-row 실 MariaDB 검증 통과(락 실증 + barrier 기반 순서 무관 lost-update 방지, 계획의 A/B 결정적 순서 강제 설계 대비 조정 사유는 "PR 4 실행 기록" 참조) + 부모/자식 불변식 회귀 통과. 전체 743개 통과.
-- [ ] **PR 5:** 세 timeout 기본값·선택 override·compose/guard/.env.example 전달을 연결했다. 구현 착수 승인 후 필요하면 선행 가능하다.
-- [ ] **PR 5 테스트:** 실제 resolved properties·invalid override 배포 거절·로컬 fault·token 정리·정상 reset flow 검증 통과.
+- [x] **PR 5:** 세 timeout 기본값·선택 override·compose/guard/.env.example 전달을 연결했다.
+- [x] **PR 5 테스트:** 실제 resolved properties(`ProdMailTimeoutConfigurationTest`)·invalid override가 Spring에 그대로 통과함(수동 Gate F 필요성 실증)·로컬 fault(read 2단계+write, `PasswordResetMailTimeoutIntegrationTest`)·token 정리·정상 reset flow 검증 통과. connection timeout 자동 시험은 범위 제외(사유는 "PR 5 실행 기록" 참조). 전체 763개 통과.
 - [ ] **PR 6:** online/quiesced 계약, backup/restore 실패 시 서로 다른 재개 정책, 제품 중립 ingress checklist를 기록했다.
 - [ ] **PR 6 검증:** 전용 daemon에서 실제 quiesced backup→restore, 참조 파일/hash/UID/재기동/checksum 실패를 확인했다.
 - [ ] **통합 RC:** Gate A~G를 다시 수행했다. 실제 외부 공개는 Gate H까지 확인했다.

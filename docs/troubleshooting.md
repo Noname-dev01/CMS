@@ -262,6 +262,22 @@ cleanup() {
 
 **검증 방법**: `cleanup() { [ "$lock_acquired" = "1" ] && { echo ok; }; }; trap cleanup EXIT; echo done` 형태의 최소 재현으로 `echo $?`가 1이 되는지 직접 확인 후 고친다. EXIT 트랩이 있는 스크립트는 트랩 함수의 **모든 실행 경로**가 명시적으로 성공(`return 0` 또는 마지막 명령이 항상 성공)으로 끝나는지 반드시 점검한다.
 
+### Windows에서 TCP backlog를 포화시켜도 후속 connect()가 즉시 성공한다 — connection timeout을 결정적으로 재현하지 못함 (감사 M-02, 2026-09-27)
+
+#### 오류 메시지
+
+없음(예외 아님) — SMTP connection timeout(`mail.smtp.connectiontimeout`)을 소켓 fault로 자동 검증하려던 테스트 설계가 예상과 다르게 동작한 사례.
+
+#### 원인
+
+`ServerSocket(port, backlog=0, ...)`을 만들고 `accept()`를 전혀 호출하지 않은 채 여러 클라이언트를 연속으로 `connect()`시켜 accept 큐를 포화시키면, 이후의 `connect()` 시도가 TCP handshake 단계에서 블로킹되다 `connectiontimeout`으로 종료될 것이라 예상했다(Linux 기반 네트워크 fault 테스트 기법으로 흔히 인용됨). 실제로 Windows(loopback, JDK 17)에서 최소 재현 코드로 실측한 결과 `backlog=0`이어도 필러 연결 5개 + 추가 probe 연결까지 전부 0~1ms 만에 즉시 성공했다 — Windows의 TCP/IP 스택이 `backlog` 힌트를 사실상 무시하거나 더 큰 기본 큐로 대체하는 것으로 보인다(커널 구현이 OS별로 다름). `connect()`가 즉시 성공해버리므로 connection timeout이 전혀 트리거되지 않는다.
+
+#### 해결 방법
+
+이 기법은 OS 커널의 TCP accept 큐 구현에 의존하는 network fault 재현이라 크로스플랫폼(Windows dev / Linux CI) 결정성을 보장할 수 없다는 것을 실측으로 확인 후, connection timeout의 자동 시험 자체를 범위에서 제외했다 — 대신 **설정 전달 계약**(YAML `${VAR:default}` → compose `${VAR:-default}` → 실제 `JavaMailSenderImpl.getJavaMailProperties()`에 `mail.smtp.connectiontimeout` 값이 정확히 반영되는지)만 검증하고, 실제 TCP 연결 지연 재현은 Gate F(운영 staging 검증)의 수동 확인으로 남겼다. 자동화하려면 실제 방화벽 드롭·라우팅 블랙홀 등 OS 외부의 네트워크 fault 주입 도구가 필요하며, 이번 범위(PR 5, M-02)를 벗어난다.
+
+**검증**: 최소 재현 코드(`ServerSocket(0, 0, loopback)` + 필러 커넥션 5개 + probe 커넥션, 전부 `System.nanoTime()`으로 경과 시간 측정)를 `java`/`javac` 직접 실행으로 확인 — 전 연결이 0~1ms. 관련 결정 근거는 `adversarial-review/remediation-plan.md` "PR 5 실행 기록" 참조.
+
 ---
 
 ## 빌드 / 의존성
