@@ -3,6 +3,7 @@ package com.cms.admin.log.aspect;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.domain.AdminActionResult;
 import com.cms.admin.log.service.AdminActionLogService;
+import com.cms.common.web.ClientIpResolver;
 import com.cms.config.auth.CustomUserDetails;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,8 @@ import org.aspectj.lang.JoinPoint;
 import org.aspectj.lang.annotation.AfterReturning;
 import org.aspectj.lang.annotation.AfterThrowing;
 import org.aspectj.lang.annotation.Aspect;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -20,8 +23,16 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.reflect.Method;
 
+// @Order(LOWEST_PRECEDENCE - 1): @Transactional 어드바이저(기본값 LOWEST_PRECEDENCE)보다 바깥에
+// 위치시켜, 대상 메서드의 커밋까지 끝난 뒤에만 @AfterReturning/@AfterThrowing이 실행되도록 한다.
+// 순서가 동률이면 어느 쪽이 안쪽인지 Spring 내부 구현(등록 순서 등)에 의존하는 비결정적 상태가 되어,
+// 감사 Aspect가 안쪽에 위치할 경우 원 트랜잭션 커밋 전에 SUCCESS가 먼저 커밋될 수 있다(감사 H-03·M-01).
+// 메서드 보안(@PreFilter=100·@PreAuthorize=200 등 작은 순서값)보다는 안쪽이라 그 관계는 건드리지 않는다.
+// 이 보장은 @AdminActionLogged가 붙은 메서드가 해당 요청의 최상위 트랜잭션 진입점일 때만 유효하다 —
+// 이미 열린 다른 @Transactional 메서드 안에서 참여 호출되면 반환이 물리 커밋과 무관해진다.
 @Aspect
 @Component
+@Order(Ordered.LOWEST_PRECEDENCE - 1)
 @Slf4j
 @RequiredArgsConstructor
 public class AdminActionLogAspect {
@@ -42,7 +53,7 @@ public class AdminActionLogAspect {
                     AdminActionResult.SUCCESS,
                     adminActionLogged.targetType(),
                     extractTargetId(result, adminActionLogged.targetIdExpression()),
-                    getClientIp(),
+                    ClientIpResolver.resolve(getCurrentRequest()),
                     getRequestUri(),
                     getRequestMethod(),
                     null
@@ -66,7 +77,7 @@ public class AdminActionLogAspect {
                     AdminActionResult.FAIL,
                     adminActionLogged.targetType(),
                     null,
-                    getClientIp(),
+                    ClientIpResolver.resolve(getCurrentRequest()),
                     getRequestUri(),
                     getRequestMethod(),
                     truncateErrorMessage(e.getMessage())
@@ -90,26 +101,6 @@ public class AdminActionLogAspect {
             return null;
         }
         return userDetails.getMember().getUserId();
-    }
-
-    private String getClientIp(){
-        HttpServletRequest request = getCurrentRequest();
-        if (request == null) {
-            return null;
-        }
-
-        String xForwardedFor = request.getHeader("X-FORWARDED-FOR");
-        if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-            String[] ips = xForwardedFor.split(",");
-            return ips[ips.length - 1].trim();
-        }
-
-        String xRealIp = request.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isBlank()) {
-            return xRealIp;
-        }
-
-        return request.getRemoteAddr();
     }
 
     private String getRequestUri(){

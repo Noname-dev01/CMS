@@ -685,6 +685,52 @@ A 조회 → B 비활성화 커밋(useYn=false) → A가 낡은 useYn=true를 �
 
 **PR4-T1 보완(2026-09-28)**: `MenuConcurrencyIntegrationTest`는 실제 서비스의 최초 `findByIdForUpdate()` 호출에 테스트 전용 advice를 붙여 A-first/B-first를 각각 고정한다(제품 latch 없음). 두 connection ID에 대한 `INNODB_LOCK_WAITS`와 대기 중인 `SELECT FOR UPDATE`를 관측한 뒤 선행 작업을 해제하고, 후행 조회의 최신 값·두 commit·최종 `useYn=false` 및 이름 변경을 확인한다. 보조 timeout 시험은 `PessimisticLockingFailureException`과 MariaDB 1205를 함께 단언해 deadlock/기타 오류를 성공으로 흡수하지 않는다. 실패 경로도 latch 해제·worker 종료 대기·Future 예외 전파·advice 제거·fixture 삭제를 거친다. 부모/자식 시험은 기존 불변식 검증이며 모든 순서를 강제하는 시험으로 표현하지 않는다. 제품의 stale-form 제외 범위는 그대로다.
 
+### `AdminActionLogAspect`와 `@Transactional` 어드바이저의 순서 미지정으로 감사 SUCCESS가 커밋 전에 먼저 커밋될 수 있었음
+
+#### 오류 메시지
+
+```
+별도 예외 없이 조용히 발생 — 통합 테스트로 실 MariaDB 경합을 재현해서만 드러남
+(@Order 제거 후 재현: "expected: FAIL but was: SUCCESS")
+```
+
+#### 원인
+
+`AdminActionLogAspect`(성공 시 `@AfterReturning`, 실패 시 `@AfterThrowing`)가 `@Aspect` 순서를 지정하지 않아 기본값 `Ordered.LOWEST_PRECEDENCE`를 가졌고, `@Transactional`의 프록시 어드바이저(`BeanFactoryTransactionAttributeSourceAdvisor`)도 기본값이 동일한 `Ordered.LOWEST_PRECEDENCE`였다 — 두 어드바이저가 동률이면 어느 쪽이 상대를 감싸는지가 Spring 내부 구현(등록 순서 등)에 의존하는 비결정적 상태가 된다. 감사 Aspect가 트랜잭션 어드바이저보다 안쪽에 위치하면, 대상 메서드가 정상 반환되는 즉시(원 트랜잭션이 아직 커밋되지 않은 시점에) `@AfterReturning`이 실행돼 `AdminActionLogService.log()`(REQUIRES_NEW)가 SUCCESS를 별도 트랜잭션으로 먼저 커밋해버린다. 이후 원 트랜잭션이 커밋 단계에서 실패해도 이미 커밋된 SUCCESS 로그는 되돌릴 수 없다(외부 기술 감사 H-03·M-01).
+
+#### 해결 방법
+
+`AdminActionLogAspect` 클래스에 `@Order(Ordered.LOWEST_PRECEDENCE - 1)`을 명시해 `@Transactional` 어드바이저보다 확실히 바깥(먼저 진입, 나중에 반환)에 위치시켰다. 이 순서에서는 대상 메서드의 반환값이 아니라 커밋까지 포함한 전체 프록시 체인의 결과가 `@AfterReturning`/`@AfterThrowing`의 관측 대상이 되므로, 커밋 실패가 `TransactionInterceptor`의 예외로 전파되어 자동으로 `@AfterThrowing`(FAIL 기록)으로 전환된다.
+
+**보장 범위(중요)**: 이 순서 고정은 `@AdminActionLogged`가 붙은 메서드가 해당 요청의 **최상위 트랜잭션 진입점**일 때만 유효하다 — 이미 열려 있는 다른 `@Transactional` 메서드 안에서 참여 호출(`REQUIRED`)되면, 그 메서드의 반환은 물리 커밋과 무관해져 이 보장이 깨질 수 있다(업무 행은 롤백되지만 SUCCESS 감사 행은 남는 알려진 한계). 오늘 기준 감사 대상 4개 서비스(`AdminMemberService`·`MenuService`·`NoticeService`·`NoticeAttachmentService`)의 11개 메서드 전부가 Controller에서 직접 호출되는 최상위 진입점임을 확인했다 — 향후 이 전제가 깨지면 재검토가 필요하다.
+
+**검증(2026-09-28)**: `AdminActionLogCommitOrderIntegrationTest`(Testcontainers 실 MariaDB)가 `TransactionSynchronizationManager.registerSynchronization`의 `beforeCommit()`에서 예외를 던져 "커밋 직전 실패"를 주입 — 정상 커밋 시 SUCCESS 1건, 커밋 직전 실패 시 FAIL 1건(SUCCESS 0건)·업무 행 롤백을 확인했다. `@Order`를 일시적으로 제거해 재실행하면 실제로 `expected: FAIL but was: SUCCESS`로 실패함을 관측해 회귀를 재현한 뒤 복원했다. 참여 트랜잭션 시나리오(외부 `TransactionTemplate` 안에서 호출 후 외부 트랜잭션 실패)는 별도 "알려진 한계 재현 테스트"로 "업무 행 롤백 + SUCCESS 감사 행 잔존"을 고정 기록만 한다(해결 아님). 상세 설계·리뷰 이력은 `adversarial-review/plan/PLAN-audit-log-integrity.md` 참조.
+
+### 감사 로그·방문 로그·로그인 실패 카운트·비밀번호 재설정 4곳이 각자 `X-Forwarded-For`/`X-Real-IP` 헤더를 신뢰해 IP 위조·파싱 예외에 노출돼 있었음
+
+#### 오류 메시지
+
+```
+admin_action_log·visit_log의 requestIp가 클라이언트가 보낸 헤더 값 그대로 저장됨(위조 가능)
+X-FORWARDED-FOR: , 헤더를 보내면 ArrayIndexOutOfBoundsException 발생:
+  - LockingAuthenticationFailureHandler: 예외가 try-catch에 잡혀 로그인 실패 카운트 기록 자체가 건너뛰어짐
+    (5회 연속 실패 시 자동 잠금 방어를 매 요청마다 무력화 가능)
+  - PasswordResetController: try-catch 없이 예외가 그대로 전파돼 500 반환
+    ("이메일 존재 여부와 무관하게 항상 200"이라는 계정 열거 방지 계약 위반)
+```
+
+#### 원인
+
+`AdminActionLogAspect.getClientIp()`·`VisitLoggingAuthenticationSuccessHandler.extractClientIp()`·`LockingAuthenticationFailureHandler.extractClientIp()`·`PasswordResetController.extractClientIp()` 4곳이 완전히 동일한 로직(`X-FORWARDED-FOR` 마지막 홉 → `X-Real-IP` → `RemoteAddr` 순으로 신뢰)을 각자 복제하고 있었다. 이 프로젝트에는 실제 리버스 프록시가 없어(Gate H NOT RUN) 이 헤더들은 클라이언트가 임의로 조작할 수 있다(외부 기술 감사 H-03). 최초 조사에서는 2곳(`AdminActionLogAspect`·`VisitLoggingAuthenticationSuccessHandler`)만 확인됐으나, 계획 적대적 리뷰에서 `LockingAuthenticationFailureHandler`가 **같은 `admin_action_log` 테이블**에 `ACCOUNT_AUTO_LOCK` 항목으로 IP를 기록한다는 사실과, `PasswordResetController`도 동일 로직을 복제하고 있다는 사실이 추가로 드러났다.
+
+또한 `",".split(",")`가 빈 배열을 반환해 `ips[ips.length - 1]`이 예외를 던지는 파싱 버그가 두 곳(`LockingAuthenticationFailureHandler`·`PasswordResetController`)에서 각각 실질적 보안·가용성 결함으로 이어졌다.
+
+#### 해결 방법
+
+`com.cms.common.web.ClientIpResolver`(정적 유틸, `EmailNormalizer`와 동일한 프로젝트 관례)를 신설해 4곳 모두 `request.getRemoteAddr()`만 신뢰하도록 통일했다(레이트리밋(`com.cms.config.ratelimit`)과 동일 정책) — 헤더는 전혀 읽지 않으므로 위조·파싱 예외 가능성 자체가 사라진다. 45자(컬럼 길이) 초과 시 절단하는 방어도 이 유틸 한 곳에만 구현해 4곳에 자동 적용한다. `resolve(null)`·`getRemoteAddr()`가 `null`인 경우도 예외 없이 `null`을 반환하도록 계약을 명시해, 비HTTP 호출 등 요청 컨텍스트가 없는 기존 시나리오(감사 저장 자체는 계속됨)를 회귀시키지 않는다.
+
+**검증**: `ClientIpResolverTest`(단위)로 헤더 무시·null 계약·길이 절단을 확인. `LockingAuthenticationFailureHandlerTest`·`PasswordResetControllerTest`·`VisitLoggingAuthenticationSuccessHandlerTest`에 조작된 `X-Forwarded-For: ,` 헤더로도 각각 로그인 실패 카운트가 정상 기록되고(회귀 확인) 200이 정상 반환됨을 확인하는 회귀 테스트 추가. 실제 리버스 프록시가 도입되면 이 4곳(과 별개로 이미 `getRemoteAddr()`를 직접 쓰는 레이트리밋)의 IP 해석 전체를 함께 재검토해야 한다. 상세 설계·리뷰 이력은 `adversarial-review/plan/PLAN-audit-log-integrity.md` 참조.
+
 ---
 
 # 정리

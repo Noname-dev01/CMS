@@ -1,5 +1,6 @@
 package com.cms.config.auth;
 
+import com.cms.common.web.ClientIpResolver;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -26,8 +27,6 @@ import java.io.IOException;
 @Component
 public class LockingAuthenticationFailureHandler extends SimpleUrlAuthenticationFailureHandler {
 
-    /** admin_action_log.request_ip 컬럼 길이 */
-    private static final int MAX_IP_LENGTH = 45;
     /** admin_action_log.request_uri 컬럼 길이 */
     private static final int MAX_URI_LENGTH = 255;
 
@@ -55,31 +54,12 @@ public class LockingAuthenticationFailureHandler extends SimpleUrlAuthentication
 
     private void tryRecordFailure(HttpServletRequest request, String username) {
         try {
-            String ip = truncate(extractClientIp(request), MAX_IP_LENGTH);
+            String ip = ClientIpResolver.resolve(request);
             String uri = truncate(request.getRequestURI(), MAX_URI_LENGTH);
             loginFailureService.recordFailure(username, ip, uri);
         } catch (Exception e) {
             log.error("로그인 실패 카운트 기록 실패 (username={})", username, e);
         }
-    }
-
-    /**
-     * IP를 추출한다. X-FORWARDED-FOR(마지막 홉) → X-Real-IP → RemoteAddr 순.
-     * VisitLoggingAuthenticationSuccessHandler.extractClientIp()와 동일 로직(private라 직접 재사용 불가).
-     */
-    private String extractClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-FORWARDED-FOR");
-        if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-            String[] ips = xForwardedFor.split(",");
-            return ips[ips.length - 1].trim();
-        }
-
-        String xRealIp = request.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isBlank()) {
-            return xRealIp;
-        }
-
-        return request.getRemoteAddr();
     }
 
     /**

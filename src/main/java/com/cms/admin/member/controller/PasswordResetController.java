@@ -3,6 +3,7 @@ package com.cms.admin.member.controller;
 import com.cms.admin.member.dto.request.PasswordResetConfirmRequest;
 import com.cms.admin.member.dto.request.PasswordResetRequestRequest;
 import com.cms.admin.member.service.PasswordResetService;
+import com.cms.common.web.ClientIpResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -36,7 +37,7 @@ public class PasswordResetController {
     @PostMapping("password-reset-requests")
     public ResponseEntity<Void> requestReset(@Valid @RequestBody PasswordResetRequestRequest request,
                                              HttpServletRequest servletRequest) {
-        passwordResetService.requestReset(request.getEmail(), extractClientIp(servletRequest));
+        passwordResetService.requestReset(request.getEmail(), ClientIpResolver.resolve(servletRequest));
         return ResponseEntity.ok().build();
     }
 
@@ -50,25 +51,5 @@ public class PasswordResetController {
         passwordResetService.resetPassword(
                 request.getToken(), request.getNewPassword(), request.getConfirmPassword());
         return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * IP를 추출한다. X-FORWARDED-FOR(마지막 홉) → X-Real-IP → RemoteAddr 순으로 시도한다.
-     * AdminActionLogAspect.getClientIp()와 동일 로직(기존 두 곳 모두 private이라 직접 재사용 불가).
-     * 공개 엔드포인트에서 이 헤더들은 위조 가능하므로 참고 로그 전용이다.
-     */
-    private String extractClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-FORWARDED-FOR");
-        if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-            String[] ips = xForwardedFor.split(",");
-            return ips[ips.length - 1].trim();
-        }
-
-        String xRealIp = request.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isBlank()) {
-            return xRealIp;
-        }
-
-        return request.getRemoteAddr();
     }
 }

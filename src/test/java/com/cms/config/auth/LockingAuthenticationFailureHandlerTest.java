@@ -51,15 +51,39 @@ class LockingAuthenticationFailureHandlerTest {
     }
 
     @Test
-    @DisplayName("조작된 45자 초과 IP는 45자로 절단되어 전달된다")
-    void badCredentials_longIp_truncatedTo45() throws Exception {
+    @DisplayName("45자 초과 RemoteAddr은 45자로 절단되어 전달된다")
+    void badCredentials_longRemoteAddr_truncatedTo45() throws Exception {
         MockHttpServletRequest req = loginRequest("admin01");
-        req.addHeader("X-FORWARDED-FOR", "a".repeat(60));
+        req.setRemoteAddr("a".repeat(60));
         MockHttpServletResponse res = new MockHttpServletResponse();
 
         handler.onAuthenticationFailure(req, res, new BadCredentialsException("자격 증명 실패"));
 
         verify(loginFailureService).recordFailure(eq("admin01"), eq("a".repeat(45)), anyString());
+    }
+
+    @Test
+    @DisplayName("X-Forwarded-For 헤더는 무시하고 RemoteAddr만 신뢰한다(IP 위조 차단, 감사 H-03)")
+    void badCredentials_ignoresForwardedForHeader() throws Exception {
+        MockHttpServletRequest req = loginRequest("admin01");
+        req.addHeader("X-FORWARDED-FOR", "9.9.9.9");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        handler.onAuthenticationFailure(req, res, new BadCredentialsException("자격 증명 실패"));
+
+        verify(loginFailureService).recordFailure("admin01", "127.0.0.1", "/admin/login");
+    }
+
+    @Test
+    @DisplayName("조작된 X-Forwarded-For: , 헤더가 있어도 실패 카운트 기록을 건너뛰지 않는다(회귀 — 이전에는 예외로 카운트가 누락됐다)")
+    void badCredentials_malformedForwardedForHeader_stillRecordsFailure() throws Exception {
+        MockHttpServletRequest req = loginRequest("admin01");
+        req.addHeader("X-FORWARDED-FOR", ",");
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        handler.onAuthenticationFailure(req, res, new BadCredentialsException("자격 증명 실패"));
+
+        verify(loginFailureService).recordFailure("admin01", "127.0.0.1", "/admin/login");
     }
 
     @Test

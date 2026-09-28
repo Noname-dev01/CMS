@@ -172,8 +172,8 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     // ==================== IP 추출 검증 ====================
 
     @Test
-    @DisplayName("X-FORWARDED-FOR 다중 홉 입력 시 마지막 홉 IP를 저장한다")
-    void onAuthSuccess_multipleXFF_usesLastHop() throws Exception {
+    @DisplayName("X-FORWARDED-FOR 헤더는 무시하고 RemoteAddr만 신뢰한다(IP 위조 차단, 감사 H-03)")
+    void onAuthSuccess_ignoresForwardedForHeader() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         MockHttpServletRequest req = new MockHttpServletRequest();
         req.addHeader("X-FORWARDED-FOR", "1.2.3.4, 5.6.7.8, 9.10.11.12");
@@ -185,12 +185,12 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
 
         handler.onAuthenticationSuccess(req, res, auth);
 
-        assertThat(captor.getValue().getRequestIp()).isEqualTo("9.10.11.12");
+        assertThat(captor.getValue().getRequestIp()).isEqualTo("127.0.0.1");
     }
 
     @Test
-    @DisplayName("X-FORWARDED-FOR 없고 X-Real-IP 있을 때 X-Real-IP를 사용한다")
-    void onAuthSuccess_xRealIp_usedWhenXffAbsent() throws Exception {
+    @DisplayName("X-Real-IP 헤더도 무시하고 RemoteAddr만 신뢰한다")
+    void onAuthSuccess_ignoresXRealIpHeader() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         MockHttpServletRequest req = new MockHttpServletRequest();
         req.addHeader("X-Real-IP", "192.168.0.1");
@@ -202,17 +202,15 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
 
         handler.onAuthenticationSuccess(req, res, auth);
 
-        assertThat(captor.getValue().getRequestIp()).isEqualTo("192.168.0.1");
+        assertThat(captor.getValue().getRequestIp()).isEqualTo("127.0.0.1");
     }
 
     @Test
-    @DisplayName("IP가 45자를 초과하면 45자로 절단되어 저장된다")
-    void onAuthSuccess_longIp_truncatedTo45() throws Exception {
+    @DisplayName("RemoteAddr이 45자를 초과하면 45자로 절단되어 저장된다")
+    void onAuthSuccess_longRemoteAddr_truncatedTo45() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         MockHttpServletRequest req = new MockHttpServletRequest();
-        // 50자짜리 조작된 IP
-        req.addHeader("X-FORWARDED-FOR", "aaaaaaaaaa.aaaaaaaaaa.aaaaaaaaaa.aaaaaaaaaa.aaaa");
-        req.setRemoteAddr("127.0.0.1");
+        req.setRemoteAddr("a".repeat(60));
         MockHttpServletResponse res = new MockHttpServletResponse();
 
         ArgumentCaptor<VisitLog> captor = ArgumentCaptor.forClass(VisitLog.class);
