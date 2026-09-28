@@ -123,31 +123,88 @@ DB 덤프를 먼저 뜨고 파일 볼륨을 나중에 압축하므로 **시점 �
 | `BACKUP_DIR` | `./backups`(기본값) | `./backups-quiesced` |
 | 시점 정합성 | 약한 보장(위 orphan/누락 가능) | DB/파일 동일 시점 보장 |
 | 실행 방식 | cron 등 무인 자동 실행 가능 | **운영자가 매일 수동 실행**(자동화 없음 — 이번 범위 밖) |
-| 실패 시 | 다음 실행에서 재시도, 기존 유효 백업 유지 | 그 시점 실행을 실패로 기록, 앱을 정지 상태로 유지한 채 운영자가 원인 조사 후 재개(`docker start` 실패·health 미회복 포함) |
+| 실패 시 | 다음 실행에서 재시도, 기존 유효 백업 유지 | backup 실패를 기록하고 원래 실행 중이던 앱만 재개·health 확인. 원래 정지 상태는 보존. 재개 실패는 별도로 기록하고 정지 확인 후 수동 조치(아래 절차) |
 | 정규 복구 수단으로 사용 | **아님** — 참고용일 뿐 | **예** — 실제 복구는 이 백업을 기준으로 판단 |
 
-```bash
-# 정규(quiesced) 백업 — 운영자가 매일 수동 실행
-docker stop cms-app-prod
-BACKUP_DIR=./backups-quiesced make prod-backup
-docker start cms-app-prod
+**실행 전:** 운영자가 daemon/컨테이너·볼륨·출력 경로를 확인하고, 다른 backup/restore·배포·외부 writer가 없는 유지보수 구간을 확보한다. 앱 정지 후에도 다른 writer가 쓰면 정합성을 보장하지 않는다. 아래 블록은 **backup 전용**이며 restore와 함께 실행하지 않는다. 저장소 루트의 Bash에서 블록 전체를 실행하고 출력·종료 코드를 운영 기록에 남긴다. 새 운영 스크립트나 무인 자동화가 아니다.
 
-# docker start 직후 단발성 확인은 앱이 기동 중이어도 실패할 수 있다(Spring Boot 기동에
-# 수 초 소요 — recovery-drill.md 실기 검증에서 첫 확인 실패 후 재폴링에서 성공 확인).
-# prod-up.sh와 동일하게 최대 60초 폴링한 뒤 최종 실패를 판단한다.
-deadline=$((SECONDS + 60))
-while true; do
-  if curl -f -s --connect-timeout 2 --max-time 4 http://127.0.0.1:8080/actuator/health >/dev/null; then
-    echo "OK"; break
+<!-- quiesced-backup-runbook:start -->
+```bash
+(
+  # 호출 셸의 errexit 때문에 backup 실패 직후 재개 절차가 생략되지 않게 한다.
+  # 각 실패는 아래에서 명시적으로 분기하며 호출 셸의 옵션/변수는 바꾸지 않는다.
+  set +e
+  backup_result=NOT_RUN
+  backup_rc=NA
+  app_recovery=NOT_ATTEMPTED
+  trap 'rc=$?; printf "BACKUP=%s BACKUP_EXIT_CODE=%s APP_RECOVERY=%s\n" "$backup_result" "$backup_rc" "$app_recovery"; exit "$rc"' EXIT
+  trap 'app_recovery=INTERRUPTED_MANUAL_CHECK_REQUIRED; exit 130' INT TERM
+
+  app_was_running=$(docker inspect --format '{{.State.Running}}' cms-app-prod) || exit 1
+  case "$app_was_running" in true|false) ;; *) echo "앱 상태를 확인할 수 없습니다" >&2; exit 1 ;; esac
+  echo "ORIGINAL_APP_RUNNING=$app_was_running"
+
+  if [ "$app_was_running" = true ]; then
+    if ! docker stop cms-app-prod >/dev/null; then
+      app_recovery=STOP_FAILED_MANUAL_CHECK_REQUIRED
+      exit 1 # 정지 결과 불명: 백업 금지, 운영자가 실제 상태를 확인한다.
+    fi
   fi
-  if (( SECONDS >= deadline )); then
-    # 60초 내 회복하지 못하면 앱을 정지 상태로 유지하고 원인을 조사한다.
-    # 재개 전에는 앱을 임의로 재기동하지 않는다.
-    echo "FAILED — 앱을 정지 상태로 유지하고 원인을 조사한다"; docker stop cms-app-prod; break
+  stopped_state=$(docker inspect --format '{{.State.Running}}' cms-app-prod)
+  if [ "$?" -ne 0 ] || [ "$stopped_state" != false ]; then
+    app_recovery=STOP_UNCONFIRMED_MANUAL_CHECK_REQUIRED
+    exit 1 # 정지가 확인된 경우만 quiesced backup으로 인정한다.
   fi
-  sleep 3
-done
+
+  if BACKUP_DIR=./backups-quiesced make prod-backup; then
+    backup_rc=0
+    backup_result=SUCCESS
+  else
+    backup_rc=$?
+    backup_result=FAILED
+  fi
+
+  if [ "$app_was_running" = false ]; then
+    app_recovery=NOT_REQUIRED_ORIGINALLY_STOPPED
+    exit "$backup_rc" # 성공/실패와 무관하게 원래 정지 상태를 보존한다.
+  fi
+
+  # backup은 복원이 아니다. backup 실패여도 원래 실행 중이던 앱의 재개는 시도한다.
+  # start/health 실패 시 정지 여부까지 확인하고, 확인 불가는 수동 조치 대상으로 남긴다.
+  stop_after_recovery_failure() {
+    if docker stop cms-app-prod >/dev/null &&
+       stopped_state=$(docker inspect --format '{{.State.Running}}' cms-app-prod) &&
+       [ "$stopped_state" = false ]; then
+      app_recovery=FAILED_STOP_CONFIRMED
+    else
+      app_recovery=FAILED_STOP_UNCONFIRMED_MANUAL_CHECK_REQUIRED
+    fi
+  }
+  if ! docker start cms-app-prod >/dev/null; then
+    stop_after_recovery_failure
+    exit 1
+  fi
+  deadline=$((SECONDS + 60))
+  while true; do
+    if curl -f -s --connect-timeout 2 --max-time 4 http://127.0.0.1:8080/actuator/health >/dev/null; then
+      app_recovery=SUCCESS
+      exit "$backup_rc" # health 성공이 backup 실패를 지우지 않는다.
+    fi
+    if (( SECONDS >= deadline )); then
+      stop_after_recovery_failure
+      exit 1
+    fi
+    sleep 3
+  done
+)
 ```
+<!-- quiesced-backup-runbook:end -->
+
+**결과 판독:** `BACKUP=SUCCESS`만 새 유효 백업으로 기록한다(스크립트의 checksum 검증 포함). `APP_RECOVERY=SUCCESS`는 앱 재개 성공일 뿐 백업 성공이 아니다. backup 실패 후 재개 성공은 **전체 실패(non-zero)**, backup 성공 후 재개 실패도 **전체 실패**지만 이미 생성한 유효 백업은 보존한다. 원래 정지 상태의 `NOT_REQUIRED_ORIGINALLY_STOPPED`는 정상이다. `MANUAL_CHECK_REQUIRED`나 셸/호스트 중단 시에는 담당자가 실제 앱 상태·진행 중인 작업을 확인하고 원래 실행 상태에 맞춰 재개 여부를 판단한다. 정지가 확인되지 않은 상태를 정지 완료로 보고하지 않는다. 시작 시각·원래 상태·종료 코드·두 결과·산출물 경로·중단 시간을 함께 남긴다.
+
+**restore 실패와 구분:** 파괴적 복원 단계 이후의 실패에는 위 재개 규칙을 적용하지 않는다. 기존 restore trap대로 **앱 정지 유지 → 안전 백업 확인 → 수동 재복구 판단**이며 자동 정상 재기동하지 않는다. 성공한 restore가 원래 상태와 무관하게 재기동하는 기존 계약도 backup의 상태 보존 정책과 다르다.
+
+런북 자체의 실패 분기는 `bash scripts/tests/quiesced-runbook-test.sh`로 확인한다. 이 시험은 위 코드 블록을 직접 읽고 Docker/backup/health를 대체하므로 실제 컨테이너·백업을 조작하지 않는다. 실제 복구 훈련(Gate G)을 대신하지 않는다.
 
 `docker exec cms-db-prod`를 전제로 하므로 **`make prod-down` 후에는 백업이 동작하지 않는다** — DB 컨테이너까지 내려가기 때문이다.
 

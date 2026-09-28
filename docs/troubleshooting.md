@@ -681,7 +681,9 @@ A 조회 → B 비활성화 커밋(useYn=false) → A가 낡은 useYn=true를 �
 
 **범위 밖으로 남은 잔여 위험(Out of Scope, 계획 리뷰에서 확인)**: Thymeleaf 화면(`templates/admin/menu/manage.html`의 `buildPayload()`)은 어떤 필드를 편집했는지와 무관하게 매 PATCH 요청에 `useYn: menuUseYnInput.checked`(화면에 로드된 시점의 체크박스 상태)를 항상 포함한다. 따라서 "A가 메뉴를 화면에 로드(활성 상태) → B가 비활성화 커밋 → A가 이름만 편집해 저장"하는 실제 UI 순서에서는, A의 요청에 여전히 명시적 `useYn=true`가 실려 있어 이번 수정 이후에도 서버가 이를 "의도된 재활성화"로 처리해 비활성화가 되돌아갈 수 있다. 이는 고전적인 stale-form 전체 재전송 문제이며, 서버는 "명시적으로 보낸 true"와 "우연히 오래된 화면 값인 true"를 구분할 방법이 없어 행 잠금만으로는 해결할 수 없다(무시 처리하면 정상 재활성화 계약이 깨진다). 근본 해결(변경 필드만 전송하는 UI 개편, 또는 optimistic lock 버전 컬럼 도입)은 별도 후속 과제다.
 
-**검증**: `MenuServiceTest`(잠금 stub 전환, `useYn` 생략 시에도 `findByIdForUpdate` 호출 확인) + `MenuConcurrencyIntegrationTest`에 실 MariaDB 기반 시나리오 2건 추가 — (1) 락 실증: `findByIdForUpdate`로 잠근 행에 대한 동시 `deactivateMenu()`가 `innodb_lock_wait_timeout` 단축 세션에서 락 대기 타임아웃으로 실패함을 확인, (2) lost update 방지: barrier로 동시 제출한 일반 수정과 비활성화가 실행 순서와 무관하게 항상 "비활성화 유지 + 새 이름 반영"으로 귀결됨을 확인(수정 전 코드로 되돌려 재실행하면 실제로 `useYn=true`로 되돌아가 실패함을 별도로 확인). `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 743개 전체 통과(신규 2개 순증). Playwright로 실 기동 앱에서 일반 수정(이름만)·비활성화·재활성화 골든 패스와 활성 하위 메뉴가 있는 부모 비활성화 시 409 회귀를 확인. 관련 코드: `MenuService.updateMenu()`. 상세 설계 결정·계획 리뷰 기록은 `adversarial-review/remediation-plan.md` "PR 4" 섹션 참조.
+**당시 검증(2026-09-27 이력)**: `MenuServiceTest`의 잠금 호출, MariaDB 잠금 실증 및 barrier 동시 제출, 화면 골든 패스를 확인했다. 당시 전체 테스트/화면 검증 수치·결과는 `adversarial-review/remediation-plan.md` "PR 4 실행 기록"에 남긴다. **barrier는 두 순서를 각각 보장하지 않으므로 결정적 A-first/B-first 검증과 동등하다는 주장은 철회한다.**
+
+**PR4-T1 보완(2026-09-28)**: `MenuConcurrencyIntegrationTest`는 실제 서비스의 최초 `findByIdForUpdate()` 호출에 테스트 전용 advice를 붙여 A-first/B-first를 각각 고정한다(제품 latch 없음). 두 connection ID에 대한 `INNODB_LOCK_WAITS`와 대기 중인 `SELECT FOR UPDATE`를 관측한 뒤 선행 작업을 해제하고, 후행 조회의 최신 값·두 commit·최종 `useYn=false` 및 이름 변경을 확인한다. 보조 timeout 시험은 `PessimisticLockingFailureException`과 MariaDB 1205를 함께 단언해 deadlock/기타 오류를 성공으로 흡수하지 않는다. 실패 경로도 latch 해제·worker 종료 대기·Future 예외 전파·advice 제거·fixture 삭제를 거친다. 부모/자식 시험은 기존 불변식 검증이며 모든 순서를 강제하는 시험으로 표현하지 않는다. 제품의 stale-form 제외 범위는 그대로다.
 
 ---
 
