@@ -153,12 +153,36 @@ class PasswordResetControllerTest {
         mockMvc.perform(post("/admin/api/password-reset-requests")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@test.com\"}"))
+                .andExpect(status().isOk());
+
+        verify(passwordResetService).requestReset(eq("admin@test.com"), eq("127.0.0.1"));
+    }
+
+    @Test
+    @DisplayName("X-FORWARDED-FOR 헤더는 무시하고 RemoteAddr만 신뢰한다(IP 위조 차단)")
+    void requestReset_ignoresForwardedForHeader() throws Exception {
+        mockMvc.perform(post("/admin/api/password-reset-requests")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"admin@test.com\"}")
                         .header("X-FORWARDED-FOR", "10.0.0.1, 10.0.0.2"))
                 .andExpect(status().isOk());
 
-        // X-FORWARDED-FOR 마지막 홉이 IP로 추출된다
-        verify(passwordResetService).requestReset(eq("admin@test.com"), eq("10.0.0.2"));
+        verify(passwordResetService).requestReset(eq("admin@test.com"), eq("127.0.0.1"));
+    }
+
+    @Test
+    @DisplayName("조작된 X-Forwarded-For: , 헤더가 있어도 500이 아닌 200을 반환한다(회귀 — 이전에는 파싱 예외로 500이 났다)")
+    void requestReset_malformedForwardedForHeader_stillReturns200() throws Exception {
+        mockMvc.perform(post("/admin/api/password-reset-requests")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@test.com\"}")
+                        .header("X-FORWARDED-FOR", ","))
+                .andExpect(status().isOk());
+
+        verify(passwordResetService).requestReset(eq("admin@test.com"), eq("127.0.0.1"));
     }
 
     @Test

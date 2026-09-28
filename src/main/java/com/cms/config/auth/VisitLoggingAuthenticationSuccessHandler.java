@@ -3,6 +3,7 @@ package com.cms.config.auth;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.visit.domain.VisitLog;
 import com.cms.admin.visit.repository.VisitLogRepository;
+import com.cms.common.web.ClientIpResolver;
 import com.cms.config.auth.LoginFailureService.MemberSnapshot;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.ServletException;
@@ -36,8 +37,6 @@ import java.util.Optional;
 @Component
 @RequiredArgsConstructor
 public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareAuthenticationSuccessHandler {
-
-    private static final int MAX_IP_LENGTH = 45;
 
     private final VisitLogRepository visitLogRepository;
     private final LoginFailureService loginFailureService;
@@ -137,48 +136,16 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
      */
     private void tryLogVisit(HttpServletRequest request, Authentication authentication) {
         try {
-            String ip = extractClientIp(request);
             // 앱 KST Clock으로 기록 — 대시보드 집계(오늘 카운트·일별 추이)와 같은 시간원.
             // JVM 기본 시간대 직접 호출은 UTC 환경에서 자정 전후 방문이 다른 날짜로 집계된다.
             VisitLog visitLog = VisitLog.builder()
                     .visitorUserId(authentication.getName())
-                    .requestIp(truncateIp(ip))
+                    .requestIp(ClientIpResolver.resolve(request))
                     .visitAt(LocalDateTime.now(clock))
                     .build();
             visitLogRepository.save(visitLog);
         } catch (Exception e) {
             log.error("방문 로그 저장 실패 (user={})", authentication.getName(), e);
         }
-    }
-
-    /**
-     * IP를 추출한다.
-     * X-FORWARDED-FOR(마지막 홉) → X-Real-IP → RemoteAddr 순으로 시도한다.
-     * AdminActionLogAspect.getClientIp()와 동일 로직(기존 Aspect는 private이라 직접 재사용 불가).
-     */
-    private String extractClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-FORWARDED-FOR");
-        if (xForwardedFor != null && !xForwardedFor.isBlank()) {
-            String[] ips = xForwardedFor.split(",");
-            return ips[ips.length - 1].trim();
-        }
-
-        String xRealIp = request.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isBlank()) {
-            return xRealIp;
-        }
-
-        return request.getRemoteAddr();
-    }
-
-    /**
-     * IP를 컬럼 최대 길이(45)로 절단한다.
-     * 조작된 헤더나 과도하게 긴 값이 들어와도 DataException으로 인한 무음 누락을 방지한다.
-     */
-    private String truncateIp(String ip) {
-        if (ip == null) {
-            return null;
-        }
-        return ip.length() > MAX_IP_LENGTH ? ip.substring(0, MAX_IP_LENGTH) : ip;
     }
 }
