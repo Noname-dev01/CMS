@@ -308,7 +308,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 ### 이미지 digest 갱신
 
-이미지는 `image:tag@sha256:...`(Dockerfile 2, compose 2, `prod-backup.sh`·`prod-restore.sh`)로 고정돼 있고 테스트 컨테이너(`MariaDbContainerSupport`)만 Testcontainers/Spring Boot 이름 검증 제약으로 `mariadb@sha256:...`(태그 없음)를 쓴다. Dependabot(`.github/dependabot.yml`)이 Dockerfile·compose의 digest 갱신 PR을 만들지만 **스크립트·Java 리터럴은 추적하지 못한다** — 그 PR에서 나머지 mariadb 참조를 같은 digest로 직접 맞춰야 하며, 어긋나면 `check-image-refs.sh`가 CI를 실패시킨다. 새 digest는 `docker buildx imagetools inspect <image:tag>`로 조회한다.
+이미지는 `image:tag@sha256:...`(Dockerfile 2, compose 2, `prod-backup.sh`·`prod-restore.sh`)로 고정돼 있고 테스트 컨테이너(`MariaDbContainerSupport`)만 Testcontainers/Spring Boot 이름 검증 제약으로 `mariadb@sha256:...`(태그 없음)를 쓴다. Dependabot(`.github/dependabot.yml`, 운영 방식은 `docs/dependabot.md`)이 Dockerfile·compose의 digest 갱신 PR을 만들지만 **스크립트·Java 리터럴은 추적하지 못한다** — 그 PR에서 나머지 mariadb 참조를 같은 digest로 직접 맞춰야 하며, 어긋나면 `check-image-refs.sh`가 CI를 실패시킨다. 새 digest는 `docker buildx imagetools inspect <image:tag>`로 조회한다.
 
 ### 스캔 실패 시 절차
 
