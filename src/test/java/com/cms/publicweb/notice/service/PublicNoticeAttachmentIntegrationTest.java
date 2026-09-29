@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -100,19 +101,28 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
         return saved;
     }
 
+    /** 컨트롤러와 같은 2단계 호출: 공개 조건 재검증(트랜잭션) → 파일 open(트랜잭션 밖). */
+    private Optional<PublicNoticeAttachmentDownload> download(Long noticeId, Long attachmentId) {
+        return publicNoticeService.findPublishedAttachment(noticeId, attachmentId)
+                .flatMap(publicNoticeService::openAttachment);
+    }
+
     // ===================== 1. 다운로드 성공 =====================
 
     @Test
-    @DisplayName("공개·미삭제 notice의 첨부는 다운로드에 성공한다")
-    void downloadPublishedAttachment_success() {
+    @DisplayName("공개·미삭제 notice의 첨부는 다운로드에 성공한다(스트림 내용·크기 일치)")
+    void downloadPublishedAttachment_success() throws Exception {
         Notice notice = savePublishedNotice("다운로드성공");
         NoticeAttachment attachment = uploadAttachment(notice.getId());
 
-        Optional<PublicNoticeAttachmentDownload> result =
-                publicNoticeService.downloadPublishedAttachment(notice.getId(), attachment.getId());
+        Optional<PublicNoticeAttachmentDownload> result = download(notice.getId(), attachment.getId());
 
         assertTrue(result.isPresent());
-        assertArrayEquals("content".getBytes(), result.get().content());
+        try (PublicNoticeAttachmentDownload opened = result.get()) {
+            assertEquals("report.pdf", opened.originalFilename());
+            assertEquals("content".length(), opened.contentLength());
+            assertArrayEquals("content".getBytes(), opened.content().readAllBytes());
+        }
     }
 
     // ===================== 2. TOCTOU =====================
@@ -131,8 +141,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
             noticeRepository.save(managed);
         });
 
-        Optional<PublicNoticeAttachmentDownload> result =
-                publicNoticeService.downloadPublishedAttachment(notice.getId(), attachment.getId());
+        Optional<PublicNoticeAttachmentDownload> result = download(notice.getId(), attachment.getId());
 
         assertTrue(result.isEmpty());
     }
@@ -146,8 +155,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
         Notice noticeB = savePublishedNotice("IDOR-B");
         NoticeAttachment attachmentOfB = uploadAttachment(noticeB.getId());
 
-        Optional<PublicNoticeAttachmentDownload> result =
-                publicNoticeService.downloadPublishedAttachment(noticeA.getId(), attachmentOfB.getId());
+        Optional<PublicNoticeAttachmentDownload> result = download(noticeA.getId(), attachmentOfB.getId());
 
         assertTrue(result.isEmpty());
     }
@@ -164,8 +172,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
         fileStorage.delete(attachment.getStorageKey());
         createdStorageKeys.remove(attachment.getStorageKey());
 
-        Optional<PublicNoticeAttachmentDownload> result =
-                publicNoticeService.downloadPublishedAttachment(notice.getId(), attachment.getId());
+        Optional<PublicNoticeAttachmentDownload> result = download(notice.getId(), attachment.getId());
 
         assertTrue(result.isEmpty());
     }

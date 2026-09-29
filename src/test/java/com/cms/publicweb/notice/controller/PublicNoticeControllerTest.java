@@ -4,6 +4,7 @@ import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
+import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import com.cms.publicweb.notice.service.PublicNoticeService;
@@ -23,16 +24,24 @@ import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -341,14 +350,71 @@ class PublicNoticeControllerTest {
                 .andExpect(content().string(not(containsString("storageKey"))));
     }
 
-    // ===================== attachment (다운로드) =====================
+    // ===================== attachment (다운로드, 스트리밍) =====================
+
+    private static final PublicNoticeAttachmentRef REF = new PublicNoticeAttachmentRef("report.pdf", "2026/08/03/7.pdf");
+
+    /** 읽기·닫힘을 관측하는 스텁 스트림. failAfter 바이트를 넘겨 읽으려 하면 IOException을 던진다(-1이면 안 던짐). */
+    static class TrackingInputStream extends InputStream {
+        private final byte[] data;
+        private final int failAfter;
+        private int position = 0;
+        int readCalls = 0;
+        boolean closed = false;
+        boolean failOnClose = false;
+
+        TrackingInputStream(byte[] data, int failAfter) {
+            this.data = data;
+            this.failAfter = failAfter;
+        }
+
+        @Override
+        public int read() throws IOException {
+            readCalls++;
+            if (failAfter >= 0 && position >= failAfter) {
+                throw new IOException("디스크 읽기 실패 시뮬레이션");
+            }
+            return position < data.length ? data[position++] & 0xff : -1;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            readCalls++;
+            if (failAfter >= 0 && position >= failAfter) {
+                throw new IOException("디스크 읽기 실패 시뮬레이션");
+            }
+            if (position >= data.length) {
+                return -1;
+            }
+            int limit = failAfter >= 0 ? Math.min(data.length, failAfter) : data.length;
+            int n = Math.min(len, limit - position);
+            System.arraycopy(data, position, b, off, n);
+            position += n;
+            return n;
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            if (failOnClose) {
+                throw new IOException("close 실패 시뮬레이션");
+            }
+        }
+    }
+
+    private TrackingInputStream stubDownload(String filename, byte[] bytes, int failAfter) {
+        TrackingInputStream stream = new TrackingInputStream(bytes, failAfter);
+        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
+        given(publicNoticeService.openAttachment(REF))
+                .willReturn(Optional.of(new PublicNoticeAttachmentDownload(filename, bytes.length, stream)));
+        return stream;
+    }
 
     @Test
-    @DisplayName("다운로드 성공 시 octet-stream·Content-Disposition·nosniff·no-store 헤더와 바디를 반환한다")
+    @DisplayName("다운로드 성공 시 octet-stream·Content-Disposition·nosniff·no-store·Content-Length 헤더와 바디를 반환하고 스트림을 닫는다")
     @WithMockUser
     void attachment_success_returnsFileWithHeaders() throws Exception {
-        given(publicNoticeService.downloadPublishedAttachment(1L, 7L))
-                .willReturn(Optional.of(new PublicNoticeAttachmentDownload("report.pdf", "content".getBytes())));
+        TrackingInputStream stream = stubDownload("report.pdf", "content".getBytes(), -1);
 
         mockMvc.perform(get("/notices/1/attachments/7"))
                 .andExpect(status().isOk())
@@ -356,14 +422,61 @@ class PublicNoticeControllerTest {
                 .andExpect(header().string("Content-Disposition", containsString("report.pdf")))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(header().longValue("Content-Length", 7L))
                 .andExpect(content().bytes("content".getBytes()));
+
+        assertTrue(stream.closed, "전송이 끝나면 스트림이 닫혀야 한다");
     }
 
     @Test
-    @DisplayName("Service가 empty를 반환하면(비공개 notice·없는 첨부·타 notice 첨부 공통) 404")
+    @DisplayName("버퍼(8KB)보다 큰 파일도 전량 그대로 전송된다")
     @WithMockUser
-    void attachment_serviceReturnsEmpty_notFound() throws Exception {
-        given(publicNoticeService.downloadPublishedAttachment(1L, 7L)).willReturn(Optional.empty());
+    void attachment_largeFile_streamedInFull() throws Exception {
+        byte[] big = new byte[50_000];
+        for (int i = 0; i < big.length; i++) {
+            big[i] = (byte) (i % 251);
+        }
+        TrackingInputStream stream = stubDownload("big.bin", big, -1);
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isOk())
+                .andExpect(header().longValue("Content-Length", 50_000L))
+                .andExpect(content().bytes(big));
+
+        assertTrue(stream.closed);
+    }
+
+    @Test
+    @DisplayName("빈 파일은 Content-Length 0의 200 응답이다")
+    @WithMockUser
+    void attachment_emptyFile_ok() throws Exception {
+        TrackingInputStream stream = stubDownload("empty.txt", new byte[0], -1);
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isOk())
+                .andExpect(header().longValue("Content-Length", 0L));
+
+        assertTrue(stream.closed);
+    }
+
+    @Test
+    @DisplayName("공개 조건 재검증이 empty를 반환하면(비공개 notice·없는 첨부·타 notice 첨부 공통) 404이고 파일은 열지 않는다")
+    @WithMockUser
+    void attachment_findReturnsEmpty_notFoundWithoutOpen() throws Exception {
+        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.empty());
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isNotFound());
+
+        verify(publicNoticeService, never()).openAttachment(any());
+    }
+
+    @Test
+    @DisplayName("파일 open이 empty(실파일 없음)이면 404")
+    @WithMockUser
+    void attachment_openReturnsEmpty_notFound() throws Exception {
+        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
+        given(publicNoticeService.openAttachment(REF)).willReturn(Optional.empty());
 
         mockMvc.perform(get("/notices/1/attachments/7"))
                 .andExpect(status().isNotFound());
@@ -375,6 +488,7 @@ class PublicNoticeControllerTest {
     void attachment_nonNumericIds_notFoundWithoutServiceCall() throws Exception {
         mockMvc.perform(get("/notices/abc/attachments/1")).andExpect(status().isNotFound());
         mockMvc.perform(get("/notices/1/attachments/abc")).andExpect(status().isNotFound());
+        mockMvc.perform(head("/notices/abc/attachments/1")).andExpect(status().isNotFound());
 
         Mockito.verifyNoInteractions(publicNoticeService);
     }
@@ -383,7 +497,7 @@ class PublicNoticeControllerTest {
     @DisplayName("다운로드 중 Service 예외는 HTML 500 + public/notice/error 뷰로 응답한다(JSON 아님)")
     @WithMockUser
     void attachment_serviceThrows_returnsHtml500NotJson() throws Exception {
-        given(publicNoticeService.downloadPublishedAttachment(anyLong(), anyLong()))
+        given(publicNoticeService.findPublishedAttachment(anyLong(), anyLong()))
                 .willThrow(new RuntimeException("디스크 오류 시뮬레이션"));
 
         mockMvc.perform(get("/notices/1/attachments/7"))
@@ -393,16 +507,132 @@ class PublicNoticeControllerTest {
     }
 
     @Test
-    @DisplayName("HEAD 요청은 GET과 동일한 핸들러 메서드를 거쳐 Service를 호출한다")
+    @DisplayName("파일 open 실패(IllegalStateException)도 HTML 500 + public/notice/error 뷰다")
     @WithMockUser
-    void attachment_head_invokesSameHandlerAsGet() throws Exception {
-        given(publicNoticeService.downloadPublishedAttachment(1L, 7L))
-                .willReturn(Optional.of(new PublicNoticeAttachmentDownload("report.pdf", "content".getBytes())));
+    void attachment_openThrows_returnsHtml500() throws Exception {
+        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
+        given(publicNoticeService.openAttachment(REF)).willThrow(new IllegalStateException("디스크 오류"));
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(view().name("public/notice/error"));
+    }
+
+    @Test
+    @DisplayName("첫 청크 읽기 실패(응답 무손대 구간)는 HTML 500이며 스트림을 닫는다")
+    @WithMockUser
+    void attachment_firstReadFails_html500AndClosed() throws Exception {
+        TrackingInputStream stream = stubDownload("report.pdf", new byte[20_000], 0);
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(view().name("public/notice/error"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(header().doesNotExist("Content-Disposition"));
+
+        assertTrue(stream.closed);
+    }
+
+    @Test
+    @DisplayName("첫 청크(4KB, 컨테이너 버퍼 미만) 이후 읽기 실패(미커밋이지만 오염된 구간)는 reset 후 HTML 500이고 첨부 헤더·본문이 남지 않으며 스트림을 닫는다")
+    @WithMockUser
+    void attachment_midStreamFailureBeforeCommit_resetThenHtml500() throws Exception {
+        byte[] data = new byte[20_000];
+        java.util.Arrays.fill(data, (byte) 'A');
+        TrackingInputStream stream = stubDownload("report.pdf", data, 4096);
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(view().name("public/notice/error"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
+                .andExpect(header().doesNotExist("Content-Disposition"))
+                .andExpect(header().doesNotExist("Content-Length"))
+                .andExpect(content().string(not(containsString("AAAA"))));
+
+        assertTrue(stream.closed);
+    }
+
+    @Test
+    @DisplayName("응답 커밋 후 읽기 실패는 HTML을 렌더링하지 않고 예외를 컨테이너로 전파하며 스트림을 닫는다 (실제 연결 중단은 실서버 테스트가 검증)")
+    @WithMockUser
+    void attachment_failureAfterCommit_propagatesWithoutView() throws Exception {
+        byte[] data = new byte[40_000];
+        java.util.Arrays.fill(data, (byte) 'A');
+        // MockHttpServletResponse의 버퍼(4KB)를 넘겨 커밋된 뒤(2번째 청크 이후) 읽기가 실패하게 한다.
+        TrackingInputStream stream = stubDownload("report.pdf", data, 12288);
+
+        Exception thrown = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
+                () -> mockMvc.perform(get("/notices/1/attachments/7")));
+
+        Throwable root = thrown;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        assertTrue(root instanceof IOException, "원인 IOException이 그대로 전파돼야 한다: " + root);
+        assertTrue(stream.closed);
+    }
+
+    @Test
+    @DisplayName("GET에서 스트림 close가 실패해도(미커밋) 첨부 헤더·Content-Length가 남지 않은 HTML 500이다")
+    @WithMockUser
+    void attachment_closeFails_get_resetThenHtml500() throws Exception {
+        TrackingInputStream stream = stubDownload("report.pdf", "SECRETBODY".getBytes(), -1);
+        stream.failOnClose = true;
+
+        mockMvc.perform(get("/notices/1/attachments/7"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(view().name("public/notice/error"))
+                .andExpect(header().doesNotExist("Content-Disposition"))
+                .andExpect(header().doesNotExist("Content-Length"))
+                .andExpect(content().string(not(containsString("SECRETBODY"))));
+
+        assertTrue(stream.closed);
+    }
+
+    @Test
+    @DisplayName("HEAD에서 스트림 close가 실패해도 첨부 헤더·Content-Length가 남지 않은 HTML 500이다")
+    @WithMockUser
+    void attachment_closeFails_head_resetThenHtml500() throws Exception {
+        TrackingInputStream stream = stubDownload("report.pdf", "content".getBytes(), -1);
+        stream.failOnClose = true;
 
         mockMvc.perform(head("/notices/1/attachments/7"))
-                .andExpect(status().isOk());
+                .andExpect(status().isInternalServerError())
+                .andExpect(header().doesNotExist("Content-Disposition"))
+                .andExpect(header().doesNotExist("Content-Length"));
 
-        verify(publicNoticeService).downloadPublishedAttachment(1L, 7L);
+        assertTrue(stream.closed);
+    }
+
+    @Test
+    @DisplayName("HEAD는 200·GET과 같은 Content-Length·빈 본문이며 본문 바이트를 읽지 않고 스트림을 닫는다")
+    @WithMockUser
+    void attachment_head_headersOnlyAndNoBodyRead() throws Exception {
+        TrackingInputStream stream = stubDownload("report.pdf", "content".getBytes(), -1);
+
+        mockMvc.perform(head("/notices/1/attachments/7"))
+                .andExpect(status().isOk())
+                .andExpect(header().longValue("Content-Length", 7L))
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().bytes(new byte[0]));
+
+        verify(publicNoticeService).findPublishedAttachment(1L, 7L);
+        verify(publicNoticeService).openAttachment(REF);
+        assertEquals(0, stream.readCalls, "HEAD는 본문 바이트를 읽지 않는다");
+        assertTrue(stream.closed, "HEAD도 열었던 핸들을 곧바로 닫는다");
+    }
+
+    @Test
+    @DisplayName("HEAD의 404도 GET과 동일하다(공개 조건 재검증 empty)")
+    @WithMockUser
+    void attachment_head_notFoundSameAsGet() throws Exception {
+        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.empty());
+
+        mockMvc.perform(head("/notices/1/attachments/7"))
+                .andExpect(status().isNotFound());
+
+        verify(publicNoticeService, never()).openAttachment(any());
     }
 
     @Test
@@ -410,16 +640,15 @@ class PublicNoticeControllerTest {
     @WithMockUser
     void attachment_crlfFilename_encodedSafelyWithoutHeaderInjection() throws Exception {
         String crlfFilename = "report\r\nX-Evil: injected.txt";
-        given(publicNoticeService.downloadPublishedAttachment(1L, 7L))
-                .willReturn(Optional.of(new PublicNoticeAttachmentDownload(crlfFilename, "content".getBytes())));
+        stubDownload(crlfFilename, "content".getBytes(), -1);
 
         mockMvc.perform(get("/notices/1/attachments/7"))
                 .andExpect(status().isOk())
                 .andExpect(header().doesNotExist("X-Evil"))
                 .andExpect(result -> {
                     String contentDisposition = result.getResponse().getHeader("Content-Disposition");
-                    org.junit.jupiter.api.Assertions.assertNotNull(contentDisposition);
-                    org.junit.jupiter.api.Assertions.assertFalse(contentDisposition.contains("\r\n"));
+                    assertNotNull(contentDisposition);
+                    assertFalse(contentDisposition.contains("\r\n"));
                 });
     }
 }

@@ -6,7 +6,9 @@ import com.cms.admin.notice.repository.NoticeAttachmentRepository;
 import com.cms.admin.notice.repository.NoticeRepository;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.StorageFileNotFoundException;
+import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
+import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import lombok.RequiredArgsConstructor;
@@ -65,21 +67,31 @@ public class PublicNoticeService {
      * 다운로드 시점 재검증 — notice의 공개 조건을 먼저 확인해야 트랜잭션 스냅샷이 확정된다
      * (PLAN-public-notice-attachment.md 결정 2). 이 재검증이 보장하는 것은 "재검증 SELECT를
      * 실행한 시점의 공개 상태"뿐이다 — 그 이후·응답 전송 완료 이전에 완료되는 비공개 전환까지
-     * 차단하지는 않는다(약한 보장, 락 미사용).
+     * 차단하지는 않는다(약한 보장, 락 미사용). 스트리밍 전환 이후에는 이 창이 전송 시간만큼 길어진다.
+     *
+     * <p>열린 자원 없이 파일 참조(메타데이터)만 반환한다 — 파일 열기는 트랜잭션 밖의
+     * {@link #openAttachment}가 맡는다(결정 S3: 열린 스트림이 트랜잭션 프록시를 통과하면 commit
+     * 실패 시 닫을 수 없다).
      */
     @Transactional(readOnly = true)
-    public Optional<PublicNoticeAttachmentDownload> downloadPublishedAttachment(Long noticeId, Long attachmentId) {
+    public Optional<PublicNoticeAttachmentRef> findPublishedAttachment(Long noticeId, Long attachmentId) {
         if (noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(noticeId).isEmpty()) {
             return Optional.empty();
         }
         return noticeAttachmentRepository.findByIdAndNoticeId(attachmentId, noticeId)
-                .flatMap(this::loadDownload);
+                .map(attachment -> new PublicNoticeAttachmentRef(attachment.getOriginalFilename(), attachment.getStorageKey()));
     }
 
-    private Optional<PublicNoticeAttachmentDownload> loadDownload(NoticeAttachment attachment) {
+    /**
+     * 파일을 스트림으로 연다. <b>트랜잭션 없음</b>(의도) — {@link #findPublishedAttachment} 이후에
+     * 호출한다. 반환된 {@link PublicNoticeAttachmentDownload}는 받은 쪽이 반드시 닫아야 한다.
+     * 파일이 없으면({@link StorageFileNotFoundException}) empty로 흡수해 404로 매핑되게 하고,
+     * 그 외 실패는 전파한다(500).
+     */
+    public Optional<PublicNoticeAttachmentDownload> openAttachment(PublicNoticeAttachmentRef ref) {
         try {
-            byte[] content = fileStorage.load(attachment.getStorageKey());
-            return Optional.of(new PublicNoticeAttachmentDownload(attachment.getOriginalFilename(), content));
+            StoredFileStream opened = fileStorage.open(ref.storageKey());
+            return Optional.of(new PublicNoticeAttachmentDownload(ref.originalFilename(), opened.size(), opened.inputStream()));
         } catch (StorageFileNotFoundException e) {
             return Optional.empty();
         }
