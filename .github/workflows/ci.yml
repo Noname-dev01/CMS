@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -56,7 +56,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # 이미지 참조 digest 고정·일치 검사 → 실제 prod-up.sh로 이미지 빌드·기동 → 보안 응답 검증
       # → 같은 스택에서 백업·복구 왕복 검증. 합성 .env.prod는 러너 임시 파일(실 시크릿 아님).
