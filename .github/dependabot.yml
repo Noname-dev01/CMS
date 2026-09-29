@@ -1,0 +1,29 @@
+# Dependabot — 이미지 digest·GitHub Actions SHA·Gradle 의존성 갱신 PR 자동 생성 (M-06).
+# 계획: adversarial-review/plan/PLAN-ci-prod-gates.md 쟁점 3·4
+#
+# digest 고정(image:tag@sha256:...)은 재현성을 주는 대신 자동 보안 패치를 멈추므로,
+# 갱신은 이 파일이 만드는 PR이 맡는다. 갱신 PR도 CI(test·prod-smoke)를 통과해야 머지한다.
+#
+# 주의: Dependabot은 Java 소스의 문자열 리터럴을 추적하지 못한다 — MariaDbContainerSupport의
+# `mariadb@sha256:...`와 scripts/prod-backup.sh·prod-restore.sh의 mariadb 참조는 자동 갱신
+# 대상이 아니다. compose만 갱신되면 scripts/ci/check-image-refs.sh가 불일치로 CI를 실패시키므로,
+# 그 PR에서 나머지 참조를 같은 digest로 맞춰 함께 수정한다(docs/deployment.md "이미지 digest 갱신").
+version: 2
+updates:
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
