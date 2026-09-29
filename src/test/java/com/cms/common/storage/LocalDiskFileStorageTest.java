@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -211,6 +212,11 @@ class LocalDiskFileStorageTest {
             }
 
             @Override
+            public StoredFileStream open(String storageKey) {
+                throw new UnsupportedOperationException("테스트용 구현체");
+            }
+
+            @Override
             public void delete(String storageKey) {
                 // no-op
             }
@@ -219,5 +225,152 @@ class LocalDiskFileStorageTest {
         assertThrows(UnsupportedOperationException.class, () -> unsupporting.store("x".getBytes(), "a.txt", "profile"));
         assertThrows(UnsupportedOperationException.class, () -> unsupporting.load("key", "profile"));
         assertThrows(UnsupportedOperationException.class, () -> unsupporting.delete("key", "profile"));
+    }
+
+    // ===================== open (스트리밍 읽기, PLAN-public-notice-attachment.md 후속 작업) =====================
+
+    @Test
+    @DisplayName("store→open 왕복 시 스트림 전량이 원본 바이트와 같고 size가 원본 길이와 같다")
+    void open_roundTrip(@TempDir Path tempDir) throws IOException {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        byte[] original = new byte[20_000];
+        for (int i = 0; i < original.length; i++) {
+            original[i] = (byte) (i % 251);
+        }
+        String key = storage.store(original, "big.bin");
+
+        try (StoredFileStream opened = storage.open(key)) {
+            assertEquals(original.length, opened.size());
+            assertArrayEquals(original, opened.inputStream().readAllBytes());
+        }
+    }
+
+    @Test
+    @DisplayName("빈 파일도 open할 수 있고 size는 0이다")
+    void open_emptyFile(@TempDir Path tempDir) throws IOException {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        String key = storage.store(new byte[0], "empty.txt");
+
+        try (StoredFileStream opened = storage.open(key)) {
+            assertEquals(0, opened.size());
+            assertEquals(-1, opened.inputStream().read());
+        }
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 키를 open하면 StorageFileNotFoundException")
+    void open_missingKey_notFound(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open("2020/01/01/nope.txt"));
+    }
+
+    @Test
+    @DisplayName("open도 경로 탈출(../) 시도를 거부한다")
+    void open_pathTraversal_rejected(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Files.createDirectories(root);
+        Files.writeString(tempDir.resolve("secret.txt"), "secret");
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertThrows(IllegalStateException.class, () -> storage.open("../secret.txt"));
+    }
+
+    @Test
+    @DisplayName("open도 예약된 profile 서브트리를 네임스페이스 없는 API로 해석하지 못한다")
+    void open_reservedNamespace_rejected(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        String profileKey = storage.store("img".getBytes(), "a.png", "profile");
+
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open(profileKey));
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open("profile/" + profileKey));
+    }
+
+    @Test
+    @DisplayName("open은 부모 디렉터리 심볼릭 링크를 통한 루트 탈출을 거부한다")
+    void open_parentSymlinkEscape_rejected(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Files.createDirectories(root);
+        Path outside = tempDir.resolve("outside");
+        Files.createDirectories(outside);
+        Files.writeString(outside.resolve("secret.txt"), "secret");
+        try {
+            Files.createSymbolicLink(root.resolve("2020"), outside);
+        } catch (IOException | UnsupportedOperationException e) {
+            Assumptions.assumeTrue(false, "이 환경은 심볼릭 링크 생성을 지원하지 않아 테스트를 건너뜁니다: " + e.getMessage());
+            return;
+        }
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertThrows(IllegalStateException.class, () -> storage.open("2020/secret.txt"));
+    }
+
+    @Test
+    @DisplayName("open은 최종 파일 자체가 외부를 가리키는 심볼릭 링크이면 거부한다 (부모 경로 검증만으로는 못 막는 경우)")
+    void open_finalFileSymlink_rejected(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Path dir = root.resolve("2020");
+        Files.createDirectories(dir);
+        Path outsideFile = tempDir.resolve("secret.txt");
+        Files.writeString(outsideFile, "secret");
+        try {
+            Files.createSymbolicLink(dir.resolve("link.txt"), outsideFile);
+        } catch (IOException | UnsupportedOperationException e) {
+            Assumptions.assumeTrue(false, "이 환경은 심볼릭 링크 생성을 지원하지 않아 테스트를 건너뜁니다: " + e.getMessage());
+            return;
+        }
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertThrows(IllegalStateException.class, () -> storage.open("2020/link.txt"));
+    }
+
+    @Test
+    @DisplayName("스트림을 연 채로 delete해도 남은 바이트를 끝까지 읽을 수 있다 (전송 중 관리자 삭제 경합 — 계획서 결정 S7)")
+    void open_deleteWhileOpen_stillReadable(@TempDir Path tempDir) throws IOException {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        byte[] original = new byte[100_000];
+        java.util.Arrays.fill(original, (byte) 7);
+        String key = storage.store(original, "a.bin");
+
+        try (StoredFileStream opened = storage.open(key)) {
+            byte[] head = opened.inputStream().readNBytes(100);
+            assertEquals(100, head.length);
+
+            storage.delete(key);
+
+            assertThrows(StorageFileNotFoundException.class, () -> storage.open(key));
+            byte[] rest = opened.inputStream().readAllBytes();
+            assertEquals(original.length - 100, rest.length);
+        }
+    }
+
+    @Test
+    @DisplayName("채널 open 이후 size() 조회가 실패하면 채널을 닫고 IllegalStateException을 던진다 (핸들 누수 방지 — 계획서 리뷰 2)")
+    void open_sizeFailure_closesChannel(@TempDir Path tempDir) {
+        FileStorageProperties properties = new FileStorageProperties();
+        properties.setRoot(tempDir.toString());
+        java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean(false);
+        LocalDiskFileStorage storage = new LocalDiskFileStorage(properties) {
+            @Override
+            java.nio.channels.SeekableByteChannel openChannel(Path target) {
+                return new java.nio.channels.SeekableByteChannel() {
+                    @Override public int read(java.nio.ByteBuffer dst) { return -1; }
+                    @Override public int write(java.nio.ByteBuffer src) { throw new UnsupportedOperationException(); }
+                    @Override public long position() { return 0; }
+                    @Override public java.nio.channels.SeekableByteChannel position(long newPosition) { return this; }
+                    @Override public long size() throws IOException { throw new IOException("size 조회 실패 시뮬레이션"); }
+                    @Override public java.nio.channels.SeekableByteChannel truncate(long size) { return this; }
+                    @Override public boolean isOpen() { return !closed.get(); }
+                    @Override public void close() { closed.set(true); }
+                };
+            }
+        };
+        String key = storage.store("x".getBytes(), "a.txt");
+
+        assertThrows(IllegalStateException.class, () -> storage.open(key));
+        assertTrue(closed.get(), "size() 실패 시 열어 둔 채널이 닫혀야 한다");
     }
 }
