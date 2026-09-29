@@ -114,7 +114,7 @@
 - digest 고정은 Dependabot PR을 리뷰·머지하는 운용 부담을 만든다.
 - 합성 `.env.prod` 경로가 러너에서 `.dockerignore`(`.env*`)로 빌드 컨텍스트에서 제외됨을 이미 확인(시크릿이 이미지에 안 들어감) — 스모크에서도 유지.
 
-## 구현·검증 결과 (2026-09-29 완료 — PR #47 `ed193ed` 머지, 실제 CI 통과 확인. 필수 체크 등록만 사용자 설정 대기)
+## 구현·검증 결과 (2026-09-29 완료 — PR #47 `ed193ed` 머지, 실제 CI 통과 확인, 필수 체크 `prod-smoke` 등록까지 확인)
 
 ### Context
 계획 v3 승인(2026-09-29) 후 `chore/ci-prod-gates` 브랜치에서 구현. 스키마·인가·앱 코드 변경 없음.
@@ -148,10 +148,10 @@
 - **참고(범위 밖)**: `core.autocrlf=true`인 Windows 작업 트리에서는 브랜치 전환 시 `scripts/*.sh`가 CRLF로 체크아웃돼 로컬 `bash scripts/...`가 실패한다(기존 `prod-up.sh` 포함, 인덱스는 LF라 리눅스 CI 무관). `.gitattributes`에 `*.sh text eol=lf` 추가를 후속 후보로 남긴다.
 - 스캔 실패 주입(임시 낮은 임계값) 확인은 CI 상에서 미실시(로컬 Trivy가 4건을 실제로 검출·`exit=1`한 것으로 게이트 동작은 확인).
 - 스모크 자체의 실패 주입(예: Actuator 응답 변조)은 수행하지 않았다.
-- 필수 체크 등록은 사용자 설정 작업 — **"검사 추가"는 완료, "머지 차단 게이트 활성"은 미완료**(2026-09-29 확인: 브랜치 보호 필수 체크 `["test"]`만 등록, `prod-smoke` 미등록).
+- ~~필수 체크 등록은 사용자 설정 작업 — "검사 추가"는 완료, "머지 차단 게이트 활성"은 미완료(브랜치 보호 필수 체크 `["test"]`만 등록)~~ → **해소(2026-09-29)**: 사용자가 GitHub 설정에서 등록했고 `gh api .../branches/master/protection/required_status_checks`로 `["test","prod-smoke"]`(둘 다 app_id 15368)를 확인했다. "검사 추가"와 "머지 차단 게이트 활성" 두 상태가 모두 완료됐다.
 
 ### 후속
-- `security/bump-tomcat-jackson` PR 머지 → 이 브랜치 rebase → 실제 CI 확인 → `prod-smoke`를 브랜치 보호 필수 체크로 등록(사용자) → `/updateRoadmap`.
+- `security/bump-tomcat-jackson` PR 머지 → 이 브랜치 rebase → 실제 CI 확인 → `prod-smoke`를 브랜치 보호 필수 체크로 등록(사용자, 2026-09-29 완료·확인) → `/updateRoadmap`(14차 반영 완료).
 
 ## 범위 밖(명시)
 

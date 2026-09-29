@@ -297,7 +297,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 ## CI 배포 게이트 (감사 M-06, adversarial-review/plan/PLAN-ci-prod-gates.md)
 
-`.github/workflows/ci.yml`의 `prod-smoke` job이 `test` job과 병렬로 다음을 자동 검증한다. 머지 차단은 저장소 브랜치 보호에 `prod-smoke`를 **필수 체크로 등록**해야 성립한다(`docs/branching.md`, 사용자 설정).
+`.github/workflows/ci.yml`의 `prod-smoke` job이 `test` job과 병렬로 다음을 자동 검증한다. 머지 차단은 저장소 브랜치 보호에 `prod-smoke`를 **필수 체크로 등록**해야 성립하며, 2026-09-29에 등록됐다(`["test","prod-smoke"]`, `docs/branching.md`).
 
 - **이미지 참조 검사**(`scripts/ci/check-image-refs.sh`): `mariadb`·`eclipse-temurin` 참조가 전부 digest로 고정돼 있고 mariadb 참조의 sha256이 모두 같은지 확인.
 - **스모크**(`scripts/ci/prod-smoke.sh`): 실제 `prod-up.sh`로 이미지 빌드·기동 → health 200 → `/admin/login` 200 → Actuator 대표 3경로(`env`·`beans`·`metrics`)가 무인증 302→`/admin/login`, ADMIN 인증 403 → ADMIN 로그인 후 `/swagger-ui.html`·`/v3/api-docs` 404. 증명 범위는 이 열거 항목뿐이며 `/actuator/**` 전체가 아니다.
