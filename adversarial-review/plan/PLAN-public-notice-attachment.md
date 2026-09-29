@@ -29,6 +29,18 @@
   - **수용(낮음3)**: 결정 2 "락은 쓰지 않는다" 근거 4번에 "약한 보장(요청 시작 시점 재확인)"이라는 구 표현이 남아 있었다는 지적 — 타당(v3에서 놓친 잔여 문구). "약한 보장(재검증 SELECT 시점 재확인)"으로 정정(아래 결정 2 본문 수정).
   - **참고(CR/LF 페이로드 재검증)**: codex가 `report\r\nX-Evil: injected.txt`를 실제 `NoticeAttachmentService` 검증 로직(경로 구분자 없음 → 파일명 유지, `lastIndexOf('.')` 뒤 `txt` → 확장자·Content-Type 허용)과 Spring 6.2.19 `ContentDisposition`(CR/LF가 `filename*`에서 `%0D%0A`로 퍼센트 인코딩되어 raw CR/LF가 남지 않음) 양쪽으로 직접 대조해 "이 페이로드는 업로드를 통과하고, 다운로드 응답은 안전하게 인코딩된다"는 v3의 주장이 정확함을 확인 — 페이로드·계약 자체는 추가 수정 불필요.
 - **4차 확인 리뷰(2026-08-03) 결과: ship.** 3차 리뷰의 3개 지적(통합 테스트 fixture 분리, CR/LF 검증 책임 분리, 락 근거 표현 통일)이 전부 충분히 반영됐고, 이번 반영 과정에서 새로 생긴 문제나 v1~v4 결정 간 모순이 없음을 codex가 저장소 코드 재대조로 확인 — `plan-review-loop` 4라운드 종료, 승인 단계로 진행. 약한 TOCTOU 보장·`byte[]` 전체 로딩·무인증 반복 요청 제한 부재는 이미 사용자가 명시적으로 수용한 잔여 위험으로, 이 계획을 막는 미해결 결함이 아님을 재확인.
+- **v5 (2026-09-29, 후속 작업 — 스트리밍 전환 착수)**: 문서 하단 "후속 작업 — 스트리밍 전환" 섹션 신규 추가. v1~v4가 "명시적 수용"으로 남겼던 `byte[]` 전량 로딩 위험(리스크 표 "자원 고갈" 행)을 `/suggestRoadmap`(2026-09-29) 선택으로 해소하는 작업이며, 결정 2의 "`fileStorage.load()`는 트랜잭션 안에서 호출한다" 문단과 결정 3의 `PublicNoticeAttachmentDownload(byte[])` 정의를 이 섹션이 대체한다(원문은 이력 보존을 위해 그대로 둔다). `/plan-review-loop` 리뷰 대상.
+- **v6 (2026-09-29, codex 리뷰 1차 반영 — needs-attention, 5개 지적 전부 수용, 사용자 결정 불필요)**:
+  - **수용(높음1)**: S5의 "예외를 삼켜도 짧은 Content-Length 때문에 컨테이너가 연결을 닫는다"는 가정이 검증되지 않았다(예외 흡수 시 컨테이너에는 정상 완료로 보임) — 타당(근거 없이 단정한 것). 커밋 후 실패는 예외를 컨테이너까지 전파하고 `PublicWebExceptionAdvice`가 `isCommitted()`이면 뷰 렌더링 없이 재던지도록 변경, "advice 무수정" 제약 철회, 실제 Tomcat 통합 테스트로 검증(S5·테스트 3번 개정).
+  - **수용(중간2)**: `@Transactional` 메서드가 열린 스트림을 반환한 뒤 프록시 commit이 실패하면 스트림을 닫을 수 없다 — 타당. 서비스를 `findPublishedAttachment()`(트랜잭션·메타데이터만)와 `openAttachment()`(트랜잭션 없음)로 분리해 구조적으로 제거(S3 개정, `TransactionTemplate` 대안은 같은 효과에 더 복잡해 기각). `open()`의 `size()` 실패 시 채널 close 추가(S1·테스트 1번).
+  - **수용(중간3)**: 서비스 빈 직접 호출 통합 테스트는 OSIV 인터셉터를 통과하지 않아 "웹 요청 진행 중 커넥션 반환"을 증명하지 못한다 — 타당. `RANDOM_PORT` 실제 웹 요청 + 전송 중 latch로 멈춘 시점에 Hikari `activeConnections` 단언으로 교체하고 구현 첫 단계 스파이크로 배치(테스트 6번·작업 단계 0번·S3 OSIV 주의).
+  - **수용(중간4)**: `loadUnder()`는 부모 디렉터리만 `toRealPath`로 검증하므로 최종 파일 심볼릭 링크는 막지 못한다 — 코드 확인 결과 타당. `open()`은 `NOFOLLOW_LINKS`로 최종 링크를 거부하고 문서 표현을 "부모 경로 검증"으로 한정, 기존 `load()`는 범위 밖이라 후속으로 기록(S1·정찰 7번·테스트 1번·리스크 표).
+  - **수용(낮음5)**: 레이트리밋은 요청 진입 빈도만 제한하며 동시 전송 수·점유 시간은 제한하지 않는다 — 타당(표현이 과장). 비목표·리스크 표 문구 정정. 동시성 제한 추가는 이번 범위에 넣지 않음.
+- **v7 (2026-09-29, codex 리뷰 2차 반영 — needs-attention, 1개 지적 수용, 사용자 결정 불필요)**:
+  - **수용(중간1)**: S5의 "커밋 전이면 HTML 500" 계약은 응답이 이미 오염된(`Content-Length` 설정·`getOutputStream()` 획득·버퍼에 일부 기록) 미커밋 상태에서는 성립하지 않는다 — 타당(내가 "미커밋 = 첫 바이트 전"이라 단정함; Spring 예외 처리 경로는 `Content-Length`를 남기고, `getOutputStream()` 이후 `getWriter()` 렌더링은 `reset()`이 필요). 응답 상태를 3구간으로 구분하고(무손대 구간은 첫 청크를 먼저 읽어 기존 경로 유지 / 오염된 미커밋 구간은 컨트롤러가 `reset()` 후 재던짐 / 커밋 후 구간은 advice 재던짐) 테스트 3번에 두 실패 케이스(출력 스트림 확보 후 첫 읽기 실패, 버퍼 미만 기록 후 flush 없이 읽기 실패)를 추가한다. `reset()` 후 보안 헤더 복원 여부는 실제 Tomcat 테스트로 확인한다.
+- **3차 확인 리뷰(2026-09-29) 결과: ship.** v7 반영으로 새로 생긴 결함이나 결정 간 모순 없음(codex가 저장소 코드 재대조). `reset()` 후 보안 헤더 복원·커밋 후 연결 종료·OSIV 상태의 커넥션 반환은 **아직 실증되지 않은 검증 대상**으로 계획에 명시돼 있으며(테스트 3·6번, 작업 단계 0번 스파이크), 구현 완료 판정에는 이 실증이 필요하다. `plan-review-loop` 3라운드 종료, 승인 단계로 진행.
+- **v8 (2026-09-29, 구현 중 스파이크 결과 반영 — 사용자 결정)**: 승인 후 작업 단계 0(스파이크)을 실행한 결과 **S3의 "전송 중 DB 커넥션 비점유" 전제가 기본 설정에서는 성립하지 않았다.** `OsivConnectionSpikeTest`(실제 웹 요청·`RANDOM_PORT`, 서비스 `@Transactional` 종료 후 컨트롤러가 latch로 대기)에서 OSIV 기본값(true)일 때 Hikari `activeConnections=1`(idle=9, total=10), 환경변수 `SPRING_JPA_OPEN_IN_VIEW=false` 대조 실험에서는 `activeConnections=0`이었다 — 즉 OSIV가 요청 끝까지 JDBC 연결을 붙잡는다(v6에서 "코드만으로 확정 못 함"으로 남겼던 질문의 실측 답). **부수 사실**: 현행 `byte[]` 방식도 응답 본문을 클라이언트에 쓰는 동안 같은 연결을 잡고 있으므로 느린 클라이언트의 풀 점유는 이미 존재하던 문제다(이번 전환이 만든 회귀가 아님). 계획서 S3의 사전 약속대로 구현을 멈추고 사용자에게 보고했으며, **사용자 결정(2026-09-29): 전역 `spring.jpa.open-in-view=false` 채택.** 근거: 대조 실험으로 효과 실증, JPA 연관관계 매핑(`@OneToMany`·`@ManyToOne` 등)이 코드에 없어(주석 1건뿐) 지연 로딩 의존이 있을 가능성이 낮으나 **전역 설정 변경이므로 전체 테스트·실기 검증으로 회귀를 확인한다**(작업 단계 0.5 신규). 테스트 6번은 스파이크 테스트를 실제 다운로드 경로로 확장한 회귀 가드로 확정한다(누가 OSIV를 다시 켜면 실패). `application.yml` 공통 설정 1줄 추가가 이번 범위에 새로 포함된다.
+- **v9 (2026-09-29, 구현 결과 반영)**: 하단 "구현·검증 결과 — 스트리밍 전환" 참조. 구현 중 달라진 결정 — 복사 버퍼 8KB→4KB(S5의 "8KB"는 4KB로 읽는다), 스파이크 테스트를 실서버 통합 테스트에 흡수, advice 재던짐은 Tomcat 결과를 바꾸지 않으나 컨트롤러의 예외 삼킴은 연결을 끊지 못함을 변이 실험으로 확인.
 
 ## Context
 
@@ -326,3 +338,150 @@ CLAUDE.md
 
 - 리스크 표에 기록된 잔여 위험(약한 TOCTOU 보장의 명시적 한계, 무인증 경로 자원 고갈 명시적 수용)은 소규모 포트폴리오 운영 규모를 전제로 이번 범위에서 수용 — 실제 공개 트래픽·적대적 접근이 예상되면 스트리밍(`InputStreamResource`) 전환·레이트리밋 도입을 재검토(로드맵 후속 과제로 기록).
 - 로드맵 "실행 로드맵 Top 3 (2026-07-29 선정)" ②번 완료 → 다음은 ③번(프로필 이미지 Base64-in-DB → FileStorage 이관) 후보로 재평가 가능.
+
+## 후속 작업 — 스트리밍 전환 (2026-09-29)
+
+> 로드맵 근거: `adversarial-review/project-direction-roadmap.md` "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록"의 "무인증 다운로드 경로의 자원 고갈 위험(명시적 수용)" — `/suggestRoadmap`(2026-09-29)으로 선택. 스키마 변경 없음·인가 정책(`SecurityConfig`) 변경 없음·신규 의존성 없음.
+
+### 목표와 비목표
+
+- **목표**: `GET /notices/{id}/attachments/{attachmentId}`가 요청 1건당 파일 전체(최대 10MB)를 힙에 올리지 않고, 고정 크기 버퍼로 디스크→응답으로 흘려보낸다. HEAD는 본문 바이트를 전혀 읽지 않는다. 전송 중에는 DB 커넥션을 점유하지 않는다.
+- **비목표**: 동시 연결 수·디스크 IO·Tomcat 스레드 점유 축소(스트리밍으로 줄지 않는다 — 기존 `cms.rate-limit`은 IP별 **요청 진입 빈도**만 완화할 뿐 진행 중 전송 수·점유 시간의 상한은 보장하지 않으며, 이번 범위에 동시성 제한을 추가하지도 않는다), Range/이어받기 지원(현재도 미지원, 그대로 유지), admin 다운로드·프로필 이미지 경로 변경(`load(byte[])` 유지 — 무관한 변경을 섞지 않는다).
+
+### 정찰 사실 (코드·실험으로 확인)
+
+1. 현재 경로: `PublicNoticeService.downloadPublishedAttachment()`(`@Transactional(readOnly=true)`) → `FileStorage.load()` → `LocalDiskFileStorage.loadUnder()`의 `Files.readAllBytes()` → `PublicNoticeAttachmentDownload(String, byte[])` → `ResponseEntity<byte[]>`. HEAD는 `@GetMapping`의 암묵 처리라 GET과 동일하게 전량 로딩한다.
+2. `FileStorage`의 실제 구현체는 `LocalDiskFileStorage` 하나이며, `LocalDiskFileStorageTest`(`defaultNamespaceMethods_throwUnsupportedOperationException`)에 **익명 구현체**가 있어 인터페이스에 추상 메서드를 추가하면 그 테스트가 컴파일되지 않는다. 그 외 테스트는 `FileStorage`를 Mockito mock/spy로만 쓴다.
+3. 이 프로젝트에 `spring.jpa.open-in-view` 설정이 없다(Boot 기본값 true). 서비스 트랜잭션이 끝나면 커넥션이 풀로 반환되는지는 **구현 시 실측으로 검증한다**(추측 금지 — 아래 테스트 6번).
+4. **Windows 실험(2026-09-29, JDK 17 Corretto, `Files.newByteChannel` + `Channels.newInputStream`)**: 파일을 열고 100바이트를 읽은 뒤 `Files.delete()`를 호출하면 삭제가 성공(`exists=false`)하고, 열린 핸들로 나머지 전량을 정상적으로 끝까지 읽을 수 있었다(`read total=1048576`). 즉 Java NIO의 기본 공유 모드(`FILE_SHARE_DELETE`)에서는 전송 중 관리자 삭제가 삭제 자체를 실패시키지도, 진행 중인 다운로드를 깨뜨리지도 않는다. 리눅스(unlink 시맨틱)도 동일.
+5. Spring MVC의 `AbstractMessageConverterMethodProcessor`는 `Resource` 반환값에 `Range` 헤더가 오면 리전 처리 경로로 들어간다 — `InputStreamResource` **자체**만 제외되고 그 서브클래스는 제외되지 않는다. `ResourceHttpMessageConverter`는 `InputStreamResource`의 Content-Length를 스스로 계산하지 않는다. 즉 "`InputStreamResource` 서브클래스로 `contentLength()` 오버라이드"는 Range 함정이 있다(구현 단계에서 사용 중인 Spring 버전 소스로 재확인한다 — 이 사실은 결정 S2의 근거 중 하나일 뿐 유일한 근거가 아니다).
+6. `PublicWebExceptionAdvice`(`Exception` 폴백, HTML 뷰 반환)는 응답이 이미 커밋된 뒤의 예외를 구분하지 않는다. 스트리밍은 이 상황(본문 전송 중 IO 오류·클라이언트 중단)을 처음으로 정상 경로에 들인다.
+7. (v6, codex 4로 확인) `LocalDiskFileStorage.loadUnder()`의 경로 검증은 **부모 디렉터리**의 `toRealPath`만 검사하며 최종 파일 자체의 심볼릭 링크는 검사하지 않는다.
+8. 테스트 파급: `PublicNoticeControllerTest`(다운로드 5건이 `PublicNoticeAttachmentDownload(String, byte[])` 생성자 사용), `PublicNoticeServiceTest`(다운로드 6건이 `fileStorage.load()` 스텁), `PublicNoticeAttachmentIntegrationTest`(4건, DTO 접근), `LocalDiskFileStorageTest`(익명 구현체). `SecurityConfigTest`·레이트리밋 테스트는 영향 없을 것으로 보이나 구현 시 재확인.
+
+### 핵심 설계 결정
+
+**결정 S1. `FileStorage`에 추상 메서드 `StoredFileStream open(String storageKey)`를 추가한다(네임스페이스 변형 없음).**
+- 선택지: (A) 추상 메서드, (B) 네임스페이스 메서드처럼 `default`로 `UnsupportedOperationException`, (C) 스트림만 반환(크기 별도 조회).
+- **결정: (A)+크기 동봉.** `StoredFileStream`은 `InputStream`과 `long size`를 함께 담는 `Closeable` record다. 이유: (1) `open`은 핵심 읽기 연산이라 "안전한 실패 default"(B)는 구현체가 조용히 미지원인 채 남는 것을 허용해 오히려 나쁘다 — 네임스페이스 default는 "격리가 조용히 깨지는" 위험을 막으려는 특수 사례였다. 실제 구현체가 하나뿐이라 추상 메서드의 비용은 익명 구현체 테스트 1건 수정뿐이다. (2) 크기를 별도 `size()` 조회로 분리하면 stat과 open 사이 파일이 바뀌는 경합이 생기므로, **같은 핸들에서** 크기를 얻어 Content-Length와 실제 바이트 수가 어긋나지 않게 한다(파일은 `CREATE_NEW`로만 쓰여 불변). 네임스페이스 변형은 공개 첨부만 쓰므로 만들지 않는다(요청받지 않은 추상화 금지).
+- `LocalDiskFileStorage.open()`은 `loadUnder()`와 **같은 사전 검증**을 공유한다: 예약 네임스페이스 거부(`isReservedNamespace`), `resolveTarget`(정규화), `realPathOrThrow`+`verifyWithinRoot`. **(v6 정정)** 이 검증이 보장하는 범위는 "최종 파일의 **부모 디렉터리**의 실제 경로가 루트 하위임"까지이며, 최종 파일 자체가 외부를 가리키는 심볼릭 링크인 경우는 막지 못한다(codex 4 — 코드 확인: `loadUnder`는 `target.getParent()`만 `toRealPath`). 따라서 새 `open()`은 채널을 `LinkOption.NOFOLLOW_LINKS`로 열어 **최종 링크를 거부**한다(파일은 항상 `CREATE_NEW`로 만든 일반 파일이라 정상 경로에 영향이 없다; 링크로 인한 open 실패는 `IllegalStateException`(fail-closed 500)). 기존 `load()`의 같은 한계는 이번 범위 밖이라 변경하지 않고 후속으로 기록한다. `NoSuchFileException`→`StorageFileNotFoundException`, 그 외 `IOException`→`IllegalStateException` 계약은 `loadUnder`와 같다. 중복을 피하려고 대상 경로 해석+부모 검증 헬퍼를 추출해 두 메서드가 공유한다.
+- **(v6, 리뷰 2)** 채널 open 성공 후 `size()`가 실패하면 채널을 닫고 예외를 던진다(누수 방지 — 테스트로 검증).
+
+**결정 S2. 스트림 수명은 컨트롤러가 소유한다 — `ResponseEntity`/`Resource`/`StreamingResponseBody`를 쓰지 않고 `HttpServletResponse`에 직접 쓴다.**
+- 선택지: (A) `ResponseEntity<InputStreamResource>`, (B) `StreamingResponseBody`, (C) 컨트롤러가 `try-with-resources`로 `response.getOutputStream()`에 직접 복사.
+- **결정: (C).** 이유: (A)는 정찰 5번의 Range 함정과, 컨버터 선행 경로(예: `Accept` 협상 실패)에서 쓰기 전 예외가 나면 스트림이 닫히지 않을 수 있는 누수 경로가 있다. (B)는 비동기 디스패치로 처리되어 Security·레이트리밋 필터·`PublicWebExceptionAdvice`와의 상호작용(별도 스레드, 재디스패치 시 인증 컨텍스트)이 새 위험원이다. (C)는 close가 코드상 결정적이고, 이 컨트롤러가 이미 쓰는 `response.sendError(404)` 패턴과 일관된다. 반환 타입은 `void`(`HttpServletResponse` 인자가 있으므로 Spring이 뷰 해석을 하지 않는다).
+- 헤더(`Content-Type: application/octet-stream`, `Content-Disposition`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `Content-Length`)는 기존 `toResponse()`와 동일한 값을 응답에 직접 설정한다. `Content-Disposition`은 기존과 같이 `ContentDisposition.attachment().filename(name, UTF_8).build().toString()`을 그대로 써서 CR/LF 인코딩 계약(테스트 10번)을 유지한다.
+
+**결정 S3. (v6 개정) 서비스를 둘로 나눈다 — DB 확인은 트랜잭션 안에서 메타데이터만 반환하고, 파일 열기는 트랜잭션 밖에서 한다.**
+- v5 초안은 `@Transactional` 메서드 안에서 `open()`해 열린 스트림을 반환했다. codex 2가 지적했듯 스트림 반환 **후** 트랜잭션 프록시의 commit이 실패하면 호출자는 DTO를 받지 못해 스트림을 닫을 수 없다(누수 경로). `TransactionTemplate` 대안도 있으나 서비스를 둘로 나누는 쪽이 더 단순하고 구조적으로 누수를 없앤다.
+- `PublicNoticeService`:
+  - `@Transactional(readOnly=true) Optional<PublicNoticeAttachmentRef> findPublishedAttachment(Long noticeId, Long attachmentId)` — 기존과 같은 순서로 (1) notice 공개 조건 재검증 (2) `findByIdAndNoticeId`(IDOR 차단)를 수행하고 `(originalFilename, storageKey)`만 담은 record를 반환한다. 열린 자원이 없으므로 commit 실패가 나도 누수가 없다.
+  - **트랜잭션 없는** `Optional<PublicNoticeAttachmentDownload> openAttachment(PublicNoticeAttachmentRef ref)` — `fileStorage.open()`을 호출하고 `StorageFileNotFoundException`→`Optional.empty()`, 그 외 예외는 전파(500)한다. 컨트롤러가 두 메서드를 순서대로 호출한다(Controller→Service 방향 유지). 기존 단일 메서드 `downloadPublishedAttachment()`는 제거한다.
+  - `PublicNoticeAttachmentRef`는 publicweb 내부용 record이며 `storageKey`를 담으므로 **Model·뷰에 절대 넣지 않는다**(기존 `PublicNoticeAttachment` 뷰 DTO에는 `storageKey` 필드가 없다는 결정 3은 그대로).
+- 이 구조는 (a) 파일을 여는 동안·전송 중에 DB 커넥션을 요구하지 않고(트랜잭션이 이미 끝남), (b) 열린 스트림이 트랜잭션 프록시를 통과하지 않는다. TOCTOU 계약("재검증 SELECT를 실행한 시점의 공개 상태")은 그대로이며, SELECT와 `open()`이 별도 단계로 분리되는 정도의 차이는 이미 수용한 약한 보장 범위 안이다.
+- **소유권 계약**: `openAttachment()`가 반환한 DTO(`Closeable`)를 받은 컨트롤러가 즉시 `try-with-resources`로 닫는다. DTO 반환~try 진입 사이에 예외가 날 수 있는 코드를 두지 않는다.
+- **OSIV 주의(리뷰 3)**: `open-in-view`가 기본값(true)이라 트랜잭션이 끝나도 Hibernate가 요청 끝까지 JDBC 연결을 잡을 수 있는지는 코드만으로 확정하지 못했다(Spring의 `HibernateJpaVendorAdapter`가 연결 처리 모드를 바꾸는지 미확인). 서비스를 나눠도 이 질문은 남으므로 **구현 첫 단계의 스파이크**(테스트 계획 6번)로 실측한다. 연결이 요청 끝까지 잡히는 것으로 판명되면 전송 중 커넥션 점유가 발생하므로 즉시 멈추고 사용자 결정 사항으로 올린다(선택지 예: 전역 `spring.jpa.open-in-view=false`는 다른 화면의 지연 로딩에 영향을 줄 수 있어 별도 영향 조사 필요).
+
+**결정 S4. HEAD는 전용 핸들러로 분리하고, 파일을 열어 크기만 읽은 뒤 즉시 닫는다(바이트 미독).**
+- 선택지: (A) HEAD도 GET 핸들러를 타되 본문 쓰기만 건너뜀, (B) 별도 스토리지 `size()` 조회로 파일을 열지 않음, (C) 전용 HEAD 핸들러가 `open()`→크기→`close()`.
+- **결정: (C).** 이유: (A)는 핸들러 안에서 요청 method로 분기해야 해 읽기 어렵다. (B)는 인터페이스 메서드를 하나 더 만들고 `open()`과 검증 경로를 이중화해 404 판정이 GET/HEAD 간에 어긋날 위험이 있다. (C)는 공개 조건 재검증·IDOR·파일 존재 확인(404)이 GET과 **정확히 같은 코드 경로**(`findPublishedAttachment`→`openAttachment`)를 타고, 힙에 올라가는 바이트가 0이며, 파일 핸들을 잠깐 여닫는 비용(O(1))만 든다. **사용자가 요청한 문구 "HEAD는 파일을 열지 않고 헤더만 응답"과의 차이**: "본문 바이트를 읽지 않는다"로 정의를 조정한다(핸들 open/close는 발생) — 승인 단계에서 별도 고지한다. Spring은 같은 경로에 명시 `HEAD` 매핑이 있으면 GET 핸들러의 암묵 HEAD 처리보다 우선한다(테스트 4번이 실증).
+- HEAD 응답 헤더는 GET과 동일(단, 본문 없음, `Content-Length`는 GET과 같은 값).
+
+**결정 S5. (v6 개정) 응답 시작 후 실패는 컨테이너까지 전파해 연결을 끊는다 — 삼키지 않는다.**
+- v5 초안은 커밋 후 `IOException`을 삼키고 "Content-Length보다 짧게 끝나면 컨테이너가 연결을 닫는다"고 가정했다. codex 1이 지적했듯 이 가정은 검증되지 않았고(Tomcat `IdentityOutputFilter.end()`는 남은 길이를 검사하지 않는다는 지적), 예외를 삼키면 컨테이너에는 정상 완료로 보여 클라이언트가 잘린 파일을 정상으로 받거나 연결 재사용 시 응답 경계가 깨질 수 있다.
+- **결정 (v7 보강 — 응답 상태 3구간을 구분한다)**: "커밋 전 = 첫 바이트 전"이라는 등식은 성립하지 않는다(서블릿 출력 버퍼에 일부를 쓰고도 미커밋일 수 있고, 헤더·`getOutputStream()` 선택 상태·`Content-Length`가 이미 설정된 뒤일 수 있음 — codex 2차).
+  1. **응답 무손대 구간**: 컨트롤러는 응답 헤더·출력 스트림에 손대기 **전에 첫 청크(버퍼 크기 8KB)를 먼저 읽어 둔다.** 이 읽기가 실패하면 응답 상태가 전혀 변하지 않았으므로 예외를 그대로 던져 기존 `PublicWebExceptionAdvice`가 HTML 500 뷰를 반환한다(기존 계약 유지). 빈 파일(크기 0)도 이 단계에서 EOF로 처리한다.
+  2. **미커밋이지만 응답이 오염된 구간**(헤더·`Content-Length` 설정, 출력 스트림 획득, 버퍼에 일부 바이트 기록 후 다음 읽기 실패): 컨트롤러가 IOException을 잡아 `if (!response.isCommitted()) response.reset();`으로 **상태·헤더(`Content-Length` 포함)·버퍼·출력 방식(`getOutputStream` 선택)을 전부 초기화한 뒤** 예외를 재던진다. 그러면 advice가 상태 500 + HTML 뷰를 정상 렌더링한다. `reset()`이 지우는 보안·캐시 헤더(`X-Content-Type-Options`, `Cache-Control` 등)는 Spring Security가 응답 커밋 시점에 다시 쓰도록 되어 있어 복원될 것으로 예상하지만 **추측이므로 실제 Tomcat 테스트로 확인한다**(테스트 3번).
+  3. **커밋 후 구간**: 컨트롤러는 그대로 재던지고, `PublicWebExceptionAdvice.handleUnexpected`가 `response.isCommitted()`이면 뷰를 렌더링하지 않고 **예외를 재던진다**(`throws Exception`) — 예외가 서블릿 컨테이너까지 전파되어 컨테이너가 연결을 중단하도록 한다. **이에 따라 이전 초안의 "`PublicWebExceptionAdvice`는 수정하지 않는다" 제약을 철회한다**(수정 범위는 이 `isCommitted()` 분기 한 곳뿐).
+- 이 전파 경로가 실제로 연결을 끊는지는 **가정하지 않고 실제 Tomcat으로 검증한다**(테스트 계획 3번): 일부 바이트를 전송하고 flush한 뒤 읽기 예외를 내는 스토리지 스텁으로 실제 서버(`RANDOM_PORT`)에 요청해, 클라이언트가 Content-Length 미충족(EOF/예외)을 관찰하고 응답 본문에 HTML이 섞이지 않는지 확인한다. 이 검증이 실패하면(연결이 끊기지 않으면) 명시적 연결 중단 수단을 재설계한다.
+- 클라이언트 중단(`ClientAbortException` 등 연결 끊김)은 정상 운영에서 흔하므로 ERROR 스택트레이스 폭주를 막기 위해 커밋 후 분기에서 WARN 한 줄(요청 경로·예외 클래스)만 남기고 재던진다. 파일명·storageKey·스택트레이스는 남기지 않는다.
+
+**결정 S6. Range·`Accept-Ranges`는 지원하지 않고, 이전 동작과 동일하게 무시한다.** 요청받지 않은 기능이며 스트리밍 전환의 목적(힙 점유 제거)과 무관하다.
+
+**결정 S7. 전송 중 관리자 삭제 경합은 별도 처리 없이 수용한다.** 정찰 4번 실험으로 Windows에서 열린 핸들이 삭제에 영향을 받지 않음을 확인했다(리눅스는 unlink 시맨틱상 동일 — 이 부분은 이 머신에서 실측하지 못했고 CI 러너에서 회귀 테스트가 확인한다). 삭제 트랜잭션의 `afterCommit` 파일 삭제는 그대로 성공하며, 진행 중이던 다운로드는 끝까지 완료된다. 이는 TOCTOU "약한 보장"의 범위 안이다.
+
+**결정 S8. TOCTOU 창 확대를 문서로 명시한다.** 약한 보장 계약("재검증 SELECT를 실행한 시점의 공개 상태")은 그대로이나, 스트리밍에서는 "SELECT 이후~응답 완료 사이" 창이 **전송 시간(느린 클라이언트는 수십 초)만큼** 길어진다. 잘못된 보증으로 읽히지 않도록 `publicweb/notice/CLAUDE.md`와 이 계획서의 리스크 표에 명시한다. 강한 보장(락 유지)을 채택하지 않는 이유(무인증 경로가 관리자 쓰기를 블로킹하는 DoS 표면)는 v2 사용자 확정 그대로다.
+
+### 작업 단계 (의존 방향 안쪽 → 바깥쪽)
+
+0. **스파이크(가장 먼저)**: OSIV 상태의 웹 요청에서 전송 중 커넥션이 반환되는지 실측하는 테스트(아래 6번)를 먼저 작성·실행한다. 결과가 S3 전제를 깨면 이후 단계를 진행하지 않고 사용자에게 보고한다.
+0.5. **(v8) 전역 `spring.jpa.open-in-view: false`** 를 `application.yml` 공통 `spring.jpa` 아래에 추가하고(주석으로 이유·근거 기록), 전체 테스트와 화면 실기 검증으로 지연 로딩 회귀를 확인한다. 스파이크 테스트는 OSIV를 켜 두면 실패하는 회귀 가드로 남긴다(최종 형태는 테스트 6번).
+1. `common/storage`: `StoredFileStream` record 신설, `FileStorage.open()` 추가·javadoc 갱신(기존 "스트리밍 관용구가 없어 byte[] 기반" 문구 정정), `LocalDiskFileStorage`에 `open()` 구현 + `loadUnder()`와 검증 헬퍼 공유.
+2. `publicweb/notice/dto/PublicNoticeAttachmentDownload`: `(String originalFilename, long contentLength, InputStream content)` + `Closeable`.
+3. `PublicNoticeService`: `findPublishedAttachment()`(트랜잭션, 메타데이터만)와 `openAttachment()`(트랜잭션 없음) 2분할, `PublicNoticeAttachmentRef` 신설, 기존 `downloadPublishedAttachment()` 제거.
+4. `PublicNoticeController`: 다운로드를 직접 쓰기(`void`)로 전환, HEAD 전용 핸들러 추가. `PublicWebExceptionAdvice`: 응답 커밋 후에는 뷰를 렌더링하지 않고 재던지는 분기 추가.
+5. 테스트 갱신·추가(아래), 익명 `FileStorage` 구현체 수정.
+6. 문서: `publicweb/notice/CLAUDE.md`·루트 `CLAUDE.md` 해당 문구, 이 계획서 "구현·검증 결과" 갱신, `plan/README.md` 표기.
+
+### 테스트 계획
+
+1. `LocalDiskFileStorageTest`: `store`→`open` 왕복(스트림 전량 읽기 = 원본 바이트, `size` = 원본 길이); 없는 키 → `StorageFileNotFoundException`; 경로 탈출(`../`)·부모 디렉터리 심볼릭 링크 탈출·예약 네임스페이스(`profile/...`) 키는 `open`에서도 거부(기존 `load` 거부 테스트와 대칭); **(v6, 리뷰 4)** 최종 파일이 외부를 가리키는 심볼릭 링크이면 `open`이 거부(Windows 등 심볼릭 링크 생성 권한이 없으면 기존 테스트처럼 `assumeTrue`로 건너뜀); **(v6, 리뷰 2)** `size()` 실패 시 채널이 닫힘(닫힘 여부를 관측할 수 있는 채널 스텁 또는 패키지 접근 헬퍼로 검증); **열린 상태에서 `delete` 후에도 남은 바이트를 끝까지 읽을 수 있다**(정찰 4번을 회귀 테스트로 고정); 익명 `FileStorage` 구현체에 `open` 추가.
+2. `PublicNoticeServiceTest`: 기존 다운로드 6건을 `findPublishedAttachment`/`openAttachment` 2단계로 전환(성공·비공개 notice·타 notice·호출 순서·`StorageFileNotFoundException`→empty·기타 예외 전파). 호출 순서 테스트는 "notice 재검증 → 첨부 조회 → (별도 호출) `open`"을 계속 고정하고, `findPublishedAttachment`는 파일 스토리지를 전혀 호출하지 않음을 검증한다.
+3. `PublicNoticeControllerTest`(MockMvc 슬라이스): 기존 다운로드 계약(헤더 4종·404·비숫자 404·서비스 예외 HTML 500·CR/LF 인코딩) 유지 + `Content-Length` 헤더 = DTO의 `contentLength`; 본문 전송 후 스트림이 close됨; 첫 바이트 전 읽기 실패 시 HTML 500·스트림 close. **(v6, 리뷰 1) 커밋 후 실패는 MockMvc가 아니라 실제 Tomcat으로 검증한다**: 신규 `@SpringBootTest(webEnvironment=RANDOM_PORT)` 통합 테스트에서 `FileStorage`를 "N바이트 전송 후 예외"를 내는 스텁 스트림으로 바꾸고 실제 HTTP 클라이언트로 요청해 (a) 클라이언트가 선언된 Content-Length 미충족(연결 종료/예외)을 관찰하고 (b) 수신 바이트에 HTML 에러 페이지가 섞이지 않았으며 (c) 스트림이 close됨을 단언한다. 이 테스트는 연결 재사용(같은 커넥션으로 이어지는 후속 요청)이 깨지지 않는지도 확인한다. **(v7, codex 2차) 미커밋 구간 실패 두 케이스를 같은 실서버 테스트에 추가한다**: (i) 첫 청크 읽기 실패(응답 무손대 → 기존 HTML 500), (ii) 첫 청크 이후 버퍼 미만만 기록하고 flush 없이 다음 읽기 실패(오염된 미커밋 → `reset()` 후 HTML 500). 두 경우 모두 응답이 완전한 HTML 500이고, 첨부파일 `Content-Length`가 남아 있지 않으며, 보안·캐시 헤더(`X-Content-Type-Options`·`Cache-Control`)가 복원돼 있고, 입력 스트림이 close됨을 확인한다. MockMvc 슬라이스에서도 (i)(ii)를 `MockHttpServletResponse.reset()` 기준으로 같이 확인한다.
+4. HEAD: `head("/notices/1/attachments/7")`이 200·GET과 같은 `Content-Length`·본문 0바이트·스트림 `close`(읽기 0회)를 확인; HEAD의 404(empty)도 GET과 동일.
+5. `PublicNoticeAttachmentIntegrationTest`(Testcontainers): 기존 4개 시나리오를 2단계 API로 전환(성공 시 스트림 내용·`contentLength` 확인 후 close).
+6. **(v6, 리뷰 3) 커넥션 비점유 실측(스파이크)**: 서비스 빈 직접 호출이 아니라 **실제 웹 요청**(`RANDOM_PORT`, OSIV 인터셉터 포함)으로 검증한다. `FileStorage`를 "일부 바이트 전송 후 latch로 대기"하는 스텁 스트림으로 바꾸고, 전송이 latch에서 멈춘 시점(응답 완료 전)에 Hikari `HikariPoolMXBean.getActiveConnections() == 0`을 단언한다. 테스트 자체가 외부 트랜잭션·추가 DB 작업으로 풀 수치를 오염시키지 않도록 데이터 준비를 요청 시작 **전에** 끝내고, 단언 직전 다른 DB 접근이 없음을 보장한다. 실패 시 S3의 OSIV 주의 절차를 따른다.
+7. `SecurityConfigTest`·레이트리밋 테스트가 영향받지 않는지 전체 스위트로 확인(변경 없음이 기대).
+
+### 리스크 (v5 추가·정정)
+
+| 리스크 | 대응 |
+|---|---|
+| **(v5, v6 개정)** 스트림 close 누락 → 파일 핸들 누수(무인증 경로라 누적 시 fd 고갈) | 결정 S2·S3 — 트랜잭션 프록시 밖에서 `open()`하므로 commit 실패 누수 경로가 구조적으로 없고, 컨트롤러 `try-with-resources` 단일 소유. `open()` 내부 `size()` 실패 시 채널 close(테스트 1번). 테스트 3·4번이 close를 검증 |
+| **(v5)** 트랜잭션 종료 후에도 커넥션이 반환되지 않으면 느린 클라이언트가 풀을 고갈(스트리밍이 기존보다 **나빠짐**) | 결정 S3 — 통합 테스트 6번이 실측으로 증명. 실패 시 설계 재검토(서비스 메서드 분리 등) |
+| **(v5)** TOCTOU 창이 전송 시간만큼 확대 | 결정 S8 — 문서 명시. 약한 보장 계약 자체는 불변 |
+| **(v5, v6 개정)** 본문 전송 중 오류로 잘린 파일이 정상 응답처럼 전달될 수 있음 | 결정 S5 — 예외를 삼키지 않고 컨테이너까지 전파(`PublicWebExceptionAdvice`가 커밋 후에는 재던짐). 연결 종료·HTML 미첨가·연결 재사용 무결성을 실제 Tomcat 통합 테스트(테스트 3번)로 검증 |
+| **(v5)** HEAD도 파일 핸들을 잠깐 연다 | 결정 S4 — 힙 0바이트·O(1). 사용자 문구("열지 않고")와의 차이는 승인 단계에서 고지 |
+| 기존 리스크 "무인증 경로 `byte[]` 전량 로딩으로 인한 자원 고갈" | **본 작업으로 힙 점유 해소.** 동시 연결·디스크 IO·Tomcat 스레드 점유는 그대로이며, 기존 레이트리밋은 요청 진입 빈도만 완화할 뿐 동시 전송 수·점유 시간 상한은 보장하지 않는다(codex 5) — 이번 범위에서 동시성 제한은 추가하지 않는다 |
+| **(v6)** `open()`이 기존 `load()`와 달리 최종 심볼릭 링크를 거부(`NOFOLLOW_LINKS`) — 두 메서드의 검증 강도가 다름 | 의도된 차이. 기존 `load()`의 부모 경로만 검증하는 한계는 이번 범위 밖이라 후속으로 기록(정상 경로는 일반 파일만 생성) |
+
+## 구현·검증 결과 — 스트리밍 전환 (2026-09-29)
+
+### 핵심 확정 사항
+
+계획서 v8까지의 설계를 구현했다. 구현·검증 중 **계획과 달라지거나 새로 확정된 것**:
+
+1. **전역 `spring.jpa.open-in-view: false` 채택**(v8, 사용자 결정) — 스파이크가 "전송 중 커넥션 비점유" 전제가 기본 설정에서 깨짐을 실측했다(OSIV 켬: 요청 진행 중 `activeConnections=1`, 끔: 0). 현행 `byte[]` 방식도 같은 이유로 응답 쓰는 동안 커넥션을 잡고 있었으므로 이번 전환이 만든 회귀가 아니라 기존 문제였다.
+2. **복사 버퍼를 8KB가 아니라 4KB로 확정** — 계획서 S5는 "첫 청크(버퍼 크기 8KB)"로 적었으나, `MockHttpServletResponse` 버퍼(4KB)가 8KB 첫 청크로 이미 "커밋됨"이 되어 "미커밋이지만 오염" 구간 테스트가 성립하지 않았다. Tomcat 출력 버퍼(8KB)보다 작게 잡으면 첫 청크 직후가 컨테이너와 무관하게 항상 미커밋이 되어 구간이 결정적이다(계획서 S5의 "8KB" 표기는 4KB로 읽는다).
+3. **스파이크 테스트를 별도 유지하지 않고 실서버 통합 테스트에 흡수** — `OsivConnectionGuardTest`(스파이크에서 개명)를 삭제하고 `PublicAttachmentStreamingServerTest`의 "전송 중 활성 커넥션 0" 테스트가 실제 다운로드 경로로 대체했다(중복 제거).
+4. **`PublicWebExceptionAdvice`의 커밋 후 재던짐은 Tomcat 결과를 바꾸지 않는다**(변이 실험) — 재던짐을 제거해도 실서버 테스트가 통과했다(뷰 렌더링이 `getOutputStream()` 이후 `getWriter()` 충돌로 예외를 내 결과적으로 연결이 끊김). 반면 **컨트롤러가 IOException을 삼키면 Tomcat이 연결을 끊지 않아 클라이언트가 무한정 대기**함을 변이 실험으로 실측했다(codex 1차 지적 실증). advice 재던짐은 그 우발적 경로에 기대지 않는 명시적 경로이며 MockMvc 테스트가 고정한다.
+
+### 구현 파일
+
+**신규**
+- `src/main/java/com/cms/common/storage/StoredFileStream.java` — 스트림 + 같은 핸들에서 읽은 크기, `Closeable`
+- `src/main/java/com/cms/publicweb/notice/dto/PublicNoticeAttachmentRef.java` — 공개 조건 통과 후 파일 참조(`storageKey` 포함, Model 금지)
+- `src/test/java/com/cms/publicweb/notice/PublicAttachmentStreamingServerTest.java` — 실제 Tomcat·OSIV·DB, 5개 테스트
+
+**수정**
+- `FileStorage`(`open()` 추상 메서드 추가, javadoc 정정), `LocalDiskFileStorage`(`open()` 구현: `NOFOLLOW_LINKS`, 크기 조회 실패 시 채널 close, `loadUnder`와 사전 검증 헬퍼 공유)
+- `PublicNoticeService`(`findPublishedAttachment()` 트랜잭션 / `openAttachment()` 트랜잭션 없음으로 2분할, 기존 `downloadPublishedAttachment()` 제거), `PublicNoticeAttachmentDownload`(스트림형 `Closeable`)
+- `PublicNoticeController`(직접 스트리밍, HEAD 전용 핸들러, 응답 상태 3구간 처리, 4KB 버퍼), `PublicWebExceptionAdvice`(커밋 후 재던짐)
+- `application.yml`(`spring.jpa.open-in-view: false`)
+- 테스트: `LocalDiskFileStorageTest`(open 9건 추가, 익명 구현체 수정), `PublicNoticeServiceTest`(2단계 API로 전환), `PublicNoticeControllerTest`(스트리밍 계약 16건으로 재작성), `PublicNoticeAttachmentIntegrationTest`(2단계 API로 전환)
+- 문서: `CLAUDE.md`, `com.cms.publicweb.notice/CLAUDE.md`, `plan/README.md`, `docs/troubleshooting.md`
+- 스키마 변경 없음, `SecurityConfig` 변경 없음, 신규 의존성 없음.
+
+### 검증 결과
+
+- `SPRING_PROFILES_ACTIVE=dev ./gradlew test` 전체: **813개, 실패·에러 0, 스킵 3**(전부 Windows에서 심볼릭 링크를 만들 수 없어 `assumeTrue`로 건너뜀 — 기존 1건 + 신규 2건).
+- **변이 실험으로 테스트가 실제로 결함을 잡는지 확인**: (a) OSIV 재활성 → "전송 중 활성 커넥션" 테스트가 `expected: 0 but was: 1`로 실패 (b) 컨트롤러가 전송 중 예외를 삼킴 → 실서버 테스트 2건 실패(클라이언트 대기 타임아웃, 500 대신 200) (c) advice 재던짐 제거 → MockMvc 테스트 실패(위 4번). 실험 후 원복 확인(`MUTATION` 문자열 0건).
+- **실기 검증**(`bootRun --server.port=8099`, 사용자 dev 스택 8080 미간섭, dev DB 공유): 관리자 로그인 → 공지 1건·첨부 2건(27B·10MB 무작위) 생성 → 비로그인 상태에서 curl·브라우저로 확인:
+  - 27B·10MB 모두 200, `Content-Length` 정확, 다운로드 sha256이 업로드 원본과 일치, 10MB를 0.09초에 수신. 헤더 `application/octet-stream`·`nosniff`·`no-store`·`Content-Disposition` 유지.
+  - HEAD: 200·같은 `Content-Length`·본문 0바이트. `Range` 헤더는 이전처럼 무시(200 전체).
+  - 404 계열(없는 첨부·없는 notice·비숫자·타 notice) 전부 동일한 HTML 404, HEAD 404, 비인증 POST 403.
+  - `useYn=false` 전환 후 GET·HEAD·상세 모두 404, 재공개 후 200. 실파일을 옮기면 GET·HEAD 404, 복원 후 200.
+  - **느린 클라이언트 12개(`--limit-rate 300k`, 풀 크기 10 초과)가 10MB를 전송 중인 동안 DB 조회 요청(`/notices`, `/admin`)이 12~57ms로 정상 응답**했고 12개 모두 200·10,485,760바이트를 완주.
+  - 브라우저(Playwright): 공개 상세에서 첨부 링크 클릭 → 실제 다운로드, sha256 일치. 관리자 대시보드·공지 관리(상세 모달의 첨부 목록 포함)·회원 관리·메뉴 관리·활동 로그·내 정보 화면이 `open-in-view=false`에서도 정상 렌더링, 콘솔 오류 0(favicon 404 제외 — 기존 사안), 서버 로그에 `ERROR`·`LazyInitializationException` 없음. 스크린샷 4장: `screenshots/streaming-admin-dashboard.png`·`streaming-admin-notice.png`·`streaming-admin-notice-detail.png`·`streaming-admin-member.png`·`streaming-public-detail.png`.
+  - 검증 후 dev DB 원복: 첨부 2건·공지 1건 삭제(공지는 소프트 삭제 후 직접 행 제거 — 총 9건으로 복귀), 실파일 제거 확인. 관리자 행위 감사 로그·방문 기록은 남김(정상 부수효과).
+
+### 이슈
+
+- **검증하지 못한 것**: 심볼릭 링크 관련 테스트 3건(최종 파일 링크 거부 포함)은 이 Windows 환경에서 링크를 만들 수 없어 실행되지 않았다 — Linux CI에서 처음 실행된다. `NOFOLLOW_LINKS` 동작은 코드상 근거뿐이며 이 머신에서는 실증하지 못했다. 열린 핸들 삭제 실험도 Windows에서만 실측했다.
+- **알려진 잔여 사항(범위 밖)**: 기존 `load()`는 최종 파일 자체가 링크인 경우를 막지 못한다(부모 디렉터리만 검증) — 후속. 동시 연결·디스크 IO·Tomcat 스레드 점유의 상한은 없다(`cms.rate-limit`은 진입 빈도만 완화).
+- `open-in-view=false`는 전역 설정이라 지연 로딩 의존이 새로 생기면 `LazyInitializationException`이 난다 — 현재 엔티티에는 연관관계 매핑이 없다.
+
+### 후속
+
+- 기존 `LocalDiskFileStorage.load()`에도 최종 링크 거부를 적용할지 검토.
+- 실제 공개 트래픽·적대적 접근이 예상되면 동시 전송 수 상한(예: 진행 중 다운로드 세마포어) 검토 — 로드맵 "후속 과제 — ② 공개 첨부 다운로드" 항목 갱신은 `/updateRoadmap` 담당.

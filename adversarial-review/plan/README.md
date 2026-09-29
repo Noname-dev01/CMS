@@ -25,6 +25,7 @@
 | 13 | ✅ **완료 (2026-09-22)** [PLAN-password-policy-unification.md](PLAN-password-policy-unification.md) — 관리자 비밀번호 검증 정책 통일 + 이메일 정규화·길이 정합 (로드맵 2026-09-05 선정 Top 5 ①, 외부 기술 감사 H-01·M-07) | security/fix | 없음 | 승인 완료(신규 의존성 없음, 스키마·인가 정책 변경 없음 — 비밀번호 최소 길이(15코드포인트)·72바이트 처리 방식·부트스트랩 이메일 정규화 포함 여부 3건 사용자 협의) |
 | 15 | ✅ **구현 완료 (2026-09-29, 커밋·PR 전)** [PLAN-default-deny-authorization.md](PLAN-default-deny-authorization.md) — SecurityConfig 기본 거부 전환 (로드맵 "우선순위에서 밀린 감사 항목" M-08) | security | 없음 | 승인 완료 (2026-09-29, `anyRequest().permitAll()` → `denyAll()` + ERROR 디스패치·정적 리소스 명시 공개 — 인가 정책 변경, 스키마·의존성 변경 없음) |
 | 16 | ✅ **완료 (2026-09-29, #47 · 필수 체크 `prod-smoke` 등록까지 확인)** [PLAN-ci-prod-gates.md](PLAN-ci-prod-gates.md) — CI 배포 게이트 확장: prod 기동 스모크·백업복구 왕복·이미지 스캔·digest 고정 (로드맵 "우선순위에서 밀린 감사 항목" M-06) | infra/ci | 취약 의존성 상향 PR #46 머지(2026-09-29 해소) | 승인 완료 (2026-09-29, 스키마·인가 정책·앱 코드 변경 없음, 백업/복구 스크립트는 이미지 참조 리터럴만 치환, CI 도구(Trivy 액션·Dependabot) 추가) |
+| 17 | ✅ **구현 완료 (2026-09-29, 커밋·PR 전)** [PLAN-public-notice-attachment.md](PLAN-public-notice-attachment.md) "후속 작업 — 스트리밍 전환" — 공개 첨부 다운로드 byte[] 전량 로딩 → 스트리밍 (로드맵 "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록"의 자원 고갈 위험) | refactor/infra | 10번 완료 필수 | 승인 완료(스키마·인가 정책·신규 의존성 변경 없음; 전역 `open-in-view=false` 설정 1줄은 스파이크 결과에 따라 사용자 결정) |
 | 14 | [PLAN-audit-log-integrity.md](PLAN-audit-log-integrity.md) — 감사 로그 신뢰성 강화: IP 위조 차단 + 커밋 순서 보장 (로드맵 2026-09-05 선정 Top 5 ③, 외부 기술 감사 H-03·M-01) | security/fix | 없음 | 불필요(신규 의존성 없음, 스키마·인가 정책 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)
