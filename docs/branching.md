@@ -57,7 +57,11 @@ git switch master && git pull
 
 ## CI
 
-PR을 열면 GitHub Actions(`ci.yml`)가 자동으로 `./gradlew test`를 실행한다.  
+PR을 열면 GitHub Actions(`ci.yml`)가 두 job을 병렬로 실행한다.
+
+- `test`: `./gradlew test`
+- `prod-smoke`: prod 이미지 빌드·기동·보안 응답 검증, 백업·복구 왕복, 이미지 취약점 스캔(상세: `docs/deployment.md` "CI 배포 게이트")
+
 CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고).
 
 ---
@@ -67,7 +71,7 @@ CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고
 `Settings → Branches → master` 에서 아래를 활성화한다.
 
 - Require a pull request before merging
-- Require status checks to pass → `test` (CI job 이름)
+- Require status checks to pass → `test`, `prod-smoke` (CI job 이름) — `prod-smoke`는 이 설정을 추가해야 머지 차단 게이트로 작동한다(설정 전에는 실패해도 머지가 막히지 않는다)
 - Include administrators (관리자도 규칙 적용)
 
 ---

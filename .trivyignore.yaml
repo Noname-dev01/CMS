@@ -1,0 +1,15 @@
+# Trivy 예외 목록 — prod 이미지 스캔(.github/workflows/ci.yml prod-smoke) 전용.
+# 계획: adversarial-review/plan/PLAN-ci-prod-gates.md 쟁점 3 (M-06)
+#
+# 규칙: 예외는 "왜 지금 못 고치는가"와 책임자를 statement에 적고, expired_at으로
+# 반드시 만료일을 둔다 — 만료되면 Trivy가 예외를 무시하므로 다시 CI가 실패해 재평가된다.
+# paths로 적용 범위(패키지·파일)를 좁힌다. 근거 없는 광범위 예외 금지.
+#
+# 항목 형식(예):
+# vulnerabilities:
+#   - id: CVE-YYYY-NNNNN
+#     paths:
+#       - "app/app.jar"
+#     statement: "사유 — 수정 버전 미배포/영향 없음 근거, 책임자: <이름>"
+#     expired_at: 2026-12-31
+vulnerabilities: []
