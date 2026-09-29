@@ -24,6 +24,7 @@
 | 12 | ✅ **완료 (2026-08-10)** [PLAN-profile-image-storage.md](PLAN-profile-image-storage.md) — 프로필 이미지 Base64-in-DB → FileStorage 이관 (로드맵 2026-07-29 선정 Top 3 ③) | feat/refactor | 없음(FileStorage 도입으로 선행 조건 해소됨) | 승인 완료(신규 의존성 없음, 스키마 변경(V11), 인가 정책 변경 없음 — SecurityConfig 무수정) |
 | 13 | ✅ **완료 (2026-09-22)** [PLAN-password-policy-unification.md](PLAN-password-policy-unification.md) — 관리자 비밀번호 검증 정책 통일 + 이메일 정규화·길이 정합 (로드맵 2026-09-05 선정 Top 5 ①, 외부 기술 감사 H-01·M-07) | security/fix | 없음 | 승인 완료(신규 의존성 없음, 스키마·인가 정책 변경 없음 — 비밀번호 최소 길이(15코드포인트)·72바이트 처리 방식·부트스트랩 이메일 정규화 포함 여부 3건 사용자 협의) |
 | 15 | ✅ **구현 완료 (2026-09-29, 커밋·PR 전)** [PLAN-default-deny-authorization.md](PLAN-default-deny-authorization.md) — SecurityConfig 기본 거부 전환 (로드맵 "우선순위에서 밀린 감사 항목" M-08) | security | 없음 | 승인 완료 (2026-09-29, `anyRequest().permitAll()` → `denyAll()` + ERROR 디스패치·정적 리소스 명시 공개 — 인가 정책 변경, 스키마·의존성 변경 없음) |
+| 16 | **구현 중 (2026-09-29, 실 CI 확인 전)** [PLAN-ci-prod-gates.md](PLAN-ci-prod-gates.md) — CI 배포 게이트 확장: prod 기동 스모크·백업복구 왕복·이미지 스캔·digest 고정 (로드맵 "우선순위에서 밀린 감사 항목" M-06) | infra/ci | 취약 의존성 상향 PR(`security/bump-tomcat-jackson`) 머지 필요 | 승인 완료 (2026-09-29, 스키마·인가 정책·앱 코드 변경 없음, 백업/복구 스크립트는 이미지 참조 리터럴만 치환, CI 도구(Trivy 액션·Dependabot) 추가) |
 | 14 | [PLAN-audit-log-integrity.md](PLAN-audit-log-integrity.md) — 감사 로그 신뢰성 강화: IP 위조 차단 + 커밋 순서 보장 (로드맵 2026-09-05 선정 Top 5 ③, 외부 기술 감사 H-03·M-01) | security/fix | 없음 | 불필요(신규 의존성 없음, 스키마·인가 정책 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)

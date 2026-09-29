@@ -295,10 +295,29 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 **`docs/verification/deployment-edge.md`의 체크리스트는 전부 "미검증(ingress 미확정)"으로 남아 있다.** 이 문서화 작업의 완료는 로드맵 "후속 과제 — ① 실배포 인프라"(nginx·TLS 인증서·실제 호스팅·CD 파이프라인까지 포함) 항목 자체의 완료를 의미하지 않는다 — 그 항목은 실제 ingress가 구축·검증돼야 완료된다.
 
+## CI 배포 게이트 (감사 M-06, adversarial-review/plan/PLAN-ci-prod-gates.md)
+
+`.github/workflows/ci.yml`의 `prod-smoke` job이 `test` job과 병렬로 다음을 자동 검증한다. 머지 차단은 저장소 브랜치 보호에 `prod-smoke`를 **필수 체크로 등록**해야 성립한다(`docs/branching.md`, 사용자 설정).
+
+- **이미지 참조 검사**(`scripts/ci/check-image-refs.sh`): `mariadb`·`eclipse-temurin` 참조가 전부 digest로 고정돼 있고 mariadb 참조의 sha256이 모두 같은지 확인.
+- **스모크**(`scripts/ci/prod-smoke.sh`): 실제 `prod-up.sh`로 이미지 빌드·기동 → health 200 → `/admin/login` 200 → Actuator 대표 3경로(`env`·`beans`·`metrics`)가 무인증 302→`/admin/login`, ADMIN 인증 403 → ADMIN 로그인 후 `/swagger-ui.html`·`/v3/api-docs` 404. 증명 범위는 이 열거 항목뿐이며 `/actuator/**` 전체가 아니다.
+- **백업·복구 왕복**(`scripts/ci/prod-backup-restore-roundtrip.sh`): quiesced 백업 → DB 행·볼륨 파일 변경(복구 직전 변경 반영 단언) → 잘못된 DB 이름 입력이 "입력 불일치" 사유로 거절되고 상태 불변 → 실제 복구 → DB 행·sha256·소유권 `10001:10001` 복원, 백업 이후 추가분 소멸. `recovery-drill.md`의 수동 drill(앱 레벨 첨부 조회)을 대체하지 않는다.
+- **이미지 스캔**(Trivy, 빌드된 `cms-prod-app`): 수정판 있는 HIGH/CRITICAL이면 실패. OS 레이어와 fat jar 내부 라이브러리를 모두 본다. 예외는 `.trivyignore.yaml`의 `statement`·`expired_at`·`paths`로만 두며 만료되면 다시 실패한다.
+
+**로컬 재현**: 스크립트는 고정 이름의 `cms-*-prod` 컨테이너·`cms_*_prod` 볼륨·`.env.prod`를 만들고 지운다. 폐기 가능한 Docker 환경에서만 실행하며 `CMS_CI_DISPOSABLE_DOCKER=1 bash scripts/ci/prod-smoke.sh`로 시작한다. 기존 `.env.prod`·prod 컨테이너·볼륨이 있거나 127.0.0.1:8080이 사용 중이면 아무 변경 없이 중단한다(dev 스택이 8080을 쓰고 있으면 먼저 정지해야 한다).
+
+### 이미지 digest 갱신
+
+이미지는 `image:tag@sha256:...`(Dockerfile 2, compose 2, `prod-backup.sh`·`prod-restore.sh`)로 고정돼 있고 테스트 컨테이너(`MariaDbContainerSupport`)만 Testcontainers/Spring Boot 이름 검증 제약으로 `mariadb@sha256:...`(태그 없음)를 쓴다. Dependabot(`.github/dependabot.yml`)이 Dockerfile·compose의 digest 갱신 PR을 만들지만 **스크립트·Java 리터럴은 추적하지 못한다** — 그 PR에서 나머지 mariadb 참조를 같은 digest로 직접 맞춰야 하며, 어긋나면 `check-image-refs.sh`가 CI를 실패시킨다. 새 digest는 `docker buildx imagetools inspect <image:tag>`로 조회한다.
+
+### 스캔 실패 시 절차
+
+새 CVE가 공개돼 `prod-smoke`가 빨개지면 (1) 수정 버전으로 상향, (2) 불가하면 `.trivyignore.yaml`에 CVE ID·`paths`·사유·책임자·`expired_at`을 적어 예외 처리한다. 예외 없이 우회하려면 필수 체크 설정을 임시 해제하는 방법뿐이며, 그 사실을 PR에 기록한다. Spring Boot BOM이 관리하는 라이브러리는 `build.gradle`의 `ext['tomcat.version']`·`ext['jackson-bom.version']` 오버라이드로 올리며(Boot가 이 버전 이상을 관리하게 되면 제거), 현재 값과 사유는 해당 파일 주석에 있다.
+
 ## 알려진 제약
 
 - `GET /swagger-ui.html`·`/v3/api-docs`는 springdoc 비활성 시(prod) 핸들러가 등록되지 않는다. `/admin/api/**` 밖 경로라 `GlobalApiExceptionHandler.API_MATCHER`에 걸리지 않고 `CustomErrorController`의 일반 HTML 404(`error/404.html`)로 응답한다(2026-08-06 `7c64307` #26로 해결됨 — 이전에는 500이었다. 상세는 `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조).
-- 이 문서의 절차는 로컬/서버에서 사람이 직접 실행하는 것을 전제로 한다(`prod-up.sh`는 호스트 `curl`이 필요) — CI에 그대로 재사용할 계획은 없다.
+- 이 문서의 절차는 로컬/서버에서 사람이 직접 실행하는 것을 전제로 한다(`prod-up.sh`는 호스트 `curl`이 필요). 단 CI의 `prod-smoke` job은 `scripts/ci/`의 래퍼로 `prod-up.sh`·`prod-backup.sh`·`prod-restore.sh`를 폐기 가능한 러너에서 그대로 호출해 검증한다(아래 "CI 배포 게이트" 참조).
 - **백업은 오프사이트 보관을 포함하지 않는다** — 같은 호스트 디스크에만 있는 백업은 디스크 전체 손실을 막지 못한다(범위 밖, 후속 과제로 로드맵에 기록 예정).
 - **파일 복구가 중단되면 이전 상태·빈 상태·일부만 새 데이터로 교체된 혼합 상태 중 하나로 남을 수 있다** — 볼륨 내부 스테이징 후 최상위 항목 단위로 교체하는 방식이라 완전한 원자성은 아니다. 이 경우 `scripts/prod-restore.sh`의 트랩이 앱을 정지 상태로 유지하고 복구 직전 안전 백업 경로를 안내한다.
 - **`_CMS_BACKUP_INTERNAL_CALL` 환경변수를 수동으로 설정하면 잠금·보존 정리를 우회할 수 있다** — 단일 신뢰 운영자가 로컬에서 수동 실행하는 도구라는 위협 모델을 전제로 문서화된 제약으로만 남긴다(직접 설정하지 않는다).
