@@ -6,7 +6,7 @@ name: cms-prod
 
 services:
   db:
-    image: mariadb:10.11
+    image: mariadb:10.11@sha256:7f22313fc130a377a44999965bcb0a08dd5b21e8502824c1b864f792f9bc66ab
     container_name: cms-db-prod
     restart: unless-stopped
     environment:
