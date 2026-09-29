@@ -1,6 +1,7 @@
 package com.cms.config;
 
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
+import jakarta.servlet.DispatcherType;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import com.cms.config.ratelimit.RateLimitFilter;
 import com.cms.config.security.AdminSessionExpiredStrategy;
@@ -38,6 +39,9 @@ public class SecurityConfig {
     private static final LoginUrlAuthenticationEntryPoint LOGIN_ENTRY_POINT = new LoginUrlAuthenticationEntryPoint("/admin/login");
     private static final AccessDeniedHandlerImpl DEFAULT_ACCESS_DENIED_HANDLER = new AccessDeniedHandlerImpl();
 
+    /** 무인증 공개 정적 리소스 경로. 테스트가 이 값과 static/ 디렉터리·컨트롤러 매핑의 일치를 검증한다. */
+    static final String[] STATIC_PUBLIC_PATHS = {"/css/**", "/js/**", "/img/**", "/vendor/**", "/favicon.ico"};
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            VisitLoggingAuthenticationSuccessHandler successHandler,
@@ -46,6 +50,11 @@ public class SecurityConfig {
                                            RateLimitFilter rateLimitFilter) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> auth
+                        // 컨테이너의 오류 재디스패치(sendError → /error)만 허용한다. 기본 거부(아래 anyRequest)에서
+                        // 이 규칙이 없으면 404·429·403 오류 페이지가 로그인 리다이렉트로 뒤바뀐다. `/error` URL 자체는
+                        // 공개하지 않는다 — 직접 요청(REQUEST 디스패치)은 기본 거부에 걸린다.
+                        // 반드시 맨 앞에 둔다 (PLAN-default-deny-authorization.md 결정 2, 2026-09-29 승인).
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/admin/login", "/admin/login-error").permitAll()
                         // 비밀번호 재설정 — 비로그인 사용자의 유일한 복구 경로 (2026-07-13 인가 정책 변경 승인)
                         .requestMatchers("/admin/password-reset", "/admin/password-reset/confirm").permitAll()
@@ -72,7 +81,16 @@ public class SecurityConfig {
                         // 뚫리지 않게 한다(PLAN-prod-profile.md 결정 3, 2026-07-29 승인).
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/actuator/**").denyAll()
-                        .anyRequest().permitAll()
+                        // 정적 리소스 — 4개 접두사는 정적 전용 예약 경로다(컨트롤러 매핑 금지, 테스트가 강제).
+                        // 접두사 permit은 핸들러 종류를 가리지 않으므로 GET/HEAD로 한정한다.
+                        // /favicon.ico는 파일이 없어도 열어 둬 기존 404를 보존한다(거부하면 브라우저가
+                        // 로그인 페이지 HTML을 아이콘으로 받아간다).
+                        .requestMatchers(HttpMethod.GET, STATIC_PUBLIC_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.HEAD, STATIC_PUBLIC_PATHS).permitAll()
+                        // 기본 거부 — 위에서 명시적으로 열지 않은 경로는 인증·역할과 무관하게 전부 거부한다
+                        // (2026-09-29 승인, 감사 M-08 — 규칙 누락이 조용히 공개되던 fail-open 제거).
+                        // 새 엔드포인트는 반드시 위에 접근 규칙을 추가해야 한다.
+                        .anyRequest().denyAll()
                 )
                 .formLogin((form) -> form
                         .loginPage("/admin/login")

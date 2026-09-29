@@ -48,12 +48,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "cms.rate-limit.enabled=true",
         "cms.rate-limit.max-keys=1000",
         "cms.rate-limit.rules[0].id=narrow",
-        "cms.rate-limit.rules[0].pattern=/rl-test/limited",
+        "cms.rate-limit.rules[0].pattern=/notices/rl-test/limited",
         "cms.rate-limit.rules[0].methods=GET,HEAD",
         "cms.rate-limit.rules[0].capacity=2",
         "cms.rate-limit.rules[0].refill-period-seconds=60",
         "cms.rate-limit.rules[1].id=wide",
-        "cms.rate-limit.rules[1].pattern=/rl-test/**",
+        "cms.rate-limit.rules[1].pattern=/notices/rl-test/**",
         "cms.rate-limit.rules[1].methods=GET,HEAD",
         "cms.rate-limit.rules[1].capacity=100",
         "cms.rate-limit.rules[1].refill-period-seconds=60"
@@ -112,9 +112,9 @@ class RateLimitFilterTest {
     @DisplayName("좁은 규칙(narrow, capacity=2)이 넓은 규칙(wide, capacity=100)보다 먼저 매칭돼 더 엄격한 한도가 적용된다")
     void narrowRuleTakesPrecedence() throws Exception {
         RequestPostProcessor ip = from("10.10.10.1");
-        mockMvc.perform(get("/rl-test/limited").with(ip)).andExpect(status().isOk());
-        mockMvc.perform(get("/rl-test/limited").with(ip)).andExpect(status().isOk());
-        mockMvc.perform(get("/rl-test/limited").with(ip))
+        mockMvc.perform(get("/notices/rl-test/limited").with(ip)).andExpect(status().isOk());
+        mockMvc.perform(get("/notices/rl-test/limited").with(ip)).andExpect(status().isOk());
+        mockMvc.perform(get("/notices/rl-test/limited").with(ip))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().exists("Retry-After"));
     }
@@ -123,9 +123,9 @@ class RateLimitFilterTest {
     @DisplayName("HEAD 요청도 GET과 동일한 규칙을 소비한다 (HEAD 우회 방지)")
     void headRequest_consumesSameBucketAsGet() throws Exception {
         RequestPostProcessor ip = from("10.10.10.2");
-        mockMvc.perform(get("/rl-test/limited").with(ip)).andExpect(status().isOk());
-        mockMvc.perform(head("/rl-test/limited").with(ip)).andExpect(status().isOk());
-        mockMvc.perform(get("/rl-test/limited").with(ip)).andExpect(status().isTooManyRequests());
+        mockMvc.perform(get("/notices/rl-test/limited").with(ip)).andExpect(status().isOk());
+        mockMvc.perform(head("/notices/rl-test/limited").with(ip)).andExpect(status().isOk());
+        mockMvc.perform(get("/notices/rl-test/limited").with(ip)).andExpect(status().isTooManyRequests());
     }
 
     @Test
@@ -133,7 +133,7 @@ class RateLimitFilterTest {
     void unmatchedPath_isUnlimited() throws Exception {
         RequestPostProcessor ip = from("10.10.10.3");
         for (int i = 0; i < 10; i++) {
-            mockMvc.perform(get("/rl-test/unlimited").with(ip)).andExpect(status().isOk());
+            mockMvc.perform(get("/notices/rl-test/unlimited").with(ip)).andExpect(status().isOk());
         }
     }
 
@@ -150,12 +150,12 @@ class RateLimitFilterTest {
 @TestStubController
 class RateLimitFilterTestStubController {
 
-    @GetMapping("/rl-test/limited")
+    @GetMapping("/notices/rl-test/limited")
     String limited() {
         return "ok";
     }
 
-    @GetMapping("/rl-test/unlimited")
+    @GetMapping("/notices/rl-test/unlimited")
     String unlimited() {
         return "ok";
     }
