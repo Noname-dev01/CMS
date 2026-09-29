@@ -39,7 +39,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.14'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     // 무인증 공개 엔드포인트 레이트리밋(cms.rate-limit) — bounded 캐시 + 버킷별 만료 관리 위임.
     // 버전은 Spring Boot BOM 관리(PLAN-public-endpoint-rate-limit.md 참조 — 자체 구현 admission/sweep이
