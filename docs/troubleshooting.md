@@ -731,6 +731,51 @@ X-FORWARDED-FOR: , 헤더를 보내면 ArrayIndexOutOfBoundsException 발생:
 
 **검증**: `ClientIpResolverTest`(단위)로 헤더 무시·null 계약·길이 절단을 확인. `LockingAuthenticationFailureHandlerTest`·`PasswordResetControllerTest`·`VisitLoggingAuthenticationSuccessHandlerTest`에 조작된 `X-Forwarded-For: ,` 헤더로도 각각 로그인 실패 카운트가 정상 기록되고(회귀 확인) 200이 정상 반환됨을 확인하는 회귀 테스트 추가. 실제 리버스 프록시가 도입되면 이 4곳(과 별개로 이미 `getRemoteAddr()`를 직접 쓰는 레이트리밋)의 IP 해석 전체를 함께 재검토해야 한다. 상세 설계·리뷰 이력은 `adversarial-review/plan/PLAN-audit-log-integrity.md` 참조.
 
+### OSIV(기본값 true)가 서비스 트랜잭션 종료 후에도 요청이 끝날 때까지 DB 커넥션을 붙잡는다 (2026-09-29, 공개 첨부 스트리밍 전환)
+
+```text
+공개 첨부 다운로드를 스트리밍으로 바꾸면 전송 중에는 DB 커넥션이 필요 없다고 가정했다.
+실제 웹 요청에서 서비스 @Transactional 메서드가 끝난 뒤 컨트롤러가 대기하는 동안 Hikari 상태를 재보니:
+  [SPIKE] 요청 진행 중 Hikari activeConnections=1, idle=9, total=10   (open-in-view 기본값)
+  [SPIKE] 요청 진행 중 Hikari activeConnections=0, idle=10, total=10  (SPRING_JPA_OPEN_IN_VIEW=false)
+```
+
+#### 원인
+
+`spring.jpa.open-in-view`를 설정하지 않으면 Boot 기본값이 true라 `OpenEntityManagerInViewInterceptor`가 요청 시작부터 끝까지 EntityManager를 열어 두고, 그 사이 트랜잭션이 끝나도 JDBC 연결이 요청이 끝날 때까지 유지된다. 서비스 빈을 직접 호출하는 테스트는 이 인터셉터를 통과하지 않으므로 이 조건을 재현하지 못한다(응답 전송이 긴 요청이 풀을 점유하는 문제는 `byte[]` 시절에도 이미 있었다).
+
+#### 해결 방법
+
+`application.yml` 공통에 `spring.jpa.open-in-view: false`를 추가했다. 엔티티에 연관관계 매핑이 없어 지연 로딩 의존이 없음을 확인했고, 전체 테스트 813개와 관리자 화면 실기 검증으로 회귀가 없음을 확인했다. `PublicAttachmentStreamingServerTest`의 "전송 진행 중 활성 커넥션 0" 테스트가 실제 웹 요청(latch로 전송 중 대기)으로 회귀를 막는다 — 변이 실험(OSIV 재활성)으로 이 테스트가 `expected: 0 but was: 1`로 실패함을 확인했다.
+
+**교훈**: 트랜잭션 경계와 커넥션 점유 범위는 다르다. "서비스 메서드가 끝나면 커넥션이 반환된다"는 전제는 OSIV 설정에 따라 성립하지 않으며, 서비스 빈 직접 호출 테스트로는 증명할 수 없다.
+
+---
+
+### 컨트롤러가 응답 전송 중 IOException을 삼키면 Tomcat이 연결을 끊지 않아 클라이언트가 무한정 대기한다 (2026-09-29, 공개 첨부 스트리밍 전환)
+
+```text
+Content-Length 100000을 선언하고 40000바이트만 보낸 뒤 서버 쪽 읽기가 실패한 상황.
+컨트롤러가 IOException을 catch하고 정상 반환하게 바꾸자(변이 실험):
+  클라이언트: 남은 60000바이트를 계속 기다림(10초 제한 시간 초과)
+  전송 전 오류 케이스: 500이어야 하는데 200 반환
+예외를 그대로 던지면(원래 구현): 연결이 끊기고 클라이언트가 잘린 응답을 감지함.
+```
+
+#### 원인
+
+소켓 자체는 정상이라, 서블릿 컨테이너 입장에서는 핸들러가 정상 종료한 요청이다. 선언된 Content-Length보다 짧게 끝나도 Tomcat이 연결을 닫지 않는다(코드 리뷰에서 지적된 `IdentityOutputFilter.end()`의 동작을 실서버 테스트로 실증). 또한 미커밋 상태여도 `Content-Length`·`getOutputStream()` 선택 상태가 남아 있어 그대로 HTML 오류 뷰를 렌더링할 수 없다.
+
+#### 해결 방법
+
+응답 상태를 3구간으로 나눠 처리한다: (1) 헤더·출력 스트림에 손대기 전에 첫 청크를 먼저 읽어 실패 시 기존 HTML 500, (2) 미커밋이지만 오염된 구간은 `response.reset()` 후 재던짐, (3) 커밋 후에는 `PublicWebExceptionAdvice`가 뷰를 렌더링하지 않고 예외를 재던져 컨테이너가 연결을 중단하게 한다. 복사 버퍼(4KB)는 컨테이너 출력 버퍼(Tomcat 8KB)보다 작게 유지해 "첫 청크 직후 미커밋"이 컨테이너와 무관하게 성립하게 한다.
+
+**검증**: `PublicAttachmentStreamingServerTest`(실제 Tomcat)가 세 구간을 각각 검증한다(HTML 500·`Content-Length` 미잔존·보안 헤더 복원 / 커밋 후 연결 종료·HTML 미혼입·이후 요청 정상). 변이 실험(컨트롤러가 예외를 삼킴)에서 2건이 실패함을 확인했다.
+
+**교훈**: 응답이 커밋된 뒤의 실패는 "삼켜서 정상 종료"가 아니라 "예외를 컨테이너까지 전파"해야 연결이 끊긴다. MockMvc는 서블릿 컨테이너의 커밋·연결 종료를 재현하지 못하므로 실서버 테스트가 필요하다.
+
+---
+
 ---
 
 # 정리

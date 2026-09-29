@@ -6,7 +6,9 @@ import com.cms.admin.notice.repository.NoticeAttachmentRepository;
 import com.cms.admin.notice.repository.NoticeRepository;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.StorageFileNotFoundException;
+import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
+import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +23,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -197,30 +200,30 @@ class PublicNoticeServiceTest {
         assertEquals(Sort.Direction.DESC, sort.getOrderFor("id").getDirection());
     }
 
-    // ===================== downloadPublishedAttachment =====================
+    // ===================== findPublishedAttachment / openAttachment =====================
 
     @Test
-    @DisplayName("다운로드 성공 — 파일명·바이트를 그대로 반환한다")
-    void downloadPublishedAttachment_success() {
+    @DisplayName("공개 첨부 조회 성공 — 파일명·storageKey를 담은 참조를 반환하고 파일 스토리지는 건드리지 않는다")
+    void findPublishedAttachment_success() {
         setUp();
         given(noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(1L)).willReturn(Optional.of(notice(1L)));
         given(noticeAttachmentRepository.findByIdAndNoticeId(5L, 1L)).willReturn(Optional.of(attachment(5L, 1L)));
-        given(fileStorage.load("2026/08/03/5.pdf")).willReturn("content".getBytes());
 
-        Optional<PublicNoticeAttachmentDownload> result = publicNoticeService.downloadPublishedAttachment(1L, 5L);
+        Optional<PublicNoticeAttachmentRef> result = publicNoticeService.findPublishedAttachment(1L, 5L);
 
         assertTrue(result.isPresent());
         assertEquals("file5.pdf", result.get().originalFilename());
-        assertEquals("content", new String(result.get().content()));
+        assertEquals("2026/08/03/5.pdf", result.get().storageKey());
+        verifyNoInteractions(fileStorage);
     }
 
     @Test
     @DisplayName("TOCTOU: notice가 비공개/삭제면 empty를 반환하고 첨부 Repository·FileStorage는 호출하지 않는다")
-    void downloadPublishedAttachment_noticeNotPublished_emptyAndNoFurtherCalls() {
+    void findPublishedAttachment_noticeNotPublished_emptyAndNoFurtherCalls() {
         setUp();
         given(noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(1L)).willReturn(Optional.empty());
 
-        Optional<PublicNoticeAttachmentDownload> result = publicNoticeService.downloadPublishedAttachment(1L, 5L);
+        Optional<PublicNoticeAttachmentRef> result = publicNoticeService.findPublishedAttachment(1L, 5L);
 
         assertTrue(result.isEmpty());
         verifyNoInteractions(noticeAttachmentRepository, fileStorage);
@@ -228,57 +231,77 @@ class PublicNoticeServiceTest {
 
     @Test
     @DisplayName("IDOR: 다른 notice의 attachmentId면 empty를 반환하고 FileStorage는 호출하지 않는다")
-    void downloadPublishedAttachment_wrongNotice_emptyAndNoFileStorageCall() {
+    void findPublishedAttachment_wrongNotice_emptyAndNoFileStorageCall() {
         setUp();
         given(noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(1L)).willReturn(Optional.of(notice(1L)));
         given(noticeAttachmentRepository.findByIdAndNoticeId(5L, 1L)).willReturn(Optional.empty());
 
-        Optional<PublicNoticeAttachmentDownload> result = publicNoticeService.downloadPublishedAttachment(1L, 5L);
+        Optional<PublicNoticeAttachmentRef> result = publicNoticeService.findPublishedAttachment(1L, 5L);
 
         assertTrue(result.isEmpty());
         verifyNoInteractions(fileStorage);
     }
 
     @Test
-    @DisplayName("호출 순서: notice 재검증 → 첨부 조회 → 파일 로드 순서로 이루어진다")
-    void downloadPublishedAttachment_callOrder() {
+    @DisplayName("호출 순서: notice 재검증 → 첨부 조회(조회 단계), 그 뒤 별도 호출로 파일 open")
+    void downloadCallOrder_verifyThenLookupThenOpen() {
         setUp();
         given(noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(1L)).willReturn(Optional.of(notice(1L)));
         given(noticeAttachmentRepository.findByIdAndNoticeId(5L, 1L)).willReturn(Optional.of(attachment(5L, 1L)));
-        given(fileStorage.load("2026/08/03/5.pdf")).willReturn("content".getBytes());
+        given(fileStorage.open("2026/08/03/5.pdf")).willReturn(storedStream("content"));
 
-        publicNoticeService.downloadPublishedAttachment(1L, 5L);
+        PublicNoticeAttachmentRef ref = publicNoticeService.findPublishedAttachment(1L, 5L).orElseThrow();
+        publicNoticeService.openAttachment(ref);
 
         InOrder order = inOrder(noticeRepository, noticeAttachmentRepository, fileStorage);
         order.verify(noticeRepository).findByIdAndDeletedFalseAndUseYnTrue(1L);
         order.verify(noticeAttachmentRepository).findByIdAndNoticeId(5L, 1L);
-        order.verify(fileStorage).load("2026/08/03/5.pdf");
+        order.verify(fileStorage).open("2026/08/03/5.pdf");
+    }
+
+    @Test
+    @DisplayName("open 성공 — 파일명·크기·스트림 내용을 그대로 반환하고 스트림은 아직 열려 있다")
+    void openAttachment_success() throws Exception {
+        setUp();
+        given(fileStorage.open("2026/08/03/5.pdf")).willReturn(storedStream("content"));
+
+        Optional<PublicNoticeAttachmentDownload> result =
+                publicNoticeService.openAttachment(new PublicNoticeAttachmentRef("file5.pdf", "2026/08/03/5.pdf"));
+
+        assertTrue(result.isPresent());
+        try (PublicNoticeAttachmentDownload download = result.get()) {
+            assertEquals("file5.pdf", download.originalFilename());
+            assertEquals(7L, download.contentLength());
+            assertEquals("content", new String(download.content().readAllBytes()));
+        }
     }
 
     @Test
     @DisplayName("StorageFileNotFoundException은 Optional.empty()로 흡수된다(404 매핑)")
-    void downloadPublishedAttachment_storageFileNotFound_empty() {
+    void openAttachment_storageFileNotFound_empty() {
         setUp();
-        given(noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(1L)).willReturn(Optional.of(notice(1L)));
-        given(noticeAttachmentRepository.findByIdAndNoticeId(5L, 1L)).willReturn(Optional.of(attachment(5L, 1L)));
-        given(fileStorage.load("2026/08/03/5.pdf"))
+        given(fileStorage.open("2026/08/03/5.pdf"))
                 .willThrow(new StorageFileNotFoundException("파일 없음", null));
 
-        Optional<PublicNoticeAttachmentDownload> result = publicNoticeService.downloadPublishedAttachment(1L, 5L);
+        Optional<PublicNoticeAttachmentDownload> result =
+                publicNoticeService.openAttachment(new PublicNoticeAttachmentRef("file5.pdf", "2026/08/03/5.pdf"));
 
         assertTrue(result.isEmpty());
     }
 
     @Test
     @DisplayName("그 외 IllegalStateException은 그대로 전파된다(500 유지)")
-    void downloadPublishedAttachment_otherStorageFailure_propagates() {
+    void openAttachment_otherStorageFailure_propagates() {
         setUp();
-        given(noticeRepository.findByIdAndDeletedFalseAndUseYnTrue(1L)).willReturn(Optional.of(notice(1L)));
-        given(noticeAttachmentRepository.findByIdAndNoticeId(5L, 1L)).willReturn(Optional.of(attachment(5L, 1L)));
-        given(fileStorage.load("2026/08/03/5.pdf")).willThrow(new IllegalStateException("디스크 오류"));
+        given(fileStorage.open("2026/08/03/5.pdf")).willThrow(new IllegalStateException("디스크 오류"));
 
         assertThrows(IllegalStateException.class,
-                () -> publicNoticeService.downloadPublishedAttachment(1L, 5L));
+                () -> publicNoticeService.openAttachment(new PublicNoticeAttachmentRef("file5.pdf", "2026/08/03/5.pdf")));
+    }
+
+    private StoredFileStream storedStream(String content) {
+        byte[] bytes = content.getBytes();
+        return new StoredFileStream(new ByteArrayInputStream(bytes), bytes.length);
     }
 
     // ===================== fileSizeText 경계값 (PublicNoticeAttachment.from) =====================

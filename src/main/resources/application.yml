@@ -24,6 +24,11 @@ spring:
     # 조용히 영구 baseline되는 것을 막기 위함.
     baseline-version: 1
   jpa:
+    # OSIV를 끈다 — 켜 두면(Boot 기본값) 서비스 @Transactional이 끝난 뒤에도 요청이 끝날 때까지
+    # JDBC 연결을 붙잡아, 공개 첨부 다운로드처럼 응답 전송이 긴 요청이 풀을 점유한다(스파이크 실측:
+    # 요청 진행 중 activeConnections 1→0). 엔티티에 연관관계 매핑이 없어 지연 로딩 의존이 없다
+    # (PLAN-public-notice-attachment.md v8, PublicAttachmentStreamingServerTest가 회귀를 막는다).
+    open-in-view: false
     hibernate:
       # Flyway 전용 정책이라 전 프로파일 공통(PLAN-prod-profile.md 결정 2) — 스키마 변경은 마이그레이션 파일로만 한다
       ddl-auto: validate

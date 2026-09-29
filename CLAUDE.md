@@ -38,7 +38,8 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 - `AdminSidebarAdvice`는 `@AdminPage` 컨트롤러에만 사이드바 모델을 주입한다. REST API 요청에 메뉴 DB 조회가 나가지 않도록 의도적으로 범위를 제한한 것이다.
 - `publicweb`은 비관리자(공개) 화면 전용으로 `admin` 패키지와 분리한다. `@AdminPage` 미부착 대상이며, 예외 처리도 `publicweb/support/PublicWebExceptionAdvice`가 범위 한정으로 담당한다.
 - `config/ProfileGuardEnvironmentPostProcessor`는 dev+prod 동시 활성화와 활성 프로파일 0개를 컨텍스트 생성 **전에** 차단한다(`META-INF/spring.factories` 등록).
-- `common/storage`의 `FileStorage`(구현 `LocalDiskFileStorage`)는 파일 스토리지 추상화이며, 공지 첨부파일이 첫 소비자다.
+- `common/storage`의 `FileStorage`(구현 `LocalDiskFileStorage`)는 파일 스토리지 추상화이며, 공지 첨부파일이 첫 소비자다. 읽기는 `load()`(byte[])와 `open()`(스트림 — 반환된 `StoredFileStream`은 호출자가 반드시 닫는다, 무인증 공개 다운로드가 사용) 두 가지다.
+- **`spring.jpa.open-in-view: false`**(전 프로파일 공통, 2026-09-29): OSIV를 켜 두면 서비스 트랜잭션이 끝나도 요청이 끝날 때까지 JDBC 연결이 유지돼 응답 전송이 긴 요청(공개 첨부 다운로드)이 커넥션 풀을 점유한다(실측: 전송 중 활성 커넥션 1→0). 엔티티에 연관관계 매핑이 없어 지연 로딩 의존이 없다. 다시 켜면 `PublicAttachmentStreamingServerTest`가 실패한다.
 
 ### AOP 기반 액션 로깅
 

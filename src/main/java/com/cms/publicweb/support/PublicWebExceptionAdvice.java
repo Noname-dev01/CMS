@@ -20,6 +20,11 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
  * 이후) 단계의 예외는 {@code DispatcherServlet}의 핸들러 실행 try/catch 바깥에서 발생해
  * 이 advice가 잡지 못하고 컨테이너 오류 처리(`/error`)로 전파된다 — 이 공백은 이 기능이
  * 새로 만든 것이 아니라 앱 전체에 이미 있던 기존 한계라 이번 범위에서 닫지 않는다(결정 3-2).
+ *
+ * <p><b>응답이 이미 커밋된 뒤의 예외</b>(첨부 다운로드 전송 중 실패 등)는 HTML 뷰를 렌더링할 수 없고
+ * 시도하면 이미 나간 본문 뒤에 오류 페이지를 섞을 위험이 있다 — 뷰를 렌더링하지 않고 예외를 그대로 다시
+ * 던져 서블릿 컨테이너가 연결을 중단하게 한다(잘린 파일이 정상 응답처럼 보이지 않도록,
+ * PLAN-public-notice-attachment.md 결정 S5).
  */
 @Slf4j
 @ControllerAdvice(basePackages = "com.cms.publicweb")
@@ -27,7 +32,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 public class PublicWebExceptionAdvice {
 
     @ExceptionHandler(Exception.class)
-    public String handleUnexpected(Exception e, HttpServletResponse response) {
+    public String handleUnexpected(Exception e, HttpServletResponse response) throws Exception {
+        if (response.isCommitted()) {
+            // 클라이언트 중단 등으로 흔하므로 스택트레이스 없이 한 줄만 남긴다.
+            log.warn("응답 전송 시작 후 오류 — 뷰를 렌더링하지 않고 컨테이너로 전파합니다: {}", e.getClass().getName());
+            throw e;
+        }
         log.error("공개 페이지 처리 중 오류", e);
         response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
         return "public/notice/error";

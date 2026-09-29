@@ -5,8 +5,10 @@ package com.cms.common.storage;
  * 향후 원격 스토리지(S3 등)로 교체하더라도 이 인터페이스의 소비자(NoticeAttachmentService 등)는
  * 변경할 필요가 없다.
  *
- * <p>파일당 상한이 10MB로 작고 프로젝트에 스트리밍 API 관용구가 없어 byte[] 기반으로 설계했다
- * (adversarial-review/plan/PLAN-notice-attachment.md 쟁점 1 참조).
+ * <p>파일당 상한이 10MB로 작아 저장·admin 다운로드·프로필 이미지는 byte[] 기반으로 설계했다
+ * (adversarial-review/plan/PLAN-notice-attachment.md 쟁점 1 참조). 무인증 공개 다운로드처럼 요청당
+ * 힙 점유를 피해야 하는 소비자를 위해 {@link #open(String)}이 스트림 읽기를 제공한다
+ * (PLAN-public-notice-attachment.md 후속 작업 — 스트리밍 전환).
  */
 public interface FileStorage {
 
@@ -28,6 +30,18 @@ public interface FileStorage {
      * @throws IllegalStateException        그 외 읽기에 실패한 경우
      */
     byte[] load(String storageKey);
+
+    /**
+     * storageKey에 해당하는 파일을 전량 메모리에 올리지 않고 스트림으로 연다. 반환된
+     * {@link StoredFileStream}은 <b>호출자가 반드시 닫아야</b> 한다.
+     *
+     * <p>{@link #load(String)}와 같은 사전 검증(예약 네임스페이스·경로 탈출)을 적용한다.
+     * 구현체는 최종 파일 자체가 링크인 경우도 거부해야 한다({@code IllegalStateException}).
+     *
+     * @throws StorageFileNotFoundException 파일이 존재하지 않는 경우
+     * @throws IllegalStateException        그 외 열기에 실패한 경우
+     */
+    StoredFileStream open(String storageKey);
 
     /**
      * storageKey에 해당하는 파일을 삭제한다. 파일이 없으면 no-op(예외를 던지지 않음) —

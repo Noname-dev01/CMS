@@ -6,7 +6,10 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.channels.Channels;
+import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -129,16 +132,70 @@ public class LocalDiskFileStorage implements FileStorage {
     }
 
     private byte[] loadUnder(Path effectiveRoot, String storageKey) {
-        Path target = resolveTarget(effectiveRoot, storageKey);
         try {
-            Path parentReal = realPathOrThrow(target.getParent(), storageKey);
-            verifyWithinRoot(effectiveRoot, parentReal);
-            return Files.readAllBytes(target);
+            return Files.readAllBytes(resolveVerifiedTarget(effectiveRoot, storageKey));
         } catch (NoSuchFileException e) {
             throw new StorageFileNotFoundException("첨부파일을 찾을 수 없습니다: " + storageKey, e);
         } catch (IOException e) {
             throw new IllegalStateException("첨부파일을 읽을 수 없습니다: " + storageKey, e);
         }
+    }
+
+    @Override
+    public StoredFileStream open(String storageKey) {
+        if (isReservedNamespace(storageKey)) {
+            log.warn("예약된 네임스페이스로 시작하는 storageKey에 대한 열기 시도를 거부했습니다: {}", storageKey);
+            throw new StorageFileNotFoundException("첨부파일을 찾을 수 없습니다: " + storageKey);
+        }
+        return openUnder(resolveRoot(), storageKey);
+    }
+
+    /**
+     * {@link #loadUnder}와 같은 사전 검증({@link #resolveVerifiedTarget})을 거친 뒤 채널을 연다.
+     * 사전 검증은 <b>부모 디렉터리</b>의 실제 경로만 확인하므로, 최종 파일 자체가 외부를 가리키는
+     * 링크인 경우는 {@link LinkOption#NOFOLLOW_LINKS}로 채널을 열 때 거부한다(파일은 항상
+     * {@code CREATE_NEW}로 만든 일반 파일이라 정상 경로에는 영향이 없다 — 계획서 v6 리뷰 4).
+     * 채널 open 이후 크기 조회 등이 실패하면 채널을 닫고 예외를 던진다(핸들 누수 방지).
+     */
+    private StoredFileStream openUnder(Path effectiveRoot, String storageKey) {
+        SeekableByteChannel channel = null;
+        try {
+            Path target = resolveVerifiedTarget(effectiveRoot, storageKey);
+            channel = openChannel(target);
+            return new StoredFileStream(Channels.newInputStream(channel), channel.size());
+        } catch (NoSuchFileException e) {
+            closeQuietly(channel);
+            throw new StorageFileNotFoundException("첨부파일을 찾을 수 없습니다: " + storageKey, e);
+        } catch (IOException e) {
+            closeQuietly(channel);
+            throw new IllegalStateException("첨부파일을 열 수 없습니다: " + storageKey, e);
+        } catch (RuntimeException e) {
+            closeQuietly(channel);
+            throw e;
+        }
+    }
+
+    /** 패키지 접근 — LocalDiskFileStorageTest가 채널 open 이후 실패(크기 조회 등)를 주입하는 이음새. */
+    SeekableByteChannel openChannel(Path target) throws IOException {
+        return Files.newByteChannel(target, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
+    }
+
+    private void closeQuietly(SeekableByteChannel channel) {
+        if (channel == null) {
+            return;
+        }
+        try {
+            channel.close();
+        } catch (IOException closeEx) {
+            log.warn("첨부파일 채널 정리 중 close 실패", closeEx);
+        }
+    }
+
+    /** load·open이 공유하는 사전 검증: 경로 정규화 + 부모 디렉터리 실경로가 루트 하위인지 확인한다. */
+    private Path resolveVerifiedTarget(Path effectiveRoot, String storageKey) throws NoSuchFileException {
+        Path target = resolveTarget(effectiveRoot, storageKey);
+        verifyWithinRoot(effectiveRoot, realPathOrThrow(target.getParent(), storageKey));
+        return target;
     }
 
     @Override
