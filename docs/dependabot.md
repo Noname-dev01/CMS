@@ -36,7 +36,7 @@ M-06에서 컨테이너 이미지를 digest(`image:tag@sha256:...`)로 고정했
 
 - **Java 소스 안의 문자열은 추적하지 못한다.** `MariaDbContainerSupport`의 `mariadb@sha256:...`와 `scripts/prod-backup.sh`·`scripts/prod-restore.sh`의 이미지 참조는 갱신 대상이 아니다. compose만 바뀐 PR은 `scripts/ci/check-image-refs.sh`가 digest 불일치로 CI를 실패시키므로, 그 PR에서 나머지 mariadb 참조를 같은 digest로 직접 맞춰야 한다(`docs/deployment.md` "이미지 digest 갱신").
 - **마이너 상향도 호환성을 보장하지 않는다.** 메이저를 무시해도 마이너 PR은 올라오므로 CI 결과로 판단해야 한다.
-- **머지는 자동이 아니다.** 사람이 눌러야 한다. 또한 브랜치 보호의 필수 체크에 `prod-smoke`를 등록하기 전에는 `prod-smoke`가 실패한 PR도 머지할 수 있다(`docs/branching.md`).
+- **머지는 자동이 아니다.** 사람이 눌러야 한다. 다만 브랜치 보호의 필수 체크에 `test`와 `prod-smoke`가 등록돼 있어(2026-09-29) `prod-smoke`가 실패한 갱신 PR은 머지할 수 없다(`docs/branching.md`).
 
 ## 갱신 PR 처리 원칙
 

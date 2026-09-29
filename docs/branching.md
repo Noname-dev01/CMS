@@ -71,7 +71,7 @@ CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고
 `Settings → Branches → master` 에서 아래를 활성화한다.
 
 - Require a pull request before merging
-- Require status checks to pass → `test`, `prod-smoke` (CI job 이름) — `prod-smoke`는 이 설정을 추가해야 머지 차단 게이트로 작동한다(설정 전에는 실패해도 머지가 막히지 않는다)
+- Require status checks to pass → `test`, `prod-smoke` (CI job 이름) — `prod-smoke`는 이 설정으로 머지 차단 게이트로 작동한다(2026-09-29 등록됨 — 실패한 PR은 머지할 수 없다)
 - Include administrators (관리자도 규칙 적용)
 
 ---
