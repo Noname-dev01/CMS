@@ -350,11 +350,84 @@ class SecurityConfigTest {
                 .andExpect(status().isNotFound());
     }
 
+    // ==================== 기본 거부 (감사 M-08, PLAN-default-deny-authorization.md) ====================
+
     @Test
-    @DisplayName("비인증 GET /존재하지않는경로(공개)는 404")
-    void notFound_publicUnmappedPath_404() throws Exception {
+    @DisplayName("비인증 GET 미분류 경로는 기본 거부 — 404가 아니라 로그인 페이지로 302")
+    void defaultDeny_anonymousUnclassifiedPath_redirectsToLogin() throws Exception {
         mockMvc.perform(get("/does-not-exist"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
+    @Test
+    @DisplayName("비인증 GET / 도 미분류라 로그인 페이지로 302")
+    void defaultDeny_anonymousRoot_redirectsToLogin() throws Exception {
+        mockMvc.perform(get("/"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("ADMIN도 미분류 경로는 403 (denyAll은 역할과 무관)")
+    void defaultDeny_adminUnclassifiedPath_403() throws Exception {
+        mockMvc.perform(get("/does-not-exist"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "MANAGER")
+    @DisplayName("MANAGER도 미분류 경로는 403")
+    void defaultDeny_managerUnclassifiedPath_403() throws Exception {
+        mockMvc.perform(get("/does-not-exist"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("/favicon.ico는 명시 공개라 기존대로 404 (로그인 리다이렉트로 바뀌지 않음)")
+    void defaultDeny_favicon_stays404() throws Exception {
+        mockMvc.perform(get("/favicon.ico"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("정적 예약 접두사 4개는 존재하지 않는 파일이어도 404 (기본 거부 302로 바뀌지 않음)")
+    void defaultDeny_staticPrefixes_publicGet404() throws Exception {
+        for (String prefix : new String[]{"/css", "/js", "/img", "/vendor"}) {
+            mockMvc.perform(get(prefix + "/__none__.txt"))
+                    .andExpect(status().isNotFound());
+            mockMvc.perform(head(prefix + "/__none__.txt"))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
+    @DisplayName("정적 접두사 하위라도 GET/HEAD 외 메서드는 공개되지 않는다 (CSRF 포함 비인증 POST → 302)")
+    void defaultDeny_staticPrefix_postNotPublic() throws Exception {
+        mockMvc.perform(post("/css/__none__.txt").with(csrf()))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
+    @Test
+    @DisplayName("static/ 최상위 항목이 SecurityConfig의 공개 정적 경로와 일치한다 (새 정적 디렉터리 누락 시 화면이 조용히 깨지는 것 방지)")
+    void defaultDeny_staticTopLevelEntries_matchPublicPaths() throws Exception {
+        java.util.Set<String> actual = new java.util.TreeSet<>();
+        for (org.springframework.core.io.Resource r
+                : new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                .getResources("classpath:/static/*")) {
+            actual.add(r.getFilename());
+        }
+        java.util.Set<String> allowed = new java.util.TreeSet<>();
+        for (String p : SecurityConfig.STATIC_PUBLIC_PATHS) {
+            // "/css/**" → "css", "/favicon.ico" → "favicon.ico"
+            allowed.add(p.substring(1).replaceAll("/\\*\\*$", ""));
+        }
+        // favicon.ico는 파일이 없어도 공개 목록에 있으므로 실제 항목의 부분집합이면 된다.
+        org.assertj.core.api.Assertions.assertThat(allowed)
+                .as("static/ 최상위 항목은 전부 SecurityConfig.STATIC_PUBLIC_PATHS에 있어야 한다")
+                .containsAll(actual);
     }
 
     @Test
@@ -366,11 +439,12 @@ class SecurityConfigTest {
     }
 
     @Test
-    @DisplayName("CSRF 포함 비인증 POST /존재하지않는경로는 404 (MVC 예외 분기까지 도달 — 이 슬라이스는 실제 CSRF 필터를 통과함, " +
-            "단 ERROR 재디스패치 자체는 MockMvc 밖이라 재디스패치에서 403으로 안 뒤집힘까지는 이 테스트로 증명되지 않음 — 종단 확인은 Playwright)")
-    void notFound_unauthenticatedPostUnmappedPath_withCsrf_404() throws Exception {
+    @DisplayName("CSRF 포함 비인증 POST 미분류 경로는 기본 거부 — 로그인 페이지로 302 " +
+            "(ERROR 재디스패치는 MockMvc 밖이라 DefaultDenyErrorDispatchIntegrationTest가 실서버로 검증)")
+    void defaultDeny_unauthenticatedPostUnclassifiedPath_withCsrf_redirectsToLogin() throws Exception {
         mockMvc.perform(post("/does-not-exist").with(csrf()))
-                .andExpect(status().isNotFound());
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
     }
 }
 

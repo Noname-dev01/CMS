@@ -15,4 +15,6 @@
 | `/notices`, `/notices/**` | GET·HEAD만 공개 (`permitAll`), 그 외 메서드는 `denyAll`로 명시 차단 (공개 공지 페이지, 2026-07-28 승인). `/notices/**`가 하위 세그먼트 전체를 포괄해 `/notices/{id}/attachments/{attachmentId}`(2026-08-03 추가)도 별도 규칙 없이 이 매처가 적용됨 |
 | `/actuator/health` | 공개 (`permitAll`, 로드밸런서 헬스체크용) |
 | `/actuator/**`(health 제외) | `denyAll` 명시 차단 (2026-07-29 승인 — env/beans/metrics 등 노출 설정이 넓어져도 뚫리지 않도록 이중 방어) |
-| 그 외 모든 경로 | 공개 (`anyRequest().permitAll()`) |
+| 컨테이너 ERROR 디스패치(`sendError` → `/error`) | 공개 (`dispatcherTypeMatchers(ERROR).permitAll()`, **규칙 맨 앞** — 없으면 404·429·403 오류 페이지가 로그인 302로 뒤바뀜). `/error` URL 직접 요청(REQUEST 디스패치)은 기본 거부 (2026-09-29 승인) |
+| `/css/**`, `/js/**`, `/img/**`, `/vendor/**`, `/favicon.ico` | GET·HEAD만 공개 (정적 리소스, 2026-09-29 승인). 앞 4개 접두사는 **정적 전용 예약 경로** — 컨트롤러 매핑 금지(`DefaultDenyErrorDispatchIntegrationTest`가 강제). `static/`에 새 최상위 디렉터리를 추가하면 `SecurityConfig.STATIC_PUBLIC_PATHS`에도 추가해야 한다(`SecurityConfigTest`가 감지). `/favicon.ico`는 파일이 없어도 열어 기존 404 유지 |
+| 그 외 모든 경로 | **기본 거부** (`anyRequest().denyAll()`, 2026-09-29 승인, 감사 M-08) — 비인증은 `/admin/login` 302, 인증(ADMIN·MANAGER)은 403. **새 엔드포인트는 반드시 위 표에 접근 규칙을 추가해야 한다**(누락 시 즉시 차단). 이 보장은 명시 허용 규칙에 매칭되지 않는 경로에 한정 — 정적 예약 접두사 하위는 위 컨트롤러 금지 규칙이 지킨다. 설계 근거·검증 이력은 `adversarial-review/plan/PLAN-default-deny-authorization.md` |
