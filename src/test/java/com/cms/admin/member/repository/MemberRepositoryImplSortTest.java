@@ -48,14 +48,41 @@ class MemberRepositoryImplSortTest {
     }
 
     @Test
+    @DisplayName("id 오름차순 정렬 — id를 요청했으므로 보조 정렬을 추가하지 않는다")
+    void sortByIdAsc_noTieBreakerAdded() {
+        OrderSpecifier<?>[] specifiers = repository.toOrderSpecifiers(
+                Sort.by(Sort.Direction.ASC, "id"));
+
+        assertThat(specifiers).hasSize(1);
+        assertThat(specifiers[0].getOrder()).isEqualTo(Order.ASC);
+        assertThat(specifiers[0].getTarget()).isEqualTo(m.id);
+    }
+
+    @Test
+    @DisplayName("id가 뒤에 명시된 다중 정렬 — 요청된 id를 그대로 쓰고 보조 정렬을 추가하지 않는다")
+    void idRequestedLast_noTieBreakerAdded() {
+        Sort sort = Sort.by(Sort.Direction.ASC, "userName")
+                .and(Sort.by(Sort.Direction.ASC, "id"));
+
+        OrderSpecifier<?>[] specifiers = repository.toOrderSpecifiers(sort);
+
+        assertThat(specifiers).hasSize(2);
+        assertThat(specifiers[0].getTarget()).isEqualTo(m.userName);
+        assertThat(specifiers[0].getOrder()).isEqualTo(Order.ASC);
+        assertThat(specifiers[1].getTarget()).isEqualTo(m.id);
+        assertThat(specifiers[1].getOrder()).isEqualTo(Order.ASC);
+    }
+
+    @Test
     @DisplayName("userName 오름차순 정렬")
     void sortByUserNameAsc_returnsUserNameAsc() {
         OrderSpecifier<?>[] specifiers = repository.toOrderSpecifiers(
                 Sort.by(Sort.Direction.ASC, "userName"));
 
-        assertThat(specifiers).hasSize(1);
+        assertThat(specifiers).hasSize(2);
         assertThat(specifiers[0].getOrder()).isEqualTo(Order.ASC);
         assertThat(specifiers[0].getTarget()).isEqualTo(m.userName);
+        assertIdDescTieBreaker(specifiers[1]);
     }
 
     @Test
@@ -64,9 +91,10 @@ class MemberRepositoryImplSortTest {
         OrderSpecifier<?>[] specifiers = repository.toOrderSpecifiers(
                 Sort.by(Sort.Direction.DESC, "email"));
 
-        assertThat(specifiers).hasSize(1);
+        assertThat(specifiers).hasSize(2);
         assertThat(specifiers[0].getOrder()).isEqualTo(Order.DESC);
         assertThat(specifiers[0].getTarget()).isEqualTo(m.email);
+        assertIdDescTieBreaker(specifiers[1]);
     }
 
     @Test
@@ -75,9 +103,10 @@ class MemberRepositoryImplSortTest {
         OrderSpecifier<?>[] specifiers = repository.toOrderSpecifiers(
                 Sort.by(Sort.Direction.DESC, "createDate"));
 
-        assertThat(specifiers).hasSize(1);
+        assertThat(specifiers).hasSize(2);
         assertThat(specifiers[0].getOrder()).isEqualTo(Order.DESC);
         assertThat(specifiers[0].getTarget()).isEqualTo(m.createDate);
+        assertIdDescTieBreaker(specifiers[1]);
     }
 
     @Test
@@ -88,11 +117,12 @@ class MemberRepositoryImplSortTest {
 
         OrderSpecifier<?>[] specifiers = repository.toOrderSpecifiers(sort);
 
-        assertThat(specifiers).hasSize(2);
+        assertThat(specifiers).hasSize(3);
         assertThat(specifiers[0].getTarget()).isEqualTo(m.userName);
         assertThat(specifiers[0].getOrder()).isEqualTo(Order.ASC);
         assertThat(specifiers[1].getTarget()).isEqualTo(m.createDate);
         assertThat(specifiers[1].getOrder()).isEqualTo(Order.DESC);
+        assertIdDescTieBreaker(specifiers[2]);
     }
 
     @Test
@@ -136,8 +166,16 @@ class MemberRepositoryImplSortTest {
 
         OrderSpecifier<?>[] specifiers = repository.toOrderSpecifiers(sort);
 
-        assertThat(specifiers).hasSize(1);
+        assertThat(specifiers).hasSize(2);
         assertThat(specifiers[0].getTarget()).isEqualTo(m.userName);
+        assertThat(specifiers[0].getOrder()).isEqualTo(Order.ASC);
+        assertIdDescTieBreaker(specifiers[1]);
+    }
+
+    /** 동률 해소용 보조 정렬은 항상 id 내림차순이어야 한다. */
+    private void assertIdDescTieBreaker(OrderSpecifier<?> specifier) {
+        assertThat(specifier.getTarget()).isEqualTo(m.id);
+        assertThat(specifier.getOrder()).isEqualTo(Order.DESC);
     }
 
     @Test

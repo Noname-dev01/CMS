@@ -79,11 +79,15 @@ public class MemberRepositoryImpl implements MemberRepositoryCustom {
     /**
      * Pageable의 Sort를 QueryDSL OrderSpecifier 배열로 변환한다.
      * 화이트리스트에 없는 속성과 열거형 필드(userType, status)는 무시하며,
-     * 유효한 정렬이 없으면 기본값 id 내림차순을 반환한다.
+     * 요청 정렬에 id가 없으면 마지막에 항상 id 내림차순 보조 정렬을 추가한다 —
+     * userName·createDate 등 동률이 가능한 키만으로 정렬하면 동률 행 사이 순서가
+     * 쿼리마다 달라져 페이지 이동 시 항목이 누락·중복될 수 있다.
+     * (조회 사이에 데이터가 변하지 않는 동안의 결정성만 보장한다.)
      */
     OrderSpecifier<?>[] toOrderSpecifiers(Sort sort) {
         QMember m = QMember.member;
         List<OrderSpecifier<?>> specifiers = new ArrayList<>();
+        boolean idRequested = sort.getOrderFor("id") != null;
 
         for (Sort.Order order : sort) {
             if (!ALLOWED_SORT_FIELDS.contains(order.getProperty())) {
@@ -95,8 +99,10 @@ public class MemberRepositoryImpl implements MemberRepositoryCustom {
             }
         }
 
-        if (specifiers.isEmpty()) {
-            return new OrderSpecifier[]{m.id.desc()};
+        // 요청 정렬에 id가 없으면 마지막에 보조 정렬로 추가(동률 tie-breaker).
+        // 유효한 정렬이 하나도 없었다면 이 한 줄이 기본값(id desc) 역할도 겸한다.
+        if (!idRequested) {
+            specifiers.add(m.id.desc());
         }
         return specifiers.toArray(new OrderSpecifier[0]);
     }
