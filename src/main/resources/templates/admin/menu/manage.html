@@ -214,6 +214,7 @@
                                 </div>
                                 <div class="card-body">
                                     <div id="treeAlert" class="alert alert-danger d-none" role="alert"></div>
+                                    <div id="treeWarning" class="alert alert-warning d-none" role="alert"></div>
                                     <div class="tree-toolbar">
                                         <div class="custom-control custom-switch">
                                             <input type="checkbox" class="custom-control-input" id="includeInactiveToggle">
@@ -277,6 +278,16 @@
                                             <button type="button" class="btn btn-secondary" id="btnReset">초기화</button>
                                         </div>
                                     </form>
+                                    <div id="moveParentSection" class="mt-4 d-none">
+                                        <hr>
+                                        <h6>상위 메뉴 변경</h6>
+                                        <div class="form-group">
+                                            <label for="moveParentSelect">새 상위 메뉴</label>
+                                            <select class="form-control" id="moveParentSelect"></select>
+                                            <small id="moveParentHint" class="form-text text-muted"></small>
+                                        </div>
+                                        <button type="button" class="btn btn-outline-primary" id="btnMoveParent">상위 변경</button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -311,6 +322,11 @@ $(document).ready(function () {
     const formModeLabel = document.getElementById('formModeLabel');
     const includeInactiveToggle = document.getElementById('includeInactiveToggle');
     const treeHint = document.getElementById('treeHint');
+    const treeWarning = document.getElementById('treeWarning');
+    const moveParentSection = document.getElementById('moveParentSection');
+    const moveParentSelect = document.getElementById('moveParentSelect');
+    const moveParentHint = document.getElementById('moveParentHint');
+    const btnMoveParent = document.getElementById('btnMoveParent');
 
     const menuForm = document.getElementById('menuForm');
     const menuNameInput = document.getElementById('menuName');
@@ -342,6 +358,12 @@ $(document).ready(function () {
     // busy: 저장·비활성화·순서 변경은 동시에 하나만 진행한다.
     let busy = false;
 
+    // lastTreeData: 지금 화면에 그려진 트리 세대의 데이터. "상위 변경" 후보·자식 여부는 항상 이것으로 계산한다.
+    let lastTreeData = [];
+    // queuedNotice: 재조정·상위 변경의 결과 메시지({kind:'error'|'warning', text}). loadTree()가 시작할 때 알림을 지우므로
+    // 재조회가 실제로 적용(또는 최신 조회가 실패)된 시점에 표시한다 — 더 최신 조회에 밀려 폐기된 조회는 소비하지 않는다.
+    let queuedNotice = null;
+
     function canDrag() {
         return treeScope !== null && !busy;
     }
@@ -354,6 +376,29 @@ $(document).ready(function () {
     function hideTreeError() {
         treeAlert.classList.add('d-none');
         treeAlert.textContent = '';
+    }
+
+    function showTreeWarning(message) {
+        treeWarning.textContent = message;
+        treeWarning.classList.remove('d-none');
+    }
+
+    function hideTreeWarning() {
+        treeWarning.classList.add('d-none');
+        treeWarning.textContent = '';
+    }
+
+    // 대기 중인 결과 메시지를 트리 영역 알림으로 표시하고 비운다.
+    function flushQueuedNotice() {
+        if (!queuedNotice) {
+            return;
+        }
+        if (queuedNotice.kind === 'error') {
+            showTreeError(queuedNotice.text);
+        } else {
+            showTreeWarning(queuedNotice.text);
+        }
+        queuedNotice = null;
     }
 
     function showFormError(message) {
@@ -404,6 +449,65 @@ $(document).ready(function () {
         clearForm();
         hideFormError();
         setModeLabel('메뉴를 선택하거나 추가 버튼을 눌러주세요.');
+        refreshMoveSection();
+    }
+
+    // ── 상위 메뉴 변경 영역 ──────────────────────────────────────
+
+    // 그려진 트리 데이터에서 menuNo에 해당하는 노드를 찾는다(트리 세대 기준).
+    function findNodeByMenuNo(nodes, menuNo) {
+        for (const node of (nodes || [])) {
+            if (node.data && node.data.menuNo === menuNo) {
+                return node;
+            }
+            const found = findNodeByMenuNo(node.children, menuNo);
+            if (found) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    // 편집 모드에서만 보이고, 후보·자식 여부는 지금 그려진 트리 세대(lastTreeData)로 계산한다.
+    function refreshMoveSection() {
+        if (mode !== 'edit' || selectedMenuNo == null) {
+            moveParentSection.classList.add('d-none');
+            return;
+        }
+        moveParentSection.classList.remove('d-none');
+        moveParentSelect.innerHTML = '';
+
+        const node = findNodeByMenuNo(lastTreeData, selectedMenuNo);
+        if (!node) {
+            moveParentSelect.disabled = true;
+            btnMoveParent.disabled = true;
+            moveParentHint.textContent = '선택한 메뉴가 현재 트리에 없습니다. "비활성 포함"을 켜 보세요.';
+            return;
+        }
+        if (node.children && node.children.length > 0) {
+            moveParentSelect.disabled = true;
+            btnMoveParent.disabled = true;
+            moveParentHint.textContent = '하위 메뉴가 있는 메뉴는 이동할 수 없습니다.';
+            return;
+        }
+
+        const rootOption = document.createElement('option');
+        rootOption.value = '';
+        rootOption.textContent = '(최상위)';
+        moveParentSelect.appendChild(rootOption);
+        for (const root of lastTreeData) {
+            if (root.data.menuNo === selectedMenuNo) {
+                continue; // 자기 자신은 후보가 아니다
+            }
+            const option = document.createElement('option');
+            option.value = String(root.data.menuNo);
+            option.textContent = root.text;
+            moveParentSelect.appendChild(option);
+        }
+        moveParentSelect.value = node.data.upMenuNo == null ? '' : String(node.data.upMenuNo);
+        moveParentSelect.disabled = false;
+        btnMoveParent.disabled = false;
+        moveParentHint.textContent = '새 상위 메뉴를 고르면 그 아래 맨 끝에 배치됩니다. 순서는 드래그로 조정할 수 있습니다.';
     }
 
     // ── 트리 렌더링 ──────────────────────────────────────
@@ -439,6 +543,7 @@ $(document).ready(function () {
         treeScope = null;
         updateTreeHint();
         hideTreeError();
+        hideTreeWarning();
         const scope = includeInactiveToggle.checked ? 'all' : 'active';
         const useYnParam = scope === 'all' ? 'all' : 'true';
 
@@ -463,19 +568,32 @@ $(document).ready(function () {
                 instance.destroy();
             }
             initTree(decorated);
+            lastTreeData = decorated;
             treeScope = scope;
             updateTreeHint();
+            refreshMoveSection();
+            // 최신 조회가 실제로 적용된 지금 재조정·상위 변경의 결과 메시지를 표시한다.
+            flushQueuedNotice();
         } catch (error) {
             if (seq !== loadSeq) {
                 return;
             }
             showTreeError(error && error.message ? error.message : '메뉴 트리 조회 중 오류가 발생했습니다.');
+            // 최신 조회가 실패했어도 대기 중인 결과 메시지는 잃지 않고 함께 보여 준다.
+            if (queuedNotice) {
+                showTreeWarning(queuedNotice.text);
+                queuedNotice = null;
+            }
         }
     }
 
     // ── 선택/모드 전환 ──────────────────────────────────────
 
     async function handleSelectNode(e, data) {
+        // 저장·비활성화·순서 변경·상위 변경이 진행 중이면 선택을 무시한다(완료 뒤 어차피 초기화되므로 폼이 채워졌다 지워지는 혼란 방지).
+        if (busy) {
+            return;
+        }
         const menuNo = data.node.data.menuNo;
         const seq = ++selectSeq;
         hideFormError();
@@ -496,6 +614,7 @@ $(document).ready(function () {
             pendingParentMenuNo = null;
             fillForm(menu);
             setModeLabel('메뉴 수정: ' + menu.menuName);
+            refreshMoveSection();
         } catch (error) {
             if (seq !== selectSeq) {
                 return;
@@ -538,13 +657,71 @@ $(document).ready(function () {
             errorMessage = error && error.message ? error.message : '순서 변경 중 오류가 발생했습니다.';
         }
 
+        // loadTree()가 시작하면서 알림을 지우므로 메시지를 대기시키고, 재조회가 실제로 적용될 때 표시한다.
+        queuedNotice = errorMessage ? { kind: 'error', text: errorMessage } : null;
         try {
             resetSelectionState();
             await loadTree();
-            // loadTree()가 시작하면서 오류 표시를 지우므로 재조회가 끝난 뒤에 메시지를 보여 준다.
-            if (errorMessage) {
-                showTreeError(errorMessage);
+        } finally {
+            busy = false;
+        }
+    }
+
+    // 별도 폼에서 선택한 메뉴의 부모를 바꾼다. 결과(성공 경고·실패 메시지)는 폼이 아니라 트리 영역 알림으로 표시한다.
+    async function handleMoveParent() {
+        hideFormError();
+        if (mode !== 'edit' || selectedMenuNo == null) {
+            showFormError('이동할 메뉴를 선택해주세요.');
+            return;
+        }
+        if (busy) {
+            showFormError('다른 작업이 진행 중입니다. 잠시 후 다시 시도해주세요.');
+            return;
+        }
+        const node = findNodeByMenuNo(lastTreeData, selectedMenuNo);
+        if (!node) {
+            showFormError('선택한 메뉴가 현재 트리에 없습니다.');
+            return;
+        }
+
+        const selectedValue = moveParentSelect.value;
+        const targetParentNo = selectedValue === '' ? null : Number(selectedValue);
+        const destination = targetParentNo === null
+            ? '최상위'
+            : '‘' + moveParentSelect.options[moveParentSelect.selectedIndex].textContent + '’ 아래';
+        if (!confirm('‘' + node.text + '’을(를) ' + destination + '로 옮깁니다. 맨 끝에 배치됩니다.')) {
+            return;
+        }
+
+        busy = true;
+        selectSeq++;
+        const movedMenuNo = selectedMenuNo;
+        let notice = null;
+        try {
+            const response = await fetch('/admin/api/menus/' + encodeURIComponent(movedMenuNo) + '/parent', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    [csrfHeader]: csrfToken
+                },
+                body: JSON.stringify({ upMenuNo: targetParentNo })
+            });
+            if (!response.ok) {
+                notice = { kind: 'error', text: await extractErrorMessage(response, '상위 메뉴 변경에 실패했습니다.') };
+            } else {
+                const result = await response.json();
+                if (result.warnings && result.warnings.length > 0) {
+                    notice = { kind: 'warning', text: result.warnings.join(' ') };
+                }
             }
+        } catch (error) {
+            notice = { kind: 'error', text: error && error.message ? error.message : '상위 메뉴 변경 중 오류가 발생했습니다.' };
+        }
+
+        queuedNotice = notice;
+        try {
+            resetSelectionState();
+            await loadTree();
         } finally {
             busy = false;
         }
@@ -612,6 +789,7 @@ $(document).ready(function () {
         clearForm();
         hideFormError();
         setModeLabel('새 메뉴 추가 (최상위)');
+        refreshMoveSection();
     });
 
     btnNewChild.addEventListener('click', function () {
@@ -631,7 +809,10 @@ $(document).ready(function () {
         clearForm();
         hideFormError();
         setModeLabel('새 메뉴 추가 (상위: ' + parentNode.text + ')');
+        refreshMoveSection();
     });
+
+    btnMoveParent.addEventListener('click', handleMoveParent);
 
     btnReset.addEventListener('click', function () {
         const instance = $tree.jstree(true);
