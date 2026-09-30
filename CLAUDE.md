@@ -40,6 +40,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 - `config/ProfileGuardEnvironmentPostProcessor`는 dev+prod 동시 활성화와 활성 프로파일 0개를 컨텍스트 생성 **전에** 차단한다(`META-INF/spring.factories` 등록).
 - `common/storage`의 `FileStorage`(구현 `LocalDiskFileStorage`)는 파일 스토리지 추상화이며, 공지 첨부파일이 첫 소비자다. 읽기는 `load()`(byte[])와 `open()`(스트림 — 반환된 `StoredFileStream`은 호출자가 반드시 닫는다, 무인증 공개 다운로드가 사용) 두 가지다.
 - **`spring.jpa.open-in-view: false`**(전 프로파일 공통, 2026-09-29): OSIV를 켜 두면 서비스 트랜잭션이 끝나도 요청이 끝날 때까지 JDBC 연결이 유지돼 응답 전송이 긴 요청(공개 첨부 다운로드)이 커넥션 풀을 점유한다(실측: 전송 중 활성 커넥션 1→0). 엔티티에 연관관계 매핑이 없어 지연 로딩 의존이 없다. 다시 켜면 `PublicAttachmentStreamingServerTest`가 실패한다.
+- **시각 원천은 KST `Clock` 하나**(`AppConfig.clock()`, 2026-09-30): 저장·조회 코드는 `LocalDateTime.now()` 같은 시스템 기본 시각 호출을 쓰지 않고 주입된 `Clock`(`LocalDateTime.now(clock)`)을 쓴다. 엔티티는 시계를 모르며 도메인 변경 메서드가 `LocalDateTime now`를 파라미터로 받는다(서비스가 한 요청에서 1회 산출해 전달). `CmsApplication.main()`이 JVM 기본 시간대를 KST로 고정하므로 운영 값은 원래 같았지만, `main()`을 거치지 않는 테스트 JVM(CI는 UTC)에서 시각 원천이 갈라지는 것을 막는 규약이다 — `ClockUsageConventionTest`가 `src/main/java`를 스캔해 위반을 잡는다. 허용 예외 2건: `LocalDiskFileStorage`(저장 디렉터리 샤딩 이름)·`ApiErrorResponse`(static 팩토리라 주입 불가 → `AppConfig.KST` 시간대만 공유). 한계: Flyway 시드 `V3`·`V9`는 DB `NOW()`를 쓴다(머지된 마이그레이션이라 수정 금지). 새 `now()` 호출이 필요하면 Clock 주입 대신 예외를 추가하지 말 것. 시각이 시스템 시각과 무관함을 검증하려면 `JAVA_TOOL_OPTIONS=-Duser.timezone=UTC ./gradlew cleanTest test`(환경변수는 Gradle 입력이 아니라 `cleanTest` 없이는 UP-TO-DATE로 생략될 수 있음). 상세는 `adversarial-review/plan/PLAN-clock-unification.md` 참조.
 
 ### AOP 기반 액션 로깅
 
