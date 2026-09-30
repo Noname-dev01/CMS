@@ -1,12 +1,19 @@
 package com.cms.admin.menu.service;
 
+import com.cms.admin.log.constant.AdminActionTypes;
+import com.cms.admin.log.domain.AdminActionLog;
+import com.cms.admin.log.domain.AdminActionResult;
+import com.cms.admin.log.repository.AdminActionLogRepository;
 import com.cms.admin.menu.Menu;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
+import com.cms.admin.menu.dto.request.MenuMoveRequest;
 import com.cms.admin.menu.dto.request.MenuOrderRequest;
 import com.cms.admin.menu.dto.request.MenuOrderScope;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuMoveResponse;
 import com.cms.admin.menu.dto.response.MenuOrderResponse;
+import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.support.CmsTestApplication;
@@ -50,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -73,6 +81,9 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     @Autowired
     MenuRepository menuRepository;
+
+    @Autowired
+    AdminActionLogRepository adminActionLogRepository;
 
     @Autowired
     PlatformTransactionManager transactionManager;
@@ -428,15 +439,19 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     }
 
     /**
-     * 재조정 스레드의 {@code findByIdForUpdate} 호출 지점에서만 멈추는 테스트 advice.
-     * 제품 코드에 latch를 넣지 않는다. 멈추는 지점은 (a) 첫 잠금 호출 직전(형제 id 스냅샷은 이미 읽은 뒤),
-     * (b) 지정한 menuNo를 잠근 직후(= 마지막 형제까지 잠근 상태) 둘 중 하나다.
+     * 대상 스레드(재조정·이동)의 {@code findByIdForUpdate} 호출 지점에서만 멈추는 테스트 advice.
+     * 제품 코드에 latch를 넣지 않는다. 멈추는 지점은 (a) 첫 잠금 호출 직전(스냅샷·검증 앞), (b) 지정한 menuNo를
+     * 잠근 직후 — 둘을 함께 지정하면 (a)→(b) 순서로 두 번 멈춘다((b)는 {@code reachedAfter}/{@code releaseAfter} 사용).
      * 다른 스레드의 호출은 통과시키되 대기 대상 menuNo에 한해 DB 연결 id만 기록한다.
+     * {@code failAtCommit}이면 대상 스레드의 첫 잠금 호출에서 커밋 직전 예외를 던지는 트랜잭션 동기화를 등록해,
+     * 서비스 메서드 내부 예외가 아니라 <b>실제 커밋 단계 예외</b>를 유발한다.
      */
-    private final class ReorderProbe implements MethodInterceptor {
-        final AtomicReference<Thread> reorderThread = new AtomicReference<>();
+    private final class LockProbe implements MethodInterceptor {
+        final AtomicReference<Thread> probedThread = new AtomicReference<>();
         final CountDownLatch reached = new CountDownLatch(1);
         final CountDownLatch release = new CountDownLatch(1);
+        final CountDownLatch reachedAfter = new CountDownLatch(1);
+        final CountDownLatch releaseAfter = new CountDownLatch(1);
         final CountDownLatch waiterEntered = new CountDownLatch(1);
         final AtomicLong holderConnection = new AtomicLong();
         final AtomicLong waiterConnection = new AtomicLong();
@@ -445,11 +460,17 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         private final boolean pauseBeforeFirstLock;
         private final Long pauseAfterMenuNo;
         private final Long waiterTargetMenuNo;
+        private boolean failAtCommit;
 
-        ReorderProbe(boolean pauseBeforeFirstLock, Long pauseAfterMenuNo, Long waiterTargetMenuNo) {
+        LockProbe(boolean pauseBeforeFirstLock, Long pauseAfterMenuNo, Long waiterTargetMenuNo) {
             this.pauseBeforeFirstLock = pauseBeforeFirstLock;
             this.pauseAfterMenuNo = pauseAfterMenuNo;
             this.waiterTargetMenuNo = waiterTargetMenuNo;
+        }
+
+        LockProbe failAtCommit() {
+            this.failAtCommit = true;
+            return this;
         }
 
         @Override
@@ -458,7 +479,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
                 return invocation.proceed();
             }
             Long menuNo = (Long) invocation.getArguments()[0];
-            if (Thread.currentThread() != reorderThread.get()) {
+            if (Thread.currentThread() != probedThread.get()) {
                 if (waiterTargetMenuNo != null && waiterTargetMenuNo.equals(menuNo)) {
                     waiterConnection.set(connectionId());
                     waiterEntered.countDown();
@@ -467,16 +488,27 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
             }
             if (firstCallSeen.compareAndSet(false, true)) {
                 holderConnection.set(connectionId());
+                if (failAtCommit) {
+                    org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                            new org.springframework.transaction.support.TransactionSynchronization() {
+                                @Override
+                                public void beforeCommit(boolean readOnly) {
+                                    throw new IllegalStateException("simulated commit-time failure");
+                                }
+                            });
+                }
                 if (pauseBeforeFirstLock) {
                     reached.countDown();
-                    await(release, "재조정 스레드 정지 해제(첫 잠금 직전)");
+                    await(release, "대상 스레드 정지 해제(첫 잠금 직전)");
                 }
             }
             Object result = invocation.proceed();
             ((Optional<?>) result).ifPresent(m -> lockedNames.put(menuNo, ((Menu) m).getMenuName()));
-            if (!pauseBeforeFirstLock && menuNo.equals(pauseAfterMenuNo)) {
-                reached.countDown();
-                await(release, "재조정 스레드 정지 해제(마지막 형제 잠금 직후)");
+            if (pauseAfterMenuNo != null && menuNo.equals(pauseAfterMenuNo)) {
+                // (a)와 (b)를 모두 지정했으면 (b)는 별도 latch를 쓴다.
+                boolean both = pauseBeforeFirstLock;
+                (both ? reachedAfter : reached).countDown();
+                await(both ? releaseAfter : release, "대상 스레드 정지 해제(지정 행 잠금 직후)");
             }
             return result;
         }
@@ -486,9 +518,9 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         }
     }
 
-    private Future<MenuOrderResponse> submitReorder(ExecutorService executor, ReorderProbe probe, MenuOrderRequest request) {
+    private Future<MenuOrderResponse> submitReorder(ExecutorService executor, LockProbe probe, MenuOrderRequest request) {
         return executor.submit(() -> {
-            probe.reorderThread.set(Thread.currentThread());
+            probe.probedThread.set(Thread.currentThread());
             return menuService.reorderMenus(request);
         });
     }
@@ -500,7 +532,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         Menu c2 = saveMenu("형제2", parent.getMenuNo(), true, 1);
         Menu c3 = saveMenu("형제3", parent.getMenuNo(), true, 2);
         Long target = c1.getMenuNo(); // 재조정이 이미 잠근 형제 중 하나 — 이 행을 쓰려는 동시 작업이 대기해야 한다
-        ReorderProbe probe = new ReorderProbe(false, c3.getMenuNo(), target);
+        LockProbe probe = new LockProbe(false, c3.getMenuNo(), target);
         Advised repositoryProxy = (Advised) menuRepository;
         ExecutorService executor = Executors.newFixedThreadPool(2);
         repositoryProxy.addAdvice(0, probe);
@@ -563,7 +595,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         Menu c1 = saveMenu("형제1", parent.getMenuNo(), true, 0);
         Menu c2 = saveMenu("형제2", parent.getMenuNo(), true, 1);
         Menu c3 = saveMenu("형제3", parent.getMenuNo(), true, 2);
-        ReorderProbe probe = new ReorderProbe(true, null, null);
+        LockProbe probe = new LockProbe(true, null, null);
         Advised repositoryProxy = (Advised) menuRepository;
         ExecutorService executor = Executors.newSingleThreadExecutor();
         repositoryProxy.addAdvice(0, probe);
@@ -604,7 +636,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         Menu c1 = saveMenu("형제1(활성)", parent.getMenuNo(), true, 0);
         Menu c2 = saveMenu("형제2(비활성)", parent.getMenuNo(), false, 1);
         Menu c3 = saveMenu("형제3(활성)", parent.getMenuNo(), true, 2);
-        ReorderProbe probe = new ReorderProbe(true, null, null);
+        LockProbe probe = new LockProbe(true, null, null);
         Advised repositoryProxy = (Advised) menuRepository;
         ExecutorService executor = Executors.newSingleThreadExecutor();
         repositoryProxy.addAdvice(0, probe);
@@ -661,7 +693,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         Menu c3 = saveMenu("형제3", parent.getMenuNo(), true, 2);
         Menu otherParent = saveMenu("다른 그룹 부모", null, true, 904);
         Menu otherChild = saveMenu("다른 그룹 자식", otherParent.getMenuNo(), true, 0);
-        ReorderProbe probe = new ReorderProbe(false, c3.getMenuNo(), null);
+        LockProbe probe = new LockProbe(false, c3.getMenuNo(), null);
         Advised repositoryProxy = (Advised) menuRepository;
         ExecutorService executor = Executors.newSingleThreadExecutor();
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
@@ -715,7 +747,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         Menu child = saveMenu("교착 검증 자식(비활성)", parent.getMenuNo(), false, 0);
         List<Long> rootsInDisplayOrder = displayOrder(null);
         Long lastRootMenuNo = rootsInDisplayOrder.stream().max(Long::compare).orElseThrow();
-        ReorderProbe probe = new ReorderProbe(false, lastRootMenuNo, parent.getMenuNo());
+        LockProbe probe = new LockProbe(false, lastRootMenuNo, parent.getMenuNo());
         Advised repositoryProxy = (Advised) menuRepository;
         ExecutorService executor = Executors.newFixedThreadPool(2);
         repositoryProxy.addAdvice(0, probe);
@@ -755,7 +787,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         Menu a = saveMenu("형제A", parent.getMenuNo(), true, 0);
         Menu b = saveMenu("형제B", parent.getMenuNo(), true, 0); // ord 중복은 정상 API로 생길 수 있다
         Menu c = saveMenu("형제C", parent.getMenuNo(), true, 0);
-        ReorderProbe probe = new ReorderProbe(true, null, null);
+        LockProbe probe = new LockProbe(true, null, null);
         Advised repositoryProxy = (Advised) menuRepository;
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Long createdMenuNo;
@@ -800,5 +832,407 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("동시 생성(자동 ord, 중복 ord 상태): 예외 없이 완료되고 요청 형제들의 상대 순서는 보존된다")
     void concurrentCreateWithAutoOrd_relativeOrderPreserved() throws Exception {
         verifyConcurrentCreateContract(false);
+    }
+
+    // ============ 부모 이동(moveMenu) 동시성 — PLAN-menu-move.md 쟁점 E ============
+
+    private Future<MenuMoveResponse> submitMove(ExecutorService executor, LockProbe probe, Long menuNo, Long newParentNo) {
+        return executor.submit(() -> {
+            probe.probedThread.set(Thread.currentThread());
+            return menuService.moveMenu(menuNo, MenuMoveRequest.toParent(newParentNo));
+        });
+    }
+
+    /** 프로브를 걷어내고 워커를 정리한다(공유 Spring context에 test advice를 남기지 않는다). */
+    private void finishProbed(ExecutorService executor, LockProbe probe, Advised repositoryProxy) throws Exception {
+        probe.release.countDown();
+        probe.releaseAfter.countDown();
+        try {
+            finishWorkers(executor, List.of());
+        } finally {
+            repositoryProxy.removeAdvice(probe);
+        }
+    }
+
+    private static Throwable failureOf(Future<?> future) throws Exception {
+        try {
+            future.get(15, TimeUnit.SECONDS);
+            return null;
+        } catch (ExecutionException e) {
+            return e.getCause();
+        }
+    }
+
+    private MenuMoveResponse move(Long menuNo, Long newParentNo) {
+        return menuService.moveMenu(menuNo, MenuMoveRequest.toParent(newParentNo));
+    }
+
+    /**
+     * ① 자식 검사는 잠금 뒤 최신값: 이동이 첫 잠금 직전에 정지한 사이 T 아래에 자식이 생성·커밋되면, 재개된 이동은
+     * 잠근 최신 값으로 그 자식을 보고 400으로 끝난다(잠금 전에 자식을 검사하는 구현이면 놓치고 3단을 만든다).
+     */
+    @Test
+    @DisplayName("이동 정지 중 대상 아래에 자식이 생성·커밋되면 재개 시 400이고 이동하지 않는다")
+    void moveFirstLockPaused_childCreatedMeanwhile_rejectedAfterLock() throws Exception {
+        Menu target = saveMenu("이동 대상", null, true, 950);
+        Menu newParent = saveMenu("새 부모", null, true, 951);
+        LockProbe probe = new LockProbe(true, null, null);
+        Advised repositoryProxy = (Advised) menuRepository;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        repositoryProxy.addAdvice(0, probe);
+        try {
+            Future<MenuMoveResponse> move = submitMove(executor, probe, target.getMenuNo(), newParent.getMenuNo());
+            await(probe.reached, "이동이 첫 잠금 직전에 정지");
+
+            Long childNo = menuService.createMenu(MenuCreateRequest.builder()
+                    .menuName("정지 중 생긴 자식").upMenuNo(target.getMenuNo()).build()).getMenuNo();
+            extraMenuIds.add(childNo);
+
+            probe.release.countDown();
+            assertInstanceOf(InvalidRequestException.class, failureOf(move));
+        } finally {
+            finishProbed(executor, probe, repositoryProxy);
+        }
+
+        assertNull(menuRepository.findById(target.getMenuNo()).orElseThrow().getUpMenuNo(), "이동이 일어나면 안 된다");
+    }
+
+    /** ② N 최신 상태 재검증: 정지 중 N이 비활성화되거나 다른 부모 아래로 이동되면 재개된 이동은 400이다. */
+    private void verifyNewParentChangedMeanwhile(boolean deactivate) throws Exception {
+        Menu target = saveMenu("이동 대상", null, true, 952);
+        Menu newParent = saveMenu("새 부모", null, true, 953);
+        Menu otherRoot = saveMenu("다른 최상위", null, true, 954);
+        LockProbe probe = new LockProbe(true, null, null);
+        Advised repositoryProxy = (Advised) menuRepository;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        repositoryProxy.addAdvice(0, probe);
+        try {
+            Future<MenuMoveResponse> move = submitMove(executor, probe, target.getMenuNo(), newParent.getMenuNo());
+            await(probe.reached, "이동이 첫 잠금 직전에 정지");
+
+            if (deactivate) {
+                menuService.deactivateMenu(newParent.getMenuNo());
+            } else {
+                move(newParent.getMenuNo(), otherRoot.getMenuNo()); // N이 다른 최상위 아래로 이동(N은 자식 없음)
+            }
+
+            probe.release.countDown();
+            assertInstanceOf(InvalidRequestException.class, failureOf(move));
+        } finally {
+            finishProbed(executor, probe, repositoryProxy);
+        }
+
+        assertNull(menuRepository.findById(target.getMenuNo()).orElseThrow().getUpMenuNo(), "이동이 일어나면 안 된다");
+    }
+
+    @Test
+    @DisplayName("이동 정지 중 새 부모가 비활성화되면 재개 시 400(활성 메뉴가 비활성 부모 아래 남지 않음)")
+    void moveFirstLockPaused_newParentDeactivatedMeanwhile_400() throws Exception {
+        verifyNewParentChangedMeanwhile(true);
+    }
+
+    @Test
+    @DisplayName("이동 정지 중 새 부모가 다른 부모 아래로 이동되면 재개 시 400(3단 방지)")
+    void moveFirstLockPaused_newParentMovedMeanwhile_400() throws Exception {
+        verifyNewParentChangedMeanwhile(false);
+    }
+
+    /**
+     * ③ 이동 선행: 이동이 T·N을 모두 잠근 채 멈춘 사이 N 비활성화가 실제 DB 락 대기에 걸리고, 해제 뒤 "활성 자식 존재"로
+     * 409이므로 활성 T가 비활성 N 아래 남지 않는다.
+     */
+    @Test
+    @DisplayName("이동이 새 부모를 잠근 동안 새 부모 비활성화는 락 대기 후 409 — 활성 메뉴가 비활성 부모 아래 남지 않는다")
+    void moveHoldsLocks_parentDeactivateWaitsThenConflicts() throws Exception {
+        Menu target = saveMenu("이동 대상", null, true, 960);
+        Menu newParent = saveMenu("새 부모", null, true, 961);
+        Long lastLocked = Math.max(target.getMenuNo(), newParent.getMenuNo());
+        LockProbe probe = new LockProbe(false, lastLocked, newParent.getMenuNo());
+        Advised repositoryProxy = (Advised) menuRepository;
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        repositoryProxy.addAdvice(0, probe);
+        try {
+            Future<MenuMoveResponse> move = submitMove(executor, probe, target.getMenuNo(), newParent.getMenuNo());
+            await(probe.reached, "이동이 두 행을 모두 잠금");
+
+            Future<?> deactivate = executor.submit(() -> menuService.deactivateMenu(newParent.getMenuNo()));
+            await(probe.waiterEntered, "비활성화의 잠금 조회 진입");
+            assertDatabaseLockWait(probe.holderConnection.get(), probe.waiterConnection.get());
+
+            probe.release.countDown();
+            assertNull(failureOf(move), "이동은 성공해야 한다");
+            assertInstanceOf(ConflictException.class, failureOf(deactivate), "이동 커밋 뒤 활성 자식이 보여 409여야 한다");
+        } finally {
+            finishProbed(executor, probe, repositoryProxy);
+        }
+
+        Menu finalTarget = menuRepository.findById(target.getMenuNo()).orElseThrow();
+        Menu finalParent = menuRepository.findById(newParent.getMenuNo()).orElseThrow();
+        assertEquals(newParent.getMenuNo(), finalTarget.getUpMenuNo());
+        assertTrue(finalParent.getUseYn(), "새 부모는 비활성화되면 안 된다");
+        assertFalse(!finalParent.getUseYn() && finalTarget.getUseYn(), "비활성 부모 아래 활성 자식 불변식");
+    }
+
+    /**
+     * ④ 재조정과의 경합(정합성): 재조정이 O의 형제 스냅샷을 읽고 첫 잠금 직전에 정지한 사이 이동이 T를 N 아래로 옮겨
+     * 커밋하면, 재개된 재조정은 잠근 T의 부모가 다름을 보고 409로 끝나며 어떤 형제의 ord도 바뀌지 않는다.
+     */
+    @Test
+    @DisplayName("재조정 정지 중 그 형제가 다른 부모 아래로 이동되면 재개된 재조정은 409이고 ord는 불변")
+    void reorderPaused_siblingMovedAway_reorderConflictsAndNothingChanges() throws Exception {
+        Menu owner = saveMenu("재조정 부모 O", null, true, 970);
+        Menu movedChild = saveMenu("이동될 형제 T", owner.getMenuNo(), true, 0);
+        Menu stayChild = saveMenu("남는 형제 S", owner.getMenuNo(), true, 1);
+        Menu newParent = saveMenu("새 부모 N", null, true, 971);
+        LockProbe probe = new LockProbe(true, null, null);
+        Advised repositoryProxy = (Advised) menuRepository;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        repositoryProxy.addAdvice(0, probe);
+        try {
+            Future<MenuOrderResponse> reorder = submitReorder(executor, probe,
+                    orderRequest(owner.getMenuNo(), MenuOrderScope.ALL, stayChild.getMenuNo(), movedChild.getMenuNo()));
+            await(probe.reached, "재조정이 스냅샷을 읽고 첫 잠금 직전에 정지");
+
+            move(movedChild.getMenuNo(), newParent.getMenuNo());
+
+            probe.release.countDown();
+            assertInstanceOf(ConflictException.class, failureOf(reorder));
+        } finally {
+            finishProbed(executor, probe, repositoryProxy);
+        }
+
+        Menu finalMoved = menuRepository.findById(movedChild.getMenuNo()).orElseThrow();
+        assertEquals(newParent.getMenuNo(), finalMoved.getUpMenuNo(), "이동은 유지되어야 한다");
+        assertEquals(0, finalMoved.getOrd(), "이동된 행에 이전 그룹의 ord를 쓰면 안 된다(새 부모 아래 첫 자식 ord=0)");
+        assertEquals(1, menuRepository.findById(stayChild.getMenuNo()).orElseThrow().getOrd(), "남는 형제의 ord는 불변");
+    }
+
+    /**
+     * ⑤ 루트 재조정 ↔ 최상위 이동(일반 경합) 무교착: 재조정이 루트 형제를 오름차순으로 잠그다 N까지 잠근 채 멈추고(T는
+     * 아직 안 잠금, N<T) 이동(T→N)이 시작한다. 이동이 menuNo 오름차순(N 먼저)으로 잠그면 N에서 대기하다 재조정이 끝난 뒤
+     * 진행한다. T를 먼저 잡는 잘못된 순서라면 이동은 T를 잡고 N을 기다리고 재조정은 T를 기다려 교착한다 —
+     * 이 테스트가 잘못된 잠금 순서를 잡는다.
+     */
+    @Test
+    @DisplayName("루트 재조정이 N까지 잠근 동안 최상위 이동은 N에서 락 대기 후 교착 없이 완료된다(잠금 순서 = menuNo 오름차순)")
+    void rootReorderHoldsSmallerId_rootMoveWaitsWithoutDeadlock() throws Exception {
+        Menu newParent = saveMenu("새 부모 N", null, true, 980);   // 먼저 저장 → 더 작은 menuNo
+        Menu target = saveMenu("이동 대상 T", null, true, 981);
+        assertTrue(newParent.getMenuNo() < target.getMenuNo());
+        List<Long> rootsInDisplayOrder = displayOrder(null);
+        LockProbe probe = new LockProbe(false, newParent.getMenuNo(), newParent.getMenuNo());
+        Advised repositoryProxy = (Advised) menuRepository;
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        repositoryProxy.addAdvice(0, probe);
+        try {
+            Future<MenuOrderResponse> reorder = submitReorder(executor, probe,
+                    MenuOrderRequest.builder().upMenuNo(null).scope(MenuOrderScope.ALL).menuNos(rootsInDisplayOrder).build());
+            await(probe.reached, "재조정이 루트 형제를 N까지 잠금(T는 아직 안 잠금)");
+
+            Future<MenuMoveResponse> move = executor.submit(() -> move(target.getMenuNo(), newParent.getMenuNo()));
+            await(probe.waiterEntered, "이동의 첫 잠금 조회 진입");
+            assertDatabaseLockWait(probe.holderConnection.get(), probe.waiterConnection.get());
+
+            probe.release.countDown();
+            assertNull(failureOf(reorder), "재조정이 교착 없이 완료되어야 한다");
+            assertNull(failureOf(move), "이동이 교착 없이 완료되어야 한다");
+        } finally {
+            finishProbed(executor, probe, repositoryProxy);
+        }
+
+        assertEquals(newParent.getMenuNo(), menuRepository.findById(target.getMenuNo()).orElseThrow().getUpMenuNo());
+    }
+
+    /** ⑥ 서로 반대 방향의 동시 이동: 같은 규칙으로 잠그므로 정확히 하나만 성공하고 다른 하나는 400이며 교착이 없다. */
+    @Test
+    @DisplayName("A→B와 B→A 이동이 동시에 오면 정확히 하나만 성공하고 나머지는 400 — 교착·순환 없음")
+    void oppositeMovesConcurrently_exactlyOneSucceeds() throws Exception {
+        Menu a = saveMenu("A", null, true, 990);
+        Menu b = saveMenu("B", null, true, 991);
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        List<Future<MenuMoveResponse>> futures = new ArrayList<>();
+        try {
+            futures.add(executor.submit(() -> {
+                barrier.await(5, TimeUnit.SECONDS);
+                return move(a.getMenuNo(), b.getMenuNo());
+            }));
+            futures.add(executor.submit(() -> {
+                barrier.await(5, TimeUnit.SECONDS);
+                return move(b.getMenuNo(), a.getMenuNo());
+            }));
+            int successes = 0;
+            int invalid = 0;
+            for (Future<MenuMoveResponse> future : futures) {
+                Throwable failure = failureOf(future);
+                if (failure == null) {
+                    successes++;
+                } else if (failure instanceof InvalidRequestException) {
+                    invalid++;
+                } else {
+                    fail("예상 밖 예외(교착 포함): " + failure);
+                }
+            }
+            assertEquals(1, successes);
+            assertEquals(1, invalid);
+        } finally {
+            finishWorkers(executor, List.of());
+        }
+
+        boolean aUnderB = b.getMenuNo().equals(menuRepository.findById(a.getMenuNo()).orElseThrow().getUpMenuNo());
+        boolean bUnderA = a.getMenuNo().equals(menuRepository.findById(b.getMenuNo()).orElseThrow().getUpMenuNo());
+        assertTrue(aUnderB ^ bUnderA, "둘 중 하나만 상대 아래여야 한다(서로 자식이 되는 순환 금지)");
+    }
+
+    /**
+     * ⑦ 이동이 T를 잠근 동안 T 아래 하위 생성(부모 행 잠금)은 실제 락 대기에 걸리고 둘 다 완료된다. 이동 뒤 T(이제 2단)에
+     * 하위가 생기면 3단이 될 수 있는 것은 생성 API의 깊이 검증 부재 때문이며(알려진 한계, 계획 결정 6) 최종 상태는 단언하지 않는다.
+     */
+    @Test
+    @DisplayName("이동이 대상을 잠근 동안 대상 아래 하위 생성은 락 대기 후 둘 다 완료된다")
+    void moveHoldsTarget_childCreationWaitsThenCompletes() throws Exception {
+        Menu target = saveMenu("이동 대상", null, true, 995);
+        Menu newParent = saveMenu("새 부모", null, true, 996);
+        Long lastLocked = Math.max(target.getMenuNo(), newParent.getMenuNo());
+        LockProbe probe = new LockProbe(false, lastLocked, target.getMenuNo());
+        Advised repositoryProxy = (Advised) menuRepository;
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        repositoryProxy.addAdvice(0, probe);
+        try {
+            Future<MenuMoveResponse> move = submitMove(executor, probe, target.getMenuNo(), newParent.getMenuNo());
+            await(probe.reached, "이동이 두 행을 모두 잠금");
+
+            Future<MenuResponse> create = executor.submit(() -> menuService.createMenu(MenuCreateRequest.builder()
+                    .menuName("이동 중 생성된 하위").upMenuNo(target.getMenuNo()).build()));
+            await(probe.waiterEntered, "하위 생성의 부모 행 잠금 조회 진입");
+            assertDatabaseLockWait(probe.holderConnection.get(), probe.waiterConnection.get());
+
+            probe.release.countDown();
+            assertNull(failureOf(move));
+            MenuResponse created = create.get(15, TimeUnit.SECONDS);
+            extraMenuIds.add(created.getMenuNo());
+        } finally {
+            finishProbed(executor, probe, repositoryProxy);
+        }
+    }
+
+    /**
+     * ⑧ 알려진 교착 계약 고정(계획 결정 9, 리뷰 반례): 재조정 R이 루트 스냅샷을 읽고 정지 → 이동 M이 T를 N 아래로 커밋 →
+     * R이 N까지 잠근 뒤 재정지 → 재활성화 U가 T를 잠그고 N을 기다림 → R 재개 → 교착. 잠금 예외는 정확히 하나이고,
+     * 피해자에 따라 결과가 다르다(둘 다 허용): 피해자가 R이면 U 성공(T 활성), U면 R은 부모 불일치로 409(T 비활성 유지).
+     * 어느 쪽이든 M의 이동은 유지되고 부분 반영이 없다.
+     */
+    @Test
+    @DisplayName("알려진 교착: 잠금 예외는 정확히 하나이고 피해자별 결과가 일관되며 이동은 유지된다")
+    void knownDeadlock_exactlyOneLockFailure_consistentOutcome() throws Exception {
+        Menu newParent = saveMenu("교착 N", null, true, 900);
+        Menu target = saveMenu("교착 T(비활성)", null, false, 901);
+        assertTrue(newParent.getMenuNo() < target.getMenuNo());
+        List<Long> rootsBefore = displayOrder(null);
+        LockProbe probe = new LockProbe(true, newParent.getMenuNo(), newParent.getMenuNo());
+        Advised repositoryProxy = (Advised) menuRepository;
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        repositoryProxy.addAdvice(0, probe);
+        Throwable reorderFailure;
+        Throwable reactivateFailure;
+        try {
+            Future<MenuOrderResponse> reorder = submitReorder(executor, probe,
+                    MenuOrderRequest.builder().upMenuNo(null).scope(MenuOrderScope.ALL).menuNos(rootsBefore).build());
+            await(probe.reached, "재조정이 루트 스냅샷을 읽고 첫 잠금 직전에 정지");
+
+            move(target.getMenuNo(), newParent.getMenuNo()); // M: T(비활성)를 N(활성) 아래로 이동·커밋
+            probe.release.countDown();
+            await(probe.reachedAfter, "재조정이 N까지 잠근 채 재정지");
+
+            Future<?> reactivate = executor.submit(() ->
+                    menuService.updateMenu(target.getMenuNo(), MenuUpdateRequest.builder().useYn(true).build()));
+            await(probe.waiterEntered, "재활성화가 T를 잠그고 부모 N 잠금 조회에 진입");
+            assertDatabaseLockWait(probe.holderConnection.get(), probe.waiterConnection.get());
+
+            probe.releaseAfter.countDown(); // R이 다음 형제 T를 기다림 → 교착
+            reorderFailure = failureOf(reorder);
+            reactivateFailure = failureOf(reactivate);
+        } finally {
+            finishProbed(executor, probe, repositoryProxy);
+        }
+
+        long lockFailures = java.util.stream.Stream.of(reorderFailure, reactivateFailure)
+                .filter(f -> f instanceof PessimisticLockingFailureException).count();
+        assertEquals(1, lockFailures, "교착 피해자는 정확히 하나여야 한다. reorder=" + reorderFailure + ", reactivate=" + reactivateFailure);
+
+        Menu finalTarget = menuRepository.findById(target.getMenuNo()).orElseThrow();
+        assertEquals(newParent.getMenuNo(), finalTarget.getUpMenuNo(), "M의 커밋된 이동은 유지되어야 한다(부분 반영 아님)");
+        if (reorderFailure instanceof PessimisticLockingFailureException) {
+            assertNull(reactivateFailure, "재조정이 피해자면 재활성화는 성공해야 한다");
+            assertTrue(finalTarget.getUseYn());
+        } else {
+            assertInstanceOf(ConflictException.class, reorderFailure, "U가 피해자면 R은 이동된 T의 부모 불일치로 409여야 한다");
+            assertFalse(finalTarget.getUseYn(), "U가 롤백됐으므로 T는 비활성 그대로");
+        }
+        assertEquals(rootsBefore.stream().filter(id -> !id.equals(target.getMenuNo())).toList(),
+                displayOrder(null).stream().filter(id -> !id.equals(target.getMenuNo())).toList(),
+                "남은 루트 순서는 불변");
+    }
+
+    private long maxActionLogId() {
+        return adminActionLogRepository.findAll().stream().mapToLong(AdminActionLog::getId).max().orElse(0L);
+    }
+
+    private List<AdminActionLog> moveLogsAfter(long lastId) {
+        return adminActionLogRepository.findAll().stream()
+                .filter(log -> log.getId() > lastId && AdminActionTypes.MENU_MOVE.equals(log.getActionType()))
+                .toList();
+    }
+
+    /** ⑨ 감사 커밋 순서(정상): 이동 성공은 커밋 뒤에 SUCCESS 1건, targetId = 이동한 메뉴 번호. */
+    @Test
+    @DisplayName("이동 성공: MENU_MOVE SUCCESS가 정확히 1건이고 targetId는 이동한 메뉴 번호")
+    void move_success_recordsSuccessWithTargetId() {
+        Menu target = saveMenu("감사 대상", null, true, 940);
+        Menu newParent = saveMenu("감사 부모", null, true, 941);
+        long before = maxActionLogId();
+
+        move(target.getMenuNo(), newParent.getMenuNo());
+
+        List<AdminActionLog> logs = moveLogsAfter(before);
+        assertEquals(1, logs.size());
+        assertEquals(AdminActionResult.SUCCESS, logs.get(0).getActionResult());
+        assertEquals(target.getMenuNo(), logs.get(0).getTargetId());
+    }
+
+    /**
+     * ⑨ 감사 커밋 순서(커밋 단계 실패): 서비스 내부 예외가 아니라 실제 커밋 직전 동기화 예외로 실패시키면 업무 변경은
+     * 롤백되고 SUCCESS는 남지 않으며 FAIL(targetId null)만 남는다.
+     */
+    @Test
+    @DisplayName("커밋 단계 실패: 이동은 롤백되고 SUCCESS는 없으며 FAIL(targetId null)만 기록된다")
+    void move_commitTimeFailure_recordsFailNotSuccess() throws Exception {
+        Menu target = saveMenu("감사 대상", null, true, 942);
+        Menu newParent = saveMenu("감사 부모", null, true, 943);
+        long before = maxActionLogId();
+        LockProbe probe = new LockProbe(false, null, null).failAtCommit();
+        Advised repositoryProxy = (Advised) menuRepository;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        repositoryProxy.addAdvice(0, probe);
+        Throwable failure;
+        try {
+            failure = failureOf(submitMove(executor, probe, target.getMenuNo(), newParent.getMenuNo()));
+        } finally {
+            finishProbed(executor, probe, repositoryProxy);
+        }
+
+        assertTrue(failure != null, "커밋 단계 예외로 실패해야 한다");
+        Throwable root = failure;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        assertTrue(String.valueOf(root.getMessage()).contains("simulated commit-time failure"), "원인: " + root);
+        assertNull(menuRepository.findById(target.getMenuNo()).orElseThrow().getUpMenuNo(), "커밋 실패로 이동이 롤백되어야 한다");
+
+        List<AdminActionLog> logs = moveLogsAfter(before);
+        assertEquals(1, logs.size());
+        assertEquals(AdminActionResult.FAIL, logs.get(0).getActionResult());
+        assertNull(logs.get(0).getTargetId());
+        assertTrue(logs.stream().noneMatch(log -> log.getActionResult() == AdminActionResult.SUCCESS), "SUCCESS가 남으면 안 된다");
     }
 }

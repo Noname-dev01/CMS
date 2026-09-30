@@ -350,4 +350,43 @@ class MenuServiceReorderTest {
         assertEquals(List.of(3L, 2L, 1L), response.getMenus().stream().map(id).toList());
         assertEquals(List.of(0, 1, 2), response.getMenus().stream().map(MenuOrderResponse.Item::getOrd).toList());
     }
+
+    // ===================== 부모 이동과의 경합(PLAN-menu-move.md 쟁점 B) =====================
+
+    @Test
+    @DisplayName("잠근 형제의 부모가 요청과 다르면(스냅샷 뒤 다른 그룹으로 이동됨) 409이고 어떤 ord도 바뀌지 않는다")
+    void reorder_lockedSiblingMovedToOtherParent_409() {
+        Menu a = menu(11L, 10L, true, 0);
+        Menu bAtSnapshot = menu(12L, 10L, true, 1);
+        Menu bLockedAfterMove = menu(12L, 20L, true, 1); // 스냅샷 이후 다른 부모(20) 아래로 이동돼 커밋됨
+        given(menuRepository.existsById(10L)).willReturn(true);
+        given(menuRepository.findSiblingRowsByUpMenuNo(10L)).willReturn(List.of(row(a), row(bAtSnapshot)));
+        given(menuRepository.findByIdForUpdate(11L)).willReturn(Optional.of(a));
+        given(menuRepository.findByIdForUpdate(12L)).willReturn(Optional.of(bLockedAfterMove));
+
+        assertThrows(ConflictException.class,
+                () -> menuService.reorderMenus(request(10L, MenuOrderScope.ALL, 12L, 11L)));
+
+        assertEquals(0, a.getOrd());
+        assertNull(a.getUpdateDate());
+        assertEquals(1, bLockedAfterMove.getOrd(), "다른 그룹으로 옮겨진 행에 이 그룹의 ord를 쓰면 안 된다");
+        assertNull(bLockedAfterMove.getUpdateDate());
+    }
+
+    @Test
+    @DisplayName("루트 재조정에서 잠근 형제가 그사이 어떤 부모 아래로 이동됐어도 409이고 ord는 불변")
+    void reorder_rootSiblingMovedUnderParent_409() {
+        Menu a = menu(1L, null, true, 0);
+        Menu bAtSnapshot = menu(2L, null, true, 1);
+        Menu bLockedAfterMove = menu(2L, 1L, true, 0); // 최상위였다가 A 아래로 이동
+        given(menuRepository.findRootSiblingRows()).willReturn(List.of(row(a), row(bAtSnapshot)));
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(a));
+        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(bLockedAfterMove));
+
+        assertThrows(ConflictException.class,
+                () -> menuService.reorderMenus(request(null, MenuOrderScope.ALL, 2L, 1L)));
+
+        assertNull(a.getUpdateDate());
+        assertEquals(0, bLockedAfterMove.getOrd());
+    }
 }

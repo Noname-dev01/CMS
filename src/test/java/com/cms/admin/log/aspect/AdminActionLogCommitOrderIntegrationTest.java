@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * 기존 {@code AdminActionTypes.MENU_UPDATE}를 재사용해 이 문제를 피한다.
  *
  * <p>이 테스트는 프로브 전용이며, 실제 프로덕션 서비스(MenuService 등)가 향후 참여 호출로
- * 리팩터링되는 회귀를 감지하지 못한다 — 오늘 기준 감사 대상 4개 서비스의 11개 메서드 전부가
+ * 리팩터링되는 회귀를 감지하지 못한다 — 오늘 기준 감사 대상 4개 서비스의 13개 메서드 전부가
  * 최상위 트랜잭션 진입점이라는 사실(계획 문서 정찰 섹션)이 현재의 유일한 방어선이다.
  */
 @SpringBootTest(classes = CmsTestApplication.class)
