@@ -1,8 +1,10 @@
 package com.cms.admin.menu.controller;
 
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
+import com.cms.admin.menu.dto.request.MenuMoveRequest;
 import com.cms.admin.menu.dto.request.MenuOrderRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuMoveResponse;
 import com.cms.admin.menu.dto.response.MenuOrderResponse;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
@@ -74,6 +76,24 @@ public class MenuController {
             @Valid @RequestBody MenuUpdateRequest request
     ) {
         return ResponseEntity.ok(menuService.updateMenu(id, request));
+    }
+
+    @Operation(summary = "메뉴 부모(상위 메뉴) 변경",
+            description = "menuNo를 유지한 채 부모를 바꾼다. 본문의 upMenuNo는 필수이며 정수 또는 null(최상위 승격)만 허용한다. "
+                    + "결과는 항상 2단 이하 — 하위 메뉴가 있는 메뉴(비활성 포함)는 이동할 수 없고 새 부모는 최상위 메뉴여야 한다. "
+                    + "새 부모 아래(또는 최상위) 맨 끝에 배치된다. 이미 그 부모 아래면 변경 없이 200. "
+                    + "공용 메뉴를 관리자 전용 부모 아래로 옮기면 허용하되 응답 warnings에 알린다.")
+    @ApiResponse(responseCode = "200", description = "이동 성공 또는 무변경(warnings 포함)")
+    @ApiResponse(responseCode = "400", description = "요청값 검증 실패(upMenuNo 누락·정수/null 외의 값) 또는 이동 불가(자기 자신·하위 메뉴 아래·하위 메뉴가 있는 메뉴·활성 메뉴를 비활성 부모 아래로)")
+    @ApiResponse(responseCode = "404", description = "메뉴 또는 부모 메뉴 없음")
+    @ApiResponse(responseCode = "409", description = "동시 변경과 충돌(잠금 대기 타임아웃·교착) — 다시 시도")
+    @PatchMapping("/{id}/parent")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<MenuMoveResponse> moveMenu(
+            @PathVariable Long id,
+            @Valid @RequestBody MenuMoveRequest request
+    ) {
+        return ResponseEntity.ok(menuService.moveMenu(id, request));
     }
 
     @Operation(summary = "형제 메뉴 순서 재조정",

@@ -16,6 +16,8 @@ public final class AdminActionTypes {
     public static final String MENU_DEACTIVATE   = "MENU_DEACTIVATE";
     /** 같은 부모 아래 형제 메뉴 순서 재조정 (targetId = 부모 메뉴 번호, 최상위는 null) */
     public static final String MENU_REORDER      = "MENU_REORDER";
+    /** 메뉴의 부모(상위 메뉴) 변경 (targetId = 이동한 메뉴 번호) */
+    public static final String MENU_MOVE         = "MENU_MOVE";
     /** 로그인 연속 실패로 인한 계정 자동 잠금 (미인증 흐름 — actionUserId null로 기록) */
     public static final String ACCOUNT_AUTO_LOCK = "ACCOUNT_AUTO_LOCK";
     public static final String NOTICE_CREATE     = "NOTICE_CREATE";
@@ -26,7 +28,7 @@ public final class AdminActionTypes {
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
-            ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_REORDER,
+            ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_REORDER, MENU_MOVE,
             ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE,
             NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE
     );

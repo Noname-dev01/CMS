@@ -2,9 +2,11 @@ package com.cms.admin.menu.controller;
 
 import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
+import com.cms.admin.menu.dto.request.MenuMoveRequest;
 import com.cms.admin.menu.dto.request.MenuOrderRequest;
 import com.cms.admin.menu.dto.request.MenuOrderScope;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuMoveResponse;
 import com.cms.admin.menu.dto.response.MenuOrderResponse;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
@@ -15,6 +17,7 @@ import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.MethodSecurityTestConfig;
 import com.cms.config.auth.AdminSecurityService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,7 +40,9 @@ import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
@@ -677,5 +682,161 @@ class MenuControllerTest {
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    // ===================== moveMenu (PATCH /{id}/parent) =====================
+
+    private MenuMoveResponse moveResponse(Long menuNo, Long upMenuNo, int ord, String... warnings) {
+        return MenuMoveResponse.builder().menuNo(menuNo).upMenuNo(upMenuNo).ord(ord).warnings(List.of(warnings)).build();
+    }
+
+    @Test
+    @DisplayName("부모 이동 성공: 정수 upMenuNo가 서비스로 전달되고 warnings가 응답된다")
+    @WithMockUser(roles = "ADMIN")
+    void moveMenu_success() throws Exception {
+        given(menuService.moveMenu(eq(11L), any())).willReturn(
+                moveResponse(11L, 20L, 5, "상위 메뉴가 관리자 전용이라 MANAGER에게는 이 메뉴가 사이드바에 표시되지 않습니다."));
+
+        mockMvc.perform(patch("/admin/api/menus/11/parent")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"upMenuNo\":20}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.menuNo").value(11))
+                .andExpect(jsonPath("$.upMenuNo").value(20))
+                .andExpect(jsonPath("$.ord").value(5))
+                .andExpect(jsonPath("$.warnings[0]").value(org.hamcrest.Matchers.containsString("MANAGER")));
+
+        ArgumentCaptor<MenuMoveRequest> captor = ArgumentCaptor.forClass(MenuMoveRequest.class);
+        verify(menuService).moveMenu(eq(11L), captor.capture());
+        assertEquals(20L, captor.getValue().resolvedUpMenuNo());
+    }
+
+    @Test
+    @DisplayName("명시적 JSON null은 최상위 승격으로 서비스에 전달되고, 응답에는 upMenuNo 키가 존재하며 값이 null이다(전역 non_null 무시)")
+    @WithMockUser(roles = "ADMIN")
+    void moveMenu_explicitNull_promotesAndResponseKeepsNullKey() throws Exception {
+        given(menuService.moveMenu(eq(11L), any())).willReturn(moveResponse(11L, null, 5));
+
+        String body = mockMvc.perform(patch("/admin/api/menus/11/parent")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"upMenuNo\":null}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        ArgumentCaptor<MenuMoveRequest> captor = ArgumentCaptor.forClass(MenuMoveRequest.class);
+        verify(menuService).moveMenu(eq(11L), captor.capture());
+        assertNull(captor.getValue().resolvedUpMenuNo());
+
+        JsonNode json = objectMapper.readTree(body);
+        assertTrue(json.has("upMenuNo"), "최상위 결과에서도 upMenuNo 키가 생략되면 안 된다: " + body);
+        assertTrue(json.get("upMenuNo").isNull());
+        assertTrue(json.get("warnings").isArray());
+        assertEquals(0, json.get("warnings").size());
+    }
+
+    @Test
+    @DisplayName("필드 없음·문자열·소수·불리언·배열·객체·범위 초과 정수는 400 VALIDATION_ERROR이고 서비스를 호출하지 않는다(실수 입력이 승격·이동이 되면 안 됨)")
+    @WithMockUser(roles = "ADMIN")
+    void moveMenu_invalidUpMenuNo_400_neverCallsService() throws Exception {
+        for (String body : List.of(
+                "{}",                                        // 필드 없음 — 승격으로 오인 금지
+                "{\"upMenuNo\":\"\"}",                       // Jackson 기본 변환이 null로 바꾸는 값
+                "{\"upMenuNo\":\" \"}",
+                "{\"upMenuNo\":\"null\"}",
+                "{\"upMenuNo\":\"10\"}",                     // 숫자 문자열
+                "{\"upMenuNo\":10.9}",                       // 기본 변환이 10으로 자르는 값
+                "{\"upMenuNo\":10.0}",
+                "{\"upMenuNo\":true}",
+                "{\"upMenuNo\":[]}",
+                "{\"upMenuNo\":{}}",
+                "{\"upMenuNo\":99999999999999999999}"        // long 범위 초과
+        )) {
+            mockMvc.perform(patch("/admin/api/menus/11/parent")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("이동 불가는 400, 대상·부모 없음은 404, 동시 변경 충돌은 409로 응답한다")
+    @WithMockUser(roles = "ADMIN")
+    void moveMenu_serviceErrors_mapToStatusCodes() throws Exception {
+        given(menuService.moveMenu(eq(1L), any())).willThrow(new InvalidRequestException("하위 메뉴가 있는 메뉴는 이동할 수 없습니다."));
+        given(menuService.moveMenu(eq(2L), any())).willThrow(new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
+        given(menuService.moveMenu(eq(3L), any())).willThrow(
+                new org.springframework.dao.CannotAcquireLockException("deadlock"));
+
+        mockMvc.perform(patch("/admin/api/menus/1/parent").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"upMenuNo\":20}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mockMvc.perform(patch("/admin/api/menus/2/parent").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"upMenuNo\":20}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(patch("/admin/api/menus/3/parent").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"upMenuNo\":20}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
+    }
+
+    @Test
+    @DisplayName("인증 없이 부모 이동 시 401")
+    void moveMenu_unauthenticated_401() throws Exception {
+        mockMvc.perform(patch("/admin/api/menus/11/parent")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"upMenuNo\":20}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("MANAGER·USER는 부모 이동 시 403(ADMIN 전용)")
+    void moveMenu_nonAdminForbidden() throws Exception {
+        for (String role : List.of("MANAGER", "USER")) {
+            mockMvc.perform(patch("/admin/api/menus/11/parent")
+                            .with(user("u").roles(role))
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"upMenuNo\":20}"))
+                    .andExpect(status().isForbidden());
+        }
+
+        verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("CSRF 토큰 없는 PATCH는 403이고 서비스를 호출하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void moveMenu_withoutCsrf_403() throws Exception {
+        mockMvc.perform(patch("/admin/api/menus/11/parent")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"upMenuNo\":20}"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("id가 숫자가 아니면 400 INVALID_REQUEST, PATCH /{id}와 PATCH /{id}/parent는 서로 다른 핸들러로 간다")
+    @WithMockUser(roles = "ADMIN")
+    void moveMenu_pathVariableAndRouteSeparation() throws Exception {
+        mockMvc.perform(patch("/admin/api/menus/abc/parent").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"upMenuNo\":20}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        given(menuService.updateMenu(eq(11L), any())).willReturn(menuResponse());
+        mockMvc.perform(patch("/admin/api/menus/11").with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"menuName\":\"이름\"}"))
+                .andExpect(status().isOk());
+        verify(menuService).updateMenu(eq(11L), any());
+        verify(menuService, org.mockito.Mockito.never()).moveMenu(anyLong(), any());
     }
 }
