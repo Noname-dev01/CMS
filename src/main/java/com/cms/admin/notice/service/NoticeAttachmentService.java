@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -55,6 +56,7 @@ public class NoticeAttachmentService {
     private final NoticeRepository noticeRepository;
     private final NoticeAttachmentRepository noticeAttachmentRepository;
     private final FileStorage fileStorage;
+    private final Clock clock;
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.NOTICE_ATTACHMENT_UPLOAD, targetType = "NOTICE_ATTACHMENT", targetIdExpression = "id")
@@ -96,7 +98,7 @@ public class NoticeAttachmentService {
                         .contentType(contentType)
                         .fileSize(file.getSize())
                         .storageKey(storageKey)
-                        .createDate(LocalDateTime.now())
+                        .createDate(LocalDateTime.now(clock))
                         .build()
         );
 

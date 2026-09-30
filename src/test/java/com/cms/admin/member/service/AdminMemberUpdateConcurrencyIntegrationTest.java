@@ -79,7 +79,7 @@ class AdminMemberUpdateConcurrencyIntegrationTest extends MariaDbContainerSuppor
         for (Long id : temporarilyDisabledAdminIds) {
             try {
                 memberRepository.findById(id).ifPresent(member -> {
-                    member.changeStatus(MemberStatus.ACTIVE);
+                    member.changeStatus(MemberStatus.ACTIVE, LocalDateTime.now());
                     memberRepository.save(member);
                 });
             } catch (Exception ignored) {
@@ -124,7 +124,7 @@ class AdminMemberUpdateConcurrencyIntegrationTest extends MariaDbContainerSuppor
         memberRepository.findAll().stream()
                 .filter(m -> m.getUserType() == Role.ROLE_ADMIN && m.getStatus() == MemberStatus.ACTIVE)
                 .forEach(m -> {
-                    m.changeStatus(MemberStatus.DISABLED);
+                    m.changeStatus(MemberStatus.DISABLED, LocalDateTime.now());
                     memberRepository.save(m);
                     temporarilyDisabledAdminIds.add(m.getId());
                 });

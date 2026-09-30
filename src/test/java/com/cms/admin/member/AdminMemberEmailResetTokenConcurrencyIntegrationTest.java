@@ -213,7 +213,7 @@ class AdminMemberEmailResetTokenConcurrencyIntegrationTest extends MariaDbContai
         LocalDateTime expiryAt = LocalDateTime.now(clock).plusMinutes(30);
         tx.executeWithoutResult(status -> {
             Member locked = memberRepository.findByEmailForUpdate(oldEmail).orElseThrow();
-            locked.issueResetToken(hashedToken, expiryAt);
+            locked.issueResetToken(hashedToken, expiryAt, LocalDateTime.now());
         });
 
         // 커밋된 토큰이 실제로 반영됐는지 선확인(테스트 자체의 전제 검증).

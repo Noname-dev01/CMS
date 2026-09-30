@@ -28,7 +28,10 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -375,7 +378,8 @@ class ProfileImageMigrationRunnerIntegrationTest extends MariaDbContainerSupport
         }).when(fileStorageSpy).store(any(byte[].class), anyString(), eq("profile"));
 
         ProfileImageMigrationRunner concurrentRunner =
-                new ProfileImageMigrationRunner(repoMock, fileStorageSpy, transactionTemplate);
+                new ProfileImageMigrationRunner(repoMock, fileStorageSpy, transactionTemplate,
+                        Clock.fixed(Instant.parse("2026-09-30T00:00:00Z"), ZoneId.of("Asia/Seoul")));
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {

@@ -72,7 +72,7 @@ class MemberLockoutTest {
     void changeStatus_clearsLockedAt() {
         Member member = lockedMember(LocalDateTime.of(2026, 7, 14, 12, 0), 5);
 
-        member.changeStatus(MemberStatus.DISABLED);
+        member.changeStatus(MemberStatus.DISABLED, LocalDateTime.now());
 
         assertThat(member.getLockedAt()).isNull();
     }
@@ -82,8 +82,8 @@ class MemberLockoutTest {
     void manualRelockAfterDisable_hasNoResidualLockedAt() {
         Member member = lockedMember(LocalDateTime.of(2026, 7, 14, 12, 0), 5);
 
-        member.changeStatus(MemberStatus.DISABLED);
-        member.changeStatus(MemberStatus.LOCKED);
+        member.changeStatus(MemberStatus.DISABLED, LocalDateTime.now());
+        member.changeStatus(MemberStatus.LOCKED, LocalDateTime.now());
 
         assertThat(member.getLockedAt()).isNull(); // 자동 해제 조건(locked_at 존재)에 걸리지 않는다
     }

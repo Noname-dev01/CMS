@@ -168,7 +168,7 @@ public class AdminMemberService {
 
         validateDuplicatedEmail(normalizedEmail, member.getId());
 
-        member.updateInfo(normalizedUserName, normalizedEmail);
+        member.updateInfo(normalizedUserName, normalizedEmail, LocalDateTime.now(clock));
 
         return toResponse(member, ProfileImageVisibility.SELF);
     }
@@ -203,6 +203,8 @@ public class AdminMemberService {
             throw new ConflictException("삭제된 계정은 수정할 수 없습니다.");
         }
 
+        // 한 요청 안의 여러 변경이 같은 updateDate를 갖도록 시각을 1회만 산출한다
+        LocalDateTime now = LocalDateTime.now(clock);
         Role beforeRole = target.getUserType();
         MemberStatus beforeStatus = target.getStatus();
         Role effectiveRole = request.getUserType() != null ? request.getUserType() : beforeRole;
@@ -229,17 +231,17 @@ public class AdminMemberService {
                 effectiveEmail = EmailNormalizer.normalize(request.getEmail());
                 validateDuplicatedEmail(effectiveEmail, target.getId());
             }
-            target.updateInfo(effectiveUserName, effectiveEmail);
+            target.updateInfo(effectiveUserName, effectiveEmail, now);
         }
 
         boolean roleChanged = effectiveRole != beforeRole;
         if (roleChanged) {
-            target.changeRole(effectiveRole);
+            target.changeRole(effectiveRole, now);
         }
 
         boolean statusChanged = effectiveStatus != beforeStatus;
         if (statusChanged) {
-            target.changeStatus(effectiveStatus);
+            target.changeStatus(effectiveStatus, now);
             if (effectiveStatus == MemberStatus.ACTIVE) {
                 // 비ACTIVE→ACTIVE 복구는 실패 연쇄 단절 — 리셋 없이는 해제 직후 1회 실패로 재잠금되고,
                 // 상태 전이 경합으로 비ACTIVE 계정에 숨어 있던 카운트도 여기서 정리된다.

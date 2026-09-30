@@ -18,12 +18,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,6 +59,12 @@ class NoticeAttachmentServiceTest {
 
     @Mock
     FileStorage fileStorage;
+
+    /** UTC 2026-09-29 15:00 = KST 2026-09-30 00:00 — 시스템 시각·기본 시간대와 무관하게 저장 시각을 단언한다. */
+    static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 9, 30, 0, 0);
+
+    @Spy
+    Clock clock = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     @InjectMocks
     NoticeAttachmentService noticeAttachmentService;
@@ -111,6 +121,11 @@ class NoticeAttachmentServiceTest {
         assertEquals("report.pdf", response.getOriginalFilename());
         verify(noticeRepository).findByIdAndDeletedFalseForUpdate(1L);
         verify(fileStorage).store(any(byte[].class), anyString());
+
+        // 첨부 createDate는 주입된 KST Clock에서 나온다
+        ArgumentCaptor<NoticeAttachment> saved = ArgumentCaptor.forClass(NoticeAttachment.class);
+        verify(noticeAttachmentRepository).save(saved.capture());
+        assertEquals(FIXED_NOW, saved.getValue().getCreateDate());
     }
 
     @Test

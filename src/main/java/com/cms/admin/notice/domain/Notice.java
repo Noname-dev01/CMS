@@ -47,8 +47,10 @@ public class Notice {
     /**
      * 부분 수정. 각 파라미터가 null이 아닐 때만 반영한다(null=기존값 유지 시맨틱).
      * 공백 거부·전체 null 거부는 Service 계층(요청 DTO 검증 이후)의 책임이다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void update(String title, String content, Boolean useYn) {
+    public void update(String title, String content, Boolean useYn, LocalDateTime now) {
         if (title != null) {
             this.title = title;
         }
@@ -58,14 +60,16 @@ public class Notice {
         if (useYn != null) {
             this.useYn = useYn;
         }
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 
     /**
      * 소프트 삭제. deleted=true 처리 후 수정 시각을 갱신한다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void softDelete() {
+    public void softDelete(LocalDateTime now) {
         this.deleted = true;
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 }

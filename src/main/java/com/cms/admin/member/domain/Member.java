@@ -98,15 +98,17 @@ public class Member {
      * 내 정보(이름, 이메일) 수정. 수정 시각을 함께 갱신한다.
      * 이메일이 실제로 바뀌면 발급돼 있던 재설정 토큰도 무효화한다 —
      * 이전 주소의 메일함에 남은 재설정 링크가 계속 유효해서는 안 된다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void updateInfo(String userName, String email) {
+    public void updateInfo(String userName, String email, LocalDateTime now) {
         this.userName = userName;
         if (!Objects.equals(this.email, email)) {
             this.resetToken = null;
             this.resetTokenExpiryAt = null;
         }
         this.email = email;
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 
     /**
@@ -205,28 +207,34 @@ public class Member {
 
     /**
      * 비밀번호 재설정 토큰 발급. 평문이 아니라 SHA-256 해시를 저장해야 한다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void issueResetToken(String hashedToken, LocalDateTime expiryAt) {
+    public void issueResetToken(String hashedToken, LocalDateTime expiryAt, LocalDateTime now) {
         this.resetToken = hashedToken;
         this.resetTokenExpiryAt = expiryAt;
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 
     /**
      * 비밀번호 재설정 토큰 무효화.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void clearResetToken() {
+    public void clearResetToken(LocalDateTime now) {
         this.resetToken = null;
         this.resetTokenExpiryAt = null;
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 
     /**
      * 권한(역할) 변경. 수정 시각을 함께 갱신한다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void changeRole(Role userType) {
+    public void changeRole(Role userType, LocalDateTime now) {
         this.userType = userType;
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 
     /**
@@ -234,11 +242,13 @@ public class Member {
      * 자동 잠금 시각(lockedAt)도 항상 정리한다 — 수동 →LOCKED는 영구 잠금이 되고,
      * 자동 잠금에서 다른 상태로 나갈 때(LOCKED→DISABLED 등) 잔존 시각이
      * 이후 수동 잠금을 자동 해제시키는 회귀(LOCKED→DISABLED→LOCKED)를 막는다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void changeStatus(MemberStatus status) {
+    public void changeStatus(MemberStatus status, LocalDateTime now) {
         this.status = status;
         this.lockedAt = null;
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 
     /**

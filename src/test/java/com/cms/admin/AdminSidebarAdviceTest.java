@@ -21,6 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Clock;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -85,6 +86,12 @@ class AdminSidebarAdviceTest {
         @Bean
         public DashboardService dashboardService() {
             return Mockito.mock(DashboardService.class);
+        }
+
+        /** AdminActionLogPageController가 Clock으로 기간 기본값을 계산한다 — 슬라이스에는 AppConfig가 없다. */
+        @Bean
+        public Clock clock() {
+            return Clock.systemUTC();
         }
     }
 

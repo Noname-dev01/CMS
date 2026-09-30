@@ -14,8 +14,11 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,13 +29,17 @@ import static org.mockito.Mockito.verify;
 
 class AdminActionLogQueryServiceTest {
 
+    /** UTC 2026-09-29 15:00 = KST 2026-09-30 00:00 — UTC 날짜와 KST 날짜가 갈리는 경계. */
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneId.of("Asia/Seoul"));
+
     private AdminActionLogRepository repository;
     private AdminActionLogQueryService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(AdminActionLogRepository.class);
-        service    = new AdminActionLogQueryService(repository);
+        service    = new AdminActionLogQueryService(repository, FIXED_CLOCK);
 
         // 기본 stub: 빈 페이지 반환
         given(repository.searchActionLogs(any(), any()))
@@ -52,7 +59,8 @@ class AdminActionLogQueryServiceTest {
         verify(repository).searchActionLogs(captor.capture(), any());
 
         AdminActionLogSearchRequest captured = captor.getValue();
-        LocalDate today = LocalDate.now();
+        // 주입된 KST Clock 기준 "오늘"(UTC 기준이면 09-29) — 시스템 기본 시간대와 무관해야 한다
+        LocalDate today = LocalDate.of(2026, 9, 30);
         assertThat(captured.getTo()).isEqualTo(today);
         assertThat(captured.getFrom()).isEqualTo(today.minusDays(29));
     }

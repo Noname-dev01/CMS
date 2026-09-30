@@ -325,7 +325,6 @@ class AdminMemberServiceTest {
     @DisplayName("내 관리자 정보 수정 성공")
     void updateMyInfo_success() {
         Member member = adminMember();
-        LocalDateTime previousUpdateDate = member.getUpdateDate();
         AdminMyInfoUpdateRequest request = AdminMyInfoUpdateRequest.builder()
                 .userName("  관리자 수정  ")
                 .email("ADMIN02@TEST.COM ")
@@ -339,7 +338,8 @@ class AdminMemberServiceTest {
         assertEquals("관리자 수정", response.getUserName());
         assertEquals("admin02@test.com", response.getEmail());
         assertNotNull(response.getUpdateDate());
-        assertTrue(!response.getUpdateDate().isBefore(previousUpdateDate));
+        // 수정 시각은 시스템 시각이 아니라 주입된 KST Clock(2026-07-17T03:00Z = KST 12:00)에서 나온다
+        assertEquals(LocalDateTime.of(2026, 7, 17, 12, 0), response.getUpdateDate());
         verify(memberRepository).findByEmail("admin02@test.com");
         // 호출 계약 고정 — 감사 H-02(adversarial-review/plan/PLAN-member-self-update-row-lock.md):
         // 이메일 변경과 비밀번호 재설정 토큰 발급의 경합을 막으려면 반드시 행 잠금 조회를 써야 한다.

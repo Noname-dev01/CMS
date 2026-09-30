@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -33,6 +34,7 @@ import java.util.Set;
 public class MenuService {
 
     private final MenuRepository menuRepository;
+    private final Clock clock;
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.MENU_CREATE, targetType = "MENU", targetIdExpression = "menuNo")
@@ -52,7 +54,7 @@ public class MenuService {
 
         Integer ord = request.getOrd() != null ? request.getOrd() : resolveNextOrd(upMenuNo);
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         Menu saved = menuRepository.save(
                 Menu.builder()
                         .menuName(menuName)
@@ -113,7 +115,7 @@ public class MenuService {
         }
 
         target.update(effectiveMenuName, effectiveMenuUrl, effectiveMenuIcon, effectiveMenuDesc,
-                effectiveUseYn, effectiveAccessRole, effectiveOrd);
+                effectiveUseYn, effectiveAccessRole, effectiveOrd, LocalDateTime.now(clock));
 
         return MenuResponse.from(target);
     }
@@ -128,7 +130,7 @@ public class MenuService {
             throw new ConflictException("활성 하위 메뉴가 있어 비활성화할 수 없습니다.");
         }
 
-        target.deactivate();
+        target.deactivate(LocalDateTime.now(clock));
 
         return MenuResponse.from(target);
     }

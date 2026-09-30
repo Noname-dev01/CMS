@@ -180,7 +180,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
             Future<?> deleteFuture = executor.submit(() -> tx.executeWithoutResult(status -> {
                 Notice locked = noticeRepository.findByIdAndDeletedFalseForUpdate(noticeId)
                         .orElseThrow(() -> new IllegalStateException("테스트 대상 공지를 찾을 수 없습니다."));
-                locked.softDelete();
+                locked.softDelete(LocalDateTime.now());
                 lockHeld.countDown();
                 try {
                     release.await(20, TimeUnit.SECONDS);

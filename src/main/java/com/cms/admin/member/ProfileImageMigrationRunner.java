@@ -13,6 +13,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
@@ -60,6 +61,7 @@ public class ProfileImageMigrationRunner implements CommandLineRunner {
     private final MemberRepository memberRepository;
     private final FileStorage fileStorage;
     private final TransactionTemplate transactionTemplate;
+    private final Clock clock;
 
     @Override
     public void run(String... args) {
@@ -131,7 +133,7 @@ public class ProfileImageMigrationRunner implements CommandLineRunner {
         if (decoded.length > MAX_DECODED_BYTES) {
             // 사전 문자열 길이 검사를 통과했지만 디코딩 후에도 여전히 큰 경우의 방어적 이중 검사.
             // 이미 트랜잭션 안에서 엔티티를 들고 있으므로 그대로 NONE으로 초기화한다.
-            member.resetProfileImage(LocalDateTime.now());
+            member.resetProfileImage(LocalDateTime.now(clock));
             log.warn("프로필 이미지 이관 중 크기 초과 발견(디코딩 후) — NONE으로 초기화. memberId={}", id);
             return false;
         }

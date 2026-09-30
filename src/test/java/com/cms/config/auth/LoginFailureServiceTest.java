@@ -287,7 +287,7 @@ class LoginFailureServiceTest extends MariaDbContainerSupport {
                 .executeUpdate();
 
         // stale 엔티티(status=ACTIVE로 읽음)의 더티체킹 flush — @DynamicUpdate라 변경 컬럼만 UPDATE
-        loaded.updateInfo("변경된이름", loaded.getEmail());
+        loaded.updateInfo("변경된이름", loaded.getEmail(), LocalDateTime.now());
         entityManager.flush();
         entityManager.clear();
 

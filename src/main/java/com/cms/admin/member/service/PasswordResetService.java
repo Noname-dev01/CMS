@@ -172,7 +172,7 @@ public class PasswordResetService {
 
         String plainToken = generateToken();
         String hashedToken = sha256Hex(plainToken);
-        member.issueResetToken(hashedToken, now.plus(TOKEN_TTL));
+        member.issueResetToken(hashedToken, now.plus(TOKEN_TTL), now);
 
         return Optional.of(new IssueResult(member.getId(), member.getEmail(), plainToken, hashedToken));
     }

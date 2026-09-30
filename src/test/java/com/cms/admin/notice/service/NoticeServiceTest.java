@@ -18,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -26,7 +27,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,6 +52,13 @@ class NoticeServiceTest {
 
     @Mock
     AdminSecurityService adminSecurityService;
+
+    /** UTC 2026-09-29 15:00 = KST 2026-09-30 00:00 — 시스템 시각·기본 시간대와 무관하게 저장 시각을 단언한다. */
+    static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 9, 30, 0, 0);
+
+    @Spy
+    Clock clock = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), KST);
 
     @InjectMocks
     NoticeService noticeService;
@@ -99,6 +110,9 @@ class NoticeServiceTest {
         ArgumentCaptor<Notice> captor = ArgumentCaptor.forClass(Notice.class);
         verify(noticeRepository).save(captor.capture());
         assertFalse(captor.getValue().getDeleted());
+        // 저장 시각은 주입된 KST Clock에서 나오며 createDate == updateDate
+        assertEquals(FIXED_NOW, captor.getValue().getCreateDate());
+        assertEquals(FIXED_NOW, captor.getValue().getUpdateDate());
     }
 
     @Test
@@ -129,6 +143,7 @@ class NoticeServiceTest {
 
         assertEquals("변경된 제목", response.getTitle());
         assertEquals("기존 본문", response.getContent());
+        assertEquals(FIXED_NOW, target.getUpdateDate()); // 수정 시각은 주입된 KST Clock
         verify(noticeRepository).findByIdAndDeletedFalseForUpdate(1L);
     }
 
@@ -174,6 +189,7 @@ class NoticeServiceTest {
 
         assertEquals(1L, response.getId());
         assertTrue(target.getDeleted());
+        assertEquals(FIXED_NOW, target.getUpdateDate()); // 삭제 시각도 주입된 KST Clock
         verify(noticeRepository).findByIdAndDeletedFalseForUpdate(1L);
     }
 
