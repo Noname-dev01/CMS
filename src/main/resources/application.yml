@@ -16,6 +16,19 @@ spring:
       # (PLAN-notice-attachment.md 쟁점 8).
       max-file-size: 10MB
       max-request-size: 15MB
+  task:
+    execution:
+      # 비밀번호 재설정 메일 발송(PasswordResetService의 TaskExecutor)은 전용 빈이 아니라 Boot 기본
+      # 공용 applicationTaskExecutor를 쓴다 — 기본값(큐 무제한)이면 SMTP 무응답 시 대기 작업이 무한 누적된다.
+      # 보장 범위는 "동시 실행 4 · 대기 20"의 자원 상한뿐이다(초과 제출은 TaskRejectedException →
+      # 서비스가 삼키고 토큰을 조건부 클리어, 응답은 항상 200). 큐 대기로 만료된 링크가 발송되지 않음은
+      # 보장하지 않는다. core=max인 이유: 큐가 유한해도 core<max면 큐가 찬 뒤에야 스레드가 늘고,
+      # SMTP 병목에서는 스레드를 늘려도 동시 연결만 늘어난다. 이 executor를 다른 기능이 쓰게 되면
+      # 메일 전용 빈 분리를 재평가한다(PLAN-mail-executor-bound.md, remediation-plan Deferred Work).
+      pool:
+        core-size: 4
+        max-size: 4
+        queue-capacity: 20
   flyway:
     # 빈 DB(CI·신규 환경)는 V1부터 전체 실행된다.
     # 기존 DB 전환 시에만 일회성으로 SPRING_FLYWAY_BASELINE_ON_MIGRATE=true를
