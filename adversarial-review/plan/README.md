@@ -29,6 +29,7 @@
 | 18 | ✅ **완료 (2026-09-30, #64)** [PLAN-clock-unification.md](PLAN-clock-unification.md) — 시각 원천 KST Clock 단일화, `LocalDateTime.now()` 직접 호출 제거 (로드맵 "우선순위에서 밀린 감사 항목" M-05) | refactor | 없음 | 승인 완료(스키마·인가 정책·신규 의존성 변경 없음; 운영 동작 무변화 — 테스트 JVM 시각 원천 정합성 방어) |
 | 19 | ✅ **구현 완료 (2026-09-30, 커밋·PR 전)** [PLAN-mail-executor-bound.md](PLAN-mail-executor-bound.md) — 재설정 메일 발송 executor 큐·동시 실행 상한 (로드맵 2026-09-05 선정 Top 5 ④ 잔여) | fix/ops | 없음 | 승인 완료(스키마·인가 정책·신규 의존성 변경 없음, 설정 3줄 + 테스트) |
 | 20 | ✅ **구현 완료 (2026-09-30, 커밋·PR 전)** [PLAN-member-list-sort-tiebreak.md](PLAN-member-list-sort-tiebreak.md) — 회원 목록 정렬 id 보조 정렬(tie-breaker) 추가 (로드맵 "우선순위에서 밀린 감사 항목" L-01) | fix | 없음 | 불필요(스키마·인가 정책·신규 의존성 변경 없음, 쿼리·테스트만 변경) |
+| 21 | ✅ **구현 완료 (2026-09-30, 커밋·PR 전)** [PLAN-menu-reorder.md](PLAN-menu-reorder.md) — 메뉴 형제 순서 재조정 API(`PUT /admin/api/menus/order`) + 트리 드래그 앤 드롭 (원본 `menu-management-plan.md` "알려진 한계 — 순서(ord) 재조정") | feat | 없음 | 불필요(스키마·인가 정책·신규 의존성 변경 없음; URI가 원안 `PATCH .../reorder`에서 컨벤션상 `PUT .../order`로 변경됨 — 승인 완료) |
 | 14 | [PLAN-audit-log-integrity.md](PLAN-audit-log-integrity.md) — 감사 로그 신뢰성 강화: IP 위조 차단 + 커밋 순서 보장 (로드맵 2026-09-05 선정 Top 5 ③, 외부 기술 감사 H-03·M-01) | security/fix | 없음 | 불필요(신규 의존성 없음, 스키마·인가 정책 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)

@@ -1,7 +1,9 @@
 package com.cms.admin.menu.controller;
 
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
+import com.cms.admin.menu.dto.request.MenuOrderRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuOrderResponse;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
 import com.cms.admin.menu.service.MenuService;
@@ -72,6 +74,20 @@ public class MenuController {
             @Valid @RequestBody MenuUpdateRequest request
     ) {
         return ResponseEntity.ok(menuService.updateMenu(id, request));
+    }
+
+    @Operation(summary = "형제 메뉴 순서 재조정",
+            description = "같은 부모 아래 형제들의 순서를 요청 순서대로 확정하고 ord를 0..n-1로 다시 매긴다(멱등). "
+                    + "scope=ALL은 형제 전체, scope=ACTIVE는 활성 형제만 담아야 하며 ACTIVE에서는 비활성 형제가 표시 순서상 제자리를 유지한다. "
+                    + "요청이 scope가 가리키는 형제 집합과 다르면 409. 동시에 생성된 형제의 위치는 보장하지 않는다.")
+    @ApiResponse(responseCode = "200", description = "재조정 성공(적용된 순서 반환)")
+    @ApiResponse(responseCode = "400", description = "요청값 검증 실패(빈 목록·중복·null 원소·1000개 초과·scope 누락)")
+    @ApiResponse(responseCode = "404", description = "부모 메뉴 없음")
+    @ApiResponse(responseCode = "409", description = "형제 구성이 요청과 다름(추가·누락·활성 상태 변경) — 화면을 새로고침 후 재시도")
+    @PutMapping("/order")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<MenuOrderResponse> reorderMenus(@Valid @RequestBody MenuOrderRequest request) {
+        return ResponseEntity.ok(menuService.reorderMenus(request));
     }
 
     @Operation(summary = "메뉴 비활성화", description = "하드 삭제가 아닌 useYn=false 처리. 활성 하위 메뉴가 있으면 거부된다.")

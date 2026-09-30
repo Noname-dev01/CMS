@@ -79,6 +79,16 @@ public class Menu {
     }
 
     /**
+     * 정렬 순서만 변경한다(형제 순서 재조정용). 다른 필드는 건드리지 않는다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
+     */
+    public void changeOrd(Integer ord, LocalDateTime now) {
+        this.ord = ord;
+        this.updateDate = now;
+    }
+
+    /**
      * 비활성화. useYn=false 처리 후 수정 시각을 갱신한다.
      *
      * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록

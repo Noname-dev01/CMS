@@ -447,6 +447,44 @@ function initTree(data) {
 
 ---
 
+### jstree `check_callback`에서 `more.dnd`를 요구하면 정상 드롭도 최종 검사에서 거부된다 (2026-09-30, PLAN-menu-reorder.md 계획 리뷰 중 발견)
+
+#### 증상 (구현 전에 발견 — 운영에 나간 적 없음)
+
+메뉴 트리 드래그 앤 드롭 계획이 `core.check_callback`을 "`operation === 'move_node'`이고 **`more.dnd`이고** 같은 부모이고 `more.pos !== 'i'`일 때만 true"로 설계했다. 이대로면 드래그 중에는 이동 가능 표시가 뜨는데도 마우스를 놓으면 이동이 거부되고, 저장을 담당하는 `move_node.jstree` 이벤트도 발생하지 않아 서버 호출이 한 번도 나가지 않는다.
+
+#### 원인
+
+jstree 3.3.12는 `check_callback`을 두 단계에서 호출하며 `more`에 담는 값이 다르다.
+
+| 단계 | `more`에 담기는 값 |
+|---|---|
+| 드래그 중 위치 검사(dnd 플러그인) | `{ dnd: true, pos: 'b'\|'a'\|'i', ... }` |
+| 드롭 후 `move_node()` 내부 최종 검사 | `{ core: true, origin, is_multi, is_foreign }` — **`dnd`·`pos`가 없다** |
+
+설치된 CDN 빌드(`cdnjs .../jstree/3.3.12/jstree.min.js`)의 `move_node` 내부 `this.check("move_node", ...)` 호출부에서 `{core:!0,origin:i,is_multi:...,is_foreign:...}`만 넘기는 것을 직접 확인해 특정했다(적대적 리뷰 1라운드 P1 지적을 소스로 검증).
+
+#### 해결 방법
+
+"같은 부모" 조건(`parent.id === node.parent`)은 **두 단계 모두**에 적용하고, `more.dnd`는 요구하지 않는다. "안으로 넣기" 차단(`more.dnd && more.pos === 'i'`)만 드래그 중 검사에 적용한다. `pos === 'i'`일 때 `parent`는 대상 노드 자신이 되어 같은 부모 조건에서 이미 거부되며, jstree는 거부된 위치 대신 같은 부모의 앞/뒤 위치로 대체한다.
+
+```js
+check_callback: function (operation, node, parent, position, more) {
+    if (operation !== 'move_node') return false;
+    if (!canDrag()) return false;
+    if (!parent || parent.id !== node.parent) return false;      // 같은 부모만 — 두 단계 공통
+    if (more) {
+        if (more.is_multi || more.is_foreign) return false;
+        if (more.dnd && more.pos === 'i') return false;          // 안으로 넣기 — 드래그 중에만 존재하는 정보
+    }
+    return true;
+}
+```
+
+검증: Playwright에서 **표시만이 아니라 실제 마우스 드롭 → `PUT /admin/api/menus/order` 요청 발생 → 새로고침 후 순서 유지**까지 확인했다. 검사 함수에 계측을 넣어 `pos=i, parent=대상 노드 → false`(안으로 넣기 거부)와 다른 부모 위에 놓았을 때 PUT이 0회임도 확인했다. 교훈: 라이브러리 콜백의 인자는 호출 단계마다 다를 수 있으므로, 조건을 설계할 때 "어느 단계에서 어떤 값이 오는지"를 소스로 확인하고 브라우저 실기에서 최종 결과(요청 발생)까지 검증한다.
+
+---
+
 ### `@SpringBootTest(classes = ...)` 명시 시 중첩 `@TestConfiguration`이 조용히 무시됨
 
 #### 오류 메시지
