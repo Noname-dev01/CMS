@@ -30,6 +30,7 @@
 | 19 | ✅ **구현 완료 (2026-09-30, 커밋·PR 전)** [PLAN-mail-executor-bound.md](PLAN-mail-executor-bound.md) — 재설정 메일 발송 executor 큐·동시 실행 상한 (로드맵 2026-09-05 선정 Top 5 ④ 잔여) | fix/ops | 없음 | 승인 완료(스키마·인가 정책·신규 의존성 변경 없음, 설정 3줄 + 테스트) |
 | 20 | ✅ **구현 완료 (2026-09-30, 커밋·PR 전)** [PLAN-member-list-sort-tiebreak.md](PLAN-member-list-sort-tiebreak.md) — 회원 목록 정렬 id 보조 정렬(tie-breaker) 추가 (로드맵 "우선순위에서 밀린 감사 항목" L-01) | fix | 없음 | 불필요(스키마·인가 정책·신규 의존성 변경 없음, 쿼리·테스트만 변경) |
 | 21 | ✅ **구현 완료 (2026-09-30, 커밋·PR 전)** [PLAN-menu-reorder.md](PLAN-menu-reorder.md) — 메뉴 형제 순서 재조정 API(`PUT /admin/api/menus/order`) + 트리 드래그 앤 드롭 (원본 `menu-management-plan.md` "알려진 한계 — 순서(ord) 재조정") | feat | 없음 | 불필요(스키마·인가 정책·신규 의존성 변경 없음; URI가 원안 `PATCH .../reorder`에서 컨벤션상 `PUT .../order`로 변경됨 — 승인 완료) |
+| 22 | ✅ **구현 완료 (2026-09-30, 커밋·PR 전)** [PLAN-menu-move.md](PLAN-menu-move.md) — 메뉴 부모 이동 API(`PATCH /admin/api/menus/{id}/parent`) + "상위 변경" 폼 (원본 `menu-management-plan.md` "알려진 한계 — 부모 이동", PR #68 후속) | feat | 21번 완료 필수 | 승인 완료(스키마·인가 정책·신규 의존성 변경 없음; 결과는 항상 2단·자식 있는 메뉴 이동 거부, 교착은 409로 허용하는 계약 수용 등 사용자 결정 사항 10건 기본값대로 확정) |
 | 14 | [PLAN-audit-log-integrity.md](PLAN-audit-log-integrity.md) — 감사 로그 신뢰성 강화: IP 위조 차단 + 커밋 순서 보장 (로드맵 2026-09-05 선정 Top 5 ③, 외부 기술 감사 H-03·M-01) | security/fix | 없음 | 불필요(신규 의존성 없음, 스키마·인가 정책 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)
