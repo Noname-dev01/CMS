@@ -89,6 +89,19 @@ public class Menu {
     }
 
     /**
+     * 부모를 바꿔 이동한다(전용 이동 API용). 부모·정렬 순서·수정 시각만 바꾸고 다른 필드는 건드리지 않는다.
+     *
+     * @param upMenuNo 새 부모 메뉴 번호. 최상위로 승격하면 null
+     * @param ord      새 부모 아래에서의 정렬 순서(호출자가 형제 맨 끝 값을 계산해 전달)
+     * @param now      앱 Clock 기준 현재 시각 — updateDate에 기록
+     */
+    public void changeParent(Long upMenuNo, Integer ord, LocalDateTime now) {
+        this.upMenuNo = upMenuNo;
+        this.ord = ord;
+        this.updateDate = now;
+    }
+
+    /**
      * 비활성화. useYn=false 처리 후 수정 시각을 갱신한다.
      *
      * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록

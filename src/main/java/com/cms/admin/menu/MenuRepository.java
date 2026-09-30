@@ -20,6 +20,9 @@ public interface MenuRepository extends JpaRepository<Menu, Long> {
     /** 비활성화 시 활성 하위 메뉴 존재 여부 확인 */
     boolean existsByUpMenuNoAndUseYnTrue(Long upMenuNo);
 
+    /** 부모 이동 시 하위 메뉴(활성·비활성 무관) 존재 여부 확인 — 자식이 있는 메뉴를 옮기면 자식이 3단이 된다 */
+    boolean existsByUpMenuNo(Long upMenuNo);
+
     /** 최상위(upMenuNo IS NULL) 형제 중 최대 ord (형제 없으면 null) */
     @Query("select max(m.ord) from Menu m where m.upMenuNo is null")
     Integer findMaxOrdByUpMenuNoIsNull();

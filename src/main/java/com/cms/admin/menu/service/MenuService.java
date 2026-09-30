@@ -6,9 +6,11 @@ import com.cms.admin.menu.Menu;
 import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
+import com.cms.admin.menu.dto.request.MenuMoveRequest;
 import com.cms.admin.menu.dto.request.MenuOrderRequest;
 import com.cms.admin.menu.dto.request.MenuOrderScope;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuMoveResponse;
 import com.cms.admin.menu.dto.response.MenuOrderResponse;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
@@ -31,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -183,7 +186,13 @@ public class MenuService {
         // 스냅샷은 ACTIVE여도 형제 전체를 잠근다 — 전체를 다시 매겨야 하므로. menuNo 오름차순 고정.
         List<Menu> siblings = new ArrayList<>();
         for (MenuRepository.SiblingRow row : snapshot) {
-            siblings.add(menuRepository.findByIdForUpdate(row.menuNo()).orElseThrow(this::siblingsChanged));
+            Menu locked = menuRepository.findByIdForUpdate(row.menuNo()).orElseThrow(this::siblingsChanged);
+            // 부모 이동(moveMenu)이 생기면 스냅샷엔 이 그룹의 형제였던 행이 그사이 다른 그룹으로 옮겨졌을 수 있다.
+            // 그 행에 이 그룹의 ord를 쓰면 다른 그룹의 순서를 오염시키므로 잠근 최신 부모로 재검사한다.
+            if (!Objects.equals(locked.getUpMenuNo(), upMenuNo)) {
+                throw siblingsChanged();
+            }
+            siblings.add(locked);
         }
 
         // 잠금 후 재검증: 잠근(최신) 엔티티로 활성 집합이 여전히 요청과 같은지 확인한다.
@@ -225,6 +234,82 @@ public class MenuService {
         }
 
         return MenuOrderResponse.builder().upMenuNo(upMenuNo).menus(items).build();
+    }
+
+    /**
+     * 메뉴의 부모를 바꿔 이동한다(PLAN-menu-move.md). menuNo를 유지하므로 감사 로그 참조가 끊기지 않는다.
+     *
+     * <p>결과는 항상 2단 이하: 자식이 하나라도 있는 메뉴는 이동할 수 없고(비활성 자식 포함) 새 부모는 최상위
+     * 메뉴여야 한다. 위치는 새 부모 아래 맨 끝이다.
+     *
+     * <p>잠금 규약: 요청의 두 id(대상 T, 새 부모 N — 승격이면 T만)를 <b>menuNo 오름차순</b>으로 잠근다.
+     * 원래 부모는 잠그지 않는다(T가 떠나는 것은 원래 부모의 불변식을 깨지 않는다). <b>이 트랜잭션의 첫
+     * 애플리케이션 테이블 조회가 잠금 읽기여야 한다</b> — 그 전에 비잠금 읽기를 하면 REPEATABLE READ 스냅샷이
+     * 일찍 고정돼 뒤이은 {@code existsByUpMenuNo}·{@code max ord}가 오래된 값을 볼 수 있다. 모든 검사는 잠근
+     * 최신 엔티티로 한다. 알려진 교착 계열은 InnoDB 탐지 → 409로 종료된다(계획서 결정 9).
+     *
+     * <p>검사 우선순위(두 잠금을 모두 얻었을 때): 무변경(200) → N이 최상위 아님(400) → 자식 있음(400) →
+     * 활성 T를 비활성 N 아래로(400). 무변경을 먼저 판정해 이미 원하는 상태인 요청이 멱등하게 성공한다.
+     */
+    @Transactional
+    @AdminActionLogged(actionType = AdminActionTypes.MENU_MOVE, targetType = "MENU", targetIdExpression = "menuNo")
+    public MenuMoveResponse moveMenu(Long menuNo, MenuMoveRequest request) {
+        Long newParentNo = request.resolvedUpMenuNo();
+        if (menuNo.equals(newParentNo)) {
+            throw new InvalidRequestException("메뉴를 자기 자신 아래로 이동할 수 없습니다.");
+        }
+
+        // 두 행을 menuNo 오름차순으로 잠근다(첫 애플리케이션 테이블 조회가 잠금 읽기).
+        Menu target;
+        Menu newParent = null;
+        if (newParentNo == null) {
+            target = lockMenu(menuNo, "메뉴를 찾을 수 없습니다.");
+        } else if (menuNo < newParentNo) {
+            target = lockMenu(menuNo, "메뉴를 찾을 수 없습니다.");
+            newParent = lockMenu(newParentNo, "부모 메뉴를 찾을 수 없습니다.");
+        } else {
+            newParent = lockMenu(newParentNo, "부모 메뉴를 찾을 수 없습니다.");
+            target = lockMenu(menuNo, "메뉴를 찾을 수 없습니다.");
+        }
+
+        // 이미 원하는 부모 아래(또는 최상위)면 무변경 — 자식·깊이 검사보다 먼저 판정한다.
+        if (Objects.equals(target.getUpMenuNo(), newParentNo)) {
+            return moveResponse(target, List.of());
+        }
+
+        if (newParent != null && newParent.getUpMenuNo() != null) {
+            throw new InvalidRequestException("하위 메뉴 아래로는 이동할 수 없습니다. 최상위 메뉴만 상위 메뉴로 지정할 수 있습니다.");
+        }
+        if (menuRepository.existsByUpMenuNo(menuNo)) {
+            throw new InvalidRequestException("하위 메뉴가 있는 메뉴는 이동할 수 없습니다.");
+        }
+        if (newParent != null && Boolean.TRUE.equals(target.getUseYn()) && !Boolean.TRUE.equals(newParent.getUseYn())) {
+            throw new InvalidRequestException("비활성 상위 메뉴 아래로는 활성 메뉴를 이동할 수 없습니다.");
+        }
+
+        target.changeParent(newParentNo, resolveNextOrd(newParentNo), LocalDateTime.now(clock));
+
+        List<String> warnings = new ArrayList<>();
+        if (newParent != null
+                && newParent.getAccessRole() == MenuAccessRole.ADMIN
+                && target.getAccessRole() == MenuAccessRole.ALL) {
+            warnings.add("상위 메뉴가 관리자 전용이라 MANAGER에게는 이 메뉴가 사이드바에 표시되지 않습니다.");
+        }
+        return moveResponse(target, warnings);
+    }
+
+    private Menu lockMenu(Long menuNo, String notFoundMessage) {
+        return menuRepository.findByIdForUpdate(menuNo)
+                .orElseThrow(() -> new ResourceNotFoundException(notFoundMessage));
+    }
+
+    private MenuMoveResponse moveResponse(Menu menu, List<String> warnings) {
+        return MenuMoveResponse.builder()
+                .menuNo(menu.getMenuNo())
+                .upMenuNo(menu.getUpMenuNo())
+                .ord(menu.getOrd())
+                .warnings(warnings)
+                .build();
     }
 
     private ConflictException siblingsChanged() {
