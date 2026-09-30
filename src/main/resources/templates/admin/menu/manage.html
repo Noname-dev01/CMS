@@ -224,6 +224,7 @@
                                             <button type="button" class="btn btn-primary btn-sm" id="btnNewChild">선택 아래 하위 추가</button>
                                         </div>
                                     </div>
+                                    <small id="treeHint" class="form-text text-muted d-none mb-2"></small>
                                     <div id="menuTree"></div>
                                 </div>
                             </div>
@@ -309,6 +310,7 @@ $(document).ready(function () {
     const formAlert = document.getElementById('formAlert');
     const formModeLabel = document.getElementById('formModeLabel');
     const includeInactiveToggle = document.getElementById('includeInactiveToggle');
+    const treeHint = document.getElementById('treeHint');
 
     const menuForm = document.getElementById('menuForm');
     const menuNameInput = document.getElementById('menuName');
@@ -329,6 +331,20 @@ $(document).ready(function () {
     let mode = null;
     let selectedMenuNo = null;
     let pendingParentMenuNo = null;
+
+    // 트리 순서 변경(드래그) 상태 — PLAN-menu-reorder.md 쟁점 6.
+    // treeScope: 지금 실제로 그려진 트리의 범위('all' | 'active'). 조회 시작~트리 교체 완료 사이는 null이라 드래그 불가.
+    let treeScope = null;
+    // loadSeq: loadTree() 호출 세대. 이전 조회 응답이 늦게 도착하면 폐기한다(토글 연타 시 응답 순서 역전 방지).
+    let loadSeq = 0;
+    // selectSeq: 폼/mode를 바꾸는 모든 전이에서 올리는 세대. 늦게 도착한 상세 응답이 낡은 값으로 폼을 되살리는 것을 막는다.
+    let selectSeq = 0;
+    // busy: 저장·비활성화·순서 변경은 동시에 하나만 진행한다.
+    let busy = false;
+
+    function canDrag() {
+        return treeScope !== null && !busy;
+    }
 
     function showTreeError(message) {
         treeAlert.textContent = message;
@@ -381,6 +397,7 @@ $(document).ready(function () {
     }
 
     function resetSelectionState() {
+        selectSeq++;
         mode = null;
         selectedMenuNo = null;
         pendingParentMenuNo = null;
@@ -404,9 +421,26 @@ $(document).ready(function () {
         });
     }
 
+    function updateTreeHint() {
+        if (treeScope === 'active') {
+            treeHint.textContent = '메뉴를 드래그해 같은 상위 안에서 순서를 바꿀 수 있습니다. 비활성 메뉴는 원래 위치를 유지합니다.';
+            treeHint.classList.remove('d-none');
+        } else if (treeScope === 'all') {
+            treeHint.textContent = '메뉴를 드래그해 같은 상위 안에서 순서를 바꿀 수 있습니다.';
+            treeHint.classList.remove('d-none');
+        } else {
+            treeHint.classList.add('d-none');
+        }
+    }
+
     async function loadTree() {
+        const seq = ++loadSeq;
+        selectSeq++;
+        treeScope = null;
+        updateTreeHint();
         hideTreeError();
-        const useYnParam = includeInactiveToggle.checked ? 'all' : 'true';
+        const scope = includeInactiveToggle.checked ? 'all' : 'active';
+        const useYnParam = scope === 'all' ? 'all' : 'true';
 
         try {
             const response = await fetch('/admin/api/menus/tree?useYn=' + useYnParam);
@@ -415,15 +449,26 @@ $(document).ready(function () {
             }
 
             const data = await response.json();
+            // 더 최근의 조회가 시작됐다면 이 응답은 폐기한다(응답 순서 역전 방지).
+            if (seq !== loadSeq) {
+                return;
+            }
             const decorated = decorateInactive(data);
             const instance = $tree.jstree(true);
 
+            // 트리 교체 직전에 선택 상태 세대를 올려, 교체 전 옛 트리에서 시작한 상세 조회 응답이 늦게 와도 폼을 채우지 않게 한다.
+            selectSeq++;
             // 매번 destroy 후 재초기화해 이전 트리 상태에 의존하지 않고 최신 데이터를 반영한다.
             if (instance) {
                 instance.destroy();
             }
             initTree(decorated);
+            treeScope = scope;
+            updateTreeHint();
         } catch (error) {
+            if (seq !== loadSeq) {
+                return;
+            }
             showTreeError(error && error.message ? error.message : '메뉴 트리 조회 중 오류가 발생했습니다.');
         }
     }
@@ -432,6 +477,7 @@ $(document).ready(function () {
 
     async function handleSelectNode(e, data) {
         const menuNo = data.node.data.menuNo;
+        const seq = ++selectSeq;
         hideFormError();
 
         try {
@@ -441,13 +487,66 @@ $(document).ready(function () {
             }
 
             const menu = await response.json();
+            // 그 사이 다른 선택·초기화·트리 교체·생성 모드 진입·순서 변경이 있었다면 이 응답은 낡은 것이다.
+            if (seq !== selectSeq) {
+                return;
+            }
             mode = 'edit';
             selectedMenuNo = menu.menuNo;
             pendingParentMenuNo = null;
             fillForm(menu);
             setModeLabel('메뉴 수정: ' + menu.menuName);
         } catch (error) {
+            if (seq !== selectSeq) {
+                return;
+            }
             showFormError(error && error.message ? error.message : '메뉴 상세 조회 중 오류가 발생했습니다.');
+        }
+    }
+
+    // 드래그 앤 드롭으로 같은 부모 안의 순서가 바뀐 뒤 서버에 확정한다. 성공·실패 모두 서버 상태로 다시 그린다.
+    async function handleMoveNode(e, data) {
+        if (busy || treeScope === null) {
+            // check_callback이 막아야 하는 상태 — 방어적으로 서버 상태로 되돌린다.
+            await loadTree();
+            return;
+        }
+        busy = true;
+        selectSeq++;
+        const scope = treeScope === 'all' ? 'ALL' : 'ACTIVE';
+        let errorMessage = null;
+        try {
+            const instance = data.instance;
+            const parentNode = instance.get_node(data.parent);
+            const menuNos = (parentNode.children || []).map(function (childId) {
+                return instance.get_node(childId).data.menuNo;
+            });
+            const upMenuNo = data.parent === '#' ? null : parentNode.data.menuNo;
+
+            const response = await fetch('/admin/api/menus/order', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    [csrfHeader]: csrfToken
+                },
+                body: JSON.stringify({ upMenuNo: upMenuNo, scope: scope, menuNos: menuNos })
+            });
+            if (!response.ok) {
+                errorMessage = await extractErrorMessage(response, '순서 변경에 실패했습니다.');
+            }
+        } catch (error) {
+            errorMessage = error && error.message ? error.message : '순서 변경 중 오류가 발생했습니다.';
+        }
+
+        try {
+            resetSelectionState();
+            await loadTree();
+            // loadTree()가 시작하면서 오류 표시를 지우므로 재조회가 끝난 뒤에 메시지를 보여 준다.
+            if (errorMessage) {
+                showTreeError(errorMessage);
+            }
+        } finally {
+            busy = false;
         }
     }
 
@@ -458,12 +557,43 @@ $(document).ready(function () {
                     name: 'default',
                     responsive: true
                 },
-                data: data
+                data: data,
+                // 같은 부모 안에서의 위치 이동(move_node)만 허용한다. jstree는 드래그 중 검사에는 more.dnd=true를,
+                // 드롭 후 최종 move_node 검사에는 {core, origin, is_multi, is_foreign}만(dnd 없음) 넘기므로
+                // 같은 부모 조건은 두 단계 모두에 적용하고 '안으로 넣기' 차단만 드래그 중 검사에 적용한다.
+                check_callback: function (operation, node, parent, position, more) {
+                    if (operation !== 'move_node') {
+                        return false;
+                    }
+                    if (!canDrag()) {
+                        return false;
+                    }
+                    if (!parent || parent.id !== node.parent) {
+                        return false;
+                    }
+                    if (more) {
+                        if (more.is_multi || more.is_foreign) {
+                            return false;
+                        }
+                        if (more.dnd && more.pos === 'i') {
+                            return false;
+                        }
+                    }
+                    return true;
+                }
             },
-            plugins: ['types'],
+            plugins: ['types', 'dnd'],
             types: {
                 default: {
                     icon: 'fas fa-folder'
+                }
+            },
+            dnd: {
+                copy: false,
+                drag_selection: false,
+                // 트리 교체 중이거나 저장·순서 변경이 진행 중이면 드래그를 시작하지 못하게 한다(드롭 시점에도 다시 검사).
+                is_draggable: function () {
+                    return canDrag();
                 }
             }
         });
@@ -471,9 +601,11 @@ $(document).ready(function () {
         // instance.destroy()가 이 요소에 바인딩된 이벤트(select_node 핸들러 포함)를 모두
         // 제거하므로, 매번 재초기화할 때 다시 바인딩한다.
         $tree.off('select_node.jstree').on('select_node.jstree', handleSelectNode);
+        $tree.off('move_node.jstree').on('move_node.jstree', handleMoveNode);
     }
 
     btnNewTop.addEventListener('click', function () {
+        selectSeq++; // 대기 중이던 상세 조회 응답이 생성 모드를 편집 모드로 되돌리지 못하게 한다.
         mode = 'create';
         selectedMenuNo = null;
         pendingParentMenuNo = null;
@@ -492,6 +624,7 @@ $(document).ready(function () {
         }
 
         const parentNode = selected[0];
+        selectSeq++; // 대기 중이던 상세 조회 응답이 생성 모드를 편집 모드로 되돌리지 못하게 한다.
         mode = 'create';
         pendingParentMenuNo = parentNode.data.menuNo;
         selectedMenuNo = null;
@@ -531,6 +664,13 @@ $(document).ready(function () {
             return;
         }
 
+        // 저장·비활성화·순서 변경은 동시에 하나만 진행한다(이미 전송된 요청은 취소되지 않으므로).
+        if (busy) {
+            showFormError('다른 작업이 진행 중입니다. 잠시 후 다시 시도해주세요.');
+            return;
+        }
+        busy = true;
+
         const payload = buildPayload();
 
         try {
@@ -564,6 +704,8 @@ $(document).ready(function () {
             await loadTree();
         } catch (error) {
             showFormError(error && error.message ? error.message : '저장 중 오류가 발생했습니다.');
+        } finally {
+            busy = false;
         }
     });
 
@@ -578,6 +720,12 @@ $(document).ready(function () {
         if (!confirm('선택한 메뉴를 비활성화하시겠습니까?')) {
             return;
         }
+
+        if (busy) {
+            showFormError('다른 작업이 진행 중입니다. 잠시 후 다시 시도해주세요.');
+            return;
+        }
+        busy = true;
 
         try {
             const response = await fetch('/admin/api/menus/' + encodeURIComponent(selectedMenuNo), {
@@ -595,6 +743,8 @@ $(document).ready(function () {
             await loadTree();
         } catch (error) {
             showFormError(error && error.message ? error.message : '메뉴 비활성화 중 오류가 발생했습니다.');
+        } finally {
+            busy = false;
         }
     });
 
