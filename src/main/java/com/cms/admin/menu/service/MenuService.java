@@ -6,7 +6,10 @@ import com.cms.admin.menu.Menu;
 import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
+import com.cms.admin.menu.dto.request.MenuOrderRequest;
+import com.cms.admin.menu.dto.request.MenuOrderScope;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuOrderResponse;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
@@ -21,12 +24,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -133,6 +139,96 @@ public class MenuService {
         target.deactivate(LocalDateTime.now(clock));
 
         return MenuResponse.from(target);
+    }
+
+    /**
+     * 같은 부모 아래 형제들의 순서를 한 번에 확정한다(PLAN-menu-reorder.md).
+     *
+     * <p>잠금 규약: 형제 전체를 menuNo 오름차순으로 하나씩 findByIdForUpdate로 잠근다. 부모 행은
+     * 잠그지 않는다(재활성화의 자식→부모 순서와 반대 방향 사이클을 만들지 않기 위해). 형제 id는
+     * 엔티티가 아니라 값 프로젝션으로 먼저 읽어(Menu에는 @DynamicUpdate가 없어 오래된 엔티티가
+     * 영속성 컨텍스트에 있으면 전체 컬럼 UPDATE로 동시 수정을 덮어쓴다) 잠금 후에 처음 적재한다.
+     *
+     * <p>계약: 요청한 형제들끼리의 상대 순서는 확정된다. 스냅샷 이후 동시에 생성된 형제의 위치는
+     * 보장하지 않는다. 같은 집합의 순서를 다른 관리자가 먼저 바꿨다면 마지막 쓰기가 이긴다.
+     */
+    @Transactional
+    @AdminActionLogged(actionType = AdminActionTypes.MENU_REORDER, targetType = "MENU", targetIdExpression = "upMenuNo")
+    public MenuOrderResponse reorderMenus(MenuOrderRequest request) {
+        Long upMenuNo = request.getUpMenuNo();
+        MenuOrderScope scope = request.getScope();
+        List<Long> requested = request.getMenuNos();
+
+        Set<Long> requestedSet = new LinkedHashSet<>(requested);
+        if (requestedSet.size() != requested.size()) {
+            throw new InvalidRequestException("메뉴 번호가 중복되었습니다.");
+        }
+
+        if (upMenuNo != null && !menuRepository.existsById(upMenuNo)) {
+            throw new ResourceNotFoundException("부모 메뉴를 찾을 수 없습니다.");
+        }
+
+        // 스냅샷(비잠금, menuNo 오름차순). 요청은 scope가 가리키는 집합과 정확히 같아야 한다.
+        List<MenuRepository.SiblingRow> snapshot = upMenuNo == null
+                ? menuRepository.findRootSiblingRows()
+                : menuRepository.findSiblingRowsByUpMenuNo(upMenuNo);
+        Set<Long> expected = snapshot.stream()
+                .filter(row -> scope == MenuOrderScope.ALL || Boolean.TRUE.equals(row.useYn()))
+                .map(MenuRepository.SiblingRow::menuNo)
+                .collect(Collectors.toSet());
+        if (!expected.equals(requestedSet)) {
+            throw siblingsChanged();
+        }
+
+        // 스냅샷은 ACTIVE여도 형제 전체를 잠근다 — 전체를 다시 매겨야 하므로. menuNo 오름차순 고정.
+        List<Menu> siblings = new ArrayList<>();
+        for (MenuRepository.SiblingRow row : snapshot) {
+            siblings.add(menuRepository.findByIdForUpdate(row.menuNo()).orElseThrow(this::siblingsChanged));
+        }
+
+        // 잠금 후 재검증: 잠근(최신) 엔티티로 활성 집합이 여전히 요청과 같은지 확인한다.
+        if (scope == MenuOrderScope.ACTIVE) {
+            Set<Long> activeNow = siblings.stream()
+                    .filter(menu -> Boolean.TRUE.equals(menu.getUseYn()))
+                    .map(Menu::getMenuNo)
+                    .collect(Collectors.toSet());
+            if (!activeNow.equals(requestedSet)) {
+                throw siblingsChanged();
+            }
+        }
+
+        // 현재 표시 순서 F — 조회 쿼리(order by ord asc, menu_no asc)와 같다. MariaDB는 NULL을 가장 작게 본다.
+        List<Menu> display = new ArrayList<>(siblings);
+        display.sort(Comparator.comparing(Menu::getOrd, Comparator.nullsFirst(Comparator.<Integer>naturalOrder()))
+                .thenComparing(Menu::getMenuNo));
+
+        List<Long> target = new ArrayList<>(display.size());
+        if (scope == MenuOrderScope.ALL) {
+            target.addAll(requested);
+        } else {
+            // 비활성 형제는 F의 자리에 그대로 두고, 활성 자리에 요청 순서를 채운다.
+            Iterator<Long> next = requested.iterator();
+            for (Menu menu : display) {
+                target.add(Boolean.TRUE.equals(menu.getUseYn()) ? next.next() : menu.getMenuNo());
+            }
+        }
+
+        Map<Long, Menu> byMenuNo = siblings.stream().collect(Collectors.toMap(Menu::getMenuNo, menu -> menu));
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<MenuOrderResponse.Item> items = new ArrayList<>(target.size());
+        for (int index = 0; index < target.size(); index++) {
+            Menu menu = byMenuNo.get(target.get(index));
+            if (!Integer.valueOf(index).equals(menu.getOrd())) {
+                menu.changeOrd(index, now);
+            }
+            items.add(MenuOrderResponse.Item.builder().menuNo(menu.getMenuNo()).ord(index).build());
+        }
+
+        return MenuOrderResponse.builder().upMenuNo(upMenuNo).menus(items).build();
+    }
+
+    private ConflictException siblingsChanged() {
+        return new ConflictException("형제 메뉴 구성이 변경되었습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.");
     }
 
     @Transactional(readOnly = true)
