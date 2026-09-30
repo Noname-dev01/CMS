@@ -23,9 +23,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,6 +45,12 @@ class MenuServiceTest {
 
     @Mock
     MenuRepository menuRepository;
+
+    /** UTC 2026-09-29 15:00 = KST 2026-09-30 00:00 — 시스템 시각·기본 시간대와 무관하게 저장 시각을 단언한다. */
+    static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 9, 30, 0, 0);
+
+    @Spy
+    Clock clock = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     @InjectMocks
     MenuService menuService;
@@ -102,6 +113,20 @@ class MenuServiceTest {
         assertEquals("회원 관리", response.getMenuName());
         assertTrue(response.getUseYn());
         verify(menuRepository, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    @DisplayName("메뉴 생성 시 createDate·updateDate는 주입된 KST Clock에서 나온다")
+    void createMenu_usesInjectedClock() {
+        MenuCreateRequest request = MenuCreateRequest.builder().menuName("시각 메뉴").useYn(true).ord(0).build();
+        given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        menuService.createMenu(request);
+
+        ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
+        verify(menuRepository).save(captor.capture());
+        assertEquals(FIXED_NOW, captor.getValue().getCreateDate());
+        assertEquals(FIXED_NOW, captor.getValue().getUpdateDate());
     }
 
     @Test
@@ -351,6 +376,7 @@ class MenuServiceTest {
 
         assertEquals(1L, response.getMenuNo());
         assertFalse(response.getUseYn());
+        assertEquals(FIXED_NOW, target.getUpdateDate()); // 비활성화 시각은 주입된 KST Clock
         verify(menuRepository, never()).delete(any());
         verify(menuRepository, never()).deleteById(any());
     }

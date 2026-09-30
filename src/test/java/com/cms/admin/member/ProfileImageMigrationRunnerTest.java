@@ -20,6 +20,9 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
@@ -55,7 +58,8 @@ class ProfileImageMigrationRunnerTest {
 
     @BeforeEach
     void setUp() {
-        runner = new ProfileImageMigrationRunner(memberRepository, fileStorage, transactionTemplate);
+        runner = new ProfileImageMigrationRunner(memberRepository, fileStorage, transactionTemplate,
+                Clock.fixed(Instant.parse("2026-09-30T00:00:00Z"), ZoneId.of("Asia/Seoul")));
 
         // TransactionTemplate 목이 실제로 콜백을 실행하도록 스텁(AdminBootstrapLoaderTest와 동일 패턴).
         given(transactionTemplate.execute(any())).willAnswer(invocation -> {

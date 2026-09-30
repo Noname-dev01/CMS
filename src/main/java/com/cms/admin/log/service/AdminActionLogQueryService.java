@@ -12,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
 
 @Service
@@ -26,6 +27,7 @@ public class AdminActionLogQueryService {
     private static final int DEFAULT_RANGE_DAYS = 29;
 
     private final AdminActionLogRepository adminActionLogRepository;
+    private final Clock clock;
 
     /**
      * 활동 로그 목록을 조회한다.
@@ -61,7 +63,7 @@ public class AdminActionLogQueryService {
      * 4. 둘 다 입력 → 그대로 사용 (DTO에서 이미 역전·3개월 검증됨)
      */
     private void applyDateDefaults(AdminActionLogSearchRequest req) {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
 
         if (req.getFrom() == null && req.getTo() == null) {
             req.setTo(today);

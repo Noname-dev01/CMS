@@ -63,9 +63,11 @@ public class Menu {
 
     /**
      * 수정 가능 필드 일괄 반영. upMenuNo(부모)는 변경 대상이 아니다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
     public void update(String menuName, String menuUrl, String menuIcon, String menuDesc,
-                        Boolean useYn, MenuAccessRole accessRole, Integer ord) {
+                        Boolean useYn, MenuAccessRole accessRole, Integer ord, LocalDateTime now) {
         this.menuName = menuName;
         this.menuUrl = menuUrl;
         this.menuIcon = menuIcon;
@@ -73,14 +75,16 @@ public class Menu {
         this.useYn = useYn;
         this.accessRole = accessRole;
         this.ord = ord;
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 
     /**
      * 비활성화. useYn=false 처리 후 수정 시각을 갱신한다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void deactivate() {
+    public void deactivate(LocalDateTime now) {
         this.useYn = false;
-        this.updateDate = LocalDateTime.now();
+        this.updateDate = now;
     }
 }

@@ -204,7 +204,7 @@ class PasswordResetServiceTest {
         Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
         String existingHash = sha256Hex("existing-token");
         // 30초 전 발급 → expiry = 발급 + 30분
-        member.issueResetToken(existingHash, NOW.minusSeconds(30).plusMinutes(30));
+        member.issueResetToken(existingHash, NOW.minusSeconds(30).plusMinutes(30), NOW);
         given(memberRepository.findByEmailForUpdate("admin01@test.com")).willReturn(Optional.of(member));
 
         passwordResetService.requestReset("admin01@test.com", "127.0.0.1");
@@ -218,7 +218,7 @@ class PasswordResetServiceTest {
     void requestReset_afterCooldown_reissues() {
         Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
         String existingHash = sha256Hex("existing-token");
-        member.issueResetToken(existingHash, NOW.minusSeconds(61).plusMinutes(30));
+        member.issueResetToken(existingHash, NOW.minusSeconds(61).plusMinutes(30), NOW);
         given(memberRepository.findByEmailForUpdate("admin01@test.com")).willReturn(Optional.of(member));
 
         passwordResetService.requestReset("admin01@test.com", "127.0.0.1");
@@ -307,7 +307,7 @@ class PasswordResetServiceTest {
 
     private Member memberWithValidToken(MemberStatus status, Role role) {
         Member member = member(status, role);
-        member.issueResetToken(sha256Hex(PLAIN_TOKEN), NOW.plusMinutes(10));
+        member.issueResetToken(sha256Hex(PLAIN_TOKEN), NOW.plusMinutes(10), NOW);
         return member;
     }
 
@@ -377,7 +377,7 @@ class PasswordResetServiceTest {
     @DisplayName("만료된 토큰은 400")
     void resetPassword_expiredToken_throws() {
         Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
-        member.issueResetToken(sha256Hex(PLAIN_TOKEN), NOW.minusSeconds(1)); // 이미 만료
+        member.issueResetToken(sha256Hex(PLAIN_TOKEN), NOW.minusSeconds(1), NOW); // 이미 만료
         stubTokenLookup(member);
 
         assertThrows(InvalidRequestException.class,
@@ -389,7 +389,7 @@ class PasswordResetServiceTest {
     @DisplayName("잠금 후 재검증: 락 획득 시점에 토큰이 이미 클리어/교체됐으면 400 (동시 제출 직렬화)")
     void resetPassword_tokenChangedAfterLock_throws() {
         Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
-        member.issueResetToken(sha256Hex("someone-else-token"), NOW.plusMinutes(10)); // 다른 해시
+        member.issueResetToken(sha256Hex("someone-else-token"), NOW.plusMinutes(10), NOW); // 다른 해시
         given(memberRepository.findIdsByResetToken(sha256Hex(PLAIN_TOKEN))).willReturn(List.of(1L));
         given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
 
@@ -401,7 +401,7 @@ class PasswordResetServiceTest {
     @DisplayName("토큰 발급 후 계정이 잠기면(LOCKED) 재검증에서 400")
     void resetPassword_lockedAfterIssue_throws() {
         Member member = memberWithValidToken(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
-        member.changeStatus(MemberStatus.LOCKED);
+        member.changeStatus(MemberStatus.LOCKED, NOW);
         stubTokenLookup(member);
 
         assertThrows(InvalidRequestException.class,
@@ -413,7 +413,7 @@ class PasswordResetServiceTest {
     @DisplayName("토큰 발급 후 역할이 대상 외로 바뀌면 재검증에서 400")
     void resetPassword_demotedAfterIssue_throws() {
         Member member = memberWithValidToken(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
-        member.changeRole(Role.ROLE_USER);
+        member.changeRole(Role.ROLE_USER, NOW);
         stubTokenLookup(member);
 
         assertThrows(InvalidRequestException.class,
@@ -556,7 +556,7 @@ class PasswordResetServiceTest {
     void resetPassword_expiredAutoLock_releasedAndReset() {
         String hashed = sha256Hex(PLAIN_TOKEN);
         Member member = autoLockedMember(NOW.minusMinutes(31));
-        member.issueResetToken(hashed, NOW.plusMinutes(10));
+        member.issueResetToken(hashed, NOW.plusMinutes(10), NOW);
 
         given(memberRepository.findIdsByResetToken(hashed)).willReturn(List.of(1L));
         given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
@@ -575,7 +575,7 @@ class PasswordResetServiceTest {
     void resetPassword_unexpiredAutoLock_rejected() {
         String hashed = sha256Hex(PLAIN_TOKEN);
         Member member = autoLockedMember(NOW.minusMinutes(29));
-        member.issueResetToken(hashed, NOW.plusMinutes(10));
+        member.issueResetToken(hashed, NOW.plusMinutes(10), NOW);
 
         given(memberRepository.findIdsByResetToken(hashed)).willReturn(List.of(1L));
         given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
@@ -596,7 +596,7 @@ class PasswordResetServiceTest {
                 .failedLoginCount(4)
                 .createDate(NOW.minusDays(1)).updateDate(NOW.minusDays(1))
                 .build();
-        member.issueResetToken(hashed, NOW.plusMinutes(10));
+        member.issueResetToken(hashed, NOW.plusMinutes(10), NOW);
 
         given(memberRepository.findIdsByResetToken(hashed)).willReturn(List.of(1L));
         given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));

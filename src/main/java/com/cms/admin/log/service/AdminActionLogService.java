@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 
 @Service
@@ -15,6 +16,7 @@ import java.time.LocalDateTime;
 public class AdminActionLogService {
 
     private final AdminActionLogRepository adminActionLogRepository;
+    private final Clock clock;
 
     /**
      * 감사 로그는 원 비즈니스 트랜잭션과 분리된 독립 트랜잭션(REQUIRES_NEW)으로 저장한다.
@@ -35,7 +37,7 @@ public class AdminActionLogService {
                 .requestUri(requestUri)
                 .requestMethod(requestMethod)
                 .errorMessage(errorMessage)
-                .createAt(LocalDateTime.now())
+                .createAt(LocalDateTime.now(clock))
                 .build();
 
         adminActionLogRepository.save(actionLog);

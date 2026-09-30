@@ -23,6 +23,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 
 @Service
@@ -35,6 +36,7 @@ public class NoticeService {
     private final NoticeRepository noticeRepository;
     private final NoticeAttachmentRepository noticeAttachmentRepository;
     private final AdminSecurityService adminSecurityService;
+    private final Clock clock;
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.NOTICE_CREATE, targetType = "NOTICE", targetIdExpression = "id")
@@ -44,7 +46,7 @@ public class NoticeService {
         String content = requireNonBlank(request.getContent(), "본문은 공백일 수 없습니다.");
         boolean useYn = request.getUseYn() == null || request.getUseYn();
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         Notice saved = noticeRepository.save(
                 Notice.builder()
                         .title(title)
@@ -77,7 +79,7 @@ public class NoticeService {
                 ? requireNonBlank(request.getContent(), "본문은 공백일 수 없습니다.")
                 : null;
 
-        target.update(title, content, request.getUseYn());
+        target.update(title, content, request.getUseYn(), LocalDateTime.now(clock));
 
         return NoticeResponse.from(target);
     }
@@ -95,7 +97,7 @@ public class NoticeService {
             throw new ConflictException("첨부파일이 남아있어 삭제할 수 없습니다. 첨부를 먼저 삭제해주세요.");
         }
 
-        target.softDelete();
+        target.softDelete(LocalDateTime.now(clock));
 
         return NoticeResponse.from(target);
     }
