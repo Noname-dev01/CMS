@@ -10,10 +10,12 @@ import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuMoveRequest;
 import com.cms.admin.menu.dto.request.MenuOrderRequest;
 import com.cms.admin.menu.dto.request.MenuOrderScope;
+import com.cms.admin.menu.dto.request.MenuStructureRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
 import com.cms.admin.menu.dto.response.MenuMoveResponse;
 import com.cms.admin.menu.dto.response.MenuOrderResponse;
 import com.cms.admin.menu.dto.response.MenuResponse;
+import com.cms.admin.menu.dto.response.MenuStructureResponse;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.support.CmsTestApplication;
@@ -52,6 +54,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -475,6 +478,14 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
         @Override
         public Object invoke(org.aopalliance.intercept.MethodInvocation invocation) throws Throwable {
+            if (invocation.getMethod().getName().equals("findAllForUpdate")) {
+                // 전체 행 잠금(생성·구조 반영·accessRole 수정)의 첫 조회 — 다른 스레드의 호출이면 락 대기 진입으로 기록한다.
+                if (Thread.currentThread() != probedThread.get() && waiterTargetMenuNo != null) {
+                    waiterConnection.set(connectionId());
+                    waiterEntered.countDown();
+                }
+                return invocation.proceed();
+            }
             if (!invocation.getMethod().getName().equals("findByIdForUpdate")) {
                 return invocation.proceed();
             }
@@ -1235,4 +1246,207 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         assertNull(logs.get(0).getTargetId());
         assertTrue(logs.stream().noneMatch(log -> log.getActionResult() == AdminActionResult.SUCCESS), "SUCCESS가 남으면 안 된다");
     }
+
+    // ============ 구조 일괄 반영(applyStructure) — PLAN-menu-structure-apply.md ============
+
+    /** 현재 DB 전체를 요청 항목으로 만든다(base = 현재, 새 부모 = 현재, 배열 순서 = 표시 순서). */
+    private List<MenuStructureRequest.Item> currentItems() {
+        return menuRepository.findAllByOrderByOrdAscMenuNoAsc().stream()
+                .map(menu -> MenuStructureRequest.Item.of(menu.getMenuNo(), menu.getUpMenuNo(), menu.getOrd(), menu.getUpMenuNo()))
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private static MenuStructureRequest structureOf(List<MenuStructureRequest.Item> items) {
+        MenuStructureRequest request = new MenuStructureRequest();
+        request.setMenus(items);
+        return request;
+    }
+
+    /** 항목 menuNo를 newParent 아래로 옮기고, 배열에서 beforeMenuNo 항목 바로 앞에 둔다(null이면 맨 끝). */
+    private List<MenuStructureRequest.Item> withMoved(List<MenuStructureRequest.Item> items, Long menuNo, Long newParent, Long beforeMenuNo) {
+        Menu current = menuRepository.findById(menuNo).orElseThrow();
+        List<MenuStructureRequest.Item> result = new ArrayList<>(items);
+        result.removeIf(item -> item.getMenuNo().equals(menuNo));
+        int position = result.size();
+        for (int i = 0; i < result.size(); i++) {
+            if (result.get(i).getMenuNo().equals(beforeMenuNo)) {
+                position = i;
+                break;
+            }
+        }
+        result.add(position, MenuStructureRequest.Item.of(menuNo, current.getUpMenuNo(), current.getOrd(), newParent));
+        return result;
+    }
+
+    private List<AdminActionLog> logsAfter(String actionType, long lastId) {
+        return adminActionLogRepository.findAll().stream()
+                .filter(log -> log.getId() > lastId && actionType.equals(log.getActionType()))
+                .toList();
+    }
+
+    private long currentConnectionId() {
+        return ((Number) entityManager.createNativeQuery("SELECT CONNECTION_ID()").getSingleResult()).longValue();
+    }
+
+    /** holder 연결이 잡은 락을 기다리는 트랜잭션이 하나 이상 생길 때까지 관측한다(sleep을 증거로 쓰지 않는다). */
+    private void awaitSomeoneWaitingFor(long holder) throws Exception {
+        try (Connection observer = DriverManager.getConnection(connectionDetails.getJdbcUrl(),
+                "root", connectionDetails.getPassword());
+             var query = observer.prepareStatement("""
+                     SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS locks
+                     JOIN information_schema.INNODB_TRX holding ON holding.trx_id = locks.blocking_trx_id
+                     WHERE holding.trx_mysql_thread_id = ?
+                     """)) {
+            query.setLong(1, holder);
+            query.setQueryTimeout(2);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
+            do {
+                try (var result = query.executeQuery()) {
+                    if (result.next() && result.getInt(1) > 0) {
+                        return;
+                    }
+                }
+                Thread.sleep(25); // 관측 query의 polling 간격일 뿐, sleep을 잠금 증거로 쓰지 않는다.
+            } while (System.nanoTime() < deadline);
+            fail("실제 DB row-lock 대기를 관측하지 못함: holder=" + holder);
+        }
+    }
+
+    /**
+     * 별도 트랜잭션이 전체 메뉴 행을 잠근 채(필요하면 `afterLock`으로 쓰기까지 하고) 멈춘다. {@code locked}가 풀리면 잠금을
+     * 쥐고 있는 것이고, {@code release}를 풀면 커밋한다.
+     */
+    private Future<?> holdAllRowLocks(ExecutorService executor, CountDownLatch locked, CountDownLatch release,
+                                      AtomicLong holderConnection, Runnable afterLock) {
+        return executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            menuRepository.findAllForUpdate();
+            holderConnection.set(currentConnectionId());
+            afterLock.run();
+            locked.countDown();
+            await(release, "전체 행 잠금 보유 트랜잭션 해제");
+        }));
+    }
+
+    @Test
+    @DisplayName("구조 반영: 서브트리를 다른 최상위 아래 지정한 위치로 옮기고, 한 건의 MENU_STRUCTURE_APPLY 감사 로그를 남긴다")
+    void applyStructure_movesSubtreeToPosition_andLogsOnce() {
+        Menu r1 = saveMenu("S-루트1", null, true, 950);
+        Menu r2 = saveMenu("S-루트2", null, true, 951);
+        Menu x = saveMenu("S-이동대상", r1.getMenuNo(), true, 0);
+        Menu z = saveMenu("S-손자", x.getMenuNo(), true, 0);
+        Menu y = saveMenu("S-기존자식", r2.getMenuNo(), true, 0);
+        List<MenuStructureRequest.Item> items = withMoved(currentItems(), x.getMenuNo(), r2.getMenuNo(), y.getMenuNo());
+        long before = maxActionLogId();
+
+        MenuStructureResponse response = menuService.applyStructure(structureOf(items));
+
+        assertEquals(2, response.getChanged()); // x(부모 변경) + y(ord 밀림). 값이 같은 다른 행은 쓰지 않는다
+        Menu movedX = menuRepository.findById(x.getMenuNo()).orElseThrow();
+        assertEquals(r2.getMenuNo(), movedX.getUpMenuNo());
+        assertEquals(0, movedX.getOrd());
+        assertEquals(1, menuRepository.findById(y.getMenuNo()).orElseThrow().getOrd());
+        assertEquals(x.getMenuNo(), menuRepository.findById(z.getMenuNo()).orElseThrow().getUpMenuNo(), "손자는 서브트리째 따라간다");
+        List<AdminActionLog> logs = logsAfter(AdminActionTypes.MENU_STRUCTURE_APPLY, before);
+        assertEquals(1, logs.size());
+        assertEquals(AdminActionResult.SUCCESS, logs.get(0).getActionResult());
+        assertNull(logs.get(0).getTargetId());
+    }
+
+    @Test
+    @DisplayName("전체 행 잠금을 쥔 트랜잭션이 있으면 구조 반영은 실제 락 대기 후 커밋 뒤에 적용된다")
+    void applyStructure_waitsForAllRowLockHolder_thenApplies() throws Exception {
+        Menu r1 = saveMenu("W-루트1", null, true, 952);
+        Menu r2 = saveMenu("W-루트2", null, true, 953);
+        // r2를 r1 바로 앞으로(최상위 그룹 안 위치 맞바꿈) — 시드 메뉴의 상대 순서는 그대로다
+        List<MenuStructureRequest.Item> items = withMoved(currentItems(), r2.getMenuNo(), null, r1.getMenuNo());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        try {
+            Future<?> holder = holdAllRowLocks(executor, locked, release, holderConnection, () -> { });
+            await(locked, "전체 행 잠금 획득");
+            Future<MenuStructureResponse> apply = executor.submit(() -> menuService.applyStructure(structureOf(items)));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertFalse(apply.isDone(), "잠금 보유 중에는 반영이 끝나면 안 된다");
+
+            release.countDown();
+            MenuStructureResponse response = apply.get(15, TimeUnit.SECONDS);
+            holder.get(5, TimeUnit.SECONDS);
+
+            assertTrue(response.getChanged() >= 1);
+            assertTrue(menuRepository.findById(r2.getMenuNo()).orElseThrow().getOrd()
+                    < menuRepository.findById(r1.getMenuNo()).orElseThrow().getOrd(), "r2가 r1 앞으로 확정");
+            assertNull(menuRepository.findById(r1.getMenuNo()).orElseThrow().getUpMenuNo());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("다른 트랜잭션이 메뉴를 INSERT·커밋한 뒤 도착한 낡은 구조 반영은 409이고 아무것도 바뀌지 않는다")
+    void applyStructure_afterConcurrentInsert_conflictAndUnchanged() throws Exception {
+        Menu r1 = saveMenu("I-루트1", null, true, 954);
+        Menu r2 = saveMenu("I-루트2", null, true, 955);
+        List<MenuStructureRequest.Item> staleItems = currentItems(); // 새 메뉴가 생기기 전 초안
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        AtomicReference<Long> insertedMenuNo = new AtomicReference<>();
+        try {
+            Future<?> holder = holdAllRowLocks(executor, locked, release, holderConnection, () -> {
+                LocalDateTime now = LocalDateTime.now();
+                Menu inserted = menuRepository.save(Menu.builder().menuName("I-동시 생성").useYn(true).ord(956)
+                        .createDate(now).updateDate(now).build());
+                menuRepository.flush(); // 커밋 전에 INSERT를 실제로 보내 락·갭을 쥔 상태를 만든다
+                insertedMenuNo.set(inserted.getMenuNo());
+            });
+            await(locked, "전체 행 잠금 + INSERT");
+            Future<MenuStructureResponse> apply = executor.submit(() -> menuService.applyStructure(structureOf(staleItems)));
+            awaitSomeoneWaitingFor(holderConnection.get());
+
+            release.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            extraMenuIds.add(insertedMenuNo.get());
+
+            Throwable failure = failureOf(apply);
+            assertInstanceOf(ConflictException.class, failure, "새 메뉴가 요청에 없으므로 낡은 초안 409여야 한다: " + failure);
+            assertEquals(954, menuRepository.findById(r1.getMenuNo()).orElseThrow().getOrd());
+            assertEquals(955, menuRepository.findById(r2.getMenuNo()).orElseThrow().getOrd());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("전체 행 잠금을 쥔 트랜잭션이 있으면 메뉴 생성도 실제 락 대기 후 커밋 뒤에 완료된다")
+    void createMenu_waitsForAllRowLockHolder_thenCompletes() throws Exception {
+        saveMenu("C-기존", null, true, 957);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        try {
+            Future<?> holder = holdAllRowLocks(executor, locked, release, holderConnection, () -> { });
+            await(locked, "전체 행 잠금 획득");
+            Future<MenuResponse> create = executor.submit(() -> menuService.createMenu(
+                    MenuCreateRequest.builder().menuName("C-대기 후 생성").build()));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertFalse(create.isDone(), "잠금 보유 중에는 생성이 끝나면 안 된다");
+
+            release.countDown();
+            MenuResponse created = create.get(15, TimeUnit.SECONDS);
+            holder.get(5, TimeUnit.SECONDS);
+            extraMenuIds.add(created.getMenuNo());
+
+            assertTrue(created.getOrd() > 957, "기존 최대 ord 뒤(맨 끝)에 생성된다: " + created.getOrd());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
 }

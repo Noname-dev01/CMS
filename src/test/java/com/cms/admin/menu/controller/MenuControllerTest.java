@@ -5,10 +5,12 @@ import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuMoveRequest;
 import com.cms.admin.menu.dto.request.MenuOrderRequest;
 import com.cms.admin.menu.dto.request.MenuOrderScope;
+import com.cms.admin.menu.dto.request.MenuStructureRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
 import com.cms.admin.menu.dto.response.MenuMoveResponse;
 import com.cms.admin.menu.dto.response.MenuOrderResponse;
 import com.cms.admin.menu.dto.response.MenuResponse;
+import com.cms.admin.menu.dto.response.MenuStructureResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
@@ -839,4 +841,149 @@ class MenuControllerTest {
         verify(menuService).updateMenu(eq(11L), any());
         verify(menuService, org.mockito.Mockito.never()).moveMenu(anyLong(), any());
     }
+
+    // ===================== applyStructure (PUT /structure) =====================
+
+    private static String structureItem(String menuNo, String baseUp, String baseOrd, String up) {
+        StringBuilder sb = new StringBuilder("{");
+        if (menuNo != null) sb.append("\"menuNo\":").append(menuNo).append(",");
+        if (baseUp != null) sb.append("\"baseUpMenuNo\":").append(baseUp).append(",");
+        if (baseOrd != null) sb.append("\"baseOrd\":").append(baseOrd).append(",");
+        if (up != null) sb.append("\"upMenuNo\":").append(up).append(",");
+        if (sb.charAt(sb.length() - 1) == ',') sb.setLength(sb.length() - 1);
+        return sb.append("}").toString();
+    }
+
+    private static String structureBody(String... items) {
+        return "{\"menus\":[" + String.join(",", items) + "]}";
+    }
+
+    @Test
+    @DisplayName("구조 반영 성공: 최상위(null)·ord null이 명시적으로 전달되고 changed가 응답된다")
+    @WithMockUser(roles = "ADMIN")
+    void applyStructure_success() throws Exception {
+        given(menuService.applyStructure(any())).willReturn(MenuStructureResponse.builder().changed(2).build());
+
+        mockMvc.perform(put("/admin/api/menus/structure")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(structureBody(
+                                structureItem("1", "null", "0", "null"),
+                                structureItem("5", "3", "null", "1"))))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.changed").value(2));
+
+        ArgumentCaptor<MenuStructureRequest> captor = ArgumentCaptor.forClass(MenuStructureRequest.class);
+        verify(menuService).applyStructure(captor.capture());
+        List<MenuStructureRequest.Item> items = captor.getValue().getMenus();
+        assertEquals(2, items.size());
+        assertNull(items.get(0).resolvedBaseUpMenuNo());
+        assertEquals(0, items.get(0).resolvedBaseOrd());
+        assertNull(items.get(0).resolvedUpMenuNo());
+        assertEquals(3L, items.get(1).resolvedBaseUpMenuNo());
+        assertNull(items.get(1).resolvedBaseOrd());
+        assertEquals(1L, items.get(1).resolvedUpMenuNo());
+    }
+
+    @Test
+    @DisplayName("빈 목록·menus 누락·필수 필드 누락은 400 VALIDATION_ERROR이고 서비스를 호출하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void applyStructure_validationFail() throws Exception {
+        for (String body : List.of(
+                "{\"menus\":[]}",
+                "{}",
+                "{\"menus\":[null]}",
+                structureBody(structureItem(null, "null", "0", "null")),
+                structureBody(structureItem("1", null, "0", "null")),
+                structureBody(structureItem("1", "null", null, "null")),
+                structureBody(structureItem("1", "null", "0", null)))) {
+            mockMvc.perform(put("/admin/api/menus/structure")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("정수·null이 아닌 토큰(문자열·소수·불리언)은 400이고 최상위나 다른 부모로 둔갑하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void applyStructure_badTokens_400() throws Exception {
+        for (String bad : List.of("\"\"", "\"null\"", "\"10\"", "10.9", "10.0", "true", "[]", "{}")) {
+            mockMvc.perform(put("/admin/api/menus/structure")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(structureBody(structureItem("1", "null", "0", bad))))
+                    .andExpect(status().isBadRequest());
+            mockMvc.perform(put("/admin/api/menus/structure")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(structureBody(structureItem("1", bad, "0", "null"))))
+                    .andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(put("/admin/api/menus/structure")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(structureBody(structureItem("1", "null", "99999999999", "null"))))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("구조 위반은 400, 낡은 초안은 409로 응답한다")
+    @WithMockUser(roles = "ADMIN")
+    void applyStructure_serviceErrors() throws Exception {
+        given(menuService.applyStructure(any()))
+                .willThrow(new InvalidRequestException("메뉴 구조에 순환이 있습니다."))
+                .willThrow(new ConflictException("메뉴 구조가 변경되었습니다."));
+        String body = structureBody(structureItem("1", "null", "0", "null"));
+
+        mockMvc.perform(put("/admin/api/menus/structure").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(put("/admin/api/menus/structure").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("인증 없이 구조 반영 시 401")
+    void applyStructure_unauthenticated() throws Exception {
+        mockMvc.perform(put("/admin/api/menus/structure")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(structureBody(structureItem("1", "null", "0", "null"))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("MANAGER·USER는 구조 반영 시 403(ADMIN 전용)")
+    void applyStructure_nonAdminForbidden() throws Exception {
+        for (String role : List.of("MANAGER", "USER")) {
+            mockMvc.perform(put("/admin/api/menus/structure")
+                            .with(user("u").roles(role))
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(structureBody(structureItem("1", "null", "0", "null"))))
+                    .andExpect(status().isForbidden());
+        }
+
+        verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("CSRF 토큰 없는 구조 반영 PUT은 403이고 서비스를 호출하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void applyStructure_withoutCsrf_403() throws Exception {
+        mockMvc.perform(put("/admin/api/menus/structure")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(structureBody(structureItem("1", "null", "0", "null"))))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(menuService);
+    }
+
 }
