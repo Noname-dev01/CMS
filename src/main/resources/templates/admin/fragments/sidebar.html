@@ -5,9 +5,30 @@
 <!--
   Menu 데이터 기반 동적 사이드바.
   - 노출 대상: AdminSidebarAdvice가 주입하는 sidebarMenus (활성 메뉴 + 역할 필터 적용 완료)
-  - SB Admin 2 UI 제약에 따라 2단(최상위 + 하위 그룹)까지만 렌더링한다.
+  - 최대 3단(최상위 + 하위 그룹 + 하위 그룹의 하위)까지 렌더링한다. SB Admin 2는 2단까지만 제공하므로
+    3단은 2단 collapse-inner 안에 중첩 collapse로 그린다.
   - active 하이라이트: currentUri(AdminSidebarAdvice 주입)와 menuUrl 비교
 -->
+<!--
+  3단용 중첩 collapse 보정. SB Admin 2는 768px 미만과 .sidebar.toggled(접힌 데스크톱)에서 모든
+  '.sidebar .nav-item .collapse'를 position:absolute 팝업으로 배치하므로, 2단 팝업 안의 중첩 collapse가
+  같은 좌표로 겹친다. 중첩 collapse(.sidebar-nested)는 어떤 상태에서도 일반 흐름(바깥 팝업 안)에 둔다.
+-->
+<style>
+    ul.sidebar .nav-item .collapse-inner .collapse.sidebar-nested,
+    ul.sidebar .nav-item .collapse-inner .collapsing.sidebar-nested {
+        position: static;
+        left: auto;
+        top: auto;
+        margin: 0;
+        animation: none;
+        box-shadow: none;
+    }
+    ul.sidebar .nav-item .collapse-inner .collapsing.sidebar-nested {
+        display: block;
+        transition: height 0.15s ease;
+    }
+</style>
 <ul class="navbar-nav bg-gradient-primary sidebar sidebar-dark accordion" id="accordionSidebar">
 
     <!-- Sidebar - Brand -->
@@ -32,7 +53,7 @@
 
         <!-- 하위 메뉴 있음: collapse 그룹 (현재 페이지가 그룹 안에 있으면 펼침 유지) -->
         <li class="nav-item" th:unless="${#lists.isEmpty(menu.children)}"
-            th:with="groupActive=${#lists.contains(menu.children.![menuUrl], currentUri)}"
+            th:with="groupActive=${menu.hasDescendantUrl(currentUri)}"
             th:classappend="${groupActive} ? 'active'">
             <a class="nav-link" th:classappend="${!groupActive} ? 'collapsed'"
                href="#" data-toggle="collapse"
@@ -43,11 +64,34 @@
             <div th:id="'collapseMenu' + ${menu.menuNo}" class="collapse"
                  th:classappend="${groupActive} ? 'show'" data-parent="#accordionSidebar">
                 <div class="bg-white py-2 collapse-inner rounded">
-                    <a class="collapse-item" th:each="child : ${menu.children}"
-                       th:href="${child.menuUrl != null} ? @{${child.menuUrl}} : '#'"
-                       th:classappend="${child.menuUrl == currentUri} ? 'active'">
-                        <i th:class="${child.menuIcon ?: 'fas fa-fw fa-circle'}"></i>
-                        <span class="ml-2" th:text="${child.menuName}">하위 메뉴</span></a>
+                    <th:block th:each="child : ${menu.children}">
+                        <!-- 3단 없음: 단일 링크 -->
+                        <a class="collapse-item" th:if="${#lists.isEmpty(child.children)}"
+                           th:href="${child.menuUrl != null} ? @{${child.menuUrl}} : '#'"
+                           th:classappend="${child.menuUrl == currentUri} ? 'active'">
+                            <i th:class="${child.menuIcon ?: 'fas fa-fw fa-circle'}"></i>
+                            <span class="ml-2" th:text="${child.menuName}">하위 메뉴</span></a>
+
+                        <!-- 3단 있음: 중첩 collapse (현재 페이지가 안에 있으면 펼침 유지) -->
+                        <th:block th:unless="${#lists.isEmpty(child.children)}"
+                                  th:with="subActive=${child.hasDescendantUrl(currentUri)}">
+                            <a class="collapse-item" th:classappend="${!subActive} ? 'collapsed'"
+                               href="#" data-toggle="collapse"
+                               th:attr="data-target='#collapseSub' + ${child.menuNo},aria-controls='collapseSub' + ${child.menuNo},aria-expanded=${subActive}">
+                                <i th:class="${child.menuIcon ?: 'fas fa-fw fa-folder'}"></i>
+                                <span class="ml-2" th:text="${child.menuName}">하위 그룹</span>
+                                <i class="fas fa-angle-down float-right mt-1"></i>
+                            </a>
+                            <div th:id="'collapseSub' + ${child.menuNo}" class="collapse sidebar-nested pl-3"
+                                 th:classappend="${subActive} ? 'show'">
+                                <a class="collapse-item" th:each="grandchild : ${child.children}"
+                                   th:href="${grandchild.menuUrl != null} ? @{${grandchild.menuUrl}} : '#'"
+                                   th:classappend="${grandchild.menuUrl == currentUri} ? 'active'">
+                                    <i th:class="${grandchild.menuIcon ?: 'fas fa-fw fa-circle'}"></i>
+                                    <span class="ml-2" th:text="${grandchild.menuName}">하위 메뉴</span></a>
+                            </div>
+                        </th:block>
+                    </th:block>
                 </div>
             </div>
         </li>

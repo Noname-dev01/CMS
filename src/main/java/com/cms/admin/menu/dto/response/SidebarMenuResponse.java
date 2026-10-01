@@ -10,8 +10,8 @@ import java.util.List;
 
 /**
  * 사이드바 렌더링 전용 경량 응답. jstree용 {@link MenuTreeResponse}와 달리
- * 화면에 그릴 최소 정보만 담는다. SB Admin 2 사이드바가 2단(최상위 + 하위 그룹)까지만
- * 지원하므로 children은 1단계까지만 채워진다.
+ * 화면에 그릴 최소 정보만 담는다. 사이드바는 최대 3단까지 그리므로 children은 재귀적으로
+ * 최대 2단계 아래까지 채워진다.
  */
 @Getter
 @Builder
@@ -24,6 +24,15 @@ public class SidebarMenuResponse {
     private String menuUrl;
     private String menuIcon;
     private List<SidebarMenuResponse> children;
+
+    /** 자손(하위·하위의 하위) 중 menuUrl이 url과 같은 메뉴가 있는지 — 템플릿이 그룹 펼침 상태를 정할 때 쓴다. */
+    public boolean hasDescendantUrl(String url) {
+        if (url == null || children == null) {
+            return false;
+        }
+        return children.stream()
+                .anyMatch(child -> url.equals(child.getMenuUrl()) || child.hasDescendantUrl(url));
+    }
 
     public static SidebarMenuResponse of(Menu menu, List<SidebarMenuResponse> children) {
         return SidebarMenuResponse.builder()

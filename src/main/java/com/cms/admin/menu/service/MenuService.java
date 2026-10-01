@@ -42,6 +42,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MenuService {
 
+    /** 메뉴 최대 깊이(최상위=1). 사이드바 렌더링과 생성 검증이 같은 상한을 쓴다. */
+    static final int MAX_MENU_DEPTH = 3;
+
     private final MenuRepository menuRepository;
     private final Clock clock;
 
@@ -58,6 +61,9 @@ public class MenuService {
                     .orElseThrow(() -> new ResourceNotFoundException("부모 메뉴를 찾을 수 없습니다."));
             if (useYn && !Boolean.TRUE.equals(parent.getUseYn())) {
                 throw new InvalidRequestException("비활성 부모 메뉴 아래에는 활성 메뉴를 생성할 수 없습니다.");
+            }
+            if (depthOf(parent) >= MAX_MENU_DEPTH) {
+                throw new InvalidRequestException("메뉴는 최대 " + MAX_MENU_DEPTH + "단까지만 만들 수 있습니다.");
             }
         }
 
@@ -341,8 +347,8 @@ public class MenuService {
      * 사이드바 렌더링용 메뉴 목록. 활성(useYn=true) 메뉴만 대상으로,
      * ADMIN 권한이 없으면 ADMIN 전용 메뉴를 제외한다.
      *
-     * <p>SB Admin 2 사이드바 UI 제약에 따라 2단(최상위 + 직계 하위)까지만 조립한다.
-     * 3단 이하 메뉴와, 부모가 노출 대상에서 빠진 하위 메뉴는 렌더링되지 않는다.
+     * <p>최대 {@value #MAX_MENU_DEPTH}단(최상위 + 하위 + 하위의 하위)까지 조립한다.
+     * 그보다 깊은 메뉴와, 부모가 노출 대상에서 빠진 하위 메뉴는 렌더링되지 않는다.
      */
     @Transactional(readOnly = true)
     public List<SidebarMenuResponse> getSidebarMenus(boolean isAdmin) {
@@ -356,12 +362,30 @@ public class MenuService {
         }
 
         return childrenByParent.getOrDefault(null, List.of()).stream()
-                .map(root -> SidebarMenuResponse.of(
-                        root,
-                        childrenByParent.getOrDefault(root.getMenuNo(), List.of()).stream()
-                                .map(child -> SidebarMenuResponse.of(child, List.of()))
-                                .toList()))
+                .map(root -> toSidebarNode(root, 1, childrenByParent))
                 .toList();
+    }
+
+    private SidebarMenuResponse toSidebarNode(Menu menu, int depth, Map<Long, List<Menu>> childrenByParent) {
+        List<SidebarMenuResponse> children = depth >= MAX_MENU_DEPTH
+                ? List.of()
+                : childrenByParent.getOrDefault(menu.getMenuNo(), List.of()).stream()
+                        .map(child -> toSidebarNode(child, depth + 1, childrenByParent))
+                        .toList();
+        return SidebarMenuResponse.of(menu, children);
+    }
+
+    /** 메뉴의 깊이(최상위=1). 조상 사슬을 따라 올라가며, 순환 데이터는 한 번 본 노드에서 멈춘다. */
+    private int depthOf(Menu menu) {
+        int depth = 1;
+        Set<Long> visited = new HashSet<>();
+        visited.add(menu.getMenuNo());
+        Long upMenuNo = menu.getUpMenuNo();
+        while (upMenuNo != null && visited.add(upMenuNo)) {
+            depth++;
+            upMenuNo = menuRepository.findById(upMenuNo).map(Menu::getUpMenuNo).orElse(null);
+        }
+        return depth;
     }
 
     private Integer resolveNextOrd(Long upMenuNo) {
