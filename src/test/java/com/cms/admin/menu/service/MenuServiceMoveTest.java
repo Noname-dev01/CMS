@@ -340,26 +340,23 @@ class MenuServiceMoveTest {
         verify(menuRepository, never()).findById(anyLong());
     }
 
-    // ===================== accessRole 경고 =====================
+    // ===================== accessRole 불일치 거부(결정 9d) =====================
 
     @Test
-    @DisplayName("공용 메뉴를 관리자 전용 부모 아래로 옮기면 허용하되 MANAGER 노출 경고를 담는다")
-    void warning_commonUnderAdminOnlyParent() {
+    @DisplayName("공용 메뉴를 관리자 전용 부모 아래로 옮기면 400으로 거부하고 부모는 바뀌지 않는다")
+    void reject_commonUnderAdminOnlyParent() {
         Menu target = menu(11L, 10L, true, 3, MenuAccessRole.ALL);
         Menu adminParent = menu(20L, null, true, 1, MenuAccessRole.ADMIN);
         lock(target, adminParent);
         given(menuRepository.existsByUpMenuNo(11L)).willReturn(false);
-        given(menuRepository.findMaxOrdByUpMenuNo(20L)).willReturn(null);
 
-        MenuMoveResponse response = menuService.moveMenu(11L, MenuMoveRequest.toParent(20L));
+        assertThrows(InvalidRequestException.class, () -> menuService.moveMenu(11L, MenuMoveRequest.toParent(20L)));
 
-        assertEquals(20L, target.getUpMenuNo());
-        assertEquals(1, response.getWarnings().size());
-        assertTrue(response.getWarnings().get(0).contains("MANAGER"));
+        assertEquals(10L, target.getUpMenuNo());
     }
 
     @Test
-    @DisplayName("경고 조건이 아니면(관리자 전용→관리자 전용, 관리자 전용→공용 부모, 승격) warnings는 빈 배열")
+    @DisplayName("거부 조건이 아니면(관리자 전용→관리자 전용, 관리자 전용→공용 부모, 승격) 이동되고 warnings는 항상 빈 배열")
     void warning_none_whenNotConflicting() {
         Menu adminTarget = menu(11L, 10L, true, 3, MenuAccessRole.ADMIN);
         Menu adminParent = menu(20L, null, true, 1, MenuAccessRole.ADMIN);

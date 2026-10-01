@@ -3,10 +3,12 @@ package com.cms.admin.menu.controller;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuMoveRequest;
 import com.cms.admin.menu.dto.request.MenuOrderRequest;
+import com.cms.admin.menu.dto.request.MenuStructureRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
 import com.cms.admin.menu.dto.response.MenuMoveResponse;
 import com.cms.admin.menu.dto.response.MenuOrderResponse;
 import com.cms.admin.menu.dto.response.MenuResponse;
+import com.cms.admin.menu.dto.response.MenuStructureResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
 import com.cms.admin.menu.service.MenuService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -82,9 +84,9 @@ public class MenuController {
             description = "menuNo를 유지한 채 부모를 바꾼다. 본문의 upMenuNo는 필수이며 정수 또는 null(최상위 승격)만 허용한다. "
                     + "결과는 항상 2단 이하 — 하위 메뉴가 있는 메뉴(비활성 포함)는 이동할 수 없고 새 부모는 최상위 메뉴여야 한다. "
                     + "새 부모 아래(또는 최상위) 맨 끝에 배치된다. 이미 그 부모 아래면 변경 없이 200. "
-                    + "공용 메뉴를 관리자 전용 부모 아래로 옮기면 허용하되 응답 warnings에 알린다.")
-    @ApiResponse(responseCode = "200", description = "이동 성공 또는 무변경(warnings 포함)")
-    @ApiResponse(responseCode = "400", description = "요청값 검증 실패(upMenuNo 누락·정수/null 외의 값) 또는 이동 불가(자기 자신·하위 메뉴 아래·하위 메뉴가 있는 메뉴·활성 메뉴를 비활성 부모 아래로)")
+                    + "공용 메뉴를 관리자 전용 부모 아래로 옮기는 것은 거부한다(400).")
+    @ApiResponse(responseCode = "200", description = "이동 성공 또는 무변경")
+    @ApiResponse(responseCode = "400", description = "요청값 검증 실패(upMenuNo 누락·정수/null 외의 값) 또는 이동 불가(자기 자신·하위 메뉴 아래·하위 메뉴가 있는 메뉴·활성 메뉴를 비활성 부모 아래로·공용 메뉴를 관리자 전용 부모 아래로)")
     @ApiResponse(responseCode = "404", description = "메뉴 또는 부모 메뉴 없음")
     @ApiResponse(responseCode = "409", description = "동시 변경과 충돌(잠금 대기 타임아웃·교착) — 다시 시도")
     @PatchMapping("/{id}/parent")
@@ -94,6 +96,20 @@ public class MenuController {
             @Valid @RequestBody MenuMoveRequest request
     ) {
         return ResponseEntity.ok(menuService.moveMenu(id, request));
+    }
+
+    @Operation(summary = "메뉴 구조 일괄 반영",
+            description = "화면이 드래그로 만든 초안(전체 메뉴의 최종 부모·순서)을 한 번에 반영한다. menus는 비활성 포함 전체 메뉴이며 "
+                    + "같은 upMenuNo 안의 배열 순서가 새 순서가 된다. 각 항목의 baseUpMenuNo·baseOrd는 초안을 만든 시점의 값으로, "
+                    + "현재 값과 다르거나 메뉴 집합이 달라졌으면 409(낡은 초안). 최대 3단이고 하위 메뉴는 서브트리째 이동한다. "
+                    + "부모가 바뀐 서브트리에 한해 깊이·비활성 부모·권한 불일치(공용 메뉴를 관리자 전용 조상 아래로)를 검사한다. 무변경이면 changed=0으로 200.")
+    @ApiResponse(responseCode = "200", description = "반영 성공(changed = 실제로 바뀐 메뉴 수)")
+    @ApiResponse(responseCode = "400", description = "요청값 검증 실패(빈 목록·중복·null 원소·토큰 타입) 또는 구조 위반(순환·3단 초과·비활성 부모 아래 활성 메뉴·관리자 전용 아래 공용 메뉴·요청에 없는 부모)")
+    @ApiResponse(responseCode = "409", description = "낡은 초안(메뉴 집합 또는 기준 부모·순서가 현재와 다름) 또는 동시 변경과 충돌 — 화면을 새로고침 후 재시도")
+    @PutMapping("/structure")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<MenuStructureResponse> applyStructure(@Valid @RequestBody MenuStructureRequest request) {
+        return ResponseEntity.ok(menuService.applyStructure(request));
     }
 
     @Operation(summary = "형제 메뉴 순서 재조정",

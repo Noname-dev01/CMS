@@ -206,6 +206,128 @@ class MenuServiceTest {
     }
 
     @Test
+    @DisplayName("생성은 전체 행 잠금(findAllForUpdate)을 첫 조회로 쓴다 — 최상위 생성도 포함")
+    void createMenu_locksAllRowsFirst() {
+        MenuCreateRequest request = MenuCreateRequest.builder().menuName("최상위").build();
+        given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        menuService.createMenu(request);
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(menuRepository);
+        inOrder.verify(menuRepository).findAllForUpdate();
+        inOrder.verify(menuRepository).save(any(Menu.class));
+    }
+
+    @Test
+    @DisplayName("관리자 전용 메뉴 아래에 공용 메뉴(기본값 포함)를 만들면 400, 관리자 전용 메뉴는 허용")
+    void createMenu_commonUnderAdminOnly_rejected() {
+        Menu adminParent = menuWithAccessRole(1L, "전용 그룹", null, MenuAccessRole.ADMIN);
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(adminParent));
+        given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        // accessRole 미지정 = 공용(ALL)
+        assertThrows(InvalidRequestException.class, () -> menuService.createMenu(
+                MenuCreateRequest.builder().menuName("공용").upMenuNo(1L).build()));
+        verify(menuRepository, never()).save(any());
+
+        menuService.createMenu(MenuCreateRequest.builder().menuName("전용").upMenuNo(1L)
+                .accessRole(MenuAccessRole.ADMIN).build());
+        verify(menuRepository).save(any(Menu.class));
+    }
+
+    @Test
+    @DisplayName("관리자 전용 조상(2단 위)이 있어도 그 아래 공용 메뉴 생성은 400")
+    void createMenu_commonUnderAdminOnlyGrandparent_rejected() {
+        Menu adminRoot = menuWithAccessRole(1L, "전용 그룹", null, MenuAccessRole.ADMIN);
+        Menu middle = menuWithAccessRole(2L, "중간", 1L, MenuAccessRole.ADMIN);
+        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(middle));
+        given(menuRepository.findById(1L)).willReturn(Optional.of(adminRoot));
+
+        assertThrows(InvalidRequestException.class, () -> menuService.createMenu(
+                MenuCreateRequest.builder().menuName("공용").upMenuNo(2L).build()));
+    }
+
+    @Test
+    @DisplayName("같은 부모 그룹의 최대 ord가 Integer.MAX_VALUE면 그룹을 표시 순서대로 0..n-1 재번호한 뒤 마지막에 생성한다")
+    void createMenu_ordOverflow_renumbersGroupAndAppendsLast() {
+        Menu first = menu(1L, "첫째", null, true, 5);
+        Menu last = menu(2L, "마지막", null, true, Integer.MAX_VALUE);
+        given(menuRepository.findAllForUpdate()).willReturn(List.of(last, first)); // 일부러 표시 순서와 다르게 반환
+        given(menuRepository.findMaxOrdByUpMenuNoIsNull()).willReturn(Integer.MAX_VALUE);
+        given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        MenuResponse response = menuService.createMenu(MenuCreateRequest.builder().menuName("새 메뉴").build());
+
+        assertEquals(0, first.getOrd());
+        assertEquals(1, last.getOrd());
+        assertEquals(2, response.getOrd(), "새 메뉴는 재번호된 그룹의 맨 끝");
+    }
+
+    @Test
+    @DisplayName("PATCH 권한 변경: 관리자 전용 조상 아래 메뉴를 공용으로 바꾸면 400")
+    void updateMenu_adminToCommonUnderAdminAncestor_rejected() {
+        Menu adminParent = menuWithAccessRole(1L, "전용 그룹", null, MenuAccessRole.ADMIN);
+        Menu child = menuWithAccessRole(2L, "전용 자식", 1L, MenuAccessRole.ADMIN);
+        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(child));
+        given(menuRepository.findById(1L)).willReturn(Optional.of(adminParent));
+
+        assertThrows(InvalidRequestException.class, () -> menuService.updateMenu(2L,
+                MenuUpdateRequest.builder().accessRole(MenuAccessRole.ALL).build()));
+        assertEquals(MenuAccessRole.ADMIN, child.getAccessRole());
+    }
+
+    @Test
+    @DisplayName("PATCH 권한 변경: 공용 하위(손자 포함)가 있는 메뉴를 관리자 전용으로 바꾸면 400, 하위가 전용뿐이면 허용")
+    void updateMenu_commonToAdminWithCommonDescendant_rejected() {
+        Menu group = menuWithAccessRole(1L, "그룹", null, MenuAccessRole.ALL);
+        Menu child = menuWithAccessRole(2L, "자식", 1L, MenuAccessRole.ADMIN);
+        Menu grandchild = menuWithAccessRole(3L, "손자", 2L, MenuAccessRole.ALL); // 기존 위반 — 손자가 공용
+        given(menuRepository.findAllForUpdate()).willReturn(List.of(group, child, grandchild));
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(group));
+
+        assertThrows(InvalidRequestException.class, () -> menuService.updateMenu(1L,
+                MenuUpdateRequest.builder().accessRole(MenuAccessRole.ADMIN).build()));
+        assertEquals(MenuAccessRole.ALL, group.getAccessRole());
+    }
+
+    @Test
+    @DisplayName("PATCH 권한 변경: 하위가 전부 관리자 전용이면 공용→관리자 전용 허용")
+    void updateMenu_commonToAdminWithAdminDescendantsOnly_allowed() {
+        Menu group = menuWithAccessRole(1L, "그룹", null, MenuAccessRole.ALL);
+        Menu child = menuWithAccessRole(2L, "자식", 1L, MenuAccessRole.ADMIN);
+        given(menuRepository.findAllForUpdate()).willReturn(List.of(group, child));
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(group));
+
+        menuService.updateMenu(1L, MenuUpdateRequest.builder().accessRole(MenuAccessRole.ADMIN).build());
+
+        assertEquals(MenuAccessRole.ADMIN, group.getAccessRole());
+    }
+
+    @Test
+    @DisplayName("PATCH에 accessRole이 없으면 전체 행 잠금 없이 대상 행만 잠근다(이름 수정 등)")
+    void updateMenu_withoutAccessRole_locksOnlyTargetRow() {
+        Menu existing = menu(1L, "메뉴", null, true, 0);
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
+
+        menuService.updateMenu(1L, MenuUpdateRequest.builder().menuName("새 이름").build());
+
+        verify(menuRepository, never()).findAllForUpdate();
+    }
+
+    @Test
+    @DisplayName("PATCH에 accessRole이 있으면 같은 값이어도 전체 행 잠금을 첫 조회로 쓴다")
+    void updateMenu_withAccessRole_locksAllRowsFirst() {
+        Menu existing = menuWithAccessRole(1L, "메뉴", null, MenuAccessRole.ALL);
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
+
+        menuService.updateMenu(1L, MenuUpdateRequest.builder().accessRole(MenuAccessRole.ALL).build());
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(menuRepository);
+        inOrder.verify(menuRepository).findAllForUpdate();
+        inOrder.verify(menuRepository).findByIdForUpdate(1L);
+    }
+
+    @Test
     @DisplayName("생성 시 useYn 누락은 true로 기본화")
     void createMenu_useYnDefaultsToTrue() {
         MenuCreateRequest request = MenuCreateRequest.builder()

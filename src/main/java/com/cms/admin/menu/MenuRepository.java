@@ -49,6 +49,15 @@ public interface MenuRepository extends JpaRepository<Menu, Long> {
     List<SiblingRow> findRootSiblingRows();
 
     /**
+     * 전체 메뉴 행을 menuNo 오름차순으로 PESSIMISTIC_WRITE 잠금하며 읽는다 — 구조 반영·생성·accessRole 수정이
+     * 첫 조회로 쓴다(PLAN-menu-structure-apply.md 결정 2·9). 같은 순서로 전체를 잠그므로 이 경로들끼리는 직렬화되고
+     * 교착이 없다. 메뉴는 관리자 전용 소규모 데이터라 전체 잠금 비용을 수용한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from Menu m order by m.menuNo asc")
+    List<Menu> findAllForUpdate();
+
+    /**
      * 생성/재활성화 시 부모 row, 비활성화(삭제 및 PATCH useYn=false) 시 대상 row를
      * PESSIMISTIC_WRITE로 잠근 뒤 조회한다. 잠금 획득 → 검증 → 상태 반영이 한 트랜잭션에서
      * 직렬화되도록 보장한다.
