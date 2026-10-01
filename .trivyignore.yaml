@@ -12,4 +12,17 @@
 #       - "app/app.jar"
 #     statement: "사유 — 수정 버전 미배포/영향 없음 근거, 책임자: <이름>"
 #     expired_at: 2026-12-31
-vulnerabilities: []
+vulnerabilities:
+  # CVE-2026-84782 (openssl DTLS handshake 재전송 정보 노출, HIGH, 2026-10-01 공개).
+  # 런타임 베이스 이미지 eclipse-temurin:17-jre(Ubuntu 26.04)의 openssl 3.5.5-1ubuntu3.5가 대상이고
+  # 수정판 3.5.5-1ubuntu3.6은 Ubuntu 저장소에 있으나, 공식 이미지가 2026-09-25 이후 재빌드되지 않아
+  # digest 갱신으로는 해결할 수 없다(noble·jammy·resolute 변형도 동일, 확인 2026-10-01).
+  # 영향 평가: 이 앱은 DTLS를 쓰지 않는다(Tomcat HTTP, TLS 종단은 배포 범위 밖).
+  # 해소: 새 17-jre digest가 수정판을 포함하면 Dockerfile digest를 갱신하고 이 항목을 삭제한다.
+  - id: CVE-2026-84782
+    purls:
+      - "pkg:deb/ubuntu/libssl3t64"
+      - "pkg:deb/ubuntu/openssl"
+      - "pkg:deb/ubuntu/openssl-provider-legacy"
+    statement: "베이스 이미지 재빌드 대기 — 수정판이 있으나 공식 이미지 미갱신, 앱은 DTLS 미사용. 책임자: noname_dev"
+    expired_at: 2026-10-08
