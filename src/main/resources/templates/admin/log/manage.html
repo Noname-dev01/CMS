@@ -309,7 +309,9 @@
 
         tableBody.innerHTML = items.map(function (item, idx) {
             const targetText = item.targetType
-                ? escapeHtml(item.targetType) + (item.targetId != null ? " #" + escapeHtml(item.targetId) : "")
+                ? escapeHtml(item.targetType) + (item.targetId != null ? " #" + escapeHtml(item.targetId) : "") +
+                    // targetLabel: 하드 삭제처럼 대상이 사라진 액션의 이름 스냅샷 (없으면 JSON 키 생략)
+                    (item.targetLabel ? " · " + escapeHtml(item.targetLabel) : "")
                 : "-";
 
             return "<tr>" +
@@ -403,6 +405,9 @@
                                          escapeHtml(getResultLabel(item.actionResult)) + "</span>" },
             { label: "대상 유형",  value: escapeHtml(item.targetType || "-") },
             { label: "대상 ID",   value: item.targetId != null ? escapeHtml(item.targetId) : "-" },
+            { label: "대상 이름",  value: item.targetLabel
+                ? "<span style=\"white-space:pre-wrap;word-break:break-all\">" + escapeHtml(item.targetLabel) + "</span>"
+                : "<span class=\"value-muted\">-</span>" },
             { label: "요청 IP",   value: escapeHtml(item.requestIp || "-") },
             { label: "요청 URI",  value: escapeHtml(item.requestUri || "-") },
             { label: "HTTP 메서드", value: escapeHtml(item.requestMethod || "-") },
