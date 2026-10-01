@@ -171,6 +171,34 @@ class AdminMainControllerTest {
     }
 
     @Test
+    @DisplayName("사이드바는 3단 메뉴를 중첩 collapse로 렌더링하고 현재 페이지가 안에 있으면 펼친다")
+    @WithMockUser(roles = "ADMIN")
+    void main_rendersThreeLevelSidebar() throws Exception {
+        given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
+        given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
+        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
+        given(menuService.getSidebarMenus(anyBoolean())).willReturn(List.of(
+                SidebarMenuResponse.builder()
+                        .menuNo(2L).menuName("회원 관리").menuIcon("fas fa-fw fa-user-shield")
+                        .children(List.of(SidebarMenuResponse.builder()
+                                .menuNo(3L).menuName("내 활동").menuIcon("fas fa-fw fa-folder")
+                                .children(List.of(SidebarMenuResponse.builder()
+                                        .menuNo(4L).menuName("활동 로그").menuUrl("/admin").children(List.of())
+                                        .build()))
+                                .build()))
+                        .build()));
+
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("collapseMenu2")))
+                .andExpect(content().string(containsString("collapseSub3")))
+                .andExpect(content().string(containsString("활동 로그")))
+                // 현재 URI(/admin)가 3단 안에 있으므로 1단·2단 collapse 모두 펼침(show) 상태
+                .andExpect(content().string(containsString("id=\"collapseMenu2\" class=\"collapse show\"")))
+                .andExpect(content().string(containsString("id=\"collapseSub3\" class=\"collapse sidebar-nested pl-3 show\"")));
+    }
+
+    @Test
     @DisplayName("사이드바 메뉴 조회는 인증 정보가 없으면(DB 조회 생략) 빈 목록으로 렌더링된다")
     @WithMockUser(roles = "ADMIN")
     void main_sidebarEmptyWhenNoCurrentAdmin() throws Exception {

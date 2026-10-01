@@ -159,6 +159,53 @@ class MenuServiceTest {
     }
 
     @Test
+    @DisplayName("2단 부모 아래 생성은 허용된다(결과 3단)")
+    void createMenu_underSecondLevelParent_allowed() {
+        MenuCreateRequest request = MenuCreateRequest.builder()
+                .menuName("3단 메뉴").useYn(true).ord(0).upMenuNo(2L).build();
+        Menu secondLevel = menu(2L, "2단", 1L, true, 0);
+        Menu root = menu(1L, "1단", null, true, 0);
+        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(secondLevel));
+        given(menuRepository.findById(1L)).willReturn(Optional.of(root));
+        given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        menuService.createMenu(request);
+
+        verify(menuRepository).save(any(Menu.class));
+    }
+
+    @Test
+    @DisplayName("3단 부모 아래 생성(결과 4단)은 400 거부")
+    void createMenu_underThirdLevelParent_rejected() {
+        MenuCreateRequest request = MenuCreateRequest.builder()
+                .menuName("4단 메뉴").useYn(true).upMenuNo(3L).build();
+        Menu thirdLevel = menu(3L, "3단", 2L, true, 0);
+        Menu secondLevel = menu(2L, "2단", 1L, true, 0);
+        Menu root = menu(1L, "1단", null, true, 0);
+        given(menuRepository.findByIdForUpdate(3L)).willReturn(Optional.of(thirdLevel));
+        given(menuRepository.findById(2L)).willReturn(Optional.of(secondLevel));
+        given(menuRepository.findById(1L)).willReturn(Optional.of(root));
+
+        assertThrows(InvalidRequestException.class, () -> menuService.createMenu(request));
+        verify(menuRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("순환 데이터의 부모 아래 생성은 무한 루프 없이 깊이를 계산한다")
+    void createMenu_cyclicParentChain_doesNotLoop() {
+        MenuCreateRequest request = MenuCreateRequest.builder()
+                .menuName("메뉴").useYn(true).upMenuNo(10L).build();
+        Menu a = menu(10L, "A", 20L, true, 0);
+        Menu b = menu(20L, "B", 10L, true, 0);
+        given(menuRepository.findByIdForUpdate(10L)).willReturn(Optional.of(a));
+        given(menuRepository.findById(20L)).willReturn(Optional.of(b));
+        given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        // A(10) → B(20) → A(10, 이미 방문)에서 멈춘다: 깊이 2이므로 생성은 가능하고 무한 루프만 없어야 한다.
+        assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> menuService.createMenu(request));
+    }
+
+    @Test
     @DisplayName("생성 시 useYn 누락은 true로 기본화")
     void createMenu_useYnDefaultsToTrue() {
         MenuCreateRequest request = MenuCreateRequest.builder()
@@ -548,20 +595,41 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("사이드바 조회: 2단까지만 조립되고 3단(손자) 메뉴는 포함되지 않는다")
-    void getSidebarMenus_limitedToTwoLevels() {
+    @DisplayName("사이드바 조회: 3단(손자)까지 조립되고 4단 메뉴는 포함되지 않는다")
+    void getSidebarMenus_limitedToThreeLevels() {
         Menu root = menuWithAccessRole(1L, "루트", null, MenuAccessRole.ALL);
         Menu child = menuWithAccessRole(2L, "자식", 1L, MenuAccessRole.ALL);
         Menu grandchild = menuWithAccessRole(3L, "손자", 2L, MenuAccessRole.ALL);
+        Menu greatGrandchild = menuWithAccessRole(4L, "증손", 3L, MenuAccessRole.ALL);
 
         given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
-                .willReturn(List.of(root, child, grandchild));
+                .willReturn(List.of(root, child, grandchild, greatGrandchild));
 
         List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(true);
 
         assertEquals(1, sidebar.size());
-        assertEquals(1, sidebar.get(0).getChildren().size());
-        assertTrue(sidebar.get(0).getChildren().get(0).getChildren().isEmpty());
+        SidebarMenuResponse childNode = sidebar.get(0).getChildren().get(0);
+        assertEquals("자식", childNode.getMenuName());
+        assertEquals(1, childNode.getChildren().size());
+        SidebarMenuResponse grandchildNode = childNode.getChildren().get(0);
+        assertEquals("손자", grandchildNode.getMenuName());
+        assertTrue(grandchildNode.getChildren().isEmpty());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: 중간 메뉴가 ADMIN 전용이라 제외되면 비관리자에게는 그 아래 3단 메뉴도 보이지 않는다")
+    void getSidebarMenus_nonAdmin_grandchildHiddenWhenParentExcluded() {
+        Menu root = menuWithAccessRole(1L, "루트", null, MenuAccessRole.ALL);
+        Menu adminChild = menuWithAccessRole(2L, "관리자 그룹", 1L, MenuAccessRole.ADMIN);
+        Menu grandchild = menuWithAccessRole(3L, "손자", 2L, MenuAccessRole.ADMIN);
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(root, adminChild, grandchild));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(false);
+
+        assertEquals(1, sidebar.size());
+        assertTrue(sidebar.get(0).getChildren().isEmpty());
     }
 
     // ── 순환/미방문 노드 방어 ──────────────────────────────

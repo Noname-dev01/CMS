@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|
 | `com.cms.admin.log` | `@AdminActionLogged` 독립 트랜잭션(REQUIRES_NEW)·예외 격리 계약 |
 | `com.cms.admin.member` | 초기 관리자 부트스트랩, 비밀번호 재설정·로그인 실패 잠금·90일 만료, 프로필 이미지 |
-| `com.cms.admin.menu` | 사이드바 2단 제약·역할 필터·메뉴 시드 조건 |
+| `com.cms.admin.menu` | 사이드바 3단 제약·역할 필터·메뉴 시드 조건 |
 | `com.cms.admin.notice` | `useYn`/`deleted` 분리, 비관적 락, 첨부파일 상한·삭제 차단 |
 | `com.cms.config` | `SecurityConfig` 경로별 접근 제어 표(승인 이력 포함) |
 | `com.cms.publicweb.notice` | 공개 노출 불변식 격리, 404 흡수 정책, 공개 첨부 TOCTOU |
