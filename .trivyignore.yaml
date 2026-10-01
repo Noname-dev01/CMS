@@ -25,4 +25,4 @@ vulnerabilities:
       - "pkg:deb/ubuntu/openssl"
       - "pkg:deb/ubuntu/openssl-provider-legacy"
     statement: "베이스 이미지 재빌드 대기 — 수정판이 있으나 공식 이미지 미갱신, 앱은 DTLS 미사용. 책임자: noname_dev"
-    expired_at: 2026-10-15
+    expired_at: 2026-10-08
