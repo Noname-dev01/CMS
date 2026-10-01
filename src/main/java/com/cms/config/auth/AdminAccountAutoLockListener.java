@@ -40,6 +40,7 @@ public class AdminAccountAutoLockListener {
                     AdminActionResult.SUCCESS,         // "자동 잠금 전이 성공" 이벤트 (로그인 실패 로그가 아님)
                     "MEMBER",
                     event.memberId(),
+                    null,                              // targetLabel — 이름 스냅샷 불필요
                     event.requestIp(),
                     event.requestUri(),
                     "POST",

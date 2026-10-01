@@ -19,6 +19,8 @@ public class AdminActionLogResponse {
     private AdminActionResult actionResult;
     private String targetType;
     private Long targetId;
+    /** 대상 이름 스냅샷. 라벨이 없으면 null (Jackson non_null 설정으로 키 생략됨). */
+    private String targetLabel;
     private String requestIp;
     private String requestUri;
     private String requestMethod;

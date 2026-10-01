@@ -84,6 +84,7 @@ public class AdminActionLogQueryService {
                 .actionResult(log.getActionResult())
                 .targetType(log.getTargetType())
                 .targetId(log.getTargetId())
+                .targetLabel(log.getTargetLabel())
                 .requestIp(log.getRequestIp())
                 .requestUri(log.getRequestUri())
                 .requestMethod(log.getRequestMethod())

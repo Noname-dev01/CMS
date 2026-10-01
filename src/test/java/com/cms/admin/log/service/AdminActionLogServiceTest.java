@@ -36,7 +36,7 @@ class AdminActionLogServiceTest {
         Method logMethod = AdminActionLogService.class.getMethod(
                 "log",
                 Long.class, String.class, String.class, AdminActionResult.class, String.class,
-                Long.class, String.class, String.class, String.class, String.class
+                Long.class, String.class, String.class, String.class, String.class, String.class
         );
 
         Transactional transactional = logMethod.getAnnotation(Transactional.class);
@@ -53,11 +53,37 @@ class AdminActionLogServiceTest {
         Clock clock = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneId.of("Asia/Seoul"));
         AdminActionLogService service = new AdminActionLogService(repository, clock);
 
-        service.log(1L, "admin", "TEST", AdminActionResult.SUCCESS, "TARGET", 2L,
+        service.log(1L, "admin", "TEST", AdminActionResult.SUCCESS, "TARGET", 2L, null,
                 "127.0.0.1", "/uri", "GET", null);
 
         ArgumentCaptor<AdminActionLog> captor = ArgumentCaptor.forClass(AdminActionLog.class);
         verify(repository).save(captor.capture());
         assertEquals(LocalDateTime.of(2026, 9, 30, 0, 0), captor.getValue().getCreateAt());
+    }
+
+    @Test
+    @DisplayName("log()는 연속된 String 인자(타입·라벨·IP·URI·메서드·오류)를 각각 올바른 필드에 매핑한다")
+    void log_mapsEveryArgumentToItsOwnField() {
+        AdminActionLogRepository repository = mock(AdminActionLogRepository.class);
+        Clock clock = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneId.of("Asia/Seoul"));
+        AdminActionLogService service = new AdminActionLogService(repository, clock);
+
+        service.log(1L, "admin", "TEST_ACTION", AdminActionResult.FAIL, "TARGET_TYPE", 2L, "LABEL",
+                "127.0.0.1", "/uri", "DELETE", "ERROR");
+
+        ArgumentCaptor<AdminActionLog> captor = ArgumentCaptor.forClass(AdminActionLog.class);
+        verify(repository).save(captor.capture());
+        AdminActionLog saved = captor.getValue();
+        assertEquals(1L, saved.getActionId());
+        assertEquals("admin", saved.getActionUserId());
+        assertEquals("TEST_ACTION", saved.getActionType());
+        assertEquals(AdminActionResult.FAIL, saved.getActionResult());
+        assertEquals("TARGET_TYPE", saved.getTargetType());
+        assertEquals(2L, saved.getTargetId());
+        assertEquals("LABEL", saved.getTargetLabel());
+        assertEquals("127.0.0.1", saved.getRequestIp());
+        assertEquals("/uri", saved.getRequestUri());
+        assertEquals("DELETE", saved.getRequestMethod());
+        assertEquals("ERROR", saved.getErrorMessage());
     }
 }
