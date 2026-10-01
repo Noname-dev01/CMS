@@ -1266,10 +1266,10 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     private List<MenuStructureRequest.Item> withMoved(List<MenuStructureRequest.Item> items, Long menuNo, Long newParent, Long beforeMenuNo) {
         Menu current = menuRepository.findById(menuNo).orElseThrow();
         List<MenuStructureRequest.Item> result = new ArrayList<>(items);
-        result.removeIf(item -> item.getMenuNo().equals(menuNo));
+        result.removeIf(item -> item.resolvedMenuNo().equals(menuNo));
         int position = result.size();
         for (int i = 0; i < result.size(); i++) {
-            if (result.get(i).getMenuNo().equals(beforeMenuNo)) {
+            if (result.get(i).resolvedMenuNo().equals(beforeMenuNo)) {
                 position = i;
                 break;
             }
