@@ -84,6 +84,7 @@ class AdminAccountAutoLockListenerTest {
                 org.mockito.ArgumentMatchers.eq(AdminActionResult.SUCCESS),
                 org.mockito.ArgumentMatchers.eq("MEMBER"),
                 org.mockito.ArgumentMatchers.eq(7L),
+                isNull(),                               // targetLabel — 이름 스냅샷 불필요
                 org.mockito.ArgumentMatchers.eq("1.2.3.4"),
                 org.mockito.ArgumentMatchers.eq("/admin/login"),
                 org.mockito.ArgumentMatchers.eq("POST"),
@@ -96,7 +97,7 @@ class AdminAccountAutoLockListenerTest {
     void auditFailure_isIsolated_andLoggedAsError() {
         willThrow(new IllegalStateException("감사 저장 실패 주입"))
                 .given(adminActionLogService).log(any(), any(), anyString(), any(), anyString(),
-                        anyLong(), any(), any(), any(), any());
+                        anyLong(), any(), any(), any(), any(), any());
 
         assertDoesNotThrow(() ->
                 listener.onAutoLock(new AdminAccountAutoLockEvent(7L, "admin01", "1.2.3.4", "/admin/login")));

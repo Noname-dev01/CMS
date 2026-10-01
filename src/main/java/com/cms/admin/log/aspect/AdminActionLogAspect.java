@@ -37,6 +37,9 @@ import java.lang.reflect.Method;
 @RequiredArgsConstructor
 public class AdminActionLogAspect {
 
+    /** admin_action_log.target_label 컬럼 길이(V12)와 일치해야 한다. */
+    private static final int MAX_TARGET_LABEL_LENGTH = 500;
+
     private final AdminActionLogService adminActionLogService;
 
     @AfterReturning(
@@ -44,6 +47,10 @@ public class AdminActionLogAspect {
             returning = "result"
     )
     public void logSuccess(JoinPoint joinPoint, AdminActionLogged adminActionLogged, Object result){
+        // 추출 메서드는 내부에서 예외를 삼키므로 try 밖에서 계산해 저장 실패 로그에도 같은 값을 쓴다.
+        Long targetId = extractTargetId(result, adminActionLogged.targetIdExpression());
+        String targetLabel = extractTargetLabel(result, adminActionLogged.targetLabelExpression());
+
         // 감사 로그 저장 실패가 정상 완료된 본 작업을 실패로 뒤집지 않도록 예외를 격리한다.
         try {
             adminActionLogService.log(
@@ -52,14 +59,18 @@ public class AdminActionLogAspect {
                     adminActionLogged.actionType(),
                     AdminActionResult.SUCCESS,
                     adminActionLogged.targetType(),
-                    extractTargetId(result, adminActionLogged.targetIdExpression()),
+                    targetId,
+                    targetLabel,
                     ClientIpResolver.resolve(getCurrentRequest()),
                     getRequestUri(),
                     getRequestMethod(),
                     null
             );
         } catch (Exception loggingError) {
-            log.error("관리자 액션 성공 로그 저장 실패 (actionType={})", adminActionLogged.actionType(), loggingError);
+            // 하드 삭제처럼 대상이 사라지는 액션은 이 로그가 이름·URL의 유일한 단서가 된다(감사 보존은 최선 노력).
+            // 라벨은 사용자 입력이라 개행 등이 가짜 로그 줄을 만들 수 없도록 이스케이프해서 남긴다.
+            log.error("관리자 액션 성공 로그 저장 실패 (actionType={}, targetId={}, targetLabel={})",
+                    adminActionLogged.actionType(), targetId, escapeForLog(targetLabel), loggingError);
         }
     }
 
@@ -76,6 +87,7 @@ public class AdminActionLogAspect {
                     adminActionLogged.actionType(),
                     AdminActionResult.FAIL,
                     adminActionLogged.targetType(),
+                    null,
                     null,
                     ClientIpResolver.resolve(getCurrentRequest()),
                     getRequestUri(),
@@ -143,6 +155,59 @@ public class AdminActionLogAspect {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private String extractTargetLabel(Object result, String targetLabelExpression){
+        if (result == null || targetLabelExpression == null || targetLabelExpression.isBlank()){
+            return null;
+        }
+
+        try {
+            String getterName = "get" + Character.toUpperCase(targetLabelExpression.charAt(0))
+                    + targetLabelExpression.substring(1);
+
+            Object value = result.getClass().getMethod(getterName).invoke(result);
+
+            if (value instanceof String label){
+                return label.length() > MAX_TARGET_LABEL_LENGTH ? label.substring(0, MAX_TARGET_LABEL_LENGTH) : label;
+            }
+
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 서버 로그에 쓸 사용자 입력 문자열을 한 줄로 고정한다. 역슬래시와 제어문자(Cc)·줄/문단 구분자(Zl·Zp: U+2028·U+2029,
+     * U+0085 포함)를 가역 이스케이프(\\, \r, \n, \t, \\uXXXX)로 치환한다 — Java 17의 {@code \p{Cntrl}}은 ASCII 제어문자만
+     * 잡아 유니코드 줄바꿈을 놓치므로 문자 종류(general category)로 판정한다.
+     */
+    static String escapeForLog(String value){
+        if (value == null){
+            return null;
+        }
+
+        StringBuilder escaped = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++){
+            char c = value.charAt(i);
+            switch (c){
+                case '\\' -> escaped.append("\\\\");
+                case '\r' -> escaped.append("\\r");
+                case '\n' -> escaped.append("\\n");
+                case '\t' -> escaped.append("\\t");
+                default -> {
+                    int type = Character.getType(c);
+                    if (type == Character.CONTROL || type == Character.LINE_SEPARATOR
+                            || type == Character.PARAGRAPH_SEPARATOR){
+                        escaped.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        escaped.append(c);
+                    }
+                }
+            }
+        }
+        return escaped.toString();
     }
 
     private String truncateErrorMessage(String errorMessage){

@@ -37,6 +37,10 @@ public class AdminActionLog {
 
     private Long targetId;
 
+    /** 대상 이름 스냅샷(예: 하드 삭제된 메뉴의 이름·URL). 라벨을 지정하지 않는 액션은 null. */
+    @Column(length = 500)
+    private String targetLabel;
+
     @Column(length = 45)
     private String requestIp;
 

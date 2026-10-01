@@ -158,6 +158,7 @@ class AdminActionLogQueryServiceTest {
                 .actionResult(AdminActionResult.SUCCESS)
                 .targetType("MEMBER")
                 .targetId(5L)
+                .targetLabel("메뉴 이름 (/url)")
                 .requestIp("127.0.0.1")
                 .requestUri("/admin/api/members")
                 .requestMethod("POST")
@@ -180,6 +181,7 @@ class AdminActionLogQueryServiceTest {
         assertThat(item.getActionResult()).isEqualTo(AdminActionResult.SUCCESS);
         assertThat(item.getTargetType()).isEqualTo("MEMBER");
         assertThat(item.getTargetId()).isEqualTo(5L);
+        assertThat(item.getTargetLabel()).isEqualTo("메뉴 이름 (/url)");
         assertThat(item.getRequestIp()).isEqualTo("127.0.0.1");
         assertThat(item.getRequestUri()).isEqualTo("/admin/api/members");
         assertThat(item.getRequestMethod()).isEqualTo("POST");

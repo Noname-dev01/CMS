@@ -25,7 +25,8 @@ public class AdminActionLogService {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void log(Long actionId, String actionUserId, String actionType, AdminActionResult actionResult, String targetType,
-                    Long targetId, String requestIp, String requestUri, String requestMethod, String errorMessage){
+                    Long targetId, String targetLabel, String requestIp, String requestUri, String requestMethod,
+                    String errorMessage){
         AdminActionLog actionLog = AdminActionLog.builder()
                 .actionId(actionId)
                 .actionUserId(actionUserId)
@@ -33,6 +34,7 @@ public class AdminActionLogService {
                 .actionResult(actionResult)
                 .targetType(targetType)
                 .targetId(targetId)
+                .targetLabel(targetLabel)
                 .requestIp(requestIp)
                 .requestUri(requestUri)
                 .requestMethod(requestMethod)

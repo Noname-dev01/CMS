@@ -26,8 +26,9 @@ public abstract class MariaDbContainerSupport {
 
     private static final Logger log = LoggerFactory.getLogger(MariaDbContainerSupport.class);
 
+    // protected: 스프링 컨텍스트 없이 컨테이너에 직접 접속하는 테스트(Flyway 업그레이드 경로 등)가 접속 정보를 읽는다
     @ServiceConnection
-    static final MariaDBContainer<?> MARIA_DB =
+    protected static final MariaDBContainer<?> MARIA_DB =
             new MariaDBContainer<>(
                     DockerImageName.parse("mariadb@sha256:7f22313fc130a377a44999965bcb0a08dd5b21e8502824c1b864f792f9bc66ab")
                             .asCompatibleSubstituteFor("mariadb"));
