@@ -925,6 +925,14 @@ class MenuControllerTest {
                             .content(structureBody(structureItem("1", bad, "0", "null"))))
                     .andExpect(status().isBadRequest());
         }
+        // menuNo도 같은 규칙: 소수가 기존 메뉴 번호로 잘리거나 문자열이 숫자로 변환되면 엉뚱한 메뉴가 옮겨진다
+        for (String bad : List.of("1.9", "\"1\"", "\"\"", "true", "null", "[]", "{}")) {
+            mockMvc.perform(put("/admin/api/menus/structure")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(structureBody(structureItem(bad, "null", "0", "null"))))
+                    .andExpect(status().isBadRequest());
+        }
         mockMvc.perform(put("/admin/api/menus/structure")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)

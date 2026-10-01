@@ -21,10 +21,12 @@ import java.util.List;
  * {@code ord}(0..n-1)</b>가 된다. 각 항목의 {@code baseUpMenuNo}·{@code baseOrd}는 초안을 만든 시점(트리 조회
  * 시점)의 값으로, 서버가 현재 값과 비교해 낡은 초안을 409로 거부하는 데 쓴다.
  *
- * <p>세 필드를 {@link JsonNode}로 받는 이유(메뉴 부모 이동 요청과 같다): 자바 {@code Long}으로 받으면 필드가 아예
- * 없는 본문이 명시적 {@code null}(최상위/값 없음)과 구분되지 않고, Jackson 기본 강제 변환이 {@code ""}·
- * {@code "null"} 문자열을 {@code null}로, {@code 10.9}를 {@code 10}으로 바꿔 잘못된 입력이 최상위 이동이나 다른
- * 부모 이동으로 둔갑한다. 원본 토큰을 검사해 "필드 없음"과 정수·명시적 null 이외의 값을 모두 거부한다.
+ * <p>항목의 네 필드({@code menuNo}·{@code baseUpMenuNo}·{@code baseOrd}·{@code upMenuNo})를 모두
+ * {@link JsonNode}로 받는 이유(메뉴 부모 이동 요청과 같다): 자바 {@code Long}으로 받으면 필드가 아예 없는 본문이
+ * 명시적 {@code null}(최상위/값 없음)과 구분되지 않고, Jackson 기본 강제 변환이 {@code ""}·{@code "null"} 문자열을
+ * {@code null}로, {@code "5"}를 {@code 5}로, {@code 10.9}를 {@code 10}으로 바꿔 잘못된 입력이 최상위 이동이나 다른
+ * 부모 이동으로 둔갑한다. {@code menuNo}도 예외가 아니다 — {@code 1.9}가 {@code 1}로 잘려 엉뚱한 기존 메뉴를 옮기는
+ * 것이 코드 리뷰에서 재현됐다. 원본 토큰을 검사해 "필드 없음"과 정수·명시적 null 이외의 값을 모두 거부한다.
  */
 @Getter
 @Setter
@@ -42,9 +44,10 @@ public class MenuStructureRequest {
     @Schema(description = "메뉴 한 건의 기준값(base)과 새 부모")
     public static class Item {
 
+        /** 필수 정수 — null·소수·문자열·불리언은 거부(자바 null = 본문에 필드 없음). */
         @NotNull
-        @Schema(description = "메뉴 번호", example = "5")
-        private Long menuNo;
+        @Schema(description = "메뉴 번호(정수만 허용)", type = "integer", format = "int64", example = "5")
+        private JsonNode menuNo;
 
         /** 자바 null = 본문에 필드 없음, NullNode = 명시적 JSON null(최상위). */
         @Schema(description = "초안을 만든 시점의 부모 메뉴 번호(최상위면 명시적 null)", type = "integer", format = "int64",
@@ -62,7 +65,7 @@ public class MenuStructureRequest {
         /** 테스트·내부 호출용 팩토리. null은 각각 최상위/값 없음. */
         public static Item of(Long menuNo, Long baseUpMenuNo, Integer baseOrd, Long upMenuNo) {
             Item item = new Item();
-            item.menuNo = menuNo;
+            item.menuNo = menuNo == null ? null : JsonNodeFactory.instance.numberNode(menuNo);
             item.baseUpMenuNo = longNode(baseUpMenuNo);
             item.baseOrd = baseOrd == null
                     ? JsonNodeFactory.instance.nullNode()
@@ -78,9 +81,13 @@ public class MenuStructureRequest {
         }
 
         @JsonIgnore
-        @AssertTrue(message = "baseUpMenuNo·upMenuNo는 필수이며 정수 또는 null만, baseOrd는 필수이며 정수(int 범위) 또는 null만 허용됩니다.")
+        @AssertTrue(message = "menuNo는 필수이며 정수만, baseUpMenuNo·upMenuNo는 필수이며 정수 또는 null만, baseOrd는 필수이며 정수(int 범위) 또는 null만 허용됩니다.")
         public boolean isTokensValid() {
-            return isLongOrNull(baseUpMenuNo) && isLongOrNull(upMenuNo) && isIntOrNull(baseOrd);
+            return isLong(menuNo) && isLongOrNull(baseUpMenuNo) && isLongOrNull(upMenuNo) && isIntOrNull(baseOrd);
+        }
+
+        private static boolean isLong(JsonNode node) {
+            return node != null && node.isIntegralNumber() && node.canConvertToLong();
         }
 
         private static boolean isLongOrNull(JsonNode node) {
@@ -95,6 +102,12 @@ public class MenuStructureRequest {
                 return false;
             }
             return node.isNull() || (node.isIntegralNumber() && node.canConvertToInt());
+        }
+
+        /** 검증을 통과한 요청에서 메뉴 번호를 꺼낸다. */
+        @JsonIgnore
+        public Long resolvedMenuNo() {
+            return menuNo.asLong();
         }
 
         /** 검증을 통과한 요청에서 새 부모 번호를 꺼낸다. 최상위면 null. */

@@ -197,7 +197,7 @@ public class MenuService {
 
         Set<Long> requestedNos = new LinkedHashSet<>();
         for (MenuStructureRequest.Item item : items) {
-            if (!requestedNos.add(item.getMenuNo())) {
+            if (!requestedNos.add(item.resolvedMenuNo())) {
                 throw new InvalidRequestException("메뉴 번호가 중복되었습니다.");
             }
         }
@@ -216,7 +216,7 @@ public class MenuService {
             throw structureChanged();
         }
         for (MenuStructureRequest.Item item : items) {
-            Menu current = byNo.get(item.getMenuNo());
+            Menu current = byNo.get(item.resolvedMenuNo());
             if (!Objects.equals(current.getUpMenuNo(), item.resolvedBaseUpMenuNo())
                     || !Objects.equals(current.getOrd(), item.resolvedBaseOrd())) {
                 throw structureChanged();
@@ -229,10 +229,10 @@ public class MenuService {
         for (MenuStructureRequest.Item item : items) {
             Long up = item.resolvedUpMenuNo();
             if (up != null && !requestedNos.contains(up)) {
-                throw new InvalidRequestException("부모 메뉴가 요청 구조에 없습니다. menuNo=" + item.getMenuNo());
+                throw new InvalidRequestException("부모 메뉴가 요청 구조에 없습니다. menuNo=" + item.resolvedMenuNo());
             }
-            finalParent.put(item.getMenuNo(), up);
-            finalChildren.computeIfAbsent(up, key -> new ArrayList<>()).add(item.getMenuNo());
+            finalParent.put(item.resolvedMenuNo(), up);
+            finalChildren.computeIfAbsent(up, key -> new ArrayList<>()).add(item.resolvedMenuNo());
         }
 
         Map<Long, Integer> depth = new HashMap<>();
