@@ -99,7 +99,6 @@ class MenuServiceTest {
                 .menuName("회원 관리")
                 .menuUrl("/admin/member/manage")
                 .useYn(true)
-                .ord(0)
                 .build();
 
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> {
@@ -118,7 +117,7 @@ class MenuServiceTest {
     @Test
     @DisplayName("메뉴 생성 시 createDate·updateDate는 주입된 KST Clock에서 나온다")
     void createMenu_usesInjectedClock() {
-        MenuCreateRequest request = MenuCreateRequest.builder().menuName("시각 메뉴").useYn(true).ord(0).build();
+        MenuCreateRequest request = MenuCreateRequest.builder().menuName("시각 메뉴").useYn(true).build();
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
 
         menuService.createMenu(request);
@@ -162,7 +161,7 @@ class MenuServiceTest {
     @DisplayName("2단 부모 아래 생성은 허용된다(결과 3단)")
     void createMenu_underSecondLevelParent_allowed() {
         MenuCreateRequest request = MenuCreateRequest.builder()
-                .menuName("3단 메뉴").useYn(true).ord(0).upMenuNo(2L).build();
+                .menuName("3단 메뉴").useYn(true).upMenuNo(2L).build();
         Menu secondLevel = menu(2L, "2단", 1L, true, 0);
         Menu root = menu(1L, "1단", null, true, 0);
         given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(secondLevel));
@@ -343,7 +342,7 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("생성 시 ord 누락은 형제 max(ord)+1로 자동 배치 (최상위, 형제 없음 → 0)")
+    @DisplayName("생성은 항상 형제 max(ord)+1로 맨 끝에 배치 (최상위, 형제 없음 → 0)")
     void createMenu_ordAutoAssign_topLevel_noSiblings() {
         MenuCreateRequest request = MenuCreateRequest.builder().menuName("메뉴").build();
 
@@ -357,7 +356,7 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("생성 시 ord 누락은 형제 max(ord)+1로 자동 배치 (지정 부모 아래 형제 존재)")
+    @DisplayName("생성은 항상 형제 max(ord)+1로 맨 끝에 배치 (지정 부모 아래 형제 존재)")
     void createMenu_ordAutoAssign_underParent_withSiblings() {
         MenuCreateRequest request = MenuCreateRequest.builder()
                 .menuName("메뉴")
@@ -480,8 +479,8 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("PATCH 시 ord 누락/null은 기존값을 유지")
-    void updateMenu_ordNullKeepsExisting() {
+    @DisplayName("PATCH는 순서(ord)를 바꾸지 않는다 — 구조·순서는 구조 반영 API로만 바뀐다")
+    void updateMenu_neverChangesOrd() {
         Menu existing = menu(1L, "메뉴", null, true, 5);
         given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
 
