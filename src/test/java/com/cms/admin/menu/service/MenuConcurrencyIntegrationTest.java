@@ -683,4 +683,63 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         }
     }
 
+
+    /**
+     * 감사 커밋 순서(커밋 단계 실패) — 프로브가 아닌 실제 서비스 메서드(applyStructure)로 확인한다. 서비스 내부 예외가 아니라
+     * 실제 커밋 직전 트랜잭션 동기화 예외로 실패시키면 업무 변경은 롤백되고 SUCCESS는 남지 않으며 FAIL(targetId null)만 남는다.
+     * (정상 커밋의 SUCCESS 1건·targetId 없음은 {@link #applyStructure_movesSubtreeToPosition_andLogsOnce()}가 검증한다.)
+     * 이 보장은 log 패키지 CLAUDE.md "커밋 순서 보장"의 유일한 실서비스 회귀 테스트다.
+     */
+    @Test
+    @DisplayName("커밋 단계 실패: 구조 반영은 롤백되고 SUCCESS는 없으며 FAIL(targetId null)만 기록된다")
+    void applyStructure_commitTimeFailure_recordsFailNotSuccess() throws Exception {
+        Menu r1 = saveMenu("F-루트1", null, true, 960);
+        Menu r2 = saveMenu("F-루트2", null, true, 961);
+        List<MenuStructureRequest.Item> items = withMoved(currentItems(), r2.getMenuNo(), null, r1.getMenuNo());
+        long before = maxActionLogId();
+
+        // 이 테스트는 동시 실행이 필요 없으므로 테스트 스레드에서 직접 호출한다(별도 스레드·executor가 없어 타임아웃 시 스레드나
+        // advice가 후속 테스트·공유 DB를 오염시킬 수 없다). 첫 전체 행 잠금(findAllForUpdate)에서 "커밋 직전 예외"를 던지는
+        // 트랜잭션 동기화를 등록하고, 다른 스레드의 호출에는 개입하지 않는다.
+        Thread testThread = Thread.currentThread();
+        Advised repositoryProxy = (Advised) menuRepository;
+        MethodInterceptor failAtCommit = invocation -> {
+            if (invocation.getMethod().getName().equals("findAllForUpdate")
+                    && Thread.currentThread() == testThread) {
+                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                        new org.springframework.transaction.support.TransactionSynchronization() {
+                            @Override
+                            public void beforeCommit(boolean readOnly) {
+                                throw new IllegalStateException("simulated commit-time failure");
+                            }
+                        });
+            }
+            return invocation.proceed();
+        };
+        Throwable failure = null;
+        repositoryProxy.addAdvice(0, failAtCommit);
+        try {
+            menuService.applyStructure(structureOf(items));
+        } catch (Throwable thrown) {
+            failure = thrown;
+        } finally {
+            repositoryProxy.removeAdvice(failAtCommit);
+        }
+
+        assertTrue(failure != null, "커밋 단계 예외로 실패해야 한다");
+        Throwable root = failure;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        assertTrue(String.valueOf(root.getMessage()).contains("simulated commit-time failure"), "원인: " + root);
+        assertEquals(960, menuRepository.findById(r1.getMenuNo()).orElseThrow().getOrd(), "커밋 실패로 구조 반영이 롤백되어야 한다");
+        assertEquals(961, menuRepository.findById(r2.getMenuNo()).orElseThrow().getOrd(), "커밋 실패로 구조 반영이 롤백되어야 한다");
+
+        List<AdminActionLog> logs = logsAfter(AdminActionTypes.MENU_STRUCTURE_APPLY, before);
+        assertEquals(1, logs.size());
+        assertEquals(AdminActionResult.FAIL, logs.get(0).getActionResult());
+        assertNull(logs.get(0).getTargetId());
+        assertTrue(logs.stream().noneMatch(log -> log.getActionResult() == AdminActionResult.SUCCESS), "SUCCESS가 남으면 안 된다");
+    }
+
 }
