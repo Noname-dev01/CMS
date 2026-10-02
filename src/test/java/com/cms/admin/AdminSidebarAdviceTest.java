@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Clock;
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -62,9 +62,8 @@ class AdminSidebarAdviceTest {
         given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
         given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
         given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
         given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
-        given(menuService.getSidebarMenus(anyBoolean())).willReturn(List.of(
+        given(menuService.getSidebarMenus(any())).willReturn(List.of(
                 SidebarMenuResponse.builder()
                         .menuNo(1L).menuName("대시보드").menuUrl("/admin")
                         .children(List.of())
@@ -73,6 +72,11 @@ class AdminSidebarAdviceTest {
 
     @TestConfiguration
     static class MockConfig {
+        @Bean
+        public com.cms.admin.permission.AdminPermissionEvaluator adminPermissionEvaluator() {
+            return Mockito.mock(com.cms.admin.permission.AdminPermissionEvaluator.class);
+        }
+
         @Bean
         public MenuService menuService() {
             return Mockito.mock(MenuService.class);

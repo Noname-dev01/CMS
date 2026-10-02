@@ -2,7 +2,6 @@ package com.cms.config.auth;
 
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.ProfileImageUrls;
-import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,18 +16,7 @@ import java.util.Optional;
 @Component
 @RequiredArgsConstructor
 public class AdminSecurityService {
-
     private final MemberRepository memberRepository;
-
-    public boolean hasAdminAuthority() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-
-        if (auth == null || !(auth.getPrincipal() instanceof CustomUserDetails userDetails)) {
-            return false;
-        }
-
-        return userDetails.getMember().getUserType() == Role.ROLE_ADMIN;
-    }
 
     public Long getCurrentAdminId(){
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();

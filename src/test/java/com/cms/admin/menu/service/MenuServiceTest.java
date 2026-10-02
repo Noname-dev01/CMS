@@ -5,7 +5,6 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.cms.admin.menu.Menu;
-import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
@@ -33,6 +32,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -53,6 +53,9 @@ class MenuServiceTest {
     @Spy
     Clock clock = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneId.of("Asia/Seoul"));
 
+    @Mock
+    com.cms.admin.permission.AdminPermissionEvaluator adminPermissionEvaluator;
+
     @InjectMocks
     MenuService menuService;
 
@@ -60,6 +63,7 @@ class MenuServiceTest {
 
     @BeforeEach
     void attachLogAppender() {
+        org.mockito.Mockito.lenient().when(adminPermissionEvaluator.managerMenuUrlVisibility(any())).thenReturn(url -> false);
         logAppender = new ListAppender<>();
         logAppender.start();
         ((Logger) LoggerFactory.getLogger(MenuService.class)).addAppender(logAppender);
@@ -77,17 +81,6 @@ class MenuServiceTest {
                 .useYn(useYn)
                 .ord(ord)
                 .upMenuNo(upMenuNo)
-                .build();
-    }
-
-    private Menu menuWithAccessRole(Long menuNo, String menuName, Long upMenuNo, MenuAccessRole accessRole) {
-        return Menu.builder()
-                .menuNo(menuNo)
-                .menuName(menuName)
-                .useYn(true)
-                .ord(0)
-                .upMenuNo(upMenuNo)
-                .accessRole(accessRole)
                 .build();
     }
 
@@ -219,35 +212,6 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("관리자 전용 메뉴 아래에 공용 메뉴(기본값 포함)를 만들면 400, 관리자 전용 메뉴는 허용")
-    void createMenu_commonUnderAdminOnly_rejected() {
-        Menu adminParent = menuWithAccessRole(1L, "전용 그룹", null, MenuAccessRole.ADMIN);
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(adminParent));
-        given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
-
-        // accessRole 미지정 = 공용(ALL)
-        assertThrows(InvalidRequestException.class, () -> menuService.createMenu(
-                MenuCreateRequest.builder().menuName("공용").upMenuNo(1L).build()));
-        verify(menuRepository, never()).save(any());
-
-        menuService.createMenu(MenuCreateRequest.builder().menuName("전용").upMenuNo(1L)
-                .accessRole(MenuAccessRole.ADMIN).build());
-        verify(menuRepository).save(any(Menu.class));
-    }
-
-    @Test
-    @DisplayName("관리자 전용 조상(2단 위)이 있어도 그 아래 공용 메뉴 생성은 400")
-    void createMenu_commonUnderAdminOnlyGrandparent_rejected() {
-        Menu adminRoot = menuWithAccessRole(1L, "전용 그룹", null, MenuAccessRole.ADMIN);
-        Menu middle = menuWithAccessRole(2L, "중간", 1L, MenuAccessRole.ADMIN);
-        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(middle));
-        given(menuRepository.findById(1L)).willReturn(Optional.of(adminRoot));
-
-        assertThrows(InvalidRequestException.class, () -> menuService.createMenu(
-                MenuCreateRequest.builder().menuName("공용").upMenuNo(2L).build()));
-    }
-
-    @Test
     @DisplayName("같은 부모 그룹의 최대 ord가 Integer.MAX_VALUE면 그룹을 표시 순서대로 0..n-1 재번호한 뒤 마지막에 생성한다")
     void createMenu_ordOverflow_renumbersGroupAndAppendsLast() {
         Menu first = menu(1L, "첫째", null, true, 5);
@@ -264,67 +228,14 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("PATCH 권한 변경: 관리자 전용 조상 아래 메뉴를 공용으로 바꾸면 400")
-    void updateMenu_adminToCommonUnderAdminAncestor_rejected() {
-        Menu adminParent = menuWithAccessRole(1L, "전용 그룹", null, MenuAccessRole.ADMIN);
-        Menu child = menuWithAccessRole(2L, "전용 자식", 1L, MenuAccessRole.ADMIN);
-        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(child));
-        given(menuRepository.findById(1L)).willReturn(Optional.of(adminParent));
-
-        assertThrows(InvalidRequestException.class, () -> menuService.updateMenu(2L,
-                MenuUpdateRequest.builder().accessRole(MenuAccessRole.ALL).build()));
-        assertEquals(MenuAccessRole.ADMIN, child.getAccessRole());
-    }
-
-    @Test
-    @DisplayName("PATCH 권한 변경: 공용 하위(손자 포함)가 있는 메뉴를 관리자 전용으로 바꾸면 400, 하위가 전용뿐이면 허용")
-    void updateMenu_commonToAdminWithCommonDescendant_rejected() {
-        Menu group = menuWithAccessRole(1L, "그룹", null, MenuAccessRole.ALL);
-        Menu child = menuWithAccessRole(2L, "자식", 1L, MenuAccessRole.ADMIN);
-        Menu grandchild = menuWithAccessRole(3L, "손자", 2L, MenuAccessRole.ALL); // 기존 위반 — 손자가 공용
-        given(menuRepository.findAllForUpdate()).willReturn(List.of(group, child, grandchild));
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(group));
-
-        assertThrows(InvalidRequestException.class, () -> menuService.updateMenu(1L,
-                MenuUpdateRequest.builder().accessRole(MenuAccessRole.ADMIN).build()));
-        assertEquals(MenuAccessRole.ALL, group.getAccessRole());
-    }
-
-    @Test
-    @DisplayName("PATCH 권한 변경: 하위가 전부 관리자 전용이면 공용→관리자 전용 허용")
-    void updateMenu_commonToAdminWithAdminDescendantsOnly_allowed() {
-        Menu group = menuWithAccessRole(1L, "그룹", null, MenuAccessRole.ALL);
-        Menu child = menuWithAccessRole(2L, "자식", 1L, MenuAccessRole.ADMIN);
-        given(menuRepository.findAllForUpdate()).willReturn(List.of(group, child));
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(group));
-
-        menuService.updateMenu(1L, MenuUpdateRequest.builder().accessRole(MenuAccessRole.ADMIN).build());
-
-        assertEquals(MenuAccessRole.ADMIN, group.getAccessRole());
-    }
-
-    @Test
-    @DisplayName("PATCH에 accessRole이 없으면 전체 행 잠금 없이 대상 행만 잠근다(이름 수정 등)")
-    void updateMenu_withoutAccessRole_locksOnlyTargetRow() {
+    @DisplayName("PATCH(이름 수정 등)는 전체 행 잠금 없이 대상 행만 잠근다")
+    void updateMenu_locksOnlyTargetRow() {
         Menu existing = menu(1L, "메뉴", null, true, 0);
         given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
 
         menuService.updateMenu(1L, MenuUpdateRequest.builder().menuName("새 이름").build());
 
         verify(menuRepository, never()).findAllForUpdate();
-    }
-
-    @Test
-    @DisplayName("PATCH에 accessRole이 있으면 같은 값이어도 전체 행 잠금을 첫 조회로 쓴다")
-    void updateMenu_withAccessRole_locksAllRowsFirst() {
-        Menu existing = menuWithAccessRole(1L, "메뉴", null, MenuAccessRole.ALL);
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
-
-        menuService.updateMenu(1L, MenuUpdateRequest.builder().accessRole(MenuAccessRole.ALL).build());
-
-        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(menuRepository);
-        inOrder.verify(menuRepository).findAllForUpdate();
-        inOrder.verify(menuRepository).findByIdForUpdate(1L);
     }
 
     @Test
@@ -373,37 +284,6 @@ class MenuServiceTest {
         menuService.createMenu(request);
 
         assertEquals(3, captor.getValue().getOrd());
-    }
-
-    @Test
-    @DisplayName("생성 시 accessRole 누락은 ALL(공용)로 기본화")
-    void createMenu_accessRoleDefaultsToAll() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
-                .menuName("메뉴")
-                .build();
-
-        ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
-        given(menuRepository.save(captor.capture())).willAnswer(invocation -> invocation.getArgument(0));
-
-        menuService.createMenu(request);
-
-        assertEquals(MenuAccessRole.ALL, captor.getValue().getAccessRole());
-    }
-
-    @Test
-    @DisplayName("생성 시 accessRole=ADMIN이 그대로 저장된다")
-    void createMenu_accessRoleAdminPersisted() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
-                .menuName("메뉴 관리")
-                .accessRole(MenuAccessRole.ADMIN)
-                .build();
-
-        ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
-        given(menuRepository.save(captor.capture())).willAnswer(invocation -> invocation.getArgument(0));
-
-        menuService.createMenu(request);
-
-        assertEquals(MenuAccessRole.ADMIN, captor.getValue().getAccessRole());
     }
 
     // ── 수정 ──────────────────────────────────────────
@@ -490,32 +370,6 @@ class MenuServiceTest {
         MenuResponse response = menuService.updateMenu(1L, request);
 
         assertEquals(5, response.getOrd());
-    }
-
-    @Test
-    @DisplayName("PATCH 시 accessRole 누락/null은 기존값을 유지")
-    void updateMenu_accessRoleNullKeepsExisting() {
-        Menu existing = menuWithAccessRole(1L, "메뉴 관리", null, MenuAccessRole.ADMIN);
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
-
-        MenuUpdateRequest request = MenuUpdateRequest.builder().menuName("변경된 이름").build();
-
-        MenuResponse response = menuService.updateMenu(1L, request);
-
-        assertEquals(MenuAccessRole.ADMIN, response.getAccessRole());
-    }
-
-    @Test
-    @DisplayName("PATCH로 accessRole=ALL을 보내면 ADMIN 전용 메뉴를 공용으로 되돌릴 수 있다")
-    void updateMenu_accessRoleRevertsToAll() {
-        Menu existing = menuWithAccessRole(1L, "메뉴 관리", null, MenuAccessRole.ADMIN);
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
-
-        MenuUpdateRequest request = MenuUpdateRequest.builder().accessRole(MenuAccessRole.ALL).build();
-
-        MenuResponse response = menuService.updateMenu(1L, request);
-
-        assertEquals(MenuAccessRole.ALL, response.getAccessRole());
     }
 
     @Test
@@ -651,7 +505,7 @@ class MenuServiceTest {
         Menu grandchild = menu(3L, "손자", 2L, true, 0);
         Menu root2 = menu(5L, "루트2", null, true, 1);
 
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
                 .willReturn(List.of(root1, child1, grandchild, root2));
 
         List<MenuTreeResponse> tree = menuService.getMenuTree("true");
@@ -701,70 +555,92 @@ class MenuServiceTest {
 
     // ── 사이드바 조회 ──────────────────────────────────────
 
+    private Menu urlMenu(Long menuNo, String menuName, Long upMenuNo, String menuUrl, int ord) {
+        return Menu.builder().menuNo(menuNo).menuName(menuName).menuUrl(menuUrl)
+                .useYn(true).ord(ord).upMenuNo(upMenuNo).build();
+    }
+
+    /** MANAGER 관점: 대시보드·내 정보·공지(READ 보유)만 보이는 판정. */
+    private static final java.util.function.Predicate<String> MANAGER_WITH_NOTICE = url ->
+            "/admin".equals(url) || "/admin/member/info".equals(url) || "/admin/notice/manage".equals(url);
+
     @Test
-    @DisplayName("사이드바 조회: ADMIN은 ADMIN 전용 메뉴를 포함한 전체 활성 메뉴를 본다")
-    void getSidebarMenus_admin_seesAll() {
-        Menu dashboard = menuWithAccessRole(1L, "대시보드", null, MenuAccessRole.ALL);
-        Menu menuManage = menuWithAccessRole(2L, "메뉴 관리", null, MenuAccessRole.ADMIN);
-        Menu memberGroup = menuWithAccessRole(3L, "회원 관리", null, MenuAccessRole.ALL);
-        Menu myInfo = menuWithAccessRole(4L, "내 정보", 3L, MenuAccessRole.ALL);
+    @DisplayName("사이드바 조회: 전부 보이는 판정(ADMIN)이면 URL이 없는 빈 그룹까지 전체 활성 메뉴를 본다")
+    void getSidebarMenus_visibleAll_seesEverything() {
+        Menu dashboard = urlMenu(1L, "대시보드", null, "/admin", 0);
+        Menu menuManage = urlMenu(2L, "메뉴 관리", null, "/admin/menu/manage", 1);
+        Menu emptyGroup = urlMenu(3L, "빈 그룹", null, null, 2);
+        Menu memberGroup = urlMenu(4L, "회원 관리", null, null, 3);
+        Menu myInfo = urlMenu(5L, "내 정보", 4L, "/admin/member/info", 0);
 
         given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
-                .willReturn(List.of(dashboard, menuManage, memberGroup, myInfo));
+                .willReturn(List.of(dashboard, menuManage, emptyGroup, memberGroup, myInfo));
 
-        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(true);
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(url -> true);
 
-        assertEquals(3, sidebar.size());
-        assertEquals("메뉴 관리", sidebar.get(1).getMenuName());
-        assertEquals(1, sidebar.get(2).getChildren().size());
-        assertEquals("내 정보", sidebar.get(2).getChildren().get(0).getMenuName());
+        assertEquals(4, sidebar.size());
+        assertEquals("빈 그룹", sidebar.get(2).getMenuName());
+        assertEquals("내 정보", sidebar.get(3).getChildren().get(0).getMenuName());
     }
 
     @Test
-    @DisplayName("사이드바 조회: ADMIN이 아니면 ADMIN 전용 메뉴(최상위·하위 모두)가 제외된다")
-    void getSidebarMenus_nonAdmin_adminOnlyExcluded() {
-        Menu dashboard = menuWithAccessRole(1L, "대시보드", null, MenuAccessRole.ALL);
-        Menu menuManage = menuWithAccessRole(2L, "메뉴 관리", null, MenuAccessRole.ADMIN);
-        Menu memberGroup = menuWithAccessRole(3L, "회원 관리", null, MenuAccessRole.ALL);
-        Menu memberList = menuWithAccessRole(4L, "관리자 조회", 3L, MenuAccessRole.ADMIN);
-        Menu myInfo = menuWithAccessRole(5L, "내 정보", 3L, MenuAccessRole.ALL);
+    @DisplayName("사이드바 조회: MANAGER 관점에서 위임 불가·미분류·URL 없는 리프는 빠지고, 보이는 자식이 있는 그룹은 남는다")
+    void getSidebarMenus_manager_prunesInvisibleLeaves() {
+        Menu dashboard = urlMenu(1L, "대시보드", null, "/admin", 0);
+        Menu menuManage = urlMenu(2L, "메뉴 관리", null, "/admin/menu/manage", 1);
+        Menu memberGroup = urlMenu(3L, "회원 관리", null, null, 2);
+        Menu memberList = urlMenu(4L, "관리자 조회", 3L, "/admin/member/manage", 0);
+        Menu myInfo = urlMenu(5L, "내 정보", 3L, "/admin/member/info", 1);
+        Menu emptyGroup = urlMenu(6L, "빈 그룹", null, null, 3);
+        Menu external = urlMenu(7L, "외부", null, "https://example.com", 4);
+        Menu withQuery = urlMenu(8L, "쿼리", null, "/admin/notice/manage?x=1", 5);
 
         given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
-                .willReturn(List.of(dashboard, menuManage, memberGroup, memberList, myInfo));
+                .willReturn(List.of(dashboard, menuManage, memberGroup, memberList, myInfo, emptyGroup, external, withQuery));
 
-        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(false);
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(MANAGER_WITH_NOTICE);
 
-        assertEquals(2, sidebar.size());
-        assertEquals("대시보드", sidebar.get(0).getMenuName());
-        assertEquals("회원 관리", sidebar.get(1).getMenuName());
-        assertEquals(1, sidebar.get(1).getChildren().size());
-        assertEquals("내 정보", sidebar.get(1).getChildren().get(0).getMenuName());
+        assertEquals(List.of("대시보드", "회원 관리"), sidebar.stream().map(SidebarMenuResponse::getMenuName).toList());
+        assertEquals(List.of("내 정보"), sidebar.get(1).getChildren().stream().map(SidebarMenuResponse::getMenuName).toList());
     }
 
     @Test
-    @DisplayName("사이드바 조회: accessRole이 null인 레거시 행은 공용(ALL)으로 간주되어 노출된다")
-    void getSidebarMenus_nullAccessRole_treatedAsAll() {
-        Menu legacy = menu(1L, "레거시 메뉴", null, true, 0); // accessRole 미지정(null)
+    @DisplayName("사이드바 조회: 부모 자신의 URL이 위임 불가여도 보이는 자식(공지)이 있으면 부모는 그룹으로 노출된다")
+    void getSidebarMenus_manager_parentShownByVisibleChild() {
+        Menu adminParent = urlMenu(1L, "관리 그룹", null, "/admin/menu/manage", 0);
+        Menu notice = urlMenu(2L, "공지사항", 1L, "/admin/notice/manage", 0);
 
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(legacy));
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(adminParent, notice));
 
-        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(false);
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(MANAGER_WITH_NOTICE);
 
         assertEquals(1, sidebar.size());
+        assertEquals("공지사항", sidebar.get(0).getChildren().get(0).getMenuName());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: 공지 권한이 회수되면(공지 URL 비노출) 공지 메뉴와 그것만 담은 그룹이 사라진다")
+    void getSidebarMenus_manager_noticeRevoked() {
+        Menu group = urlMenu(1L, "업무", null, null, 0);
+        Menu notice = urlMenu(2L, "공지사항", 1L, "/admin/notice/manage", 0);
+
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(group, notice));
+
+        assertTrue(menuService.getSidebarMenus(url -> "/admin".equals(url)).isEmpty());
     }
 
     @Test
     @DisplayName("사이드바 조회: 3단(손자)까지 조립되고 4단 메뉴는 포함되지 않는다")
     void getSidebarMenus_limitedToThreeLevels() {
-        Menu root = menuWithAccessRole(1L, "루트", null, MenuAccessRole.ALL);
-        Menu child = menuWithAccessRole(2L, "자식", 1L, MenuAccessRole.ALL);
-        Menu grandchild = menuWithAccessRole(3L, "손자", 2L, MenuAccessRole.ALL);
-        Menu greatGrandchild = menuWithAccessRole(4L, "증손", 3L, MenuAccessRole.ALL);
+        Menu root = menu(1L, "루트", null, true, 0);
+        Menu child = menu(2L, "자식", 1L, true, 0);
+        Menu grandchild = menu(3L, "손자", 2L, true, 0);
+        Menu greatGrandchild = menu(4L, "증손", 3L, true, 0);
 
         given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
                 .willReturn(List.of(root, child, grandchild, greatGrandchild));
 
-        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(true);
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(url -> true);
 
         assertEquals(1, sidebar.size());
         SidebarMenuResponse childNode = sidebar.get(0).getChildren().get(0);
@@ -775,21 +651,104 @@ class MenuServiceTest {
         assertTrue(grandchildNode.getChildren().isEmpty());
     }
 
+    // ── 노출 안내(exposure) ──────────────────────────────────
+
+    private Map<Long, MenuTreeResponse.Data> flatten(List<MenuTreeResponse> tree) {
+        Map<Long, MenuTreeResponse.Data> result = new java.util.HashMap<>();
+        java.util.ArrayDeque<MenuTreeResponse> queue = new java.util.ArrayDeque<>(tree);
+        while (!queue.isEmpty()) {
+            MenuTreeResponse node = queue.poll();
+            result.put(node.getData().getMenuNo(), node.getData());
+            queue.addAll(node.getChildren());
+        }
+        return result;
+    }
+
     @Test
-    @DisplayName("사이드바 조회: 중간 메뉴가 ADMIN 전용이라 제외되면 비관리자에게는 그 아래 3단 메뉴도 보이지 않는다")
-    void getSidebarMenus_nonAdmin_grandchildHiddenWhenParentExcluded() {
-        Menu root = menuWithAccessRole(1L, "루트", null, MenuAccessRole.ALL);
-        Menu adminChild = menuWithAccessRole(2L, "관리자 그룹", 1L, MenuAccessRole.ADMIN);
-        Menu grandchild = menuWithAccessRole(3L, "손자", 2L, MenuAccessRole.ADMIN);
+    @DisplayName("exposure: 리프는 자기 URL 기준(상시/기능 권한/ADMIN 전용), 그룹은 보이는 자식 기준")
+    void getMenuTree_exposure_leafByUrlAndGroupByChildren() {
+        Menu dashboard = urlMenu(1L, "대시보드", null, "/admin", 0);
+        Menu noticeGroup = urlMenu(2L, "그룹", null, null, 1);
+        Menu notice = urlMenu(3L, "공지", 2L, "/admin/notice/manage", 0);
+        Menu menuManage = urlMenu(4L, "메뉴 관리", null, "/admin/menu/manage", 2);
+        Menu emptyGroup = urlMenu(5L, "빈 그룹", null, null, 3);
+        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(dashboard, noticeGroup, notice, menuManage, emptyGroup));
+        given(adminPermissionEvaluator.managerMenuUrlVisibility(any())).willReturn(MANAGER_WITH_NOTICE);
 
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
-                .willReturn(List.of(root, adminChild, grandchild));
+        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
 
-        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(false);
+        assertEquals("ALL_ADMINS", data.get(1L).getExposure());
+        assertEquals("VISIBLE_BY_CHILDREN", data.get(2L).getExposure());
+        assertEquals("PERMISSION:NOTICE", data.get(3L).getExposure());
+        assertEquals("ADMIN_ONLY", data.get(4L).getExposure());
+        assertEquals("ADMIN_ONLY", data.get(5L).getExposure(), "자식 없는 URL null 그룹");
+    }
 
+    @Test
+    @DisplayName("exposure: /admin URL 부모 아래 ADMIN 전용 자식만 있으면 자식이 가지치기돼 부모는 자기 URL 기준 ALL_ADMINS")
+    void getMenuTree_exposure_parentFallsBackToOwnUrlWhenChildrenPruned() {
+        Menu parent = urlMenu(1L, "대시보드 부모", null, "/admin", 0);
+        Menu adminChild = urlMenu(2L, "메뉴 관리", 1L, "/admin/menu/manage", 0);
+        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(parent, adminChild));
+        given(adminPermissionEvaluator.managerMenuUrlVisibility(any())).willReturn(MANAGER_WITH_NOTICE);
+
+        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
+
+        assertEquals("ALL_ADMINS", data.get(1L).getExposure());
+        assertEquals("ADMIN_ONLY", data.get(2L).getExposure());
+        // 실제 MANAGER 사이드바도 부모를 리프(대시보드 링크)로 그린다 — 안내와 같은 입력·같은 규칙
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(parent, adminChild));
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(MANAGER_WITH_NOTICE);
         assertEquals(1, sidebar.size());
         assertTrue(sidebar.get(0).getChildren().isEmpty());
     }
+
+    @Test
+    @DisplayName("exposure: 비활성 메뉴·비활성 조상 아래 메뉴·4단 메뉴는 NOT_SHOWN")
+    void getMenuTree_exposure_notShown() {
+        Menu inactiveParent = Menu.builder().menuNo(1L).menuName("비활성").menuUrl("/admin").useYn(false).ord(0).build();
+        Menu underInactive = urlMenu(2L, "비활성 아래", 1L, "/admin", 0);
+        Menu root = urlMenu(3L, "루트", null, null, 1);
+        Menu child = urlMenu(4L, "자식", 3L, null, 0);
+        Menu grandchild = urlMenu(5L, "손자", 4L, "/admin", 0);
+        Menu level4 = urlMenu(6L, "4단", 5L, "/admin", 0);
+        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
+                .willReturn(List.of(inactiveParent, underInactive, root, child, grandchild, level4));
+        given(adminPermissionEvaluator.managerMenuUrlVisibility(any())).willReturn(MANAGER_WITH_NOTICE);
+
+        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
+
+        assertEquals("NOT_SHOWN", data.get(1L).getExposure());
+        assertEquals("NOT_SHOWN", data.get(2L).getExposure());
+        assertEquals("ALL_ADMINS", data.get(5L).getExposure());
+        assertEquals("NOT_SHOWN", data.get(6L).getExposure());
+    }
+
+    @Test
+    @DisplayName("exposure: 공지 권한이 없는 스냅샷이면 공지만 담은 그룹은 ADMIN_ONLY, 공지 리프는 여전히 PERMISSION:NOTICE")
+    void getMenuTree_exposure_noticeRevoked() {
+        Menu group = urlMenu(1L, "업무", null, null, 0);
+        Menu notice = urlMenu(2L, "공지", 1L, "/admin/notice/manage", 0);
+        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(group, notice));
+        given(adminPermissionEvaluator.managerMenuUrlVisibility(any())).willReturn(url -> false);
+
+        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
+
+        assertEquals("ADMIN_ONLY", data.get(1L).getExposure());
+        assertEquals("PERMISSION:NOTICE", data.get(2L).getExposure());
+    }
+
+    @Test
+    @DisplayName("트리 조회: 권한 스냅샷은 요청당 한 번만 받는다")
+    void getMenuTree_snapshotTakenOnce() {
+        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(menu(1L, "루트", null, true, 0)));
+
+        menuService.getMenuTree("true");
+
+        verify(adminPermissionEvaluator, org.mockito.Mockito.times(1)).snapshot();
+    }
+@Test    @DisplayName("트리 조회: 권한 스냅샷을 메뉴 조회보다 먼저 받고, 서비스 트랜잭션을 열지 않는다(커넥션 보유 중 캐시 로드 대기 방지)")    void getMenuTree_snapshotBeforeMenuQuery_withoutServiceTransaction() throws Exception {        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of());        menuService.getMenuTree("all");        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(adminPermissionEvaluator, menuRepository);        inOrder.verify(adminPermissionEvaluator).snapshot();        inOrder.verify(menuRepository).findAllByOrderByOrdAscMenuNoAsc();        assertTrue(MenuService.class.getMethod("getMenuTree", String.class)                .getAnnotation(org.springframework.transaction.annotation.Transactional.class) == null);    }
 
     // ── 순환/미방문 노드 방어 ──────────────────────────────
 

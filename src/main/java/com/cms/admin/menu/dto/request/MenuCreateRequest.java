@@ -1,6 +1,5 @@
 package com.cms.admin.menu.dto.request;
 
-import com.cms.admin.menu.MenuAccessRole;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -38,8 +37,6 @@ public class MenuCreateRequest {
     @Schema(description = "사용 여부. 누락 시 true로 기본화", example = "true")
     private Boolean useYn;
 
-    @Schema(description = "사이드바 노출 범위. 누락 시 ALL(공용)로 기본화", example = "ALL")
-    private MenuAccessRole accessRole;
 
     @Schema(description = "부모 메뉴 번호. 최상위 메뉴는 null", example = "1")
     private Long upMenuNo;

@@ -3,7 +3,6 @@ package com.cms.admin.menu.service;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.admin.menu.Menu;
-import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuStructureRequest;
@@ -15,6 +14,7 @@ import com.cms.admin.menu.dto.response.MenuTreeResponse;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 @Service
 @Slf4j
@@ -51,16 +52,16 @@ public class MenuService {
 
     private final MenuRepository menuRepository;
     private final Clock clock;
+    private final AdminPermissionEvaluator adminPermissionEvaluator;
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.MENU_CREATE, targetType = "MENU", targetIdExpression = "menuNo")
     public MenuResponse createMenu(MenuCreateRequest request) {
         String menuName = requireNonBlank(request.getMenuName(), "메뉴명은 공백일 수 없습니다.");
         boolean useYn = request.getUseYn() == null || request.getUseYn();
-        MenuAccessRole accessRole = request.getAccessRole() != null ? request.getAccessRole() : MenuAccessRole.ALL;
 
-        // 깊이·권한 불변식 검사가 조상 사슬을 읽고 ord 오버플로 보정이 형제를 다시 매기므로 전체 행 잠금을 첫 조회로 쓴다
-        // (PLAN-menu-structure-apply.md 결정 9c — 구조 반영·accessRole 수정과 같은 순서로 잠가 직렬화된다).
+        // 깊이 검사가 조상 사슬을 읽고 ord 오버플로 보정이 형제를 다시 매기므로 전체 행 잠금을 첫 조회로 쓴다
+        // (PLAN-menu-structure-apply.md 결정 9c — 구조 반영과 같은 순서로 잠가 직렬화된다).
         List<Menu> allMenus = menuRepository.findAllForUpdate();
 
         Long upMenuNo = request.getUpMenuNo();
@@ -70,12 +71,8 @@ public class MenuService {
             if (useYn && !Boolean.TRUE.equals(parent.getUseYn())) {
                 throw new InvalidRequestException("비활성 부모 메뉴 아래에는 활성 메뉴를 생성할 수 없습니다.");
             }
-            ParentChain chain = inspectChain(parent);
-            if (chain.depth() >= MAX_MENU_DEPTH) {
+            if (depthOf(parent) >= MAX_MENU_DEPTH) {
                 throw new InvalidRequestException("메뉴는 최대 " + MAX_MENU_DEPTH + "단까지만 만들 수 있습니다.");
-            }
-            if (accessRole == MenuAccessRole.ALL && chain.hasAdminOnly()) {
-                throw new InvalidRequestException("관리자 전용 메뉴 아래에는 공용 메뉴를 만들 수 없습니다.");
             }
         }
 
@@ -89,7 +86,6 @@ public class MenuService {
                         .menuIcon(request.getMenuIcon())
                         .menuDesc(request.getMenuDesc())
                         .useYn(useYn)
-                        .accessRole(accessRole)
                         .ord(ord)
                         .upMenuNo(upMenuNo)
                         .createDate(now)
@@ -108,10 +104,6 @@ public class MenuService {
         // (감사 M-04, adversarial-review/remediation-plan.md PR 4 참조). 어떤 수정이든 최초
         // 조회부터 비관적 락(PESSIMISTIC_WRITE)으로 대상 row를 잠근다 — deleteMenu()와
         // 동일하게, 아래 활성 하위 메뉴 검사와 상태 반영이 동시 createMenu(활성 자식)와도 직렬화된다.
-        // accessRole이 요청에 있으면 조상·자손의 권한 불변식을 읽으므로 전체 행 잠금을 첫 조회로 쓴다(결정 9c).
-        boolean touchesRole = request.getAccessRole() != null;
-        List<Menu> allMenus = touchesRole ? menuRepository.findAllForUpdate() : List.of();
-
         Menu target = menuRepository.findByIdForUpdate(menuNo)
                 .orElseThrow(() -> new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
 
@@ -123,11 +115,6 @@ public class MenuService {
         String effectiveMenuUrl = request.getMenuUrl() != null ? request.getMenuUrl() : target.getMenuUrl();
         String effectiveMenuIcon = request.getMenuIcon() != null ? request.getMenuIcon() : target.getMenuIcon();
         String effectiveMenuDesc = request.getMenuDesc() != null ? request.getMenuDesc() : target.getMenuDesc();
-        MenuAccessRole effectiveAccessRole = request.getAccessRole() != null ? request.getAccessRole() : target.getAccessRole();
-
-        if (touchesRole && effectiveAccessRole != roleOf(target)) {
-            validateRoleChange(target, effectiveAccessRole, allMenus);
-        }
 
         boolean wasActive = Boolean.TRUE.equals(target.getUseYn());
         boolean effectiveUseYn = request.getUseYn() != null ? request.getUseYn() : target.getUseYn();
@@ -149,7 +136,7 @@ public class MenuService {
         }
 
         target.update(effectiveMenuName, effectiveMenuUrl, effectiveMenuIcon, effectiveMenuDesc,
-                effectiveUseYn, effectiveAccessRole, target.getOrd(), LocalDateTime.now(clock));
+                effectiveUseYn, target.getOrd(), LocalDateTime.now(clock));
 
         return MenuResponse.from(target);
     }
@@ -158,7 +145,7 @@ public class MenuService {
      * 메뉴 영구삭제(하드 삭제, PLAN-menu-permanent-delete.md). <b>비활성 상태이고 하위 메뉴가 없는</b> 메뉴만 지운다 —
      * 활성이거나 자식이 하나라도(활성·비활성 무관) 있으면 409. 비활성화는 {@link #updateMenu}(PATCH useYn=false)가 담당한다.
      *
-     * <p>잠금: 대상 행 하나만 잠근다. 생성·구조 반영·accessRole 수정은 전체 행(대상 포함)을, 일반 수정·재활성화는 대상 행을
+     * <p>잠금: 대상 행 하나만 잠근다. 생성·구조 반영은 전체 행(대상 포함)을, 일반 수정·재활성화는 대상 행을
      * 잠그므로 모두 이 삭제와 직렬화된다. 하위 존재 검사는 비잠금 읽기라 <b>잠금 읽기 뒤에</b> 호출해야 REPEATABLE READ
      * 스냅샷이 잠금 이후에 고정된다.
      */
@@ -187,13 +174,13 @@ public class MenuService {
      * 메뉴 구조(부모·순서)를 일괄 반영한다(PLAN-menu-structure-apply.md). 화면이 드래그로 만든 초안(최종 트리)을 한 번에
      * 받아 전체 행을 잠그고 검증한 뒤 저장한다.
      *
-     * <p>잠금: 첫 애플리케이션 테이블 조회로 전체 메뉴를 menuNo 오름차순 PESSIMISTIC_WRITE로 읽는다(결정 2). 구조·권한
-     * 불변식을 바꾸는 경로(구조 반영·생성·accessRole 수정)가 같은 순서로 전체를 잠가 서로 직렬화된다.
+     * <p>잠금: 첫 애플리케이션 테이블 조회로 전체 메뉴를 menuNo 오름차순 PESSIMISTIC_WRITE로 읽는다(결정 2). 구조를
+     * 바꾸는 경로(구조 반영·생성)가 같은 순서로 전체를 잠가 서로 직렬화된다.
      *
      * <p>낙관적 검사(결정 3): 요청 집합이 현재 <b>트리 도달 가능 집합</b>과 다르거나 어떤 행의 현재 (부모, ord)가
      * 요청의 base와 다르면 409. 고아·루트 없는 순환 행(트리 응답에서 제외되는 행)은 비교에서 빼고 잠금만 한다.
      *
-     * <p>검증(결정 4): 부모가 바뀐 메뉴와 그 서브트리에만 깊이(≤3)·활성/비활성 부모·권한 불일치 규칙을 적용한다 —
+     * <p>검증(결정 4): 부모가 바뀐 메뉴와 그 서브트리에만 깊이(≤3)·활성/비활성 부모 규칙을 적용한다 —
      * 이동하지 않은 서브트리의 기존 위반은 이 반영을 막지 않는다. 순환은 전체에서 검사한다. 저장: 현재 표시 순서와
      * 요청 순서가 다른 부모 그룹만 0..n-1로 다시 매기고 값이 같은 행은 쓰지 않는다(updateDate 보존).
      */
@@ -334,7 +321,7 @@ public class MenuService {
         return depth;
     }
 
-    /** 부모가 바뀐 서브트리의 메뉴 한 건이 최종 구조에서 깊이·활성 상태·권한 규칙을 지키는지 검사한다. */
+    /** 부모가 바뀐 서브트리의 메뉴 한 건이 최종 구조에서 깊이·활성 상태 규칙을 지키는지 검사한다. */
     private void validateFinalPlacement(Menu menu, Map<Long, Long> finalParent, Map<Long, Integer> depth, Map<Long, Menu> byNo) {
         if (depth.get(menu.getMenuNo()) > MAX_MENU_DEPTH) {
             throw new InvalidRequestException("메뉴는 최대 " + MAX_MENU_DEPTH + "단까지만 만들 수 있습니다. 메뉴: " + menu.getMenuName());
@@ -345,13 +332,6 @@ public class MenuService {
         }
         if (Boolean.TRUE.equals(menu.getUseYn()) && !Boolean.TRUE.equals(byNo.get(parentNo).getUseYn())) {
             throw new InvalidRequestException("비활성 상위 메뉴 아래에는 활성 메뉴를 둘 수 없습니다. 메뉴: " + menu.getMenuName());
-        }
-        if (roleOf(menu) == MenuAccessRole.ALL) {
-            for (Long up = parentNo; up != null; up = finalParent.get(up)) {
-                if (roleOf(byNo.get(up)) == MenuAccessRole.ADMIN) {
-                    throw new InvalidRequestException("관리자 전용 메뉴 아래에는 공용 메뉴를 둘 수 없습니다. 메뉴: " + menu.getMenuName());
-                }
-            }
         }
     }
 
@@ -367,58 +347,41 @@ public class MenuService {
         return MenuResponse.from(menu);
     }
 
-    @Transactional(readOnly = true)
     public List<MenuTreeResponse> getMenuTree(String useYnFilter) {
         if (!"true".equals(useYnFilter) && !"all".equals(useYnFilter)) {
             throw new InvalidRequestException("useYn 파라미터는 true 또는 all만 허용됩니다.");
         }
 
-        List<Menu> menus = "all".equals(useYnFilter)
-                ? menuRepository.findAllByOrderByOrdAscMenuNoAsc()
-                : menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc();
+        // 노출 안내(exposure)는 필터와 무관하게 전체 메뉴로 계산한다 — 비활성 조상 아래 메뉴가 안내에서 어긋나지 않도록.
+        // 권한 스냅샷은 요청당 한 번만, **메뉴 조회보다 먼저** 받는다. 이 메서드는 서비스 트랜잭션을 열지 않는다 — 읽기 트랜잭션이
+        // 커넥션을 쥔 채 캐시 로더(REQUIRES_NEW, 별도 커넥션)를 기다리면 동시 요청이 풀을 채웠을 때 서로 타임아웃으로 막힌다(코드 리뷰 1라운드).
+        // 메뉴 조회는 단일 쿼리라 repository 자체의 읽기 트랜잭션으로 충분하다.
+        Predicate<String> managerVisible = adminPermissionEvaluator.managerMenuUrlVisibility(adminPermissionEvaluator.snapshot());
+        List<Menu> allMenus = menuRepository.findAllByOrderByOrdAscMenuNoAsc();
+        MenuVisibility.Result visibility = MenuVisibility.evaluate(allMenus, managerVisible);
 
-        return assembleTree(menus);
+        List<Menu> menus = "all".equals(useYnFilter)
+                ? allMenus
+                : allMenus.stream().filter(menu -> Boolean.TRUE.equals(menu.getUseYn())).toList();
+
+        return assembleTree(menus, visibility);
     }
 
     /**
-     * 사이드바 렌더링용 메뉴 목록. 활성(useYn=true) 메뉴만 대상으로,
-     * ADMIN 권한이 없으면 ADMIN 전용 메뉴를 제외한다.
+     * 사이드바 렌더링용 메뉴 목록. 활성(useYn=true) 메뉴만 대상으로, 호출자가 넘긴 판정({@code urlVisible})으로
+     * 노출 여부를 정한다 — 가지치기 규칙은 {@link MenuVisibility} 참조. 판정은 요청당 한 번 받은 권한 스냅샷으로 만든 것이어야 한다.
      *
      * <p>최대 {@value #MAX_MENU_DEPTH}단(최상위 + 하위 + 하위의 하위)까지 조립한다.
      * 그보다 깊은 메뉴와, 부모가 노출 대상에서 빠진 하위 메뉴는 렌더링되지 않는다.
      */
     @Transactional(readOnly = true)
-    public List<SidebarMenuResponse> getSidebarMenus(boolean isAdmin) {
-        List<Menu> menus = menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc().stream()
-                .filter(menu -> isAdmin || menu.getAccessRole() != MenuAccessRole.ADMIN)
-                .toList();
-
-        Map<Long, List<Menu>> childrenByParent = new LinkedHashMap<>();
-        for (Menu menu : menus) {
-            childrenByParent.computeIfAbsent(menu.getUpMenuNo(), key -> new ArrayList<>()).add(menu);
-        }
-
-        return childrenByParent.getOrDefault(null, List.of()).stream()
-                .map(root -> toSidebarNode(root, 1, childrenByParent))
-                .toList();
+    public List<SidebarMenuResponse> getSidebarMenus(Predicate<String> urlVisible) {
+        return MenuVisibility.evaluate(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc(), urlVisible).sidebar();
     }
 
-    private SidebarMenuResponse toSidebarNode(Menu menu, int depth, Map<Long, List<Menu>> childrenByParent) {
-        List<SidebarMenuResponse> children = depth >= MAX_MENU_DEPTH
-                ? List.of()
-                : childrenByParent.getOrDefault(menu.getMenuNo(), List.of()).stream()
-                        .map(child -> toSidebarNode(child, depth + 1, childrenByParent))
-                        .toList();
-        return SidebarMenuResponse.of(menu, children);
-    }
-
-    /** 조상 사슬 조사 결과. depth는 대상 메뉴 자신의 깊이(최상위=1), hasAdminOnly는 자신 또는 조상에 ADMIN 전용이 있는지. */
-    private record ParentChain(int depth, boolean hasAdminOnly) {}
-
-    /** 메뉴 자신에서 최상위까지 올라가며 깊이와 ADMIN 전용 존재 여부를 구한다. 순환 데이터는 한 번 본 노드에서 멈춘다. */
-    private ParentChain inspectChain(Menu menu) {
+    /** 메뉴 번호 하나의 부모 사슬 깊이(최상위=1). 순환 데이터는 한 번 본 노드에서 멈춘다. */
+    private int depthOf(Menu menu) {
         int depth = 1;
-        boolean hasAdminOnly = roleOf(menu) == MenuAccessRole.ADMIN;
         Set<Long> visited = new HashSet<>();
         visited.add(menu.getMenuNo());
         Long upMenuNo = menu.getUpMenuNo();
@@ -428,50 +391,9 @@ public class MenuService {
             if (ancestor == null) {
                 break;
             }
-            hasAdminOnly |= roleOf(ancestor) == MenuAccessRole.ADMIN;
             upMenuNo = ancestor.getUpMenuNo();
         }
-        return new ParentChain(depth, hasAdminOnly);
-    }
-
-    /** accessRole이 null인 레거시 행은 공용(ALL)으로 간주한다. */
-    private static MenuAccessRole roleOf(Menu menu) {
-        return menu.getAccessRole() == null ? MenuAccessRole.ALL : menu.getAccessRole();
-    }
-
-    /**
-     * accessRole 변경이 권한 불변식(ALL 메뉴의 조상 사슬에 ADMIN 전용이 없어야 한다)을 깨는지 검사한다.
-     * ADMIN→ALL이면 자기 조상에 ADMIN 전용이 없어야 하고, ALL→ADMIN이면 자기 서브트리에 ALL 자손이 없어야 한다.
-     */
-    private void validateRoleChange(Menu target, MenuAccessRole newRole, List<Menu> allMenus) {
-        if (newRole == MenuAccessRole.ALL) {
-            if (target.getUpMenuNo() != null) {
-                Menu parent = menuRepository.findById(target.getUpMenuNo()).orElse(null);
-                if (parent != null && inspectChain(parent).hasAdminOnly()) {
-                    throw new InvalidRequestException("관리자 전용 메뉴 아래의 메뉴는 공용으로 바꿀 수 없습니다.");
-                }
-            }
-            return;
-        }
-        Map<Long, List<Menu>> childrenByParent = new HashMap<>();
-        for (Menu menu : allMenus) {
-            childrenByParent.computeIfAbsent(menu.getUpMenuNo(), key -> new ArrayList<>()).add(menu);
-        }
-        Set<Long> visited = new HashSet<>();
-        Deque<Long> queue = new ArrayDeque<>();
-        queue.add(target.getMenuNo());
-        visited.add(target.getMenuNo());
-        while (!queue.isEmpty()) {
-            for (Menu child : childrenByParent.getOrDefault(queue.poll(), List.of())) {
-                if (!visited.add(child.getMenuNo())) {
-                    continue;
-                }
-                if (roleOf(child) == MenuAccessRole.ALL) {
-                    throw new InvalidRequestException("공용 하위 메뉴가 있어 관리자 전용으로 바꿀 수 없습니다. 하위 메뉴를 먼저 관리자 전용으로 바꾸세요.");
-                }
-                queue.add(child.getMenuNo());
-            }
-        }
+        return depth;
     }
 
     /**
@@ -515,7 +437,7 @@ public class MenuService {
      * 제외하고, 어느 루트에서도 도달하지 못한 노드(루트 없는 순환·고아 노드)는 순회 종료 후
      * 한 번에 걸러내며, 두 경우 모두 WARN 로그로 남긴다.
      */
-    private List<MenuTreeResponse> assembleTree(List<Menu> menus) {
+    private List<MenuTreeResponse> assembleTree(List<Menu> menus, MenuVisibility.Result visibility) {
         Map<Long, List<Menu>> childrenByParent = new LinkedHashMap<>();
         for (Menu menu : menus) {
             childrenByParent.computeIfAbsent(menu.getUpMenuNo(), key -> new ArrayList<>()).add(menu);
@@ -524,7 +446,7 @@ public class MenuService {
         Set<Long> visited = new HashSet<>();
         List<MenuTreeResponse> roots = new ArrayList<>();
         for (Menu root : childrenByParent.getOrDefault(null, List.of())) {
-            MenuTreeResponse node = buildNode(root, 1, root.getMenuNo(), childrenByParent, visited, new LinkedHashSet<>());
+            MenuTreeResponse node = buildNode(root, 1, root.getMenuNo(), childrenByParent, visibility, visited, new LinkedHashSet<>());
             if (node != null) {
                 roots.add(node);
             }
@@ -542,7 +464,7 @@ public class MenuService {
     }
 
     private MenuTreeResponse buildNode(Menu menu, int level, Long topMenuNo,
-                                        Map<Long, List<Menu>> childrenByParent,
+                                        Map<Long, List<Menu>> childrenByParent, MenuVisibility.Result visibility,
                                         Set<Long> visited, Set<Long> pathStack) {
         if (pathStack.contains(menu.getMenuNo())) {
             List<Long> chain = new ArrayList<>(pathStack);
@@ -556,7 +478,7 @@ public class MenuService {
 
         List<MenuTreeResponse> childNodes = new ArrayList<>();
         for (Menu child : childrenByParent.getOrDefault(menu.getMenuNo(), List.of())) {
-            MenuTreeResponse childNode = buildNode(child, level + 1, topMenuNo, childrenByParent, visited, pathStack);
+            MenuTreeResponse childNode = buildNode(child, level + 1, topMenuNo, childrenByParent, visibility, visited, pathStack);
             if (childNode != null) {
                 childNodes.add(childNode);
             }
@@ -564,6 +486,6 @@ public class MenuService {
 
         pathStack.remove(menu.getMenuNo());
 
-        return MenuTreeResponse.of(menu, level, topMenuNo, childNodes);
+        return MenuTreeResponse.of(menu, level, topMenuNo, visibility.exposureOf(menu.getMenuNo()).code(), visibility.exposureOf(menu.getMenuNo()).label(), childNodes);
     }
 }

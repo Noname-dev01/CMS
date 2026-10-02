@@ -21,7 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
-import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.reset;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -70,6 +70,11 @@ class AdminMainControllerTest {
         }
 
         // AdminSidebarAdvice(@ControllerAdvice)가 슬라이스 컨텍스트에 포함되므로 의존 빈이 필요하다.
+        @Bean
+        public com.cms.admin.permission.AdminPermissionEvaluator adminPermissionEvaluator() {
+            return Mockito.mock(com.cms.admin.permission.AdminPermissionEvaluator.class);
+        }
+
         @Bean
         public MenuService menuService() {
             return Mockito.mock(MenuService.class);
@@ -147,8 +152,7 @@ class AdminMainControllerTest {
     void main_rendersSidebarFromMenuData() throws Exception {
         given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
         given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-        given(menuService.getSidebarMenus(anyBoolean())).willReturn(List.of(
+        given(menuService.getSidebarMenus(any())).willReturn(List.of(
                 SidebarMenuResponse.builder()
                         .menuNo(1L).menuName("대시보드").menuUrl("/admin")
                         .menuIcon("fas fa-fw fa-tachometer-alt").children(List.of())
@@ -176,8 +180,7 @@ class AdminMainControllerTest {
     void main_rendersThreeLevelSidebar() throws Exception {
         given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
         given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
-        given(adminSecurityService.hasAdminAuthority()).willReturn(true);
-        given(menuService.getSidebarMenus(anyBoolean())).willReturn(List.of(
+        given(menuService.getSidebarMenus(any())).willReturn(List.of(
                 SidebarMenuResponse.builder()
                         .menuNo(2L).menuName("회원 관리").menuIcon("fas fa-fw fa-user-shield")
                         .children(List.of(SidebarMenuResponse.builder()
