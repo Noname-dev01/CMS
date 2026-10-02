@@ -227,4 +227,35 @@ class AdminPermissionEvaluatorTest {
         manager.test("/admin/notice/manage");
         assertThat(calls.get()).isEqualTo(1);
     }
+
+    // ── 화면 버튼용 동작 키(myPermissions) ─────────────────────
+
+    @Test
+    @DisplayName("grantedActionKeys: ADMIN은 공급자를 호출하지 않고 NOTICE 4키, MANAGER는 허용 행·READ 의존대로, 익명·USER는 빈 집합")
+    void grantedActionKeys_truthTable() {
+        AdminPermissionEvaluator evaluator = evaluatorWith(PermissionSnapshot.EMPTY);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.function.Function<PermissionSnapshot, java.util.function.Supplier<PermissionSnapshot>> counting = snapshot -> () -> {
+            calls.incrementAndGet();
+            return snapshot;
+        };
+
+        assertThat(evaluator.grantedActionKeys(counting.apply(PermissionSnapshot.EMPTY), user("ROLE_ADMIN")))
+                .containsExactlyInAnyOrder("NOTICE:READ", "NOTICE:CREATE", "NOTICE:UPDATE", "NOTICE:DELETE");
+        assertThat(calls.get()).as("ADMIN은 캐시 비의존").isZero();
+
+        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), user("ROLE_MANAGER")))
+                .containsExactlyInAnyOrder("NOTICE:READ", "NOTICE:CREATE", "NOTICE:UPDATE", "NOTICE:DELETE");
+        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.CREATE)), user("ROLE_MANAGER")))
+                .as("READ 없는 쓰기는 의존 규칙상 무효").isEmpty();
+        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.READ, PermissionAction.DELETE)), user("ROLE_MANAGER")))
+                .containsExactlyInAnyOrder("NOTICE:READ", "NOTICE:DELETE");
+        assertThat(evaluator.grantedActionKeys(counting.apply(PermissionSnapshot.EMPTY), user("ROLE_MANAGER"))).isEmpty();
+
+        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), user("ROLE_USER"))).isEmpty();
+        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), null)).isEmpty();
+        // 상시 허용·관리자 전용 기능의 키는 포함되지 않는다(위임 가능 기능만)
+        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), user("ROLE_MANAGER")))
+                .noneMatch(key -> key.startsWith("DASHBOARD") || key.startsWith("MY_INFO") || key.startsWith("MENU"));
+    }
 }

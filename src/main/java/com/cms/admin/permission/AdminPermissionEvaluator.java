@@ -7,6 +7,8 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -44,6 +46,22 @@ public class AdminPermissionEvaluator {
     /** 이미 받아 둔 스냅샷으로 판정한다(사이드바처럼 한 요청에서 여러 번 판정할 때 같은 권한 버전을 쓰기 위해). */
     public boolean allows(PermissionSnapshot snapshot, Authentication authentication, AdminFeature feature, PermissionAction action) {
         return decide(() -> snapshot, authentication, feature, action);
+    }
+
+    /**
+     * 현재 사용자가 가진 위임 가능 기능의 동작 키({@code "NOTICE:CREATE"}) — 화면 버튼 표시용이며 서버 판정을 대신하지 않는다.
+     * {@link #decide}를 그대로 쓰므로 ADMIN이면 스냅샷 공급자를 호출하지 않고(DB 비의존), 익명·ROLE_USER는 빈 집합이다.
+     */
+    public Set<String> grantedActionKeys(Supplier<PermissionSnapshot> snapshot, Authentication authentication) {
+        Set<String> keys = new LinkedHashSet<>();
+        for (AdminFeature feature : AdminFeature.ofKind(FeatureKind.DELEGABLE)) {
+            for (PermissionAction action : feature.getActions()) {
+                if (decide(snapshot, authentication, feature, action)) {
+                    keys.add(feature.name() + ":" + action.name());
+                }
+            }
+        }
+        return keys;
     }
 
     private boolean decide(Supplier<PermissionSnapshot> snapshot, Authentication authentication,
