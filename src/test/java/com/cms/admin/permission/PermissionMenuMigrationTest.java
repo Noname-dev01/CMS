@@ -80,7 +80,8 @@ class PermissionMenuMigrationTest extends MariaDbContainerSupport {
             assertThat(count(st, "SELECT COUNT(*) FROM menu WHERE menu_url = '" + URL_PATH + "'")).isZero();
         }
 
-        flyway(schema, null).migrate();
+        // V15까지만 올린다 — 이 시험은 V15 시점의 값(access_role NULL 포함)을 검증하고, 컬럼은 V16(MenuAccessRoleDropMigrationTest)에서 사라진다
+        flyway(schema, "15").migrate();
 
         try (Connection conn = connect(schema); Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT menu_name, menu_icon, use_yn, ord, up_menu_no, access_role, create_date, update_date "
