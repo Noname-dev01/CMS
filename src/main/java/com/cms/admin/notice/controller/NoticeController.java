@@ -15,7 +15,9 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.cms.admin.permission.AdminFeature;
+import com.cms.admin.permission.PermissionAction;
+import com.cms.admin.permission.RequirePermission;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -30,7 +32,7 @@ public class NoticeController {
     @Operation(summary = "공지사항 목록 조회", description = "keyword(제목 포함 검색)·useYn으로 필터링, 페이지 크기는 최대 100으로 clamp된다.")
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.READ)
     public ResponseEntity<NoticePageResponse> getNotices(
             @ParameterObject @PageableDefault(size = 20) Pageable pageable,
             @Valid @ModelAttribute NoticeSearchRequest request
@@ -42,7 +44,7 @@ public class NoticeController {
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "404", description = "공지사항 없음")
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.READ)
     public ResponseEntity<NoticeResponse> getNotice(@PathVariable Long id) {
         return ResponseEntity.ok(noticeService.getNotice(id));
     }
@@ -51,7 +53,7 @@ public class NoticeController {
     @ApiResponse(responseCode = "201", description = "생성 성공")
     @ApiResponse(responseCode = "400", description = "요청값 검증 실패")
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.CREATE)
     public ResponseEntity<NoticeResponse> createNotice(@Valid @RequestBody NoticeCreateRequest request) {
         NoticeResponse response = noticeService.createNotice(request);
         return ResponseEntity.created(
@@ -68,7 +70,7 @@ public class NoticeController {
     @ApiResponse(responseCode = "404", description = "공지사항 없음")
     @ApiResponse(responseCode = "409", description = "동시 변경 충돌")
     @PatchMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.UPDATE)
     public ResponseEntity<NoticeResponse> updateNotice(
             @PathVariable Long id,
             @Valid @RequestBody NoticeUpdateRequest request
@@ -81,7 +83,7 @@ public class NoticeController {
     @ApiResponse(responseCode = "404", description = "공지사항 없음")
     @ApiResponse(responseCode = "409", description = "동시 변경 충돌")
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.DELETE)
     public ResponseEntity<Void> deleteNotice(@PathVariable Long id) {
         noticeService.deleteNotice(id);
         return ResponseEntity.noContent().build();

@@ -7,6 +7,7 @@ import com.cms.admin.menu.service.MenuService;
 import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.config.PermissionTestConfig;
 import com.cms.config.SecurityConfig;
 import com.cms.config.ratelimit.RateLimitFilterConfig;
 import com.cms.config.auth.AdminSecurityService;
@@ -50,6 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = {PasswordResetController.class, AdminMainController.class})
 @Import({
         SecurityConfig.class,
+        PermissionTestConfig.class,
         RateLimitFilterConfig.class,
         PasswordResetControllerTest.MockConfig.class,
         GlobalApiExceptionHandler.class

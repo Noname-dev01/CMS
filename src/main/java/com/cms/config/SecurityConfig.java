@@ -1,5 +1,9 @@
 package com.cms.config;
 
+import com.cms.admin.permission.AdminFeature;
+import com.cms.admin.permission.AdminPermissionEvaluator;
+import com.cms.admin.permission.FeatureKind;
+import com.cms.admin.permission.PermissionAction;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import jakarta.servlet.DispatcherType;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
@@ -15,6 +19,8 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.session.SessionRegistry;
@@ -24,6 +30,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
@@ -42,14 +49,26 @@ public class SecurityConfig {
     /** 무인증 공개 정적 리소스 경로. 테스트가 이 값과 static/ 디렉터리·컨트롤러 매핑의 일치를 검증한다. */
     static final String[] STATIC_PUBLIC_PATHS = {"/css/**", "/js/**", "/img/**", "/vendor/**", "/favicon.ico"};
 
+    /**
+     * 위임 가능 기능의 URL 게이트: ADMIN 또는 해당 기능의 READ 권한이 있는 MANAGER. 같은 {@link AdminPermissionEvaluator}가 메서드 계층
+     * ({@code @RequirePermission})에서도 판정하므로 두 계층이 어긋나지 않는다. 익명은 거부 결정이라 기존처럼 로그인 페이지로 보낸다.
+     */
+    private static AuthorizationManager<RequestAuthorizationContext> featureReadGate(
+            AdminPermissionEvaluator evaluator, AdminFeature feature) {
+        return (authentication, context) -> new AuthorizationDecision(
+                evaluator.allows(authentication.get(), feature, PermissionAction.READ));
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
                                            VisitLoggingAuthenticationSuccessHandler successHandler,
                                            LockingAuthenticationFailureHandler failureHandler,
                                            SessionRegistry sessionRegistry,
-                                           RateLimitFilter rateLimitFilter) throws Exception {
+                                           RateLimitFilter rateLimitFilter,
+                                           AdminPermissionEvaluator permissionEvaluator) throws Exception {
         http
-                .authorizeHttpRequests((auth) -> auth
+                .authorizeHttpRequests((auth) -> {
+                    auth
                         // 컨테이너의 오류 재디스패치(sendError → /error)만 허용한다. 기본 거부(아래 anyRequest)에서
                         // 이 규칙이 없으면 404·429·403 오류 페이지가 로그인 리다이렉트로 뒤바뀐다. `/error` URL 자체는
                         // 공개하지 않는다 — 직접 요청(REQUEST 디스패치)은 기본 거부에 걸린다.
@@ -59,15 +78,25 @@ public class SecurityConfig {
                         // 비밀번호 재설정 — 비로그인 사용자의 유일한 복구 경로 (2026-07-13 인가 정책 변경 승인)
                         .requestMatchers("/admin/password-reset", "/admin/password-reset/confirm").permitAll()
                         .requestMatchers("/admin/api/password-reset-requests", "/admin/api/password-resets").permitAll()
-                        .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").hasRole("ADMIN")
-                        // MANAGER 허용 범위: 대시보드 + 자기 자신 내 정보(페이지 + self API)
-                        .requestMatchers("/admin").hasAnyRole("ADMIN", "MANAGER")
-                        .requestMatchers("/admin/member/info").hasAnyRole("ADMIN", "MANAGER")
-                        .requestMatchers("/admin/api/members/me", "/admin/api/members/me/**").hasAnyRole("ADMIN", "MANAGER")
-                        // 공지사항 관리: ADMIN·MANAGER 모두 CRUD 가능 (2026-07-20 승인)
-                        .requestMatchers("/admin/notice/manage", "/admin/notice/**").hasAnyRole("ADMIN", "MANAGER")
-                        .requestMatchers("/admin/api/notices", "/admin/api/notices/**").hasAnyRole("ADMIN", "MANAGER")
-                        // 그 외 admin 전부 ADMIN 전용
+                        .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**").hasRole("ADMIN");
+
+                    // 기능 카탈로그(AdminFeature)에서 만든 게이트 — 규칙 순서는 기존과 같다(위: 공개·swagger, 아래: /admin/** 캐치올).
+                    // 상시 허용 기능(대시보드·내 정보)은 ADMIN·MANAGER 전원, 위임 가능 기능(공지)은 ADMIN 또는
+                    // 조회 권한이 있는 MANAGER(기능 단위 READ 게이트 — 동작별 판정은 핸들러의 @RequirePermission이 한다).
+                    // PLAN-menu-permission-management.md §3-1. 위임 불가 기능은 게이트 패턴이 없어 아래 캐치올(ADMIN 전용)에 걸린다.
+                    for (AdminFeature feature : AdminFeature.ofKind(FeatureKind.ALWAYS)) {
+                        if (!feature.getGatePatterns().isEmpty()) {
+                            auth.requestMatchers(feature.getGatePatterns().toArray(String[]::new))
+                                    .hasAnyRole("ADMIN", "MANAGER");
+                        }
+                    }
+                    for (AdminFeature feature : AdminFeature.ofKind(FeatureKind.DELEGABLE)) {
+                        auth.requestMatchers(feature.getGatePatterns().toArray(String[]::new))
+                                .access(featureReadGate(permissionEvaluator, feature));
+                    }
+
+                    auth
+                        // 그 외 admin 전부 ADMIN 전용 (카탈로그에 없는 /admin/** 포함 — 기본 거부 유지)
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         // 공개 공지 페이지: GET/HEAD만 공개, 그 외 메서드는 명시적으로 차단
                         // (2026-07-28 승인 — anyRequest().permitAll()에 기대지 않고 지금 당장
@@ -90,8 +119,8 @@ public class SecurityConfig {
                         // 기본 거부 — 위에서 명시적으로 열지 않은 경로는 인증·역할과 무관하게 전부 거부한다
                         // (2026-09-29 승인, 감사 M-08 — 규칙 누락이 조용히 공개되던 fail-open 제거).
                         // 새 엔드포인트는 반드시 위에 접근 규칙을 추가해야 한다.
-                        .anyRequest().denyAll()
-                )
+                        .anyRequest().denyAll();
+                })
                 .formLogin((form) -> form
                         .loginPage("/admin/login")
                         .loginProcessingUrl("/admin/login")
