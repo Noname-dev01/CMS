@@ -32,7 +32,7 @@ description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 
 
 - 기본 관리자 계정 자동 생성(`TestMemberLoader`)이 dev 프로파일 밖에서도 실행될 가능성
 - 인증 없이 관리자 기능(`/admin/**`, `/admin/api/**`) 접근 가능
-- ROLE_MANAGER가 ADMIN 전용 기능에 접근 가능 (메뉴 `accessRole`은 노출 제어일 뿐 —
+- ROLE_MANAGER가 ADMIN 전용 기능에 접근 가능 (사이드바 노출은 권한 판정기에서 도출되지만 —
   실제 차단은 Security가 하는지 구분해서 확인)
 - 상태 변경 API에 CSRF 보호 구멍 (CSRF는 전 경로 활성이 현재 계약)
 - 비밀번호·토큰 평문 저장/노출 (resetToken 원문 저장 여부 포함)
@@ -78,7 +78,7 @@ description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 
 ## 5. 화면 / Thymeleaf 점검
 
 - 로그인 → 메인 → 관리자/메뉴 관리 화면 골든 패스 (코드 정적 확인, 실기동 필요 항목은 미확인+방법 병기)
-- 권한별 사이드바 노출(`MenuAccessRole`)과 실제 URL 접근 차단의 구분
+- 권한별 사이드바 노출(`MenuVisibility`·`AdminPermissionEvaluator.menuUrlVisibility`)과 실제 URL 접근 차단의 구분
 - `@AdminPage` 컨벤션 준수 (누락 시 사이드바 미주입)
 - 깨진 링크, 미구현 링크 노출
 - 상태 변경 fetch 호출의 CSRF 헤더 누락 여부
