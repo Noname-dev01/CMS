@@ -4,7 +4,7 @@
 
 - `feat/menu-management` 브랜치에서 미완성 상태인 메뉴 도메인(엔티티 + `manage.html`만 존재)을 완성한다. 정리 커밋(`README.md`, `.editorconfig`)은 이미 브랜치에 반영되어 있으므로 이번 작업은 **메뉴 기능 커밋**만 추가한다.
 - 구현 순서는 백엔드 계약부터 고정한다: 공통 예외 추가 → `Menu` 도메인 정리 → Repository → DTO → Service → Controller(+Swagger) → 테스트 → `manage.html` 연동 → 사이드바 노출.
-- 삭제는 하드 삭제가 아니라 **비활성화(useYn=false)** 로 처리하고, 트리 조회는 `useYn` 필터를 지원한다. 1차 버전의 순서 변경은 드래그가 아닌 **숫자 입력**으로 처리한다.
+- 삭제는 하드 삭제가 아니라 **비활성화(useYn=false)** 로 처리하고(⚠️ 2026-10-02 후속 변경: 비활성 + 하위 없음 메뉴의 영구삭제가 추가되고 비활성화는 `PATCH useYn=false`로 일원화됨 — `plan/PLAN-menu-permanent-delete.md`), 트리 조회는 `useYn` 필터를 지원한다. 1차 버전의 순서 변경은 드래그가 아닌 **숫자 입력**으로 처리한다.
 
 ### 코드베이스 검증으로 확인한 사실
 
