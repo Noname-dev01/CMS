@@ -13,7 +13,7 @@ import java.sql.Statement;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * V13(권한 테이블)·V14(MANAGER 공지 시드) 업그레이드 경로(PLAN-menu-permission-management.md §4). 공용 Testcontainers 구성은 빈 DB에서
+ * V13(권한 테이블)·V14(MANAGER 공지 시드)·V15(권한 관리 메뉴 시드, 상세는 PermissionMenuMigrationTest) 업그레이드 경로(PLAN-menu-permission-management.md §4). 공용 Testcontainers 구성은 빈 DB에서
  * V1부터 전부 적용하므로, 이미 운영 중인 V12 DB가 올라가는 경로는 별도 스키마에서 {@code target("12")}로 먼저 적용한 뒤 나머지를 적용해 확인한다.
  */
 class PermissionMigrationTest extends MariaDbContainerSupport {
@@ -84,7 +84,8 @@ class PermissionMigrationTest extends MariaDbContainerSupport {
             }
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM menu")) {
                 rs.next();
-                assertThat(rs.getLong(1)).as("기존 메뉴 데이터 보존").isEqualTo(menusBefore);
+                // V15가 권한 관리 메뉴를 한 행 추가한다 — 기존 행은 그대로이고 늘어난 것은 그 메뉴 하나뿐이어야 한다
+                assertThat(rs.getLong(1)).as("기존 메뉴 데이터 보존 + 권한 관리 메뉴 1행(V15)").isEqualTo(menusBefore + 1);
             }
         }
     }

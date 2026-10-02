@@ -93,9 +93,11 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
         assertThat(manager).contains("href=\"/admin/member/info\"");
         assertThat(manager).doesNotContain("href=\"/admin/menu/manage\"");
         assertThat(manager).doesNotContain("href=\"/admin/log/manage\"");
+        assertThat(manager).as("V15 권한 관리 메뉴는 위임 불가라 MANAGER에게 보이지 않는다").doesNotContain("href=\"/admin/permission/manage\"");
 
         String admin = dashboardHtml(Role.ROLE_ADMIN);
-        assertThat(admin).contains("href=\"/admin/menu/manage\"").contains("href=\"" + NOTICE_URL + "\"");
+        assertThat(admin).contains("href=\"/admin/menu/manage\"").contains("href=\"" + NOTICE_URL + "\"")
+                .contains("href=\"/admin/permission/manage\"");
     }
 
     @Test
