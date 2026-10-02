@@ -8,6 +8,7 @@ import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuStructureRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuDeleteResult;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuStructureResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
@@ -105,7 +106,7 @@ public class MenuService {
         // 일반 수정(이름 등)만 잠금 없는 조회를 쓰면, "일반 수정 조회 → 비활성화 커밋 → 일반
         // 수정 커밋" 순서로 겹칠 때 방금 커밋된 비활성화가 되돌아가는 lost update가 발생한다
         // (감사 M-04, adversarial-review/remediation-plan.md PR 4 참조). 어떤 수정이든 최초
-        // 조회부터 비관적 락(PESSIMISTIC_WRITE)으로 대상 row를 잠근다 — deactivateMenu()와
+        // 조회부터 비관적 락(PESSIMISTIC_WRITE)으로 대상 row를 잠근다 — deleteMenu()와
         // 동일하게, 아래 활성 하위 메뉴 검사와 상태 반영이 동시 createMenu(활성 자식)와도 직렬화된다.
         // accessRole이 요청에 있으면 조상·자손의 권한 불변식을 읽으므로 전체 행 잠금을 첫 조회로 쓴다(결정 9c).
         boolean touchesRole = request.getAccessRole() != null;
@@ -142,7 +143,7 @@ public class MenuService {
         }
 
         // 활성 하위 메뉴가 있는 부모를 비활성화하면 활성 자식이 비활성 부모 아래 고아로 남는다.
-        // deactivateMenu()와 동일한 불변식을 PATCH 경로에도 강제한다. (위에서 대상 row를 이미 잠갔다.)
+        // 비활성화는 이 PATCH 경로(useYn=false)가 유일하므로 여기서 불변식을 강제한다. (위에서 대상 row를 이미 잠갔다.)
         if (deactivating && menuRepository.existsByUpMenuNoAndUseYnTrue(menuNo)) {
             throw new ConflictException("활성 하위 메뉴가 있어 비활성화할 수 없습니다.");
         }
@@ -153,19 +154,33 @@ public class MenuService {
         return MenuResponse.from(target);
     }
 
+    /**
+     * 메뉴 영구삭제(하드 삭제, PLAN-menu-permanent-delete.md). <b>비활성 상태이고 하위 메뉴가 없는</b> 메뉴만 지운다 —
+     * 활성이거나 자식이 하나라도(활성·비활성 무관) 있으면 409. 비활성화는 {@link #updateMenu}(PATCH useYn=false)가 담당한다.
+     *
+     * <p>잠금: 대상 행 하나만 잠근다. 생성·구조 반영·accessRole 수정은 전체 행(대상 포함)을, 일반 수정·재활성화는 대상 행을
+     * 잠그므로 모두 이 삭제와 직렬화된다. 하위 존재 검사는 비잠금 읽기라 <b>잠금 읽기 뒤에</b> 호출해야 REPEATABLE READ
+     * 스냅샷이 잠금 이후에 고정된다.
+     */
     @Transactional
-    @AdminActionLogged(actionType = AdminActionTypes.MENU_DEACTIVATE, targetType = "MENU", targetIdExpression = "menuNo")
-    public MenuResponse deactivateMenu(Long menuNo) {
+    @AdminActionLogged(actionType = AdminActionTypes.MENU_DELETE, targetType = "MENU",
+            targetIdExpression = "menuNo", targetLabelExpression = "auditLabel")
+    public MenuDeleteResult deleteMenu(Long menuNo) {
         Menu target = menuRepository.findByIdForUpdate(menuNo)
                 .orElseThrow(() -> new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
 
-        if (menuRepository.existsByUpMenuNoAndUseYnTrue(menuNo)) {
-            throw new ConflictException("활성 하위 메뉴가 있어 비활성화할 수 없습니다.");
+        if (Boolean.TRUE.equals(target.getUseYn())) {
+            throw new ConflictException("활성 메뉴는 영구삭제할 수 없습니다. 먼저 비활성화해주세요.");
+        }
+        if (menuRepository.existsByUpMenuNo(menuNo)) {
+            throw new ConflictException("하위 메뉴가 있어 영구삭제할 수 없습니다. 하위 메뉴를 먼저 삭제하거나 이동해주세요.");
         }
 
-        target.deactivate(LocalDateTime.now(clock));
+        // 행이 사라진 뒤에는 이름·URL을 알 수 없으므로 삭제 전에 감사용 스냅샷을 만든다.
+        MenuDeleteResult snapshot = new MenuDeleteResult(target.getMenuNo(), target.getMenuName(), target.getMenuUrl());
+        menuRepository.delete(target);
 
-        return MenuResponse.from(target);
+        return snapshot;
     }
 
     /**
@@ -196,14 +211,14 @@ public class MenuService {
 
         // 이 트랜잭션의 첫 애플리케이션 테이블 조회가 잠금 읽기여야 한다(REPEATABLE READ 스냅샷이 일찍 고정되는 것 방지).
         List<Menu> all = menuRepository.findAllForUpdate();
-        if (items.size() > all.size()) {
-            throw new InvalidRequestException("요청한 메뉴 수가 전체 메뉴 수보다 많습니다.");
-        }
         Map<Long, Menu> byNo = new LinkedHashMap<>();
         for (Menu menu : all) {
             byNo.put(menu.getMenuNo(), menu);
         }
 
+        // 집합 불일치를 개수 검사보다 먼저 판정한다 — 다른 관리자가 메뉴를 영구삭제하면 낡은 초안은 현재 행 수보다
+        // 항목이 많아지는데, 이를 400으로 걸러내면 화면이 초안을 못 버린다(409에서만 폐기). 요청 집합이 도달 집합과
+        // 같다면 요청 수 ≤ 전체 행 수는 도달 집합 ⊆ 전체 행이라 저절로 성립해 별도 개수 검사가 필요 없다.
         if (!reachableMenuNos(all).equals(requestedNos)) {
             throw structureChanged();
         }

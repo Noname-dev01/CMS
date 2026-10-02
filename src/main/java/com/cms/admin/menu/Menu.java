@@ -100,14 +100,4 @@ public class Menu {
         this.ord = ord;
         this.updateDate = now;
     }
-
-    /**
-     * 비활성화. useYn=false 처리 후 수정 시각을 갱신한다.
-     *
-     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
-     */
-    public void deactivate(LocalDateTime now) {
-        this.useYn = false;
-        this.updateDate = now;
-    }
 }
