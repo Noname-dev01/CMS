@@ -424,4 +424,27 @@ class NoticeControllerTest {
 
         verifyNoInteractions(noticeService);
     }
+
+    @Autowired
+    com.cms.admin.permission.RolePermissionCache rolePermissionCache;
+
+    @Test
+    @DisplayName("READ만 가진 MANAGER의 공지 생성은 메서드 계층에서 403 ACCESS_DENIED이고 서비스는 호출되지 않는다 — message는 영문 Access Denied(공지 화면이 403에 고정 한국어 문구를 쓰는 이유)")
+    @WithMockUser(roles = "MANAGER")
+    void createNotice_managerWithReadOnly_forbidden() throws Exception {
+        given(rolePermissionCache.snapshot()).willReturn(
+                com.cms.config.PermissionTestConfig.snapshotWith(com.cms.admin.permission.PermissionAction.READ));
+        try {
+            mockMvc.perform(post("/admin/api/notices").with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"title\":\"제목\",\"content\":\"본문\",\"useYn\":true}"))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("ACCESS_DENIED"))
+                    // 메서드 계층 403은 GlobalApiExceptionHandler가 Spring Security 기본 메시지를 그대로 내보낸다(필터 계층은 고정 한국어 문구)
+                    .andExpect(jsonPath("$.message").value("Access Denied"));
+            verifyNoInteractions(noticeService);
+        } finally {
+            given(rolePermissionCache.snapshot()).willReturn(com.cms.config.PermissionTestConfig.seedSnapshot());
+        }
+    }
 }

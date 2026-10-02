@@ -256,7 +256,15 @@
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
 
+<!-- 현재 사용자의 위임 기능 동작 키(예 "NOTICE:CREATE") — 버튼 표시용이며 서버 판정이 최종이다. th:inline은 이 작은 스크립트에만 쓴다. -->
+<script th:inline="javascript">
+    const MY_PERMISSIONS = new Set(/*[[${myPermissions}]]*/ []);
+</script>
+
 <script>
+    const canCreate = MY_PERMISSIONS.has("NOTICE:CREATE");
+    const canUpdate = MY_PERMISSIONS.has("NOTICE:UPDATE");
+    const canDelete = MY_PERMISSIONS.has("NOTICE:DELETE");
     const searchForm = document.getElementById("searchForm");
     const resetButton = document.getElementById("btnReset");
     const tableBody = document.getElementById("noticeTableBody");
@@ -294,6 +302,14 @@
     const attachmentList = document.getElementById("attachmentList");
     const attachmentFileInput = document.getElementById("attachmentFileInput");
     const btnUploadAttachment = document.getElementById("btnUploadAttachment");
+
+    // 권한이 없는 동작의 버튼은 숨긴다(UX — 서버 403이 최종 방어). 첨부 업로드·삭제는 공지 "수정" 권한이다(U4).
+    if (!canCreate) {
+        btnNewNotice.classList.add("d-none");
+    }
+    if (!canUpdate) {
+        document.querySelector(".attachment-upload").classList.add("d-none");
+    }
     const attachmentAlert = document.getElementById("attachmentAlert");
 
     const pageState = { page: 0, size: 20, totalPages: 0 };
@@ -372,6 +388,10 @@
     }
 
     async function extractErrorMessage(response, fallbackMessage) {
+        // 403은 서버 메시지와 무관하게 고정 문구를 쓴다 — 메서드 계층 거부 메시지가 영문일 수 있고, 화면을 연 사이 권한이 회수된 경우의 안내다.
+        if (response.status === 403) {
+            return "권한이 없습니다. 권한이 변경되었을 수 있으니 페이지를 새로고침해 주세요.";
+        }
         try {
             const body = await response.json();
             return body.message || fallbackMessage;
@@ -548,8 +568,8 @@
         detailLoading.classList.add("d-none");
         detailContent.classList.remove("d-none");
         noticeForm.classList.add("d-none");
-        btnEditMode.classList.remove("d-none");
-        btnDelete.classList.remove("d-none");
+        btnEditMode.classList.toggle("d-none", !canUpdate);
+        btnDelete.classList.toggle("d-none", !canDelete);
         btnSave.classList.add("d-none");
         btnCancelEdit.classList.add("d-none");
     }
@@ -632,7 +652,7 @@
             return "<li class=\"attachment-item\" data-id=\"" + escapeHtml(item.id) + "\">" +
                 "<a href=\"" + escapeHtml(downloadUrl) + "\" class=\"attachment-name\">" + escapeHtml(item.originalFilename) + "</a>" +
                 "<span class=\"attachment-size\">(" + escapeHtml(formatFileSize(item.fileSize)) + ")</span>" +
-                "<button type=\"button\" class=\"btn btn-link text-danger btn-sm ml-auto js-delete-attachment\" data-id=\"" + escapeHtml(item.id) + "\">삭제</button>" +
+                (canUpdate ? "<button type=\"button\" class=\"btn btn-link text-danger btn-sm ml-auto js-delete-attachment\" data-id=\"" + escapeHtml(item.id) + "\">삭제</button>" : "") +
                 "</li>";
         }).join("");
     }
@@ -886,7 +906,11 @@
                 headers: getCsrfHeaders()
             });
             if (!response.ok && response.status !== 204) {
-                throw new Error(await extractErrorMessage(response, "공지사항 삭제에 실패했습니다."));
+                const message = await extractErrorMessage(response, "공지사항 삭제에 실패했습니다.");
+                // 첨부가 남은 공지는 삭제 전에 첨부를 지워야 하는데(409), 첨부 삭제는 공지 "수정" 권한이라 수정 권한이 없으면 안내를 따를 수 없다(U4).
+                throw new Error(response.status === 409 && !canUpdate
+                    ? message + " 첨부 삭제에는 공지 수정 권한이 필요합니다. 관리자에게 요청하세요."
+                    : message);
             }
 
             loadNotices(pageState.page);

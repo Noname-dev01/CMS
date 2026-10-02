@@ -39,7 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         AdminMainController.class,
         AdminMemberPageController.class,
         AdminActionLogPageController.class,
-        MenuPageController.class
+        MenuPageController.class,
+        com.cms.admin.permission.controller.PermissionPageController.class
 })
 @Import(AdminSidebarAdviceTest.MockConfig.class)
 class AdminSidebarAdviceTest {
@@ -51,6 +52,9 @@ class AdminSidebarAdviceTest {
     MenuService menuService;
 
     @Autowired
+    com.cms.admin.permission.AdminPermissionEvaluator adminPermissionEvaluator;
+
+    @Autowired
     AdminSecurityService adminSecurityService;
 
     @Autowired
@@ -58,7 +62,8 @@ class AdminSidebarAdviceTest {
 
     @BeforeEach
     void setUp() {
-        reset(menuService, adminSecurityService, dashboardService);
+        reset(menuService, adminSecurityService, dashboardService, adminPermissionEvaluator);
+        given(adminPermissionEvaluator.grantedActionKeys(any(), any())).willReturn(java.util.Set.of("NOTICE:READ"));
         given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
         given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
         given(adminSecurityService.getCurrentAdminId()).willReturn(1L);
@@ -100,13 +105,14 @@ class AdminSidebarAdviceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/admin", "/admin/member/info", "/admin/log/manage", "/admin/menu/manage"})
-    @DisplayName("모든 @AdminPage 페이지는 sidebarMenus·currentUri 모델을 받는다")
+    @ValueSource(strings = {"/admin", "/admin/member/info", "/admin/log/manage", "/admin/menu/manage", "/admin/permission/manage"})
+    @DisplayName("모든 @AdminPage 페이지는 sidebarMenus·myPermissions·currentUri 모델을 받는다")
     @WithMockUser(roles = "ADMIN")
     void adminPages_receiveSidebarModel(String path) throws Exception {
         mockMvc.perform(get(path))
                 .andExpect(status().isOk())
                 .andExpect(model().attributeExists("sidebarMenus"))
+                .andExpect(model().attributeExists("myPermissions"))
                 .andExpect(model().attribute("currentUri", path));
     }
 }

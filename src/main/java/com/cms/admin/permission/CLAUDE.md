@@ -1,7 +1,7 @@
 # CLAUDE.md — com.cms.admin.permission
 
 이 디렉터리(관리자 권한 판정 도메인) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조.
-계획서: `adversarial-review/plan/PLAN-menu-permission-management.md`(적대적 리뷰 3라운드 ship). 이 패키지는 PR ①(2026-10-02)에서 도입됐고 사이드바 연동은 PR ②, 권한관리 화면·API는 후속 PR이다.
+계획서: `adversarial-review/plan/PLAN-menu-permission-management.md`(적대적 리뷰 3라운드 ship). 이 패키지는 PR ①(2026-10-02)에서 도입됐고 사이드바 연동은 PR ②, 권한관리 API·화면은 PR ③(2026-10-02)이다. 구현 계획서는 `adversarial-review/plan/PLAN-permission-management-pr3.md`.
 
 ## 개념
 
@@ -57,6 +57,18 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 사이드바 노출은 이 판정기에서 도출된다 — `menuUrlVisibility(Supplier<snapshot>, authentication)`(ADMIN 항상 true, MANAGER는 `AdminFeature.forMenuUrl`로 URL→기능을 완전 일치로 찾아 READ 판정, 미분류·null은 false)와 메뉴 관리 화면용 `managerMenuUrlVisibility(snapshot)`. 가지치기·노출 안내 규칙은 `com.cms.admin.menu`의 `CLAUDE.md` "노출 계산" 참조. 그래서 MANAGER에게 **보이는 링크는 항상 READ가 허용된 기능의 URL**이고 그 URL의 게이트도 같은 판정이라 "보이는데 403"은 구조적으로 생기지 않는다(역은 가능 — 메뉴가 없거나 비활성). `menu.access_role` 컬럼은 존치하지만 엔티티가 매핑하지 않는다(DROP은 PR ④).
 
+## 권한관리 API·화면 (PR ③, 2026-10-02)
+
+- `GET`/`PUT /admin/api/roles/{role}/permissions`(`RolePermissionController`, `hasRole('ADMIN')`) + 화면 `GET /admin/permission/manage`(`PermissionPageController`, `@AdminPage`, `templates/admin/permission/manage.html`). **`SecurityConfig` 변경 없음** — 새 경로는 어떤 카탈로그 `gatePatterns`에도 걸리지 않아 `/admin/**` ADMIN 캐치올이 막는다(`PERMISSION` = ADMIN_ONLY). 대상 역할은 `ROLE_MANAGER`뿐(`ROLE_ADMIN`·`ROLE_USER` → 400, enum에 없는 값 → 400 `INVALID_REQUEST`).
+- **PUT은 그 역할의 위임 가능 기능 허용 집합 전체 교체**다(`grants:[{feature,action}]`, 빈 배열=전부 회수). 400: 위임 불가 기능·미지원 동작(현재 카탈로그에서 도달 불가한 방어 분기)·중복·**READ 없는 쓰기(자동 보정 없이 거부)**. 검사 순서는 역할 → 요청 내용(DB 접근 전) → 잠금 → 버전이라 400이 409보다 우선한다.
+- **잠금·버전** (`RolePermissionService.replace`): 첫 DB 조회가 `permission_role` 행 `SELECT … FOR UPDATE`(`PermissionRoleRepository.findByIdForUpdate`)다. 허용 행이 0개여도 잠글 행이 있어 동시 저장이 직렬화되고, 잠금 뒤 읽는 허용 행은 앞선 저장의 커밋을 본다. 버전은 `@Version`이 아니라 **잠금 아래 수동 비교**(`version` ≠ 요청 → 409 `RESOURCE_CONFLICT`). 변경이 없으면 쓰기·버전·무효화가 없다(200 + 현재 상태). 시각은 주입 `Clock`.
+- **캐시 무효화**: 변경이 있을 때만 `PermissionChangedEvent`를 발행하고 `PermissionChangedListener`가 **AFTER_COMPLETION**(커밋·롤백·결과 불명 모두)에서 `invalidate()`한다. AFTER_COMMIT만 쓰면 DB는 커밋했는데 호출자가 커밋 예외를 받을 때(응답 직전 연결 끊김 — 트랜잭션 상태 UNKNOWN, AFTER_COMMIT은 COMMITTED에서만 실행) 리스너가 실행되지 않아 회수한 권한이 캐시에 남고, 같은 집합 재저장은 "변경 없음"이라 복구도 안 되기 때문이다(코드 리뷰 1라운드, `RolePermissionApiIntegrationTest`가 실제 커밋 후 SQLException을 던지는 DataSource 프록시로 고정(AFTER_COMMIT으로 되돌리면 실패하는 변이 확인)). 롤백 때의 불필요한 폐기는 다음 요청이 한 번 더 로드하는 비용뿐이다. 409·변경 없음은 이벤트 자체가 없다(저장이 일어나지 않음). 역할이 바뀌지 않으므로 세션 만료는 필요 없고 같은 세션의 다음 요청부터 반영된다.
+- **변형 행 가드**: `role_permission` PK는 `utf8mb4_general_ci`(PAD 비교)라 수동 삽입된 `read`·`'READ '`·`role_manager` 같은 변형 행이 정상 키와 같은 키로 취급되는데, 판정기는 그 행을 무시한다. PUT은 추가할 키마다 `existsById`(DB PK 동등 비교)로 충돌을 탐지해 **409로 거부하고 자동 삭제하지 않는다**(운영자가 수동 SQL로 정리). 모르는 기능·동작·위임 불가 기능 행도 건드리지 않는다.
+- **감사** `PERMISSION_UPDATE`(`targetType=ROLE_PERMISSION`, `targetId` 없음): 성공은 `ROLE_MANAGER v3→v4: +공지사항.생성, -공지사항.삭제`, 변경 없음은 `ROLE_MANAGER v3: 변경 없음`(라벨은 코드 상수·enum 이름만 — 사용자 입력 없음). **실패(400·404·409·커밋 실패)는 FAIL 감사 1건이고 `targetLabel`이 없다**(`AdminActionLogAspect` 정책). 서비스 메서드가 최상위 트랜잭션 진입점이어야 한다(컨트롤러 → `replace()` 직접 호출). 감사 저장은 최선 노력이라 **저장 실패 시에도 권한 변경은 유지되므로 롤백 판단을 감사만 보고 하지 않는다**(`RolePermissionApiIntegrationTest`가 고정).
+- **조회**는 캐시가 아니라 DB를 한 읽기 트랜잭션으로 읽어 버전·행이 같은 시점을 보여 준다. `grantedActions`는 판정기와 같은 의미의 유효 허용값이다(상시 허용=지원 동작 전부, 위임 불가=빈 배열, 위임 가능=DB 행 ∩ 지원 동작 ∩ READ 의존).
+- **화면 버튼 숨김**: `AdminSidebarAdvice`가 한 `@ModelAttribute` 메서드에서 `sidebarMenus`와 `myPermissions`(`"NOTICE:CREATE"` 같은 키 집합, `AdminPermissionEvaluator.grantedActionKeys`)를 같은 스냅샷으로 계산하고, `notice/manage.html`이 [새 공지]·[수정]·[삭제]·첨부 업로드·삭제 버튼을 숨긴다(첨부 업로드·삭제는 **UPDATE** — U4). 서버 판정이 최종이며 화면을 연 사이 권한이 회수되면 다음 API가 403이다 — 메서드 계층 403의 `message`는 영문 `Access Denied`(`NoticeControllerTest`가 고정)라 공지 화면은 **403에 고정 한국어 문구**를 쓴다. DELETE만 가진 MANAGER가 첨부 있는 공지를 지우다 409를 받으면 첨부 삭제에 수정 권한이 필요하다는 안내 한 문장이 덧붙는다.
+- 시험: `RolePermissionServiceTest`(단위), `RolePermissionControllerTest`(슬라이스), `RolePermissionApiIntegrationTest`(실제 MariaDB — 저장 결과·감사·**실제 로그인 세션 재사용 즉시 반영**·커밋 직전 실패 주입·감사 저장 실패 격리·변형 행), `RolePermissionConcurrencyIntegrationTest`(`INNODB_LOCK_WAITS` 락 대기 관측·동시 PUT 정확히 하나만 성공), `PermissionMenuMigrationTest`(V15), `AdminSidebarAdviceSnapshotTest`.
+
 ## 아직 없는 것 (후속 PR)
 
-권한관리 화면·API(`PUT /admin/api/roles/{role}/permissions`)·`PERMISSION_UPDATE` 감사·V15 메뉴 시드·공지 화면 버튼 숨김(③), `access_role` 컬럼 DROP(④).
+`menu.access_role` 컬럼 `DROP`(PR ④, V16 — 전 `menu` 테이블 백업 필수).

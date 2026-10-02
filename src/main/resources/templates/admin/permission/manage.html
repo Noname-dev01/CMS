@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>권한 관리</title>
+</head>
+<body id="page-top">
+<!--
+    th:replace는 head 태그 자체를 통째로 adminHead 프래그먼트로 치환하므로 원래 head 안의 title·link·style은 렌더링되지 않는다.
+    페이지 전용 CSS는 body 시작 지점에 둔다(menu/manage.html 컨벤션).
+-->
+<style>
+    .perm-card {
+        background: white;
+        border-radius: 0.35rem;
+        box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+        border: 1px solid #4e73df;
+    }
+    .perm-matrix th, .perm-matrix td { text-align: center; vertical-align: middle; }
+    .perm-matrix th:first-child, .perm-matrix td:first-child { text-align: left; }
+    .perm-matrix .perm-lock-note { font-size: 0.8rem; color: #858796; }
+    .perm-matrix .perm-na { color: #b7b9cc; }
+    .perm-matrix input[type="checkbox"] { width: 1.1rem; height: 1.1rem; }
+</style>
+
+<div id="wrapper">
+    <!-- Sidebar -->
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">권한 관리</h1>
+                </div>
+
+                <div class="perm-card mb-4">
+                    <div class="card-header py-3 d-flex flex-wrap justify-content-between align-items-center">
+                        <h6 class="m-0 font-weight-bold text-primary">
+                            대상 역할: MANAGER(매니저) <span class="badge badge-secondary ml-2" id="versionBadge">v-</span>
+                        </h6>
+                        <span class="text-muted small">관리자(ADMIN)는 코드로 모든 권한이 고정되어 있어 변경할 수 없습니다.</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+                        <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
+
+                        <div class="table-responsive">
+                            <table class="table table-bordered perm-matrix mb-3" id="matrix">
+                                <thead class="thead-light">
+                                <tr id="matrixHead"><th>기능</th></tr>
+                                </thead>
+                                <tbody id="matrixBody">
+                                <tr><td colspan="5" class="text-muted">불러오는 중...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <p class="text-muted small mb-3">
+                            생성·수정·삭제 권한은 조회 권한과 함께 부여해야 하며, 저장하면 해당 MANAGER에게 <strong>다음 요청부터</strong> 즉시 반영됩니다(재로그인 불필요).
+                        </p>
+                        <div class="d-flex align-items-center">
+                            <button type="button" class="btn btn-primary mr-3" id="btnSave" disabled>저장</button>
+                            <span class="text-warning font-weight-bold d-none" id="dirtyNotice">저장하지 않은 변경이 있습니다.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<!-- Bootstrap core JavaScript-->
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+
+<script>
+    const ROLE_URL = "/admin/api/roles/ROLE_MANAGER/permissions";
+
+    const matrixHead = document.getElementById("matrixHead");
+    const matrixBody = document.getElementById("matrixBody");
+    const versionBadge = document.getElementById("versionBadge");
+    const btnSave = document.getElementById("btnSave");
+    const dirtyNotice = document.getElementById("dirtyNotice");
+    const pageAlert = document.getElementById("pageAlert");
+    const pageSuccess = document.getElementById("pageSuccess");
+
+    let loaded = null;            // 마지막으로 서버에서 받은 매트릭스 응답
+    let busy = false;             // 저장·조회 진행 중 — 이 동안 체크박스도 잠근다(성공 응답 재렌더링이 사이의 편집을 지우는 것 방지)
+    let leavingAfterSave = false;
+
+    function getCsrfHeaders() {
+        const token = document.querySelector('meta[name="_csrf"]');
+        const header = document.querySelector('meta[name="_csrf_header"]');
+        const headers = { "Content-Type": "application/json" };
+        if (token && header) {
+            headers[header.content || "X-CSRF-TOKEN"] = token.content;
+        }
+        return headers;
+    }
+
+    async function extractErrorMessage(response, fallbackMessage) {
+        try {
+            const body = await response.json();
+            return body.message || fallbackMessage;
+        } catch (e) {
+            return fallbackMessage;
+        }
+    }
+
+    function showError(message) {
+        pageSuccess.classList.add("d-none");
+        pageAlert.textContent = message;     // textContent만 사용한다
+        pageAlert.classList.remove("d-none");
+    }
+
+    function showSuccess(message) {
+        pageAlert.classList.add("d-none");
+        pageSuccess.textContent = message;
+        pageSuccess.classList.remove("d-none");
+    }
+
+    function clearMessages() {
+        pageAlert.classList.add("d-none");
+        pageSuccess.classList.add("d-none");
+    }
+
+    function cell(tag, className) {
+        const el = document.createElement(tag);
+        if (className) {
+            el.className = className;
+        }
+        return el;
+    }
+
+    function checkboxOf(featureName, actionName) {
+        return matrixBody.querySelector('input[data-feature="' + featureName + '"][data-action="' + actionName + '"]');
+    }
+
+    // 위임 가능 기능의 현재 체크 상태: "FEATURE:ACTION" 집합 — 잠금 칸(상시 허용·관리자 전용)은 세지 않는다(저장 본문·dirty 판정에 섞이면 안 된다)
+    function currentChecked() {
+        const result = new Set();
+        matrixBody.querySelectorAll('input[type="checkbox"][data-feature]:not([data-locked="true"]):checked').forEach(function (box) {
+            result.add(box.dataset.feature + ":" + box.dataset.action);
+        });
+        return result;
+    }
+
+    function loadedDelegable() {
+        const result = new Set();
+        (loaded ? loaded.features : []).forEach(function (row) {
+            if (row.kind === "DELEGABLE") {
+                row.grantedActions.forEach(function (action) { result.add(row.feature + ":" + action); });
+            }
+        });
+        return result;
+    }
+
+    function isDirty() {
+        if (!loaded) {
+            return false;
+        }
+        const now = currentChecked();
+        const base = loadedDelegable();
+        if (now.size !== base.size) {
+            return true;
+        }
+        for (const key of now) {
+            if (!base.has(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function refreshState() {
+        const dirty = isDirty();
+        btnSave.disabled = !dirty || busy;
+        dirtyNotice.classList.toggle("d-none", !dirty);
+        matrixBody.querySelectorAll('input[type="checkbox"][data-feature]').forEach(function (box) {
+            box.disabled = busy || box.dataset.locked === "true";   // 잠금 칸(상시 허용·관리자 전용)은 busy가 풀려도 계속 disabled
+        });
+    }
+
+    function render(data) {
+        loaded = data;
+        versionBadge.textContent = "v" + data.version;
+
+        matrixHead.replaceChildren();
+        matrixHead.appendChild(Object.assign(cell("th"), { textContent: "기능" }));
+        data.actions.forEach(function (column) {
+            matrixHead.appendChild(Object.assign(cell("th"), { textContent: column.label }));
+        });
+
+        matrixBody.replaceChildren();
+        data.features.forEach(function (row) {
+            const tr = cell("tr");
+            const nameCell = cell("td");
+            const name = cell("div", "font-weight-bold");
+            name.textContent = row.label;
+            nameCell.appendChild(name);
+            if (row.kind === "ALWAYS" || row.kind === "ADMIN_ONLY") {
+                const note = cell("div", "perm-lock-note");
+                const icon = cell("i", "fas fa-lock mr-1");
+                note.appendChild(icon);
+                note.appendChild(document.createTextNode(
+                    row.kind === "ALWAYS" ? "모든 관리자 상시 허용" : "관리자 전용 — 위임 불가"));
+                nameCell.appendChild(note);
+            }
+            tr.appendChild(nameCell);
+
+            data.actions.forEach(function (column) {
+                const td = cell("td");
+                const supported = row.supportedActions.indexOf(column.action) >= 0;
+                if (!supported) {
+                    td.appendChild(Object.assign(cell("span", "perm-na"), { textContent: "—" }));
+                } else {
+                    const box = document.createElement("input");
+                    box.type = "checkbox";
+                    box.dataset.feature = row.feature;
+                    box.dataset.action = column.action;
+                    box.checked = row.grantedActions.indexOf(column.action) >= 0;
+                    box.setAttribute("aria-label", row.label + " " + column.label);
+                    if (row.kind !== "DELEGABLE") {
+                        box.disabled = true;     // 상시 허용·관리자 전용은 잠금(항상 disabled — busy 해제로 풀리지 않게 data-locked로 표시)
+                        box.dataset.locked = "true";
+                    } else {
+                        box.addEventListener("change", onToggle);
+                    }
+                    td.appendChild(box);
+                }
+                tr.appendChild(td);
+            });
+            matrixBody.appendChild(tr);
+        });
+        refreshState();
+    }
+
+    // 연동: 생성·수정·삭제를 켜면 조회가 자동 체크, 조회를 끄면 나머지가 자동 해제(서버는 위반 시 400 — 최종 방어)
+    function onToggle(event) {
+        const box = event.target;
+        const feature = box.dataset.feature;
+        if (box.dataset.action === "READ") {
+            if (!box.checked) {
+                matrixBody.querySelectorAll('input[data-feature="' + feature + '"]').forEach(function (other) {
+                    other.checked = false;
+                });
+            }
+        } else if (box.checked) {
+            checkboxOf(feature, "READ").checked = true;
+        }
+        clearMessages();
+        refreshState();
+    }
+
+
+    async function load(message) {
+        busy = true;
+        refreshState();
+        try {
+            const response = await fetch(ROLE_URL, { headers: { "Accept": "application/json" } });
+            if (!response.ok) {
+                showError(await extractErrorMessage(response, "권한 정보를 불러오지 못했습니다."));
+                return false;
+            }
+            render(await response.json());
+            if (message) {
+                showSuccess(message);
+            }
+            return true;
+        } catch (e) {
+            showError("권한 정보를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+            return false;
+        } finally {
+            busy = false;
+            refreshState();
+        }
+    }
+
+    async function save() {
+        if (busy || !isDirty()) {
+            return;
+        }
+        const grants = [];
+        currentChecked().forEach(function (key) {
+            const parts = key.split(":");
+            grants.push({ feature: parts[0], action: parts[1] });
+        });
+        const oldVersion = loaded.version;
+        busy = true;
+        clearMessages();
+        refreshState();
+        try {
+            const response = await fetch(ROLE_URL, {
+                method: "PUT",
+                headers: getCsrfHeaders(),
+                body: JSON.stringify({ version: oldVersion, grants: grants })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                render(data);
+                const message = data.version === oldVersion
+                    ? "변경된 내용이 없어 저장하지 않았습니다."
+                    : "권한을 저장했습니다(v" + oldVersion + "→v" + data.version + "). 해당 MANAGER에게 다음 요청부터 반영됩니다.";
+                showSuccess(message);
+                leavingAfterSave = false;
+            } else if (response.status === 409) {
+                const message = await extractErrorMessage(response, "다른 관리자가 먼저 권한을 변경했습니다.");
+                busy = false;
+                await load();
+                showError(message + " 최신 상태로 다시 불러왔습니다.");    // 초안 폐기·재조회
+            } else if (response.status === 400) {
+                showError(await extractErrorMessage(response, "요청 값이 올바르지 않습니다."));  // 초안 유지
+            } else if (response.status === 403) {
+                showError("권한이 없습니다. 세션이 만료되었거나 관리자 권한이 변경되었을 수 있습니다.");
+            } else {
+                showError(await extractErrorMessage(response, "저장에 실패했습니다."));
+            }
+        } catch (e) {
+            showError("저장에 실패했습니다. 네트워크 상태를 확인해 주세요.");
+        } finally {
+            busy = false;
+            refreshState();
+        }
+    }
+
+    btnSave.addEventListener("click", save);
+
+    window.addEventListener("beforeunload", function (event) {
+        if (isDirty() && !leavingAfterSave) {
+            event.preventDefault();
+            event.returnValue = "";
+        }
+    });
+
+    load();
+</script>
+</body>
+</html>
