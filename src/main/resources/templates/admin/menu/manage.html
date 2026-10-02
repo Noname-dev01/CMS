@@ -297,7 +297,9 @@
                                         </div>
                                         <div class="btn-container">
                                             <button type="button" class="btn btn-primary" id="btnSave">저장</button>
-                                            <button type="button" class="btn btn-danger" id="btnDelete">삭제</button>
+                                            <!-- 활성 메뉴는 [비활성화], 비활성 메뉴는 [영구삭제]만 보인다(syncActionButtons) -->
+                                            <button type="button" class="btn btn-warning d-none" id="btnDeactivate">비활성화</button>
+                                            <button type="button" class="btn btn-danger d-none" id="btnPermanentDelete">영구삭제</button>
                                             <button type="button" class="btn btn-secondary" id="btnReset">초기화</button>
                                         </div>
                                     </form>
@@ -306,6 +308,33 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 메뉴 영구삭제 확인 모달: 메뉴명(확인 문자열)을 직접 입력해야 [영구삭제]가 활성화된다 -->
+<div class="modal fade" id="permanentDeleteModal" tabindex="-1" role="dialog"
+     aria-labelledby="permanentDeleteModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="permanentDeleteModalLabel">메뉴 영구삭제</h5>
+            </div>
+            <div class="modal-body">
+                <div id="permanentDeleteError" class="alert alert-danger d-none" role="alert"></div>
+                <p class="mb-2">
+                    <strong>영구 삭제되며 복구할 수 없습니다.</strong>
+                    비활성 상태이고 하위 메뉴가 없는 메뉴만 삭제할 수 있습니다.
+                </p>
+                <p class="mb-2">계속하려면 아래 메뉴명을 그대로 입력하세요.</p>
+                <p class="mb-2"><code id="permanentDeleteConfirmText" style="white-space: pre-wrap; word-break: break-all;"></code></p>
+                <input type="text" class="form-control" id="permanentDeleteInput" autocomplete="off" spellcheck="false"
+                       aria-label="삭제할 메뉴명 확인 입력">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="btnPermanentDeleteCancel">취소</button>
+                <button type="button" class="btn btn-danger" id="btnPermanentDeleteConfirm" disabled>영구삭제</button>
             </div>
         </div>
     </div>
@@ -356,7 +385,8 @@ $(document).ready(function () {
     const menuUseYnInput = document.getElementById('menuUseYn');
 
     const btnSave = document.getElementById('btnSave');
-    const btnDelete = document.getElementById('btnDelete');
+    const btnDeactivate = document.getElementById('btnDeactivate');
+    const btnPermanentDelete = document.getElementById('btnPermanentDelete');
     const btnReset = document.getElementById('btnReset');
     const btnNewTop = document.getElementById('btnNewTop');
     const btnNewChild = document.getElementById('btnNewChild');
@@ -365,6 +395,12 @@ $(document).ready(function () {
     let mode = null;
     let selectedMenuNo = null;
     let pendingParentMenuNo = null;
+    // selectedMenuSnapshot: 상세 조회가 서버 응답으로 확정된 시점의 {menuNo, menuName, useYn}. 비활성화·영구삭제의 대상과
+    // 버튼 노출은 폼의 저장하지 않은 값(사용 여부 체크박스 등)이 아니라 이 스냅샷으로 정한다.
+    let selectedMenuSnapshot = null;
+    // permanentDeleteTarget: 영구삭제 모달을 연 순간 스냅샷을 복사해 고정한 대상. 모달이 열린 사이 다른 메뉴의 상세 응답이
+    // 늦게 도착해 선택이 바뀌어도 이름 확인과 DELETE는 이 복사본만 쓴다(다른 메뉴가 지워지는 것을 막는다).
+    let permanentDeleteTarget = null;
 
     // treeScope: 지금 실제로 그려진 트리의 범위('all' | 'active'). 조회 시작~트리 교체 완료 사이는 null이라 드래그 불가.
     // 구조 편집(드래그)은 비활성 메뉴까지 포함한 'all'에서만 허용한다 — 반영 요청이 전체 메뉴 집합이어야 하기 때문이다.
@@ -476,14 +512,23 @@ $(document).ready(function () {
         formModeLabel.textContent = text;
     }
 
+    // 활성 메뉴는 [비활성화], 비활성 메뉴는 [영구삭제]만 보인다. 대상은 서버 응답으로 확정된 스냅샷의 useYn으로 판정한다.
+    function syncActionButtons() {
+        const editing = mode === 'edit' && selectedMenuSnapshot !== null;
+        btnDeactivate.classList.toggle('d-none', !(editing && selectedMenuSnapshot.useYn === true));
+        btnPermanentDelete.classList.toggle('d-none', !(editing && selectedMenuSnapshot.useYn === false));
+    }
+
     function resetSelectionState() {
         selectSeq++;
         mode = null;
         selectedMenuNo = null;
+        selectedMenuSnapshot = null;
         pendingParentMenuNo = null;
         clearForm();
         hideFormError();
         setModeLabel('메뉴를 선택하거나 추가 버튼을 눌러주세요.');
+        syncActionButtons();
     }
 
     // ── 초안(draft) 상태 ──────────────────────────────────────
@@ -571,7 +616,7 @@ $(document).ready(function () {
         btnCancel.disabled = !dirty || busy;
 
         includeInactiveToggle.disabled = dirty;
-        [btnNewTop, btnNewChild, btnSave, btnDelete, btnReset].forEach(function (button) {
+        [btnNewTop, btnNewChild, btnSave, btnDeactivate, btnPermanentDelete, btnReset].forEach(function (button) {
             button.disabled = dirty;
         });
         menuForm.querySelectorAll('input, select, textarea').forEach(function (field) {
@@ -688,9 +733,11 @@ $(document).ready(function () {
             }
             mode = 'edit';
             selectedMenuNo = menu.menuNo;
+            selectedMenuSnapshot = { menuNo: menu.menuNo, menuName: menu.menuName, useYn: menu.useYn === true };
             pendingParentMenuNo = null;
             fillForm(menu);
             setModeLabel('메뉴 수정: ' + menu.menuName);
+            syncActionButtons();
             refreshDraftUi();
         } catch (error) {
             if (seq !== selectSeq) {
@@ -870,10 +917,12 @@ $(document).ready(function () {
         selectSeq++; // 대기 중이던 상세 조회 응답이 생성 모드를 편집 모드로 되돌리지 못하게 한다.
         mode = 'create';
         selectedMenuNo = null;
+        selectedMenuSnapshot = null;
         pendingParentMenuNo = null;
         clearForm();
         hideFormError();
         setModeLabel('새 메뉴 추가 (최상위)');
+        syncActionButtons();
     });
 
     btnNewChild.addEventListener('click', function () {
@@ -890,9 +939,11 @@ $(document).ready(function () {
         mode = 'create';
         pendingParentMenuNo = parentNode.data.menuNo;
         selectedMenuNo = null;
+        selectedMenuSnapshot = null;
         clearForm();
         hideFormError();
         setModeLabel('새 메뉴 추가 (상위: ' + parentNode.text + ')');
+        syncActionButtons();
     });
 
     btnApply.addEventListener('click', handleApply);
@@ -973,10 +1024,13 @@ $(document).ready(function () {
         }
     });
 
-    btnDelete.addEventListener('click', async function () {
+    // 비활성화: PATCH {useYn:false}만 보낸다 — 폼의 다른 값(저장하지 않은 편집 내용)을 함께 실어 보내지 않는다.
+    // 대상은 확정된 스냅샷의 menuNo이며, 확인창이 떠 있는 사이 선택이 바뀌어도 처음 누른 메뉴만 비활성화한다.
+    btnDeactivate.addEventListener('click', async function () {
         hideFormError();
 
-        if (mode !== 'edit' || selectedMenuNo == null) {
+        const target = selectedMenuSnapshot;
+        if (mode !== 'edit' || target === null) {
             showFormError('비활성화할 메뉴를 선택해주세요.');
             return;
         }
@@ -992,14 +1046,16 @@ $(document).ready(function () {
         busy = true;
 
         try {
-            const response = await fetch('/admin/api/menus/' + encodeURIComponent(selectedMenuNo), {
-                method: 'DELETE',
+            const response = await fetch('/admin/api/menus/' + encodeURIComponent(target.menuNo), {
+                method: 'PATCH',
                 headers: {
+                    'Content-Type': 'application/json',
                     [csrfHeader]: csrfToken
-                }
+                },
+                body: JSON.stringify({ useYn: false })
             });
 
-            if (!response.ok && response.status !== 204) {
+            if (!response.ok) {
                 throw new Error(await extractErrorMessage(response, '메뉴 비활성화에 실패했습니다.'));
             }
 
@@ -1009,6 +1065,147 @@ $(document).ready(function () {
             showFormError(error && error.message ? error.message : '메뉴 비활성화 중 오류가 발생했습니다.');
         } finally {
             busy = false;
+        }
+    });
+
+    // ── 영구삭제 ──────────────────────────────────────
+
+    const permanentDeleteModal = $('#permanentDeleteModal');
+    const permanentDeleteInput = document.getElementById('permanentDeleteInput');
+    const permanentDeleteConfirmText = document.getElementById('permanentDeleteConfirmText');
+    const permanentDeleteError = document.getElementById('permanentDeleteError');
+    const btnPermanentDeleteConfirm = document.getElementById('btnPermanentDeleteConfirm');
+    const btnPermanentDeleteCancel = document.getElementById('btnPermanentDeleteCancel');
+
+    // 메뉴명에 개행 같은 제어문자가 있으면 단일행 입력창에 그대로 입력할 수 없다(브라우저가 CR/LF를 제거한다). 그래서 이름 원문
+    // 대신 가역 이스케이프한 확인 문자열을 보여 주고 그것을 입력하게 한다 — 서버 로그용 이스케이프와 같은 규칙이다:
+    // 역슬래시 → \\, CR → \r, LF → \n, TAB → \t, 그 밖의 제어문자(Cc)·줄/문단 구분자(U+2028·U+2029) → \uXXXX.
+    // 제어문자가 없는 평범한 이름은 원문 그대로다.
+    // 정규식 리터럴 대신 코드 값으로 판정한다 — 줄 구분자(U+2028·U+2029)가 정규식 리터럴 안에 원문으로 들어가면 구문 오류다.
+    function escapeForConfirm(value) {
+        let escaped = '';
+        for (const ch of String(value)) {
+            const code = ch.codePointAt(0);
+            if (ch === '\\') {
+                escaped += '\\\\';
+            } else if (ch === '\r') {
+                escaped += '\\r';
+            } else if (ch === '\n') {
+                escaped += '\\n';
+            } else if (ch === '\t') {
+                escaped += '\\t';
+            } else if (code <= 0x1f || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029
+                    || (ch !== ' ' && /\s/.test(ch))) {
+                // 일반 공백 외의 공백류(NBSP·U+FEFF 등)도 이스케이프한다 — 서버의 @NotBlank는 이런 문자만으로 된 이름을 통과시키는데,
+                // 눈에 보이지 않는 채로 두면 입력 비교에서 사라져(trim) 이름을 입력하지 않고도 확인이 통과할 수 있다.
+                escaped += '\\u' + code.toString(16).padStart(4, '0');
+            } else {
+                escaped += ch;
+            }
+        }
+        return escaped;
+    }
+
+    function showPermanentDeleteError(message) {
+        permanentDeleteError.textContent = message;
+        permanentDeleteError.classList.remove('d-none');
+    }
+
+    function expectedConfirmText() {
+        return permanentDeleteTarget === null ? null : escapeForConfirm(permanentDeleteTarget.menuName);
+    }
+
+    // 입력은 trim 없이 확인 문자열과 정확히 비교한다. 확인 문자열이 비어 있으면(있을 수 없지만 방어적으로) 확정을 허용하지 않는다.
+    function isPermanentDeleteConfirmed() {
+        const expected = expectedConfirmText();
+        return expected !== null && expected !== '' && permanentDeleteInput.value === expected;
+    }
+
+    function refreshPermanentDeleteConfirm() {
+        btnPermanentDeleteConfirm.disabled = busy || !isPermanentDeleteConfirmed();
+    }
+
+    btnPermanentDelete.addEventListener('click', function () {
+        hideFormError();
+
+        const snapshot = selectedMenuSnapshot;
+        if (mode !== 'edit' || snapshot === null || snapshot.useYn !== false) {
+            showFormError('영구삭제는 비활성 상태의 메뉴를 선택했을 때만 할 수 있습니다.');
+            return;
+        }
+
+        // 모달을 연 순간의 대상을 복사해 고정한다 — 이후 이름 확인과 DELETE는 이 복사본만 쓰고 전역 선택 상태는 읽지 않는다.
+        permanentDeleteTarget = Object.freeze({ menuNo: snapshot.menuNo, menuName: snapshot.menuName });
+        permanentDeleteConfirmText.textContent = expectedConfirmText();
+        permanentDeleteInput.value = '';
+        permanentDeleteError.classList.add('d-none');
+        permanentDeleteError.textContent = '';
+        refreshPermanentDeleteConfirm();
+        permanentDeleteModal.modal('show');
+    });
+
+    permanentDeleteModal.on('shown.bs.modal', function () {
+        permanentDeleteInput.focus();
+    });
+
+    // 모달이 aria-hidden 처리되기 전에 포커스를 빼 둔다 — 포커스를 쥔 채 숨기면 접근성 경고가 난다.
+    permanentDeleteModal.on('hide.bs.modal', function () {
+        if (document.activeElement && permanentDeleteModal[0].contains(document.activeElement)) {
+            document.activeElement.blur();
+        }
+    });
+
+    permanentDeleteInput.addEventListener('input', refreshPermanentDeleteConfirm);
+
+    btnPermanentDeleteCancel.addEventListener('click', function () {
+        if (busy) {
+            return;
+        }
+        permanentDeleteTarget = null;
+        permanentDeleteModal.modal('hide');
+    });
+
+    btnPermanentDeleteConfirm.addEventListener('click', async function () {
+        const target = permanentDeleteTarget;
+        if (busy || target === null || !isPermanentDeleteConfirmed()) {
+            return;
+        }
+        busy = true;
+        refreshPermanentDeleteConfirm();
+        permanentDeleteError.classList.add('d-none');
+
+        let closeModal = false;
+        try {
+            const response = await fetch('/admin/api/menus/' + encodeURIComponent(target.menuNo), {
+                method: 'DELETE',
+                headers: {
+                    [csrfHeader]: csrfToken
+                }
+            });
+
+            if (response.status === 204 || response.ok) {
+                queuedNotice = { kind: 'success', text: '메뉴를 영구삭제했습니다.' };
+                closeModal = true;
+            } else if (response.status === 404) {
+                // 다른 관리자가 먼저 지웠다 — 트리를 다시 읽어 최신 상태를 보여 준다.
+                queuedNotice = { kind: 'warning', text: '이미 삭제되었거나 존재하지 않는 메뉴입니다. 최신 구조로 새로고침했습니다.' };
+                closeModal = true;
+            } else {
+                // 409(활성 메뉴·하위 메뉴 존재) 등 — 모달을 유지한 채 서버 메시지를 보여 준다.
+                showPermanentDeleteError(await extractErrorMessage(response, '메뉴 영구삭제에 실패했습니다.'));
+            }
+        } catch (error) {
+            showPermanentDeleteError(error && error.message ? error.message : '메뉴 영구삭제 중 오류가 발생했습니다.');
+        } finally {
+            busy = false;
+            refreshPermanentDeleteConfirm();
+        }
+
+        if (closeModal) {
+            permanentDeleteTarget = null;
+            permanentDeleteModal.modal('hide');
+            resetSelectionState();
+            await loadTree();
         }
     });
 
