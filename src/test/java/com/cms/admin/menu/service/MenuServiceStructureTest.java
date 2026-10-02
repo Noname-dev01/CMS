@@ -265,12 +265,12 @@ class MenuServiceStructureTest {
     }
 
     @Test
-    @DisplayName("요청 메뉴 수가 전체 메뉴 수보다 많으면 400")
-    void moreThanAll_rejected() {
+    @DisplayName("요청 메뉴 수가 전체 메뉴 수보다 많아도(다른 관리자가 영구삭제한 낡은 초안) 400이 아니라 409")
+    void moreThanAll_isStaleDraftConflict() {
         Menu a = menu(1, null, 0);
         db(a);
 
-        assertThrows(InvalidRequestException.class, () -> menuService.applyStructure(
+        assertThrows(ConflictException.class, () -> menuService.applyStructure(
                 request(same(a), MenuStructureRequest.Item.of(2L, null, 1, null))));
     }
 

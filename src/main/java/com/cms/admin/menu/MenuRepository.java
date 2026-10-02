@@ -20,6 +20,9 @@ public interface MenuRepository extends JpaRepository<Menu, Long> {
     /** 비활성화 시 활성 하위 메뉴 존재 여부 확인 */
     boolean existsByUpMenuNoAndUseYnTrue(Long upMenuNo);
 
+    /** 영구삭제 시 하위 메뉴 존재 여부 확인 — 활성·비활성 무관(비활성 자식도 재활성화되면 부모가 필요하다) */
+    boolean existsByUpMenuNo(Long upMenuNo);
+
     /** 최상위(upMenuNo IS NULL) 형제 중 최대 ord (형제 없으면 null) */
     @Query("select max(m.ord) from Menu m where m.upMenuNo is null")
     Integer findMaxOrdByUpMenuNoIsNull();
@@ -38,7 +41,7 @@ public interface MenuRepository extends JpaRepository<Menu, Long> {
     List<Menu> findAllForUpdate();
 
     /**
-     * 생성/재활성화 시 부모 row, 비활성화(삭제 및 PATCH useYn=false) 시 대상 row를
+     * 생성/재활성화 시 부모 row, 비활성화(PATCH useYn=false)·영구삭제(DELETE) 시 대상 row를
      * PESSIMISTIC_WRITE로 잠근 뒤 조회한다. 잠금 획득 → 검증 → 상태 반영이 한 트랜잭션에서
      * 직렬화되도록 보장한다.
      */

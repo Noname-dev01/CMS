@@ -9,6 +9,7 @@ import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuDeleteResult;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
@@ -531,32 +532,68 @@ class MenuServiceTest {
         verify(menuRepository, never()).findById(any());
     }
 
-    // ── 비활성화(삭제) ──────────────────────────────────
+    // ── 영구삭제(하드 삭제) ───────────────────────────────
 
     @Test
-    @DisplayName("삭제는 row 제거가 아니라 useYn=false 변경이며, MenuResponse를 반환한다")
-    void deactivateMenu_setsUseYnFalse_returnsMenuResponse() {
-        Menu target = menu(1L, "메뉴", null, true, 0);
+    @DisplayName("비활성 + 하위 없음 메뉴는 row를 삭제하고, 삭제 전 이름·URL 스냅샷을 반환한다")
+    void deleteMenu_inactiveLeaf_deletesRow_returnsSnapshot() {
+        Menu target = Menu.builder().menuNo(1L).menuName("지울 메뉴").menuUrl("/old").useYn(false).ord(0).build();
         given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(target));
-        given(menuRepository.existsByUpMenuNoAndUseYnTrue(1L)).willReturn(false);
+        given(menuRepository.existsByUpMenuNo(1L)).willReturn(false);
 
-        MenuResponse response = menuService.deactivateMenu(1L);
+        MenuDeleteResult result = menuService.deleteMenu(1L);
 
-        assertEquals(1L, response.getMenuNo());
-        assertFalse(response.getUseYn());
-        assertEquals(FIXED_NOW, target.getUpdateDate()); // 비활성화 시각은 주입된 KST Clock
-        verify(menuRepository, never()).delete(any());
-        verify(menuRepository, never()).deleteById(any());
+        assertEquals(1L, result.getMenuNo());
+        assertEquals("지울 메뉴", result.getMenuName());
+        assertEquals("/old", result.getMenuUrl());
+        assertEquals("지울 메뉴 (/old)", result.getAuditLabel());
+        verify(menuRepository).delete(target);
     }
 
     @Test
-    @DisplayName("활성 하위 메뉴가 있는 메뉴 비활성화 시 409 거부")
-    void deactivateMenu_withActiveChildren_rejected() {
+    @DisplayName("URL이 없으면 감사 라벨은 이름만이다")
+    void deleteMenu_auditLabelWithoutUrl_isNameOnly() {
+        Menu target = menu(1L, "그룹", null, false, 0);
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(target));
+        given(menuRepository.existsByUpMenuNo(1L)).willReturn(false);
+
+        assertEquals("그룹", menuService.deleteMenu(1L).getAuditLabel());
+    }
+
+    @Test
+    @DisplayName("활성 메뉴는 영구삭제할 수 없다 — 409, row 미삭제")
+    void deleteMenu_activeMenu_rejected() {
         Menu target = menu(1L, "메뉴", null, true, 0);
         given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(target));
-        given(menuRepository.existsByUpMenuNoAndUseYnTrue(1L)).willReturn(true);
 
-        assertThrows(ConflictException.class, () -> menuService.deactivateMenu(1L));
+        assertThrows(ConflictException.class, () -> menuService.deleteMenu(1L));
+
+        verify(menuRepository, never()).delete(any());
+        verify(menuRepository, never()).existsByUpMenuNo(any());
+    }
+
+    @Test
+    @DisplayName("하위 메뉴가 있으면(활성 아닌 비활성 자식만이어도) 영구삭제할 수 없다 — 409")
+    void deleteMenu_withAnyChildren_rejected() {
+        Menu target = menu(1L, "부모", null, false, 0);
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(target));
+        given(menuRepository.existsByUpMenuNo(1L)).willReturn(true);
+
+        assertThrows(ConflictException.class, () -> menuService.deleteMenu(1L));
+
+        verify(menuRepository, never()).delete(any());
+        // 활성 자식 전용 검사(existsByUpMenuNoAndUseYnTrue)가 아니라 전체 자식 검사를 써야 한다
+        verify(menuRepository, never()).existsByUpMenuNoAndUseYnTrue(any());
+    }
+
+    @Test
+    @DisplayName("없는 메뉴 영구삭제는 404")
+    void deleteMenu_notFound() {
+        given(menuRepository.findByIdForUpdate(99L)).willReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> menuService.deleteMenu(99L));
+
+        verify(menuRepository, never()).delete(any());
     }
 
     // ── 동시성 방어 (락 메서드 호출 검증) ──────────────────
@@ -592,15 +629,16 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("동시성 방어: 비활성화 시 findByIdForUpdate로 대상 row를 잠근다")
-    void deactivateMenu_locksTargetRow() {
-        Menu target = menu(1L, "메뉴", null, true, 0);
+    @DisplayName("동시성 방어: 영구삭제 시 findByIdForUpdate로 대상 row를 잠근다")
+    void deleteMenu_locksTargetRow() {
+        Menu target = menu(1L, "메뉴", null, false, 0);
         given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(target));
-        given(menuRepository.existsByUpMenuNoAndUseYnTrue(1L)).willReturn(false);
+        given(menuRepository.existsByUpMenuNo(1L)).willReturn(false);
 
-        menuService.deactivateMenu(1L);
+        menuService.deleteMenu(1L);
 
         verify(menuRepository).findByIdForUpdate(1L);
+        verify(menuRepository, never()).findById(any());
     }
 
     // ── 트리 조회 ──────────────────────────────────────

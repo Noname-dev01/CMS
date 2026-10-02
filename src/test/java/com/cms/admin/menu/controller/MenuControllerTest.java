@@ -4,6 +4,7 @@ import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuStructureRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
+import com.cms.admin.menu.dto.response.MenuDeleteResult;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuStructureResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
@@ -446,23 +447,23 @@ class MenuControllerTest {
         verifyNoInteractions(menuService);
     }
 
-    // ===================== deactivateMenu =====================
+    // ===================== deleteMenu (영구삭제) =====================
 
     @Test
-    @DisplayName("메뉴 비활성화 성공 (204 No Content)")
+    @DisplayName("메뉴 영구삭제 성공 (204 No Content)")
     @WithMockUser(roles = "ADMIN")
-    void deactivateMenu_success() throws Exception {
-        given(menuService.deactivateMenu(1L)).willReturn(menuResponse());
+    void deleteMenu_success() throws Exception {
+        given(menuService.deleteMenu(1L)).willReturn(new MenuDeleteResult(1L, "메뉴", "/menu"));
 
         mockMvc.perform(delete("/admin/api/menus/1").with(csrf()))
                 .andExpect(status().isNoContent());
     }
 
     @Test
-    @DisplayName("활성 하위 메뉴 보유 메뉴 비활성화 시 409 RESOURCE_CONFLICT")
+    @DisplayName("활성 메뉴이거나 하위 메뉴가 있어 영구삭제할 수 없으면 409 RESOURCE_CONFLICT")
     @WithMockUser(roles = "ADMIN")
-    void deactivateMenu_conflict() throws Exception {
-        given(menuService.deactivateMenu(1L)).willThrow(new ConflictException("활성 하위 메뉴가 있어 비활성화할 수 없습니다."));
+    void deleteMenu_conflict() throws Exception {
+        given(menuService.deleteMenu(1L)).willThrow(new ConflictException("활성 메뉴는 영구삭제할 수 없습니다. 먼저 비활성화해주세요."));
 
         mockMvc.perform(delete("/admin/api/menus/1").with(csrf()))
                 .andExpect(status().isConflict())
@@ -470,10 +471,10 @@ class MenuControllerTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 메뉴 비활성화 시 404")
+    @DisplayName("존재하지 않는 메뉴 영구삭제 시 404")
     @WithMockUser(roles = "ADMIN")
-    void deactivateMenu_notFound() throws Exception {
-        given(menuService.deactivateMenu(99L)).willThrow(new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
+    void deleteMenu_notFound() throws Exception {
+        given(menuService.deleteMenu(99L)).willThrow(new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
 
         mockMvc.perform(delete("/admin/api/menus/99").with(csrf()))
                 .andExpect(status().isNotFound())
@@ -481,16 +482,16 @@ class MenuControllerTest {
     }
 
     @Test
-    @DisplayName("인증 없이 메뉴 비활성화 시 401")
-    void deactivateMenu_unauthenticated() throws Exception {
+    @DisplayName("인증 없이 메뉴 영구삭제 시 401")
+    void deleteMenu_unauthenticated() throws Exception {
         mockMvc.perform(delete("/admin/api/menus/1").with(csrf()))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
-    @DisplayName("USER는 메뉴 비활성화 시 403")
+    @DisplayName("USER는 메뉴 영구삭제 시 403")
     @WithMockUser(roles = "USER")
-    void deactivateMenu_userForbidden() throws Exception {
+    void deleteMenu_userForbidden() throws Exception {
         mockMvc.perform(delete("/admin/api/menus/1").with(csrf()))
                 .andExpect(status().isForbidden());
 

@@ -13,7 +13,10 @@ public final class AdminActionTypes {
     public static final String PASSWORD_CHANGE   = "PASSWORD_CHANGE";
     public static final String MENU_CREATE       = "MENU_CREATE";
     public static final String MENU_UPDATE       = "MENU_UPDATE";
+    /** 더는 발생하지 않음 — 비활성화는 PATCH useYn=false(MENU_UPDATE)로 일원화. 과거 로그 호환으로 유지 */
     public static final String MENU_DEACTIVATE   = "MENU_DEACTIVATE";
+    /** 메뉴 영구삭제(하드 삭제) — targetId = 삭제된 메뉴 번호, targetLabel = "이름 (URL)" */
+    public static final String MENU_DELETE       = "MENU_DELETE";
     /** 같은 부모 아래 형제 메뉴 순서 재조정 (targetId = 부모 메뉴 번호, 최상위는 null) */
     public static final String MENU_REORDER      = "MENU_REORDER";
     /** 메뉴의 부모(상위 메뉴) 변경 (targetId = 이동한 메뉴 번호) */
@@ -30,7 +33,7 @@ public final class AdminActionTypes {
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
-            ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_REORDER, MENU_MOVE, MENU_STRUCTURE_APPLY,
+            ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_DELETE, MENU_REORDER, MENU_MOVE, MENU_STRUCTURE_APPLY,
             ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE,
             NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE
     );

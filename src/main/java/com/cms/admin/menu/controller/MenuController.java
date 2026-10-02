@@ -90,14 +90,14 @@ public class MenuController {
         return ResponseEntity.ok(menuService.applyStructure(request));
     }
 
-    @Operation(summary = "메뉴 비활성화", description = "하드 삭제가 아닌 useYn=false 처리. 활성 하위 메뉴가 있으면 거부된다.")
-    @ApiResponse(responseCode = "204", description = "비활성화 성공")
+    @Operation(summary = "메뉴 영구삭제", description = "하드 삭제(복구 불가). 비활성 상태이고 하위 메뉴(활성·비활성 무관)가 없는 메뉴만 삭제된다. 비활성화는 PATCH /{id} 의 useYn=false 로 한다.")
+    @ApiResponse(responseCode = "204", description = "영구삭제 성공")
     @ApiResponse(responseCode = "404", description = "메뉴 없음")
-    @ApiResponse(responseCode = "409", description = "활성 하위 메뉴 존재로 비활성화 거부")
+    @ApiResponse(responseCode = "409", description = "활성 메뉴이거나 하위 메뉴가 있어 영구삭제 거부")
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deactivateMenu(@PathVariable Long id) {
-        menuService.deactivateMenu(id);
+    public ResponseEntity<Void> deleteMenu(@PathVariable Long id) {
+        menuService.deleteMenu(id);
         return ResponseEntity.noContent().build();
     }
 }

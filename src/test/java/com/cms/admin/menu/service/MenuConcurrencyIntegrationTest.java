@@ -13,6 +13,7 @@ import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuStructureResponse;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
 import jakarta.persistence.EntityManager;
@@ -148,7 +149,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
             workers.add(executor.submit(() -> {
                 barrier.await(5, TimeUnit.SECONDS);
                 try {
-                    menuService.deactivateMenu(parentMenuNo);
+                    menuService.updateMenu(parentMenuNo, MenuUpdateRequest.builder().useYn(false).build());
                 } catch (ConflictException expected) {
                     // 자식이 먼저 활성화됐다면 정상적인 거절이다. DB 예외는 흡수하지 않는다.
                 }
@@ -182,8 +183,8 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     /**
      * 감사 M-04(같은 행 쓰기의 비관적 잠금 일관화) 보조 검증 — 잠금 프리미티브 실증.
      * 수정 후 일반 수정(useYn 미포함)이 실제로 사용하는 잠금 조회({@code findByIdForUpdate})를
-     * 트랜잭션 1에서 직접 호출해, 이 잠금이 실제로 동시 {@code deactivateMenu()}를 락 대기
-     * 타임아웃으로 막는지 확인한다. {@code deactivateMenu()}는 수정 전부터 이미 같은 잠금
+     * 트랜잭션 1에서 직접 호출해, 이 잠금이 실제로 동시 비활성화(PATCH useYn=false)를 락 대기
+     * 타임아웃으로 막는지 확인한다. 비활성화(PATCH useYn=false)는 수정 전부터 이미 같은 잠금
      * 조회를 썼으므로 이 테스트 자체는 수정 전/후 모두 통과한다 — "일반 수정이 이제 이 잠금을
      * 획득한다"는 사실은 {@link com.cms.admin.menu.service.MenuServiceTest}의 stub 검증이
      * 담당하고, "잠금이 실제로 경합을 막는다"는 이 테스트가 담당한다. lost update 자체의
@@ -221,7 +222,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
                                 .createNativeQuery("SELECT @@session.innodb_lock_wait_timeout").getSingleResult();
                         try {
                             entityManager.createNativeQuery("SET SESSION innodb_lock_wait_timeout = 1").executeUpdate();
-                            menuService.deactivateMenu(menuNo);
+                            menuService.updateMenu(menuNo, MenuUpdateRequest.builder().useYn(false).build());
                         } finally {
                             entityManager.createNativeQuery("SET SESSION innodb_lock_wait_timeout = " + original)
                                     .executeUpdate();
@@ -332,7 +333,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         if (edit) {
             menuService.updateMenu(menuNo, MenuUpdateRequest.builder().menuName("변경된 이름").build());
         } else {
-            menuService.deactivateMenu(menuNo);
+            menuService.updateMenu(menuNo, MenuUpdateRequest.builder().useYn(false).build());
         }
     }
 
@@ -683,6 +684,169 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         }
     }
 
+    // ============ 영구삭제(deleteMenu) — PLAN-menu-permanent-delete.md ============
+
+    /**
+     * 별도 트랜잭션이 대상 행 하나만 잠근 채(필요하면 {@code afterLock}으로 쓰기까지 하고) 멈춘다. {@code locked}가 풀리면 잠금을
+     * 쥐고 있는 것이고, {@code release}를 풀면 커밋한다. 일반 수정·재활성화·삭제가 쓰는 단일 행 잠금과 같은 조회를 쓴다.
+     */
+    private Future<?> holdRowLock(ExecutorService executor, Long menuNo, CountDownLatch locked, CountDownLatch release,
+                                  AtomicLong holderConnection, java.util.function.Consumer<Menu> afterLock) {
+        return executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            Menu target = menuRepository.findByIdForUpdate(menuNo).orElseThrow();
+            holderConnection.set(currentConnectionId());
+            afterLock.accept(target);
+            locked.countDown();
+            await(release, "단일 행 잠금 보유 트랜잭션 해제");
+        }));
+    }
+
+    @Test
+    @DisplayName("영구삭제: 비활성 잎 메뉴의 row가 사라지고, MENU_DELETE 감사 로그에 targetId와 이름·URL 라벨이 남는다")
+    void deleteMenu_removesRow_andLogsWithLabel() {
+        Menu target = menuRepository.save(Menu.builder().menuName("X-삭제 대상").menuUrl("/x/delete").useYn(false)
+                .ord(970).createDate(LocalDateTime.now()).updateDate(LocalDateTime.now()).build());
+        long before = maxActionLogId();
+
+        menuService.deleteMenu(target.getMenuNo());
+
+        assertTrue(menuRepository.findById(target.getMenuNo()).isEmpty(), "row가 물리적으로 삭제된다");
+        List<AdminActionLog> logs = logsAfter(AdminActionTypes.MENU_DELETE, before);
+        assertEquals(1, logs.size());
+        assertEquals(AdminActionResult.SUCCESS, logs.get(0).getActionResult());
+        assertEquals(target.getMenuNo(), logs.get(0).getTargetId());
+        assertEquals("X-삭제 대상 (/x/delete)", logs.get(0).getTargetLabel());
+    }
+
+    @Test
+    @DisplayName("영구삭제: 비활성 자식만 남아 있어도 부모는 삭제되지 않는다(409) — 활성 자식 전용 검사가 아니다")
+    void deleteMenu_parentWithInactiveChild_conflict_unchanged() {
+        Menu parent = saveMenu("P-비활성 부모", null, false, 971);
+        Menu child = saveMenu("P-비활성 자식", parent.getMenuNo(), false, 0);
+
+        assertThrows(ConflictException.class, () -> menuService.deleteMenu(parent.getMenuNo()));
+
+        assertTrue(menuRepository.findById(parent.getMenuNo()).isPresent());
+        assertTrue(menuRepository.findById(child.getMenuNo()).isPresent());
+    }
+
+    @Test
+    @DisplayName("영구삭제: 활성 메뉴는 409이고 row가 그대로 남는다")
+    void deleteMenu_activeMenu_conflict_unchanged() {
+        Menu active = saveMenu("A-활성", null, true, 972);
+
+        assertThrows(ConflictException.class, () -> menuService.deleteMenu(active.getMenuNo()));
+
+        assertTrue(menuRepository.findById(active.getMenuNo()).orElseThrow().getUseYn());
+    }
+
+    @Test
+    @DisplayName("영구삭제 ↔ 하위 생성: 전체 행 잠금으로 비활성 자식을 만드는 트랜잭션이 먼저면, 삭제는 락 대기 후 자식을 발견해 409")
+    void deleteMenu_afterConcurrentChildInsert_conflict() throws Exception {
+        Menu parent = saveMenu("C-비활성 부모", null, false, 973);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        AtomicReference<Long> insertedChild = new AtomicReference<>();
+        try {
+            // createMenu와 같은 전체 행 잠금(대상 부모 포함) 안에서 비활성 자식을 INSERT한다 — 활성 자식만 보면 놓치는 경우
+            Future<?> holder = holdAllRowLocks(executor, locked, release, holderConnection, () -> {
+                LocalDateTime now = LocalDateTime.now();
+                Menu child = menuRepository.save(Menu.builder().menuName("C-동시 비활성 자식").useYn(false).ord(0)
+                        .upMenuNo(parent.getMenuNo()).createDate(now).updateDate(now).build());
+                menuRepository.flush();
+                insertedChild.set(child.getMenuNo());
+            });
+            await(locked, "전체 행 잠금 + 자식 INSERT");
+            Future<?> delete = executor.submit(() -> menuService.deleteMenu(parent.getMenuNo()));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertFalse(delete.isDone(), "잠금 보유 중에는 삭제가 끝나면 안 된다");
+
+            release.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+            extraMenuIds.add(insertedChild.get());
+
+            Throwable failure = failureOf(delete);
+            assertInstanceOf(ConflictException.class, failure, "커밋된 자식을 발견해 409여야 한다: " + failure);
+            assertTrue(menuRepository.findById(parent.getMenuNo()).isPresent(), "부모는 삭제되지 않는다");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("영구삭제 ↔ 재활성화: 다른 트랜잭션이 먼저 재활성화를 커밋하면, 삭제는 락 대기 후 활성 상태를 읽어 409")
+    void deleteMenu_afterConcurrentReactivate_conflict() throws Exception {
+        Menu target = saveMenu("R-비활성", null, false, 974);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        try {
+            Future<?> holder = holdRowLock(executor, target.getMenuNo(), locked, release, holderConnection,
+                    menu -> menu.update(menu.getMenuName(), menu.getMenuUrl(), menu.getMenuIcon(), menu.getMenuDesc(),
+                            true, menu.getAccessRole(), menu.getOrd(), LocalDateTime.now()));
+            await(locked, "대상 행 잠금 + 재활성화");
+            Future<?> delete = executor.submit(() -> menuService.deleteMenu(target.getMenuNo()));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertFalse(delete.isDone(), "잠금 보유 중에는 삭제가 끝나면 안 된다");
+
+            release.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+
+            Throwable failure = failureOf(delete);
+            assertInstanceOf(ConflictException.class, failure, "재활성화가 커밋된 뒤라 활성 메뉴 삭제 거부(409)여야 한다: " + failure);
+            assertTrue(menuRepository.findById(target.getMenuNo()).orElseThrow().getUseYn());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("영구삭제 ↔ 영구삭제: 먼저 삭제가 커밋되면 뒤 요청은 락 대기 후 404")
+    void deleteMenu_afterConcurrentDelete_notFound() throws Exception {
+        Menu target = saveMenu("D-이중 삭제", null, false, 975);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        try {
+            Future<?> holder = holdRowLock(executor, target.getMenuNo(), locked, release, holderConnection,
+                    menu -> menuRepository.delete(menu));
+            await(locked, "대상 행 잠금 + 삭제");
+            Future<?> delete = executor.submit(() -> menuService.deleteMenu(target.getMenuNo()));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertFalse(delete.isDone(), "잠금 보유 중에는 삭제가 끝나면 안 된다");
+
+            release.countDown();
+            holder.get(5, TimeUnit.SECONDS);
+
+            Throwable failure = failureOf(delete);
+            assertInstanceOf(ResourceNotFoundException.class, failure, "이미 삭제돼 404여야 한다: " + failure);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("영구삭제 뒤 도착한 낡은 구조 초안은 400이 아니라 409이고 아무것도 바뀌지 않는다(화면이 초안을 폐기)")
+    void applyStructure_afterPermanentDelete_staleDraftConflict() {
+        Menu r1 = saveMenu("T-루트1", null, true, 976);
+        Menu r2 = saveMenu("T-루트2", null, true, 977);
+        Menu gone = saveMenu("T-삭제될 메뉴", null, false, 978);
+        List<MenuStructureRequest.Item> staleItems = currentItems(); // 삭제 전 초안(현재 행 수보다 항목이 많아진다)
+
+        menuService.deleteMenu(gone.getMenuNo());
+
+        Throwable failure = assertThrows(RuntimeException.class, () -> menuService.applyStructure(structureOf(staleItems)));
+        assertInstanceOf(ConflictException.class, failure, "집합 불일치는 개수 초과 400이 아니라 낡은 초안 409여야 한다: " + failure);
+        assertEquals(976, menuRepository.findById(r1.getMenuNo()).orElseThrow().getOrd());
+        assertEquals(977, menuRepository.findById(r2.getMenuNo()).orElseThrow().getOrd());
+    }
 
     /**
      * 감사 커밋 순서(커밋 단계 실패) — 프로브가 아닌 실제 서비스 메서드(applyStructure)로 확인한다. 서비스 내부 예외가 아니라
