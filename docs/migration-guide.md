@@ -14,8 +14,20 @@
 | 버전 | 파일 | 내용 |
 |---|---|---|
 | V1 | `V1__init_schema.sql` | baseline 스키마 (member, menu, admin_action_log, visit_log — 인덱스 포함, dev DB 실물 추출) |
-| V2 | `V2__backfill_menu_access_role.sql` | 방어적 `ADD COLUMN IF NOT EXISTS` + access_role 3단계 백필 (멱등). 컬럼은 권한관리 PR ②부터 엔티티에서 매핑하지 않는다(DROP은 PR ④) |
+| V2 | `V2__backfill_menu_access_role.sql` | 방어적 `ADD COLUMN IF NOT EXISTS` + access_role 3단계 백필 (멱등). 컬럼은 권한관리 PR ②부터 엔티티에서 매핑하지 않고 V16에서 제거된다 |
 | V3 | `V3__seed_default_menus.sql` | 기본 메뉴 시드 — menu 테이블이 완전히 빌 때만 실행 (보충 기능 없음) |
+| V4~V12 | (파일명 참조) | 공지·첨부·감사 로그 라벨 등 — `src/main/resources/db/migration/` 참조 || V13 | `V13__create_permission_tables.sql` | 권한 테이블 `permission_role`·`role_permission` (DDL만) || V14 | `V14__seed_manager_notice_permissions.sql` | MANAGER × 공지 4동작 시드 — **일회성 초기화이며 복구 수단이 아니다**(수동 재실행은 회수한 권한을 되살린다) || V15 | `V15__seed_permission_menu.sql` | "권한 관리" 메뉴 시드(멱등, 최상위 맨 끝, `ord`는 INT 상한으로 제한) || V16 | `V16__drop_menu_access_role.sql` | `menu.access_role` 컬럼 제거(`DROP COLUMN IF EXISTS`, **되돌릴 수 없음 — 아래 백업 필수**) |
+
+
+## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
+
+V16은 `menu.access_role` 컬럼을 지운다. 사이드바 노출은 PR ②부터 권한 판정기가 정하고 앱은 이 컬럼을 읽지 않지만, **컬럼 값은 되돌릴 수 없이 사라지고 PR ① 이전 코드는 이 컬럼을 매핑해 기동에 실패한다**(롤백 호환표: `docs/deployment.md` "권한관리 롤백 주의").
+
+- **배포 전 필수**: DB 백업을 먼저 받는다(`make prod-backup` — `docs/deployment.md` "백업", 논리 덤프에 `menu` 테이블 전체가 들어간다). 추가로 값만 따로 남기려면 `SELECT menu_no, menu_url, access_role FROM menu;` 결과를 파일로 저장해 둔다.
+- 확인: 배포 직전에 V15까지 적용돼 있는지(`SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;`), 이 PR 이전 코드로 되돌릴 계획이 없는지 점검한다. 되돌려야 하면 아래 복구를 먼저 한다.
+- **복구(이전 코드로 되돌려야 할 때만)**: ① `ALTER TABLE menu ADD COLUMN access_role VARCHAR(20) NULL;` ② 백업(또는 저장해 둔 값)에서 `UPDATE`로 값을 복원 ③ 이전 앱 배포. `flyway_schema_history`의 V16 기록은 그대로 두면 이전 코드(마이그레이션 파일에 V16이 없는 버전)가 `validate`에서 이력 불일치로 실패할 수 있으므로, 이 경우는 **되돌리기보다 roll-forward(수정 버전 배포)를 기본**으로 한다.
+- **`IF EXISTS`는 SQL을 다시 돌릴 때만 멱등이다** — 컬럼이 이미 없는 환경(수동 삭제 등)에서 V16 SQL이 실패하지 않는다는 뜻이지, 실패한 마이그레이션의 재기동 복구가 된다는 뜻이 아니다.
+- **V16 실패 복구(`flyway_schema_history`에 `success=0` 기록이 남은 경우)**: 잠금 대기 초과(`ALTER`가 장시간 메타데이터 잠금에 막힘) 등으로 V16이 실패하면 Flyway가 실패 기록을 남기고, **다음 기동의 `migrate`는 SQL을 실행하기 전에 "failed migration to version 16"으로 중단한다 — 단순 재기동으로는 복구되지 않는다**(원인을 없애도 마찬가지, `MenuAccessRoleDropMigrationTest`가 재현). ① 실패 원인 제거(예: 긴 트랜잭션·잠금 해소, 앱 인스턴스 정지) ② 실제 상태 확인 — `SHOW COLUMNS FROM menu LIKE 'access_role';`(컬럼이 남아 있어야 정상 실패, 이미 없으면 DDL이 적용된 것)와 `SELECT version, success FROM flyway_schema_history WHERE version = '16';` ③ **같은 마이그레이션 구성(`locations`·접속 정보)으로 `flyway repair`**(실패 기록 제거) ④ 재기동(`migrate` 재실행)으로 성공을 확인한다. 부분 적용 흔적이 없는 단일 `ALTER`라 별도 수동 정리는 필요 없다(V13과 달리).
 
 ## 환경별 동작
 

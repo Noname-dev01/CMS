@@ -55,7 +55,7 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 ## 사이드바 연동 (PR ②, 2026-10-02)
 
-사이드바 노출은 이 판정기에서 도출된다 — `menuUrlVisibility(Supplier<snapshot>, authentication)`(ADMIN 항상 true, MANAGER는 `AdminFeature.forMenuUrl`로 URL→기능을 완전 일치로 찾아 READ 판정, 미분류·null은 false)와 메뉴 관리 화면용 `managerMenuUrlVisibility(snapshot)`. 가지치기·노출 안내 규칙은 `com.cms.admin.menu`의 `CLAUDE.md` "노출 계산" 참조. 그래서 MANAGER에게 **보이는 링크는 항상 READ가 허용된 기능의 URL**이고 그 URL의 게이트도 같은 판정이라 "보이는데 403"은 구조적으로 생기지 않는다(역은 가능 — 메뉴가 없거나 비활성). `menu.access_role` 컬럼은 존치하지만 엔티티가 매핑하지 않는다(DROP은 PR ④).
+사이드바 노출은 이 판정기에서 도출된다 — `menuUrlVisibility(Supplier<snapshot>, authentication)`(ADMIN 항상 true, MANAGER는 `AdminFeature.forMenuUrl`로 URL→기능을 완전 일치로 찾아 READ 판정, 미분류·null은 false)와 메뉴 관리 화면용 `managerMenuUrlVisibility(snapshot)`. 가지치기·노출 안내 규칙은 `com.cms.admin.menu`의 `CLAUDE.md` "노출 계산" 참조. 그래서 MANAGER에게 **보이는 링크는 항상 READ가 허용된 기능의 URL**이고 그 URL의 게이트도 같은 판정이라 "보이는데 403"은 구조적으로 생기지 않는다(역은 가능 — 메뉴가 없거나 비활성). `menu.access_role` 컬럼은 PR ④(V16)에서 제거됐다.
 
 ## 권한관리 API·화면 (PR ③, 2026-10-02)
 
@@ -69,6 +69,6 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 - **화면 버튼 숨김**: `AdminSidebarAdvice`가 한 `@ModelAttribute` 메서드에서 `sidebarMenus`와 `myPermissions`(`"NOTICE:CREATE"` 같은 키 집합, `AdminPermissionEvaluator.grantedActionKeys`)를 같은 스냅샷으로 계산하고, `notice/manage.html`이 [새 공지]·[수정]·[삭제]·첨부 업로드·삭제 버튼을 숨긴다(첨부 업로드·삭제는 **UPDATE** — U4). 서버 판정이 최종이며 화면을 연 사이 권한이 회수되면 다음 API가 403이다 — 메서드 계층 403의 `message`는 영문 `Access Denied`(`NoticeControllerTest`가 고정)라 공지 화면은 **403에 고정 한국어 문구**를 쓴다. DELETE만 가진 MANAGER가 첨부 있는 공지를 지우다 409를 받으면 첨부 삭제에 수정 권한이 필요하다는 안내 한 문장이 덧붙는다.
 - 시험: `RolePermissionServiceTest`(단위), `RolePermissionControllerTest`(슬라이스), `RolePermissionApiIntegrationTest`(실제 MariaDB — 저장 결과·감사·**실제 로그인 세션 재사용 즉시 반영**·커밋 직전 실패 주입·감사 저장 실패 격리·변형 행), `RolePermissionConcurrencyIntegrationTest`(`INNODB_LOCK_WAITS` 락 대기 관측·동시 PUT 정확히 하나만 성공), `PermissionMenuMigrationTest`(V15), `AdminSidebarAdviceSnapshotTest`.
 
-## 아직 없는 것 (후속 PR)
+## 남은 작업
 
-`menu.access_role` 컬럼 `DROP`(PR ④, V16 — 전 `menu` 테이블 백업 필수).
+(없음 — 권한관리 PR ①~④ 완료. `menu.access_role` 컬럼은 PR ④의 V16에서 제거됐고 되돌릴 수 없다: `docs/migration-guide.md` "V16 배포 전 백업과 복구".)

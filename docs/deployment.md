@@ -331,7 +331,7 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
   WHERE BINARY role = 'ROLE_MANAGER' AND BINARY feature = 'NOTICE' AND BINARY action IN ('READ','CREATE','UPDATE','DELETE');
   ```
   4행이 아니면 회수된 것이다. 4행이어도 과거에 회수했다가 다시 부여했을 수 있고 감사가 유실됐을 수 있으므로 **이력이 불확실하면 되돌리지 않고 roll-forward 한다**. 불가피하면 MANAGER 계정 상태를 잠금·비활성으로 바꿔 로그인을 막거나, 공지 권한 개방을 감수한다는 승인을 받는다.
-- **④(V16 `DROP COLUMN access_role`) 이후 → ①**: 불가 — ①은 `access_role`을 매핑하므로 컬럼이 없으면 `ddl-auto: validate`로 기동에 실패한다. V16 실행 전 `menu` 테이블 백업이 필수다(복원: `ALTER TABLE menu ADD COLUMN access_role VARCHAR(20) NULL` 후 백업에서 값 복원).
+- **④(V16 `DROP COLUMN access_role`) 이후 → ①**: 불가 — ①은 `access_role`을 매핑하므로 컬럼이 없으면 `ddl-auto: validate`로 기동에 실패한다. V16 실행 전 DB 백업이 필수다(복원: `ALTER TABLE menu ADD COLUMN access_role VARCHAR(20) NULL` 후 백업에서 값 복원 — 절차는 `docs/migration-guide.md` "V16 배포 전 백업과 복구").
 - **V14 재실행 금지**: 권한 복구·재부여는 권한관리 화면/`PUT`으로만 한다(V14 SQL을 수동 재실행하면 회수한 권한이 되살아난다 — `docs/migration-guide.md` 참조).
 - **변형 행 정리**: 권한관리 저장이 "권한 테이블에 형식이 올바르지 않은 행이 있어 저장할 수 없습니다"로 409를 내면 수동 삽입된 대소문자·공백 변형 행(예: `read`)이 있는 것이다. 해당 행을 확인한 뒤 수동 SQL로 정리하고 다시 저장한다(자동 삭제하지 않는다).
 - **다중 인스턴스 미지원**: 저장 시 다른 인스턴스의 권한 캐시는 무효화되지 않는다(세션 레지스트리·레이트리밋과 같은 단일 인스턴스 전제).
