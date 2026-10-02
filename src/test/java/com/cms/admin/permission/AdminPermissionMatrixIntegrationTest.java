@@ -42,6 +42,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 /**
  * 접근 매트릭스 통합 시험(PLAN-menu-permission-management.md 테스트 계획 2): 실제 SecurityConfig·판정기·캐시·MariaDB로
@@ -309,10 +310,18 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
     void unknownAndAdminOnlyPathsDeniedForManager() throws Exception {
         restoreSeed();
         for (String path : List.of("/admin/unknown", "/admin/api/unknown", "/admin/menu/manage", "/admin/log/manage",
-                "/admin/member/manage", "/admin/api/menus/tree", "/admin/api/logs", "/admin/api/members")) {
+                "/admin/member/manage", "/admin/api/menus/tree", "/admin/api/logs", "/admin/api/members",
+                // 권한관리 자체는 위임 불가 — MANAGER는 화면·API 모두 403
+                "/admin/permission/manage", "/admin/api/roles/ROLE_MANAGER/permissions")) {
             MvcResult result = mockMvc.perform(get(path).with(asManager())).andReturn();
             assertThat(result.getResponse().getStatus()).as(path).isEqualTo(403);
         }
+        // 시드 상태 MANAGER가 유효한 CSRF·본문으로 PUT해도 403이고 권한은 그대로다(스스로 승격할 수 없다)
+        MvcResult put = mockMvc.perform(put("/admin/api/roles/ROLE_MANAGER/permissions").with(asManager()).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"version\":0,\"grants\":[]}")).andReturn();
+        assertThat(put.getResponse().getStatus()).isEqualTo(403);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM role_permission WHERE role = ?", Integer.class, MANAGER)).isEqualTo(4);
     }
 
     @Test
