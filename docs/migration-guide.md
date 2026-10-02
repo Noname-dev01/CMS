@@ -73,6 +73,8 @@ SELECT version, description, success FROM flyway_schema_history ORDER BY install
 
 - **DML 마이그레이션에 DDL을 섞지 않는다.** MariaDB에서 DDL은 암묵적 커밋을 유발해 실패 시 롤백 보장이 깨진다.
 - 시드/백필류는 항상 멱등하게 작성한다 (`WHERE ... IS NULL`, 세션 변수 가드 등).
+- **권한 테이블 시드(V14)는 일회성 초기화이지 복구 수단이 아니다.** `WHERE NOT EXISTS`는 부분 실패 후 재시도에서 중복 삽입을 막을 뿐이며, 이미 성공한 V14를 수동으로 다시 실행하면 ADMIN이 회수한 MANAGER 권한을 되살린다(Flyway는 성공한 마이그레이션을 재실행하지 않는다). 누락·삭제된 권한은 권한관리 화면/API로만 복구한다 — `com.cms.admin.permission`의 `CLAUDE.md` 참조.
+- **V13 부분 성공 복구**: `CREATE TABLE` 2개(`permission_role`, `role_permission`) 중 첫 번째만 성공하고 실패하면 MariaDB DDL 암묵 커밋 때문에 `flyway_schema_history`에 실패 기록이 남는다. ① 실패 원인 제거 ② 두 테이블 존재 여부를 확인해 **존재하는 것을 수동 `DROP`**(권한 행이 아직 시드 전이라 안전, `role_permission`이 FK로 `permission_role`을 참조하므로 `role_permission`을 먼저) ③ `flyway repair` 후 재기동.
 - 여러 행을 조건부로 INSERT할 때 행 단위 `(SELECT COUNT(*) ...) = 0` 조건은 첫 INSERT 직후 거짓이 되는 함정이 있다 — 선두에서 세션 변수로 초기 상태를 캡처한다 (V3 참고).
 - 부모-자식 FK성 참조는 `LAST_INSERT_ID()`로 실제 생성 ID를 캡처한다. AUTO_INCREMENT 시작값을 가정하지 않는다.
 - 기존 DB에도 도달해야 하는 데이터 보정은 반드시 V2 이상(= baseline-version 초과)에 둔다.
