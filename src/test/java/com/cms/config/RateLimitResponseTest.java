@@ -46,6 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = RateLimitResponseTestStubController.class)
 @Import({
         SecurityConfig.class,
+        PermissionTestConfig.class,
         RateLimitFilterConfig.class,
         RateLimitResponseTest.MockConfig.class
 })

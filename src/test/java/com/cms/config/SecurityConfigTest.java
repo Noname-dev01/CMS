@@ -34,6 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
+        PermissionTestConfig.class,
         RateLimitFilterConfig.class,
         SecurityConfigTest.MockConfig.class
 })

@@ -11,7 +11,9 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
+import com.cms.admin.permission.AdminFeature;
+import com.cms.admin.permission.PermissionAction;
+import com.cms.admin.permission.RequirePermission;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,7 +41,7 @@ public class NoticeAttachmentController {
     @ApiResponse(responseCode = "404", description = "공지사항 없음")
     @ApiResponse(responseCode = "409", description = "첨부파일 5개 초과")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.UPDATE) // 첨부 업로드는 공지 내용 수정에 해당(U4)
     public ResponseEntity<NoticeAttachmentResponse> upload(
             @PathVariable Long noticeId,
             @RequestPart("file") MultipartFile file
@@ -57,7 +59,7 @@ public class NoticeAttachmentController {
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "404", description = "공지사항 없음")
     @GetMapping
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.READ)
     public ResponseEntity<List<NoticeAttachmentResponse>> list(@PathVariable Long noticeId) {
         return ResponseEntity.ok(noticeAttachmentService.list(noticeId));
     }
@@ -66,7 +68,7 @@ public class NoticeAttachmentController {
     @ApiResponse(responseCode = "200", description = "다운로드 성공")
     @ApiResponse(responseCode = "404", description = "공지사항 또는 첨부파일 없음")
     @GetMapping("/{attachmentId}/content")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.READ)
     public ResponseEntity<byte[]> content(@PathVariable Long noticeId, @PathVariable Long attachmentId) {
         NoticeAttachmentDownload download = noticeAttachmentService.download(noticeId, attachmentId);
 
@@ -85,7 +87,7 @@ public class NoticeAttachmentController {
     @ApiResponse(responseCode = "204", description = "삭제 성공")
     @ApiResponse(responseCode = "404", description = "공지사항 또는 첨부파일 없음")
     @DeleteMapping("/{attachmentId}")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @RequirePermission(feature = AdminFeature.NOTICE, action = PermissionAction.UPDATE) // 첨부 삭제도 공지 수정(U4) — DELETE만 가진 MANAGER는 첨부 있는 공지를 못 지운다
     public ResponseEntity<Void> delete(@PathVariable Long noticeId, @PathVariable Long attachmentId) {
         noticeAttachmentService.delete(noticeId, attachmentId);
         return ResponseEntity.noContent().build();

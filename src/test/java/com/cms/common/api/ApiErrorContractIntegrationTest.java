@@ -2,6 +2,7 @@ package com.cms.common.api;
 
 import com.cms.admin.menu.service.MenuService;
 import com.cms.admin.visit.repository.VisitLogRepository;
+import com.cms.config.PermissionTestConfig;
 import com.cms.config.SecurityConfig;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
@@ -48,6 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = ApiErrorContractTestController.class)
 @Import({
         SecurityConfig.class,
+        PermissionTestConfig.class,
         RateLimitFilterConfig.class,
         ApiErrorContractIntegrationTest.MockConfig.class
 })
