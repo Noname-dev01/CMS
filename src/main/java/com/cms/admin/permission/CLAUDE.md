@@ -1,7 +1,7 @@
 # CLAUDE.md — com.cms.admin.permission
 
 이 디렉터리(관리자 권한 판정 도메인) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조.
-계획서: `adversarial-review/plan/PLAN-menu-permission-management.md`(적대적 리뷰 3라운드 ship). 이 패키지는 PR ①(2026-10-02)에서 도입됐고 권한관리 화면·API는 후속 PR이다.
+계획서: `adversarial-review/plan/PLAN-menu-permission-management.md`(적대적 리뷰 3라운드 ship). 이 패키지는 PR ①(2026-10-02)에서 도입됐고 사이드바 연동은 PR ②, 권한관리 화면·API는 후속 PR이다.
 
 ## 개념
 
@@ -53,6 +53,10 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 판정기 이전 앱(이 PR 이전)은 MANAGER 공지 권한을 코드에 고정하므로, ADMIN이 권한을 회수한 뒤 그 앱으로 되돌리면 **DB에 회수 결과가 남아 있어도 MANAGER의 공지 CRUD가 전부 되살아난다**(재로그인과 무관). 권한 회수 이력이 있으면 되돌리기보다 roll-forward(수정 버전 배포)를 기본으로 한다. 이 PR(①) 자체는 회수 UI가 없어 시드 그대로이므로 되돌려도 동작은 오늘과 같다.
 
-## 이 PR에서 아직 없는 것 (후속 PR)
+## 사이드바 연동 (PR ②, 2026-10-02)
 
-권한관리 화면·API(`PUT /admin/api/roles/{role}/permissions`)·`PERMISSION_UPDATE` 감사·공지 화면 버튼 숨김(③), 사이드바를 판정기에서 도출하고 `menu.access_role` 매핑 제거(②), `access_role` 컬럼 DROP(④). 그때까지 사이드바 노출은 기존 `access_role`·`hasAdminAuthority()`를 그대로 쓴다.
+사이드바 노출은 이 판정기에서 도출된다 — `menuUrlVisibility(Supplier<snapshot>, authentication)`(ADMIN 항상 true, MANAGER는 `AdminFeature.forMenuUrl`로 URL→기능을 완전 일치로 찾아 READ 판정, 미분류·null은 false)와 메뉴 관리 화면용 `managerMenuUrlVisibility(snapshot)`. 가지치기·노출 안내 규칙은 `com.cms.admin.menu`의 `CLAUDE.md` "노출 계산" 참조. 그래서 MANAGER에게 **보이는 링크는 항상 READ가 허용된 기능의 URL**이고 그 URL의 게이트도 같은 판정이라 "보이는데 403"은 구조적으로 생기지 않는다(역은 가능 — 메뉴가 없거나 비활성). `menu.access_role` 컬럼은 존치하지만 엔티티가 매핑하지 않는다(DROP은 PR ④).
+
+## 아직 없는 것 (후속 PR)
+
+권한관리 화면·API(`PUT /admin/api/roles/{role}/permissions`)·`PERMISSION_UPDATE` 감사·V15 메뉴 시드·공지 화면 버튼 숨김(③), `access_role` 컬럼 DROP(④).

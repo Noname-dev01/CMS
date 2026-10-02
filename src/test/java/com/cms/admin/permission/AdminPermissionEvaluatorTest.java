@@ -162,4 +162,69 @@ class AdminPermissionEvaluatorTest {
             SecurityContextHolder.clearContext();
         }
     }
+
+    // ── 메뉴 URL 가시성(사이드바) ──────────────────────────────
+
+    @Test
+    @DisplayName("메뉴 가시성: ADMIN은 URL이 null·미분류여도 항상 보이고 스냅샷을 쓰지 않는다")
+    void menuVisibility_adminSeesEverything() {
+        AdminPermissionEvaluator evaluator = evaluatorWith(PermissionSnapshot.EMPTY);
+
+        var visible = evaluator.menuUrlVisibility(() -> PermissionSnapshot.EMPTY, user("ROLE_ADMIN"));
+
+        assertThat(visible.test(null)).isTrue();
+        assertThat(visible.test("/외부")).isTrue();
+        assertThat(visible.test("/admin/menu/manage")).isTrue();
+    }
+
+    @Test
+    @DisplayName("메뉴 가시성: MANAGER는 상시 기능과 READ 허용 기능만, 위임 불가·미분류·null·쿼리스트링 URL은 숨김")
+    void menuVisibility_managerFollowsCatalogAndSnapshot() {
+        AdminPermissionEvaluator evaluator = evaluatorWith(PermissionSnapshot.EMPTY);
+
+        var withRead = evaluator.menuUrlVisibility(() -> grants(PermissionAction.READ), user("ROLE_MANAGER"));
+        assertThat(withRead.test("/admin")).isTrue();
+        assertThat(withRead.test("/admin/member/info")).isTrue();
+        assertThat(withRead.test("/admin/notice/manage")).isTrue();
+        assertThat(withRead.test("/admin/menu/manage")).isFalse();
+        assertThat(withRead.test("/admin/member/manage")).isFalse();
+        assertThat(withRead.test("/admin/permission/manage")).isFalse();
+        assertThat(withRead.test("/admin/notice/manage?x=1")).isFalse();
+        assertThat(withRead.test("/admin/notice/manage/")).isFalse();
+        assertThat(withRead.test(null)).isFalse();
+
+        var withoutRead = evaluator.menuUrlVisibility(() -> grants(PermissionAction.CREATE), user("ROLE_MANAGER"));
+        assertThat(withoutRead.test("/admin/notice/manage")).as("READ 없는 쓰기 권한은 의존 규칙상 무효").isFalse();
+        assertThat(withoutRead.test("/admin")).isTrue();
+    }
+
+    @Test
+    @DisplayName("메뉴 가시성: 익명·USER는 아무것도 보지 못한다")
+    void menuVisibility_nonAdminRolesSeeNothing() {
+        AdminPermissionEvaluator evaluator = evaluatorWith(PermissionSnapshot.EMPTY);
+
+        assertThat(evaluator.menuUrlVisibility(() -> grants(PermissionAction.READ), user("ROLE_USER")).test("/admin")).isFalse();
+        assertThat(evaluator.menuUrlVisibility(() -> grants(PermissionAction.READ), null).test("/admin")).isFalse();
+    }
+
+    @Test
+    @DisplayName("메뉴 가시성: ADMIN·USER·익명 경로는 스냅샷 공급자(캐시)를 호출하지 않고, MANAGER는 한 번만 호출한다")
+    void menuVisibility_snapshotSupplierCalledOnlyForManager() {
+        AdminPermissionEvaluator evaluator = evaluatorWith(PermissionSnapshot.EMPTY);
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.function.Supplier<PermissionSnapshot> supplier = () -> {
+            calls.incrementAndGet();
+            return PermissionSnapshot.EMPTY;
+        };
+
+        evaluator.menuUrlVisibility(supplier, user("ROLE_ADMIN")).test("/admin/menu/manage");
+        evaluator.menuUrlVisibility(supplier, user("ROLE_USER")).test("/admin");
+        evaluator.menuUrlVisibility(supplier, null).test("/admin");
+        assertThat(calls.get()).isZero();
+
+        var manager = evaluator.menuUrlVisibility(supplier, user("ROLE_MANAGER"));
+        manager.test("/admin");
+        manager.test("/admin/notice/manage");
+        assertThat(calls.get()).isEqualTo(1);
+    }
 }

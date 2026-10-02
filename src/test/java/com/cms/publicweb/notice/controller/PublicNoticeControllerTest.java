@@ -99,6 +99,11 @@ class PublicNoticeControllerTest {
         public MenuService menuService() {
             return Mockito.mock(MenuService.class);
         }
+
+        @Bean
+        public com.cms.admin.permission.AdminPermissionEvaluator adminPermissionEvaluator() {
+            return Mockito.mock(com.cms.admin.permission.AdminPermissionEvaluator.class);
+        }
     }
 
     private PublicNoticeSummary summary(Long id, String title) {

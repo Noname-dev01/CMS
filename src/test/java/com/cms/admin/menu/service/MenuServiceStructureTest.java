@@ -1,7 +1,6 @@
 package com.cms.admin.menu.service;
 
 import com.cms.admin.menu.Menu;
-import com.cms.admin.menu.MenuAccessRole;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuStructureRequest;
 import com.cms.admin.menu.dto.response.MenuStructureResponse;
@@ -49,12 +48,12 @@ class MenuServiceStructureTest {
     MenuService menuService;
 
     private static Menu menu(long menuNo, Long upMenuNo, Integer ord) {
-        return menu(menuNo, upMenuNo, ord, true, MenuAccessRole.ALL);
+        return menu(menuNo, upMenuNo, ord, true);
     }
 
-    private static Menu menu(long menuNo, Long upMenuNo, Integer ord, boolean useYn, MenuAccessRole role) {
+    private static Menu menu(long menuNo, Long upMenuNo, Integer ord, boolean useYn) {
         return Menu.builder().menuNo(menuNo).menuName("메뉴" + menuNo).upMenuNo(upMenuNo).ord(ord)
-                .useYn(useYn).accessRole(role).build();
+                .useYn(useYn).build();
     }
 
     /** 현재 상태 그대로의 항목(base = 현재, 새 부모 = 현재). */
@@ -181,10 +180,10 @@ class MenuServiceStructureTest {
     @Test
     @DisplayName("활성 메뉴를 비활성 부모 아래로 옮기면 400, 비활성 메뉴는 허용")
     void activeUnderInactiveParent_rejected() {
-        Menu inactiveRoot = menu(1, null, 0, false, MenuAccessRole.ALL);
+        Menu inactiveRoot = menu(1, null, 0, false);
         Menu activeRoot = menu(2, null, 1);
         Menu activeChild = menu(3, 2L, 0);
-        Menu inactiveChild = menu(4, 2L, 1, false, MenuAccessRole.ALL);
+        Menu inactiveChild = menu(4, 2L, 1, false);
         db(inactiveRoot, activeRoot, activeChild, inactiveChild);
 
         assertThrows(InvalidRequestException.class, () -> menuService.applyStructure(request(
@@ -194,23 +193,6 @@ class MenuServiceStructureTest {
                 same(inactiveRoot), same(activeRoot), same(activeChild), to(inactiveChild, 1L)));
         assertEquals(1L, inactiveChild.getUpMenuNo());
         assertEquals(1, ok.getChanged());
-    }
-
-    @Test
-    @DisplayName("공용 메뉴를 관리자 전용 조상 아래로 옮기면 400, 관리자 전용 메뉴는 허용")
-    void commonUnderAdminOnly_rejected() {
-        Menu adminRoot = menu(1, null, 0, true, MenuAccessRole.ADMIN);
-        Menu commonRoot = menu(2, null, 1);
-        Menu commonChild = menu(3, 2L, 0);
-        Menu adminChild = menu(4, 2L, 1, true, MenuAccessRole.ADMIN);
-        db(adminRoot, commonRoot, commonChild, adminChild);
-
-        assertThrows(InvalidRequestException.class, () -> menuService.applyStructure(request(
-                same(adminRoot), same(commonRoot), to(commonChild, 1L), same(adminChild))));
-
-        menuService.applyStructure(request(
-                same(adminRoot), same(commonRoot), same(commonChild), to(adminChild, 1L)));
-        assertEquals(1L, adminChild.getUpMenuNo());
     }
 
     @Test
@@ -277,10 +259,10 @@ class MenuServiceStructureTest {
     // ===================== 기존 데이터(위반·고아) 호환 =====================
 
     @Test
-    @DisplayName("이동하지 않은 서브트리의 기존 위반(4단·권한 불일치)은 다른 가지의 재정렬을 막지 않는다")
+    @DisplayName("이동하지 않은 서브트리의 기존 위반(4단)은 다른 가지의 재정렬을 막지 않는다")
     void existingViolations_doNotBlockUnrelatedReorder() {
-        Menu adminRoot = menu(1, null, 0, true, MenuAccessRole.ADMIN);
-        Menu commonUnderAdmin = menu(2, 1L, 0); // 기존 권한 불일치
+        Menu adminRoot = menu(1, null, 0, true);
+        Menu commonUnderAdmin = menu(2, 1L, 0);
         Menu l3 = menu(3, 2L, 0);
         Menu l4 = menu(4, 3L, 0); // 기존 4단
         Menu otherRoot = menu(5, null, 1);

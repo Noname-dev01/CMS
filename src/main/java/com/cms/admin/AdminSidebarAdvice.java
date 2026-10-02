@@ -2,9 +2,11 @@ package com.cms.admin;
 
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.admin.menu.service.MenuService;
+import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.config.auth.AdminSecurityService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ModelAttribute;
 
@@ -26,6 +28,7 @@ public class AdminSidebarAdvice {
 
     private final MenuService menuService;
     private final AdminSecurityService adminSecurityService;
+    private final AdminPermissionEvaluator adminPermissionEvaluator;
 
     @ModelAttribute("sidebarMenus")
     public List<SidebarMenuResponse> sidebarMenus() {
@@ -33,7 +36,9 @@ public class AdminSidebarAdvice {
         if (adminSecurityService.getCurrentAdminId() == null) {
             return List.of();
         }
-        return menuService.getSidebarMenus(adminSecurityService.hasAdminAuthority());
+        // 요청당 권한 스냅샷을 한 번만 받아 판정을 만든다 — 역할은 URL 게이트와 같은 Authentication 권한에서 읽는다.
+        return menuService.getSidebarMenus(adminPermissionEvaluator.menuUrlVisibility(
+                adminPermissionEvaluator::snapshot, SecurityContextHolder.getContext().getAuthentication()));
     }
 
     /** 사이드바 active 하이라이트용 현재 요청 URI (Thymeleaf 3.1부터 #request 접근 불가) */

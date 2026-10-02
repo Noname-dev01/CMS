@@ -3,6 +3,7 @@ package com.cms.admin.permission;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static com.cms.admin.permission.FeatureKind.ADMIN_ONLY;
@@ -90,6 +91,14 @@ public enum AdminFeature {
 
     public List<String> getGatePatterns() {
         return gatePatterns;
+    }
+
+    /** 메뉴 URL이 어떤 기능의 {@code menuUrls}와 <b>문자열 완전 일치</b>하면 그 기능을, 아니면(미분류·쿼리스트링·null) 빈 값을 돌려준다. */
+    public static Optional<AdminFeature> forMenuUrl(String menuUrl) {
+        if (menuUrl == null) {
+            return Optional.empty();
+        }
+        return Arrays.stream(values()).filter(f -> f.menuUrls.contains(menuUrl)).findFirst();
     }
 
     public static List<AdminFeature> ofKind(FeatureKind kind) {

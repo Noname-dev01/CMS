@@ -14,7 +14,7 @@
 | 버전 | 파일 | 내용 |
 |---|---|---|
 | V1 | `V1__init_schema.sql` | baseline 스키마 (member, menu, admin_action_log, visit_log — 인덱스 포함, dev DB 실물 추출) |
-| V2 | `V2__backfill_menu_access_role.sql` | 방어적 `ADD COLUMN IF NOT EXISTS` + access_role 3단계 백필 (멱등) |
+| V2 | `V2__backfill_menu_access_role.sql` | 방어적 `ADD COLUMN IF NOT EXISTS` + access_role 3단계 백필 (멱등). 컬럼은 권한관리 PR ②부터 엔티티에서 매핑하지 않는다(DROP은 PR ④) |
 | V3 | `V3__seed_default_menus.sql` | 기본 메뉴 시드 — menu 테이블이 완전히 빌 때만 실행 (보충 기능 없음) |
 
 ## 환경별 동작

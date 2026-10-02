@@ -32,7 +32,7 @@ public interface MenuRepository extends JpaRepository<Menu, Long> {
     Integer findMaxOrdByUpMenuNo(@Param("upMenuNo") Long upMenuNo);
 
     /**
-     * 전체 메뉴 행을 menuNo 오름차순으로 PESSIMISTIC_WRITE 잠금하며 읽는다 — 구조 반영·생성·accessRole 수정이
+     * 전체 메뉴 행을 menuNo 오름차순으로 PESSIMISTIC_WRITE 잠금하며 읽는다 — 구조 반영·생성이
      * 첫 조회로 쓴다(PLAN-menu-structure-apply.md 결정 2·9). 같은 순서로 전체를 잠그므로 이 경로들끼리는 직렬화되고
      * 교착이 없다. 메뉴는 관리자 전용 소규모 데이터라 전체 잠금 비용을 수용한다.
      */

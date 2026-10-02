@@ -787,7 +787,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         try {
             Future<?> holder = holdRowLock(executor, target.getMenuNo(), locked, release, holderConnection,
                     menu -> menu.update(menu.getMenuName(), menu.getMenuUrl(), menu.getMenuIcon(), menu.getMenuDesc(),
-                            true, menu.getAccessRole(), menu.getOrd(), LocalDateTime.now()));
+                            true, menu.getOrd(), LocalDateTime.now()));
             await(locked, "대상 행 잠금 + 재활성화");
             Future<?> delete = executor.submit(() -> menuService.deleteMenu(target.getMenuNo()));
             awaitSomeoneWaitingFor(holderConnection.get());

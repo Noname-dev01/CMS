@@ -1,7 +1,6 @@
 package com.cms.admin.menu.dto.response;
 
 import com.cms.admin.menu.Menu;
-import com.cms.admin.menu.MenuAccessRole;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -28,7 +27,8 @@ public class MenuTreeResponse {
     private Data data;
     private List<MenuTreeResponse> children;
 
-    public static MenuTreeResponse of(Menu menu, int menuLevel, Long topMenuNo, List<MenuTreeResponse> children) {
+    public static MenuTreeResponse of(Menu menu, int menuLevel, Long topMenuNo, String exposure, String exposureLabel,
+                                      List<MenuTreeResponse> children) {
         return MenuTreeResponse.builder()
                 .id(String.valueOf(menu.getMenuNo()))
                 .text(menu.getMenuName())
@@ -38,9 +38,10 @@ public class MenuTreeResponse {
                         .menuUrl(menu.getMenuUrl())
                         .menuIcon(menu.getMenuIcon())
                         .useYn(menu.getUseYn())
-                        .accessRole(menu.getAccessRole())
                         .ord(menu.getOrd())
                         .upMenuNo(menu.getUpMenuNo())
+                        .exposure(exposure)
+                        .exposureLabel(exposureLabel)
                         .menuLevel(menuLevel)
                         .topMenuNo(topMenuNo)
                         .build())
@@ -65,9 +66,11 @@ public class MenuTreeResponse {
         private String menuUrl;
         private String menuIcon;
         private Boolean useYn;
-        private MenuAccessRole accessRole;
         private Integer ord;
         private Long upMenuNo;
+        /** MANAGER 관점 노출 안내 코드(ALL_ADMINS·PERMISSION:기능·VISIBLE_BY_CHILDREN·ADMIN_ONLY·NOT_SHOWN) — 읽기 전용. */
+        private String exposure;
+        private String exposureLabel;
         private Integer menuLevel;
         private Long topMenuNo;
     }
