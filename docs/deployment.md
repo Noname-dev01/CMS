@@ -314,6 +314,28 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 새 CVE가 공개돼 `prod-smoke`가 빨개지면 (1) 수정 버전으로 상향, (2) 불가하면 `.trivyignore.yaml`에 CVE ID·`paths`·사유·책임자·`expired_at`을 적어 예외 처리한다. 예외 없이 우회하려면 필수 체크 설정을 임시 해제하는 방법뿐이며, 그 사실을 PR에 기록한다. Spring Boot BOM이 관리하는 라이브러리는 `build.gradle`의 `ext['tomcat.version']`·`ext['jackson-bom.version']` 오버라이드로 올리며(Boot가 이 버전 이상을 관리하게 되면 제거), 현재 값과 사유는 해당 파일 주석에 있다.
 
+
+## 권한관리 롤백 주의 (권한관리 PR ①~④, adversarial-review/plan/PLAN-menu-permission-management.md "롤백 호환표")
+
+MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 ADMIN이 `/admin/permission/manage`(권한 관리)에서 바꾼다. **판정기가 없는 앱(PR ① 이전)으로 되돌리면 회수한 권한이 되살아날 수 있으므로** 되돌리기 전에 아래를 확인한다. **기본은 roll-forward(수정 버전 배포)**다.
+
+- **③ 이후 → ②**: 안전. 권한 테이블은 ②도 읽어 회수 결과가 유지된다. 권한관리 화면·API만 사라지고 V15가 만든 "권한 관리" 메뉴는 남아 ADMIN 사이드바에 링크가 보이지만 핸들러가 없어 404다(표시 회귀). 필요하면 메뉴 관리에서 그 메뉴를 비활성화한다.
+- **③ 이후 → ①**: 보안 회귀는 없다(판정기 유지). 다만 ①은 `menu.access_role`을 매핑해 V15 메뉴(`access_role NULL`)를 ALL로 정규화하므로 **MANAGER 사이드바에 "권한 관리" 링크가 보이고 누르면 403**이다(표시 회귀). 메뉴를 비활성화해 숨긴다.
+- **① 이전(판정기 없는 앱)으로 되돌리기**: 권한 회수 이력이 있으면 **금지가 기본**이다 — 회수가 무효화돼 MANAGER 공지 CRUD가 전부 열린다. 되돌리기 전에 회수 여부를 확인한다. **감사 이력만으로 판단하지 않는다** — 감사 저장은 최선 노력이라 회수는 성공했는데 감사가 유실됐을 수 있다. 감사와 **현재 DB의 NOTICE 유효 허용 집합을 정확 일치로 함께** 확인한다:
+  ```sql
+  -- 회수 이력(감사)
+  SELECT create_at, action_user_id, action_result, target_label FROM admin_action_log
+  WHERE action_type = 'PERMISSION_UPDATE' ORDER BY id DESC;
+  -- 현재 유효 허용 집합: 정확히 4행(READ·CREATE·UPDATE·DELETE)이어야 시드 상태 (BINARY로 general_ci 비교를 피한다)
+  SELECT action FROM role_permission
+  WHERE BINARY role = 'ROLE_MANAGER' AND BINARY feature = 'NOTICE' AND BINARY action IN ('READ','CREATE','UPDATE','DELETE');
+  ```
+  4행이 아니면 회수된 것이다. 4행이어도 과거에 회수했다가 다시 부여했을 수 있고 감사가 유실됐을 수 있으므로 **이력이 불확실하면 되돌리지 않고 roll-forward 한다**. 불가피하면 MANAGER 계정 상태를 잠금·비활성으로 바꿔 로그인을 막거나, 공지 권한 개방을 감수한다는 승인을 받는다.
+- **④(V16 `DROP COLUMN access_role`) 이후 → ①**: 불가 — ①은 `access_role`을 매핑하므로 컬럼이 없으면 `ddl-auto: validate`로 기동에 실패한다. V16 실행 전 `menu` 테이블 백업이 필수다(복원: `ALTER TABLE menu ADD COLUMN access_role VARCHAR(20) NULL` 후 백업에서 값 복원).
+- **V14 재실행 금지**: 권한 복구·재부여는 권한관리 화면/`PUT`으로만 한다(V14 SQL을 수동 재실행하면 회수한 권한이 되살아난다 — `docs/migration-guide.md` 참조).
+- **변형 행 정리**: 권한관리 저장이 "권한 테이블에 형식이 올바르지 않은 행이 있어 저장할 수 없습니다"로 409를 내면 수동 삽입된 대소문자·공백 변형 행(예: `read`)이 있는 것이다. 해당 행을 확인한 뒤 수동 SQL로 정리하고 다시 저장한다(자동 삭제하지 않는다).
+- **다중 인스턴스 미지원**: 저장 시 다른 인스턴스의 권한 캐시는 무효화되지 않는다(세션 레지스트리·레이트리밋과 같은 단일 인스턴스 전제).
+
 ## 알려진 제약
 
 - `GET /swagger-ui.html`·`/v3/api-docs`는 springdoc 비활성 시(prod) 핸들러가 등록되지 않는다. `/admin/api/**` 밖 경로라 `GlobalApiExceptionHandler.API_MATCHER`에 걸리지 않고 `CustomErrorController`의 일반 HTML 404(`error/404.html`)로 응답한다(2026-08-06 `7c64307` #26로 해결됨 — 이전에는 500이었다. 상세는 `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조).
