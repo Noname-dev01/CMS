@@ -20,6 +20,9 @@
     .perm-matrix .perm-lock-note { font-size: 0.8rem; color: #858796; }
     .perm-matrix .perm-na { color: #b7b9cc; }
     .perm-matrix input[type="checkbox"] { width: 1.1rem; height: 1.1rem; }
+    .perm-member-list { max-height: 28rem; overflow-y: auto; }
+    .perm-member-item { cursor: pointer; }
+    .perm-member-item.disabled { cursor: not-allowed; }
 </style>
 
 <div id="wrapper">
@@ -35,34 +38,75 @@
                     <h1 class="h3 mb-0 text-gray-800">권한 관리</h1>
                 </div>
 
-                <div class="perm-card mb-4">
-                    <div class="card-header py-3 d-flex flex-wrap justify-content-between align-items-center">
-                        <h6 class="m-0 font-weight-bold text-primary">
-                            대상 역할: MANAGER(매니저) <span class="badge badge-secondary ml-2" id="versionBadge">v-</span>
-                        </h6>
-                        <span class="text-muted small">관리자(ADMIN)는 코드로 모든 권한이 고정되어 있어 변경할 수 없습니다.</span>
-                    </div>
-                    <div class="card-body">
-                        <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
-                        <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
+                <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
 
-                        <div class="table-responsive">
-                            <table class="table table-bordered perm-matrix mb-3" id="matrix">
-                                <thead class="thead-light">
-                                <tr id="matrixHead"><th>기능</th></tr>
-                                </thead>
-                                <tbody id="matrixBody">
-                                <tr><td colspan="5" class="text-muted">불러오는 중...</td></tr>
-                                </tbody>
-                            </table>
+                <p class="text-muted small">
+                    관리자(ADMIN)는 코드로 모든 권한이 고정되어 있어 변경할 수 없습니다. 새로 만든 매니저는 권한이 없으므로 여기서 부여하세요.
+                    매니저의 역할이 바뀌면 그 회원의 개별 권한은 삭제됩니다.
+                </p>
+
+                <div class="row">
+                    <!-- 매니저 목록 -->
+                    <div class="col-lg-4 mb-4">
+                        <div class="perm-card">
+                            <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                                <h6 class="m-0 font-weight-bold text-primary">매니저 목록</h6>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefreshList">새로고침</button>
+                            </div>
+                            <div class="card-body">
+                                <form id="searchForm" class="mb-3">
+                                    <div class="form-row">
+                                        <div class="col-6 mb-2">
+                                            <input type="text" class="form-control form-control-sm" id="searchUserId" maxlength="50"
+                                                   placeholder="아이디" aria-label="아이디 검색">
+                                        </div>
+                                        <div class="col-6 mb-2">
+                                            <input type="text" class="form-control form-control-sm" id="searchUserName" maxlength="100"
+                                                   placeholder="이름" aria-label="이름 검색">
+                                        </div>
+                                    </div>
+                                    <button type="submit" class="btn btn-sm btn-primary" id="btnSearch">검색</button>
+                                </form>
+                                <div class="list-group perm-member-list" id="memberList">
+                                    <div class="list-group-item text-muted perm-placeholder">불러오는 중...</div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-primary btn-block mt-2 d-none" id="btnMore">더 보기</button>
+                            </div>
                         </div>
+                    </div>
 
-                        <p class="text-muted small mb-3">
-                            생성·수정·삭제 권한은 조회 권한과 함께 부여해야 하며, 저장하면 해당 MANAGER에게 <strong>다음 요청부터</strong> 즉시 반영됩니다(재로그인 불필요).
-                        </p>
-                        <div class="d-flex align-items-center">
-                            <button type="button" class="btn btn-primary mr-3" id="btnSave" disabled>저장</button>
-                            <span class="text-warning font-weight-bold d-none" id="dirtyNotice">저장하지 않은 변경이 있습니다.</span>
+                    <!-- 선택한 회원의 권한 매트릭스 -->
+                    <div class="col-lg-8 mb-4">
+                        <div class="perm-card">
+                            <div class="card-header py-3 d-flex flex-wrap justify-content-between align-items-center">
+                                <h6 class="m-0 font-weight-bold text-primary">
+                                    <span id="targetTitle">매니저를 선택하세요</span>
+                                    <span class="badge badge-secondary ml-2 d-none" id="versionBadge">v-</span>
+                                </h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="matrixEmpty" class="text-muted">왼쪽 목록에서 권한을 설정할 매니저를 선택하세요.</div>
+                                <div id="matrixArea" class="d-none">
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered perm-matrix mb-3" id="matrix">
+                                            <thead class="thead-light">
+                                            <tr id="matrixHead"><th>기능</th></tr>
+                                            </thead>
+                                            <tbody id="matrixBody"></tbody>
+                                        </table>
+                                    </div>
+
+                                    <p class="text-muted small mb-3">
+                                        생성·수정·삭제 권한은 조회 권한과 함께 부여해야 하며, 저장하면 해당 매니저에게 <strong>다음 요청부터</strong> 즉시 반영됩니다(재로그인 불필요).
+                                    </p>
+                                    <div class="d-flex align-items-center flex-wrap">
+                                        <button type="button" class="btn btn-primary mr-2" id="btnSave" disabled>저장</button>
+                                        <button type="button" class="btn btn-outline-secondary mr-3" id="btnRevert" disabled>되돌리기</button>
+                                        <span class="text-warning font-weight-bold d-none" id="dirtyNotice">저장하지 않은 변경이 있습니다.</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -80,18 +124,40 @@
 <script src="/js/sb-admin-2.min.js"></script>
 
 <script>
-    const ROLE_URL = "/admin/api/roles/ROLE_MANAGER/permissions";
+    const MEMBERS_URL = "/admin/api/members";
+    const PAGE_SIZE = 100;
+    const STATUS_LABELS = { ACTIVE: "활성", LOCKED: "잠금", DISABLED: "비활성", PASSWORD_EXPIRED: "비밀번호 만료", DELETED: "삭제" };
 
+    const memberList = document.getElementById("memberList");
+    const btnMore = document.getElementById("btnMore");
+    const btnSearch = document.getElementById("btnSearch");
+    const btnRefreshList = document.getElementById("btnRefreshList");
+    const searchForm = document.getElementById("searchForm");
+    const searchUserId = document.getElementById("searchUserId");
+    const searchUserName = document.getElementById("searchUserName");
+    const targetTitle = document.getElementById("targetTitle");
+    const versionBadge = document.getElementById("versionBadge");
+    const matrixEmpty = document.getElementById("matrixEmpty");
+    const matrixArea = document.getElementById("matrixArea");
     const matrixHead = document.getElementById("matrixHead");
     const matrixBody = document.getElementById("matrixBody");
-    const versionBadge = document.getElementById("versionBadge");
     const btnSave = document.getElementById("btnSave");
+    const btnRevert = document.getElementById("btnRevert");
     const dirtyNotice = document.getElementById("dirtyNotice");
     const pageAlert = document.getElementById("pageAlert");
     const pageSuccess = document.getElementById("pageSuccess");
 
-    let loaded = null;            // 마지막으로 서버에서 받은 매트릭스 응답
-    let busy = false;             // 저장·조회 진행 중 — 이 동안 체크박스도 잠근다(성공 응답 재렌더링이 사이의 편집을 지우는 것 방지)
+    // ── 상태 ────────────────────────────────────────────
+    // selectedId·loadSeq·loaded·초안(체크박스)을 함께 관리한다. 조회 응답은 "자신의 세대가 현재 세대이고 응답 memberId가 선택한 회원일 때만"
+    // 반영한다 — 늦게 도착한 이전 회원의 응답이 지금 선택한 회원의 매트릭스·버전을 덮으면 저장이 엉뚱한 회원에게 적용될 수 있다.
+    let selectedId = null;        // 지금 선택한 회원
+    let loadSeq = 0;              // 조회 요청 세대
+    let loaded = null;            // 마지막으로 정상 반영한 매트릭스 응답(저장의 URL·version은 여기서만 가져온다)
+    let busy = false;             // 매트릭스 조회·저장 진행 중 — 이 동안 목록 선택과 체크박스를 잠근다
+    let listBusy = false;         // 목록 조회 진행 중
+    let listPage = 0;
+    let listLast = true;
+    let listQuery = { userId: "", userName: "" };
     let leavingAfterSave = false;
 
     function getCsrfHeaders() {
@@ -138,6 +204,12 @@
         return el;
     }
 
+    function permissionUrl(memberId) {
+        return MEMBERS_URL + "/" + encodeURIComponent(memberId) + "/permissions";
+    }
+
+    // ── 매트릭스(체크박스) ──────────────────────────────
+
     function checkboxOf(featureName, actionName) {
         return matrixBody.querySelector('input[data-feature="' + featureName + '"][data-action="' + actionName + '"]');
     }
@@ -178,18 +250,41 @@
         return false;
     }
 
+    // 저장 가능 조건: 반영된 매트릭스가 지금 선택한 회원의 것이어야 한다(선택 ID·응답 memberId 불일치면 저장하지 않는다)
+    function loadedMatchesSelection() {
+        return loaded !== null && selectedId !== null && loaded.memberId === selectedId;
+    }
+
+    function readOnlyTarget() {
+        return loaded !== null && loaded.status === "DELETED";
+    }
+
     function refreshState() {
         const dirty = isDirty();
-        btnSave.disabled = !dirty || busy;
+        const canSave = dirty && !busy && loadedMatchesSelection() && !readOnlyTarget();
+        btnSave.disabled = !canSave;
+        btnRevert.disabled = !dirty || busy;
         dirtyNotice.classList.toggle("d-none", !dirty);
         matrixBody.querySelectorAll('input[type="checkbox"][data-feature]').forEach(function (box) {
-            box.disabled = busy || box.dataset.locked === "true";   // 잠금 칸(상시 허용·관리자 전용)은 busy가 풀려도 계속 disabled
+            // 잠금 칸(상시 허용·관리자 전용)은 busy가 풀려도 계속 disabled, 삭제된 계정은 읽기 전용
+            box.disabled = busy || box.dataset.locked === "true" || readOnlyTarget();
+        });
+        btnRefreshList.disabled = busy;
+        btnSearch.disabled = busy || listBusy;
+        btnMore.disabled = busy || listBusy;
+        memberList.querySelectorAll(".perm-member-item").forEach(function (item) {
+            item.classList.toggle("disabled", busy);
+            item.setAttribute("aria-disabled", busy ? "true" : "false");
         });
     }
 
     function render(data) {
         loaded = data;
+        targetTitle.textContent = data.userName + " (" + data.userId + ")";
         versionBadge.textContent = "v" + data.version;
+        versionBadge.classList.remove("d-none");
+        matrixEmpty.classList.add("d-none");
+        matrixArea.classList.remove("d-none");
 
         matrixHead.replaceChildren();
         matrixHead.appendChild(Object.assign(cell("th"), { textContent: "기능" }));
@@ -241,6 +336,15 @@
         refreshState();
     }
 
+    function clearMatrix() {
+        loaded = null;
+        targetTitle.textContent = "매니저를 선택하세요";
+        versionBadge.classList.add("d-none");
+        matrixArea.classList.add("d-none");
+        matrixEmpty.classList.remove("d-none");
+        refreshState();
+    }
+
     // 연동: 생성·수정·삭제를 켜면 조회가 자동 체크, 조회를 끄면 나머지가 자동 해제(서버는 위반 시 400 — 최종 방어)
     function onToggle(event) {
         const box = event.target;
@@ -258,63 +362,193 @@
         refreshState();
     }
 
+    // ── 회원 목록 ────────────────────────────────────────
 
-    async function load(message) {
+    function statusBadge(status) {
+        const badge = cell("span", "badge ml-2 " + (status === "ACTIVE" ? "badge-success" : "badge-warning"));
+        badge.textContent = STATUS_LABELS[status] || status;
+        return badge;
+    }
+
+    function appendMembers(members) {
+        memberList.querySelectorAll(".perm-placeholder").forEach(function (placeholder) { placeholder.remove(); });
+        members.forEach(function (member) {
+            const item = cell("button", "list-group-item list-group-item-action perm-member-item");
+            item.type = "button";
+            item.dataset.memberId = String(member.id);
+            const name = cell("span", "font-weight-bold");
+            name.textContent = member.userName;       // 이름·아이디는 textContent로만 삽입한다
+            item.appendChild(name);
+            item.appendChild(statusBadge(member.status));
+            const sub = cell("div", "small text-muted");
+            sub.textContent = member.userId;
+            item.appendChild(sub);
+            item.classList.toggle("active", member.id === selectedId);
+            item.addEventListener("click", function () { selectMember(member.id); });
+            memberList.appendChild(item);
+        });
+    }
+
+    function showListMessage(message) {
+        memberList.replaceChildren();
+        const empty = cell("div", "list-group-item text-muted perm-placeholder");
+        empty.textContent = message;
+        memberList.appendChild(empty);
+    }
+
+    function highlightSelected() {
+        memberList.querySelectorAll(".perm-member-item").forEach(function (item) {
+            item.classList.toggle("active", item.dataset.memberId === String(selectedId));
+        });
+    }
+
+    // append=false: 첫 페이지부터 다시 읽는다(검색·새로고침), append=true: 같은 검색 조건의 다음 페이지를 이어 붙인다([더 보기])
+    async function loadList(append) {
+        if (listBusy) {
+            return;
+        }
+        listBusy = true;
+        if (!append) {
+            listPage = 0;
+            showListMessage("불러오는 중...");
+        }
+        refreshState();
+        const params = new URLSearchParams();
+        params.set("userType", "ROLE_MANAGER");
+        params.set("size", String(PAGE_SIZE));
+        params.set("sort", "userName,asc");
+        params.set("page", String(append ? listPage + 1 : 0));
+        if (listQuery.userId) {
+            params.set("userId", listQuery.userId);
+        }
+        if (listQuery.userName) {
+            params.set("userName", listQuery.userName);
+        }
+        try {
+            const response = await fetch(MEMBERS_URL + "?" + params.toString(), { headers: { "Accept": "application/json" } });
+            if (!response.ok) {
+                showError(await extractErrorMessage(response, "매니저 목록을 불러오지 못했습니다."));
+                if (!append) {
+                    showListMessage("목록을 불러오지 못했습니다.");
+                }
+                return;
+            }
+            const page = await response.json();
+            listPage = page.page;
+            listLast = page.last;
+            if (!append) {
+                memberList.replaceChildren();
+            }
+            if (page.content.length === 0 && !append) {
+                showListMessage(listQuery.userId || listQuery.userName
+                    ? "검색 결과가 없습니다."
+                    : "권한을 설정할 매니저가 없습니다. 회원 관리에서 매니저 계정을 만드세요.");
+            } else {
+                appendMembers(page.content);
+            }
+            btnMore.classList.toggle("d-none", listLast);
+        } catch (e) {
+            showError("매니저 목록을 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+        } finally {
+            listBusy = false;
+            refreshState();
+        }
+    }
+
+    // ── 선택·조회·저장 ───────────────────────────────────
+
+    function selectMember(memberId) {
+        if (busy) {
+            return;                                   // 조회·저장 중에는 선택을 잠근다
+        }
+        if (memberId === selectedId && loadedMatchesSelection()) {
+            return;
+        }
+        if (isDirty()) {
+            showError("저장하지 않은 변경이 있습니다. 저장하거나 [되돌리기] 후 다른 매니저를 선택해 주세요.");
+            return;
+        }
+        clearMessages();
+        selectedId = memberId;
+        highlightSelected();
+        loadMatrix(memberId);
+    }
+
+    // 응답은 자신의 세대가 현재 세대이고 응답 memberId가 선택한 회원일 때만 반영한다(R-4 — 오래된 응답 폐기).
+    async function loadMatrix(memberId, message) {
+        const seq = ++loadSeq;
         busy = true;
+        loaded = null;                                // 새 응답이 반영되기 전에는 저장할 수 없다
         refreshState();
         try {
-            const response = await fetch(ROLE_URL, { headers: { "Accept": "application/json" } });
+            const response = await fetch(permissionUrl(memberId), { headers: { "Accept": "application/json" } });
+            if (seq !== loadSeq || memberId !== selectedId) {
+                return false;                         // 더 새로운 요청이 있거나 선택이 바뀌었다 — 폐기
+            }
             if (!response.ok) {
                 showError(await extractErrorMessage(response, "권한 정보를 불러오지 못했습니다."));
+                clearMatrix();
                 return false;
             }
-            render(await response.json());
+            const data = await response.json();
+            if (seq !== loadSeq || data.memberId !== selectedId) {
+                return false;
+            }
+            render(data);
             if (message) {
                 showSuccess(message);
             }
             return true;
         } catch (e) {
-            showError("권한 정보를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+            if (seq === loadSeq && memberId === selectedId) {
+                showError("권한 정보를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+                clearMatrix();
+            }
             return false;
         } finally {
-            busy = false;
-            refreshState();
+            if (seq === loadSeq) {
+                busy = false;                         // 최신 요청만 busy를 푼다
+                refreshState();
+            }
         }
     }
 
     async function save() {
-        if (busy || !isDirty()) {
+        if (busy || !isDirty() || !loadedMatchesSelection() || readOnlyTarget()) {
             return;
         }
+        const target = loaded;                        // 저장의 대상·버전은 반영된 응답에서만 가져온다
         const grants = [];
         currentChecked().forEach(function (key) {
             const parts = key.split(":");
             grants.push({ feature: parts[0], action: parts[1] });
         });
-        const oldVersion = loaded.version;
+        const oldVersion = target.version;
         busy = true;
         clearMessages();
         refreshState();
         try {
-            const response = await fetch(ROLE_URL, {
+            const response = await fetch(permissionUrl(target.memberId), {
                 method: "PUT",
                 headers: getCsrfHeaders(),
                 body: JSON.stringify({ version: oldVersion, grants: grants })
             });
             if (response.ok) {
                 const data = await response.json();
-                render(data);
+                if (data.memberId === selectedId) {
+                    render(data);
+                }
                 const message = data.version === oldVersion
                     ? "변경된 내용이 없어 저장하지 않았습니다."
-                    : "권한을 저장했습니다(v" + oldVersion + "→v" + data.version + "). 해당 MANAGER에게 다음 요청부터 반영됩니다.";
+                    : "권한을 저장했습니다(v" + oldVersion + "→v" + data.version + "). 해당 매니저에게 다음 요청부터 반영됩니다.";
                 showSuccess(message);
                 leavingAfterSave = false;
             } else if (response.status === 409) {
                 const message = await extractErrorMessage(response, "다른 관리자가 먼저 권한을 변경했습니다.");
                 busy = false;
-                await load();
+                await loadMatrix(target.memberId);
                 showError(message + " 최신 상태로 다시 불러왔습니다.");    // 초안 폐기·재조회
-            } else if (response.status === 400) {
+            } else if (response.status === 400 || response.status === 404) {
                 showError(await extractErrorMessage(response, "요청 값이 올바르지 않습니다."));  // 초안 유지
             } else if (response.status === 403) {
                 showError("권한이 없습니다. 세션이 만료되었거나 관리자 권한이 변경되었을 수 있습니다.");
@@ -330,6 +564,29 @@
     }
 
     btnSave.addEventListener("click", save);
+    btnRevert.addEventListener("click", function () {
+        if (loaded && !busy) {
+            clearMessages();
+            render(loaded);                           // 마지막으로 반영한 서버 상태로 초안 되돌리기
+        }
+    });
+    btnMore.addEventListener("click", function () { loadList(true); });
+    btnRefreshList.addEventListener("click", function () {
+        if (busy) {
+            return;
+        }
+        clearMessages();
+        loadList(false);
+    });
+    searchForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (busy) {
+            return;
+        }
+        listQuery = { userId: searchUserId.value.trim(), userName: searchUserName.value.trim() };
+        clearMessages();
+        loadList(false);
+    });
 
     window.addEventListener("beforeunload", function (event) {
         if (isDirty() && !leavingAfterSave) {
@@ -338,7 +595,7 @@
         }
     });
 
-    load();
+    loadList(false);
 </script>
 </body>
 </html>
