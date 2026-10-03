@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `com.cms.admin.member` | 초기 관리자 부트스트랩, 비밀번호 재설정·로그인 실패 잠금·90일 만료, 프로필 이미지 |
 | `com.cms.admin.menu` | 사이드바 3단 제약·권한 판정기 기반 노출 계산(`MenuVisibility`)·노출 안내(`exposure`)·메뉴 시드 조건 |
 | `com.cms.admin.notice` | `useYn`/`deleted` 분리, 비관적 락, 첨부파일 상한·삭제 차단 |
-| `com.cms.admin.permission` | MANAGER 위임 권한 카탈로그·판정기·캐시, 권한관리 API·화면(`PUT` 교체·409·변형 행 가드), 인가 선언 컨벤션, 롤백 주의 |
+| `com.cms.admin.permission` | MANAGER 위임 권한 카탈로그·판정기·캐시(**회원별 허용 행**), 권한관리 API·화면(`PUT` 교체·409·변형 행 가드), 역할 변경 시 개별 권한 삭제, 인가 선언 컨벤션, 롤백·재배포 주의 |
 | `com.cms.config` | `SecurityConfig` 경로별 접근 제어 표(승인 이력 포함) |
 | `com.cms.publicweb.notice` | 공개 노출 불변식 격리, 404 흡수 정책, 공개 첨부 TOCTOU |
 | `src/test/java` | MockMvc·spring-security-test·슬라이스 우선·Testcontainers |
@@ -78,7 +78,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 
 ## 보안 규칙
 
-`SecurityConfig`의 경로별 접근 제어 표(승인 이력 포함)는 `com.cms.config`의 `CLAUDE.md` 참조. MANAGER가 접근할 수 있는 기능(공지사항 등)은 코드 카탈로그(`AdminFeature`) ∩ DB 허용 행으로 정해지고 **ADMIN은 DB를 보지 않고 항상 허용**이다 — 카탈로그·판정기·캐시·인가 선언 컨벤션·롤백 주의는 `com.cms.admin.permission`의 `CLAUDE.md` 참조(2026-10-02, 위임 불가 기능은 어떤 DB 값으로도 MANAGER에게 열리지 않는다).
+`SecurityConfig`의 경로별 접근 제어 표(승인 이력 포함)는 `com.cms.config`의 `CLAUDE.md` 참조. MANAGER가 접근할 수 있는 기능(공지사항 등)은 코드 카탈로그(`AdminFeature`) ∩ **그 회원 본인의** DB 허용 행(`member_permission`, 2026-10-03부터 회원별 — 신규 MANAGER는 권한이 없다)으로 정해지고 **ADMIN은 DB를 보지 않고 항상 허용**이다 — 카탈로그·판정기·캐시·인가 선언 컨벤션·롤백 주의는 `com.cms.admin.permission`의 `CLAUDE.md` 참조(2026-10-02, 위임 불가 기능은 어떤 DB 값으로도 MANAGER에게 열리지 않는다).
 
 - `ACTIVE` 상태 계정만 로그인 가능 (`CustomUserDetailsService`). 연속 5회 로그인 실패 시 자동 잠금(30분 해제) — 정책 상세는 "핵심 도메인 모델 > Member" 참조 (2026-07-14 승인)
 - **세션 등록·강제 만료**: `sessionManagement(maximumSessions(-1))` + `SessionRegistry` + `HttpSessionEventPublisher` 활성 (동시 로그인 제한 없음 — 세션 추적만). 타 관리자 수정으로 상태·권한이 실변경되면(멱등 재잠금 LOCKED/DISABLED 동일값 포함) `AdminSessionRevokeEvent`가 발행되고 커밋 후 `AdminSessionRevokeListener`(AFTER_COMMIT)가 대상자 세션을 만료 처리한다. 만료된 세션의 다음 요청은 `AdminSessionExpiredStrategy`가 API는 JSON 401, 페이지는 `/admin/login` 리다이렉트로 응답. **계약은 best-effort** — 즉시 접근 차단 수단이 아니며, 극단적 커밋 경합 시 기존 세션이 세션 타임아웃(기본 30분) 또는 재잠금까지 유효할 수 있다.
