@@ -1,16 +1,17 @@
 package com.cms.admin.permission.controller;
 
-import com.cms.admin.member.domain.Role;
+import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.FeatureKind;
 import com.cms.admin.permission.PermissionAction;
-import com.cms.admin.permission.dto.request.RolePermissionUpdateRequest;
-import com.cms.admin.permission.dto.response.RolePermissionMatrixResponse;
-import com.cms.admin.permission.service.RolePermissionService;
-import com.cms.admin.permission.service.RolePermissionUpdateResult;
+import com.cms.admin.permission.dto.request.MemberPermissionUpdateRequest;
+import com.cms.admin.permission.dto.response.MemberPermissionMatrixResponse;
+import com.cms.admin.permission.service.MemberPermissionService;
+import com.cms.admin.permission.service.MemberPermissionUpdateResult;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.ConflictException;
 import com.cms.config.MethodSecurityTestConfig;
+import com.cms.config.WithManager;
 import com.cms.config.auth.AdminSecurityService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -39,36 +40,37 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = RolePermissionController.class)
+@WebMvcTest(controllers = MemberPermissionController.class)
 @Import({
-        RolePermissionControllerTest.MockConfig.class,
+        MemberPermissionControllerTest.MockConfig.class,
         MethodSecurityTestConfig.class,
         GlobalApiExceptionHandler.class
 })
-class RolePermissionControllerTest {
+class MemberPermissionControllerTest {
 
-    private static final String URL = "/admin/api/roles/ROLE_MANAGER/permissions";
+    private static final long MEMBER_ID = 10L;
+    private static final String URL = "/admin/api/members/10/permissions";
     private static final String VALID_BODY = "{\"version\":3,\"grants\":[{\"feature\":\"NOTICE\",\"action\":\"READ\"}]}";
 
     @Autowired
     MockMvc mockMvc;
 
     @Autowired
-    RolePermissionService rolePermissionService;
+    MemberPermissionService memberPermissionService;
 
     @Autowired
     AdminSecurityService adminSecurityService;
 
     @BeforeEach
     void setUp() {
-        reset(rolePermissionService, adminSecurityService);
+        reset(memberPermissionService, adminSecurityService);
     }
 
     @TestConfiguration
     static class MockConfig {
         @Bean
-        public RolePermissionService rolePermissionService() {
-            return Mockito.mock(RolePermissionService.class);
+        public MemberPermissionService memberPermissionService() {
+            return Mockito.mock(MemberPermissionService.class);
         }
 
         @Bean
@@ -83,18 +85,18 @@ class RolePermissionControllerTest {
         }
     }
 
-    private RolePermissionMatrixResponse matrix() {
-        return new RolePermissionMatrixResponse("ROLE_MANAGER", 3L,
-                List.of(new RolePermissionMatrixResponse.ActionColumn(PermissionAction.READ, "조회")),
-                List.of(new RolePermissionMatrixResponse.FeatureRow(AdminFeature.NOTICE, "공지사항", FeatureKind.DELEGABLE,
+    private MemberPermissionMatrixResponse matrix() {
+        return new MemberPermissionMatrixResponse(MEMBER_ID, "manager10", "매니저10", MemberStatus.ACTIVE, 3L,
+                List.of(new MemberPermissionMatrixResponse.ActionColumn(PermissionAction.READ, "조회")),
+                List.of(new MemberPermissionMatrixResponse.FeatureRow(AdminFeature.NOTICE, "공지사항", FeatureKind.DELEGABLE,
                         List.of(PermissionAction.READ), List.of(PermissionAction.READ))));
     }
 
     // ── 인가 ──────────────────────────────────────────────
 
     @Test
-    @DisplayName("MANAGER는 GET·PUT 모두 403 JSON ACCESS_DENIED이고 서비스는 호출되지 않는다")
-    @WithMockUser(roles = "MANAGER")
+    @DisplayName("MANAGER는 GET·PUT 모두 403 JSON ACCESS_DENIED이고 서비스는 호출되지 않는다 — 권한이 모두 있는 MANAGER도 자기 승격할 수 없다")
+    @WithManager
     void manager_forbidden() throws Exception {
         mockMvc.perform(get(URL))
                 .andExpect(status().isForbidden())
@@ -103,7 +105,7 @@ class RolePermissionControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
 
-        verifyNoInteractions(rolePermissionService);
+        verifyNoInteractions(memberPermissionService);
     }
 
     @Test
@@ -113,7 +115,7 @@ class RolePermissionControllerTest {
         mockMvc.perform(put(URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isUnauthorized());
 
-        verifyNoInteractions(rolePermissionService);
+        verifyNoInteractions(memberPermissionService);
     }
 
     @Test
@@ -123,20 +125,23 @@ class RolePermissionControllerTest {
         mockMvc.perform(put(URL).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isForbidden());
 
-        verifyNoInteractions(rolePermissionService);
+        verifyNoInteractions(memberPermissionService);
     }
 
     // ── 정상 ──────────────────────────────────────────────
 
     @Test
-    @DisplayName("ADMIN 조회: 200과 매트릭스 JSON 형태")
+    @DisplayName("ADMIN 조회: 200과 회원 식별 정보가 담긴 매트릭스 JSON 형태")
     @WithMockUser(roles = "ADMIN")
     void get_ok() throws Exception {
-        given(rolePermissionService.getMatrix(Role.ROLE_MANAGER)).willReturn(matrix());
+        given(memberPermissionService.getMatrix(MEMBER_ID)).willReturn(matrix());
 
         mockMvc.perform(get(URL))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.role").value("ROLE_MANAGER"))
+                .andExpect(jsonPath("$.memberId").value(10))
+                .andExpect(jsonPath("$.userId").value("manager10"))
+                .andExpect(jsonPath("$.userName").value("매니저10"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.version").value(3))
                 .andExpect(jsonPath("$.actions[0].action").value("READ"))
                 .andExpect(jsonPath("$.actions[0].label").value("조회"))
@@ -147,18 +152,19 @@ class RolePermissionControllerTest {
     }
 
     @Test
-    @DisplayName("ADMIN 저장: 200과 변경 후 매트릭스, 서비스에 역할·요청이 전달된다")
+    @DisplayName("ADMIN 저장: 200과 변경 후 매트릭스, 서비스에 회원 ID·요청이 전달된다")
     @WithMockUser(roles = "ADMIN")
     void put_ok() throws Exception {
-        given(rolePermissionService.replace(eq(Role.ROLE_MANAGER), any(RolePermissionUpdateRequest.class)))
-                .willReturn(new RolePermissionUpdateResult(matrix(), "라벨"));
+        given(memberPermissionService.replace(eq(MEMBER_ID), any(MemberPermissionUpdateRequest.class)))
+                .willReturn(new MemberPermissionUpdateResult(MEMBER_ID, matrix(), "라벨"));
 
         mockMvc.perform(put(URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.version").value(3))
-                .andExpect(jsonPath("$.auditLabel").doesNotExist());
+                .andExpect(jsonPath("$.auditLabel").doesNotExist())
+                .andExpect(jsonPath("$.response").doesNotExist());
 
-        verify(rolePermissionService).replace(eq(Role.ROLE_MANAGER), any(RolePermissionUpdateRequest.class));
+        verify(memberPermissionService).replace(eq(MEMBER_ID), any(MemberPermissionUpdateRequest.class));
     }
 
     // ── 입력 검증 ──────────────────────────────────────────
@@ -178,7 +184,7 @@ class RolePermissionControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         }
-        verifyNoInteractions(rolePermissionService);
+        verifyNoInteractions(memberPermissionService);
     }
 
     @Test
@@ -194,28 +200,32 @@ class RolePermissionControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("JSON_PARSE_ERROR"));
         }
-        verifyNoInteractions(rolePermissionService);
+        verifyNoInteractions(memberPermissionService);
     }
 
     @Test
-    @DisplayName("enum에 없는 {role}은 400 INVALID_REQUEST이고 message에 입력 원문이 반영되지 않는다")
-    @WithMockUser(roles = "ADMIN")
-    void unknownRole_invalidRequest_withoutEcho() throws Exception {
-        mockMvc.perform(get("/admin/api/roles/ROLE_X/permissions"))
+    @DisplayName("{id}가 숫자가 아니면(me 포함) 400 INVALID_REQUEST이고 message에 입력 원문이 반영되지 않는다 — me 경로는 URL 게이트가 MANAGER에게 열려 있어도 핸들러에 닿지 못한다")
+    void nonNumericId_invalidRequest_withoutEcho() throws Exception {
+        mockMvc.perform(get("/admin/api/members/me/permissions").with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("a").roles("ADMIN")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
-                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("ROLE_X"))))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("me"))))
                 // 오류 응답의 path에는 요청 URI가 들어가는 기존 계약이다
-                .andExpect(jsonPath("$.path").value("/admin/api/roles/ROLE_X/permissions"));
+                .andExpect(jsonPath("$.path").value("/admin/api/members/me/permissions"));
+        mockMvc.perform(put("/admin/api/members/me/permissions").with(csrf())
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("a").roles("ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
-        verifyNoInteractions(rolePermissionService);
+        verifyNoInteractions(memberPermissionService);
     }
 
     @Test
     @DisplayName("서비스의 ConflictException은 409 RESOURCE_CONFLICT")
     @WithMockUser(roles = "ADMIN")
     void put_conflict() throws Exception {
-        given(rolePermissionService.replace(any(), any())).willThrow(new ConflictException("충돌"));
+        given(memberPermissionService.replace(any(), any())).willThrow(new ConflictException("충돌"));
 
         mockMvc.perform(put(URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
                 .andExpect(status().isConflict())

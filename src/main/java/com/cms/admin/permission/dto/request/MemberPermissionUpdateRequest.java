@@ -18,8 +18,8 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@Schema(description = "역할 권한 교체 요청 — grants는 그 역할의 위임 가능 기능 허용 집합 전체(빈 배열이면 전부 회수)")
-public class RolePermissionUpdateRequest {
+@Schema(description = "회원 권한 교체 요청 — grants는 그 회원의 위임 가능 기능 허용 집합 전체(빈 배열이면 전부 회수)")
+public class MemberPermissionUpdateRequest {
 
     @NotNull
     @Schema(description = "화면이 조회한 시점의 버전. 다르면 409", example = "3")

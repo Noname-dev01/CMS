@@ -30,7 +30,7 @@ public final class AdminActionTypes {
     public static final String NOTICE_DELETE     = "NOTICE_DELETE";
     public static final String NOTICE_ATTACHMENT_UPLOAD = "NOTICE_ATTACHMENT_UPLOAD";
     public static final String NOTICE_ATTACHMENT_DELETE = "NOTICE_ATTACHMENT_DELETE";
-    /** MANAGER 권한 매트릭스 저장 — targetType = ROLE_PERMISSION, targetId 없음, targetLabel = "ROLE_MANAGER v3→v4: +공지사항.생성, -공지사항.삭제" */
+    /** MANAGER 회원의 권한 매트릭스 저장 — targetType = MEMBER_PERMISSION, targetId = 대상 회원 ID, targetLabel = "v3→v4: +공지사항.생성, -공지사항.삭제" */
     public static final String PERMISSION_UPDATE = "PERMISSION_UPDATE";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */

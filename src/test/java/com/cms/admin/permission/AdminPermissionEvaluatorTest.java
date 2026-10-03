@@ -1,9 +1,12 @@
 package com.cms.admin.permission;
 
+import com.cms.admin.member.domain.Role;
+import com.cms.support.TestMembers;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -17,27 +20,33 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/** 판정 함수의 진리표(PLAN-menu-permission-management.md §1). */
+/** 판정 함수의 진리표(PLAN-menu-permission-management.md §1, 판정 키는 회원 ID — PLAN-member-permission.md §5-B). */
 class AdminPermissionEvaluatorTest {
+
+    private static final long MEMBER_ID = 1L;
 
     private static PermissionSnapshot grants(PermissionAction... actions) {
         Set<PermissionSnapshot.Grant> set = new java.util.HashSet<>();
         for (PermissionAction action : actions) {
-            set.add(new PermissionSnapshot.Grant("ROLE_MANAGER", AdminFeature.NOTICE, action));
+            set.add(new PermissionSnapshot.Grant(MEMBER_ID, AdminFeature.NOTICE, action));
         }
         return new PermissionSnapshot(set);
     }
 
     private static AdminPermissionEvaluator evaluatorWith(PermissionSnapshot snapshot) {
-        RolePermissionCache cache = mock(RolePermissionCache.class);
+        PermissionCache cache = mock(PermissionCache.class);
         when(cache.snapshot()).thenReturn(snapshot);
         return new AdminPermissionEvaluator(cache);
     }
 
+    /** 실제 로그인과 같은 주체({@code CustomUserDetails}, 회원 ID = {@link #MEMBER_ID}). */
     private static Authentication user(String role) {
-        TestingAuthenticationToken token = new TestingAuthenticationToken("u", "p", role);
-        token.setAuthenticated(true);
-        return token;
+        return userWithId(MEMBER_ID, role);
+    }
+
+    private static Authentication userWithId(long id, String role) {
+        com.cms.config.auth.CustomUserDetails details = TestMembers.detached(id, Role.valueOf(role));
+        return new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities());
     }
 
     @Test
@@ -61,7 +70,7 @@ class AdminPermissionEvaluatorTest {
     @Test
     @DisplayName("ADMIN은 모든 기능·동작을 허용받고 DB(캐시)를 조회하지 않는다")
     void adminIsAlwaysAllowedWithoutReadingCache() {
-        RolePermissionCache cache = mock(RolePermissionCache.class);
+        PermissionCache cache = mock(PermissionCache.class);
         AdminPermissionEvaluator evaluator = new AdminPermissionEvaluator(cache);
 
         for (AdminFeature feature : AdminFeature.values()) {
@@ -75,7 +84,7 @@ class AdminPermissionEvaluatorTest {
     @Test
     @DisplayName("상시 허용 기능(대시보드·내 정보)은 MANAGER도 허용(지원 동작만), 캐시 조회 없음")
     void alwaysFeaturesAllowManagerWithoutCache() {
-        RolePermissionCache cache = mock(RolePermissionCache.class);
+        PermissionCache cache = mock(PermissionCache.class);
         AdminPermissionEvaluator evaluator = new AdminPermissionEvaluator(cache);
 
         assertThat(evaluator.allows(user("ROLE_MANAGER"), AdminFeature.DASHBOARD, PermissionAction.READ)).isTrue();
@@ -92,7 +101,7 @@ class AdminPermissionEvaluatorTest {
         Set<PermissionSnapshot.Grant> rogue = new java.util.HashSet<>();
         for (AdminFeature feature : AdminFeature.ofKind(FeatureKind.ADMIN_ONLY)) {
             for (PermissionAction action : PermissionAction.values()) {
-                rogue.add(new PermissionSnapshot.Grant("ROLE_MANAGER", feature, action));
+                rogue.add(new PermissionSnapshot.Grant(MEMBER_ID, feature, action));
             }
         }
         AdminPermissionEvaluator evaluator = evaluatorWith(new PermissionSnapshot(rogue));
@@ -138,7 +147,7 @@ class AdminPermissionEvaluatorTest {
     @Test
     @DisplayName("미리 받은 스냅샷으로 판정하면 캐시를 다시 조회하지 않는다(요청 안 일관성)")
     void snapshotOverloadDoesNotTouchCache() {
-        RolePermissionCache cache = mock(RolePermissionCache.class);
+        PermissionCache cache = mock(PermissionCache.class);
         AdminPermissionEvaluator evaluator = new AdminPermissionEvaluator(cache);
 
         boolean allowed = evaluator.allows(grants(PermissionAction.READ), user("ROLE_MANAGER"),
@@ -257,5 +266,56 @@ class AdminPermissionEvaluatorTest {
         // 상시 허용·관리자 전용 기능의 키는 포함되지 않는다(위임 가능 기능만)
         assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), user("ROLE_MANAGER")))
                 .noneMatch(key -> key.startsWith("DASHBOARD") || key.startsWith("MY_INFO") || key.startsWith("MENU"));
+    }
+
+    // ── 사용자별 판정(PLAN-member-permission.md §5-B) ──────────
+
+    @Test
+    @DisplayName("교차 회원 격리: 회원 1에게만 준 권한은 회원 2에게 적용되지 않는다(허용·메뉴·버튼 키 모두)")
+    void grantsAreIsolatedPerMember() {
+        PermissionSnapshot onlyMember1 = grants(PermissionAction.values()); // MEMBER_ID = 1 에게만 허용
+        AdminPermissionEvaluator evaluator = evaluatorWith(onlyMember1);
+        Authentication member2 = userWithId(2L, "ROLE_MANAGER");
+
+        for (PermissionAction action : PermissionAction.values()) {
+            assertThat(evaluator.allows(user("ROLE_MANAGER"), AdminFeature.NOTICE, action)).as("회원 1 " + action).isTrue();
+            assertThat(evaluator.allows(member2, AdminFeature.NOTICE, action)).as("회원 2 " + action).isFalse();
+        }
+        assertThat(evaluator.menuUrlVisibility(() -> onlyMember1, member2).test("/admin/notice/manage")).isFalse();
+        assertThat(evaluator.menuUrlVisibility(() -> onlyMember1, member2).test("/admin")).as("상시 허용은 그대로").isTrue();
+        assertThat(evaluator.grantedActionKeys(() -> onlyMember1, member2)).isEmpty();
+        assertThat(evaluator.grantedActionKeys(() -> onlyMember1, user("ROLE_MANAGER"))).hasSize(4);
+    }
+
+    @Test
+    @DisplayName("회원을 식별할 수 없는 주체(CustomUserDetails가 아님)는 위임 기능을 거부하고 상시 허용만 통과한다(fail-closed)")
+    void principalWithoutMemberIdIsDeniedForDelegableFeatures() {
+        PermissionCache cache = mock(PermissionCache.class);
+        when(cache.snapshot()).thenReturn(grants(PermissionAction.values()));
+        AdminPermissionEvaluator evaluator = new AdminPermissionEvaluator(cache);
+        TestingAuthenticationToken mockUser = new TestingAuthenticationToken("u", "p", "ROLE_MANAGER");
+        mockUser.setAuthenticated(true);
+
+        for (PermissionAction action : PermissionAction.values()) {
+            assertThat(evaluator.allows(mockUser, AdminFeature.NOTICE, action)).as(action.name()).isFalse();
+        }
+        assertThat(evaluator.allows(mockUser, AdminFeature.DASHBOARD, PermissionAction.READ)).isTrue();
+        assertThat(evaluator.menuUrlVisibility(() -> grants(PermissionAction.READ), mockUser).test("/admin/notice/manage")).isFalse();
+        assertThat(evaluator.grantedActionKeys(() -> grants(PermissionAction.READ), mockUser)).isEmpty();
+        verify(cache, never()).snapshot();
+    }
+
+    @Test
+    @DisplayName("anyManagerMenuUrlVisibility: 카탈로그 분류만 본다 — 상시·위임 가능 기능 URL은 true, 위임 불가·미분류·null은 false(캐시 불필요)")
+    void anyManagerMenuUrlVisibility_catalogOnly() {
+        var visible = new AdminPermissionEvaluator(mock(PermissionCache.class)).anyManagerMenuUrlVisibility();
+
+        assertThat(visible.test("/admin")).isTrue();
+        assertThat(visible.test("/admin/member/info")).isTrue();
+        assertThat(visible.test("/admin/notice/manage")).isTrue();
+        assertThat(visible.test("/admin/menu/manage")).isFalse();
+        assertThat(visible.test("/admin/permission/manage")).isFalse();
+        assertThat(visible.test("/외부")).isFalse();
+        assertThat(visible.test(null)).isFalse();
     }
 }
