@@ -5,13 +5,12 @@ import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.PermissionSnapshot;
-import com.cms.admin.permission.RolePermissionCache;
+import com.cms.admin.permission.PermissionCache;
 import com.cms.config.auth.AdminSecurityService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.ui.ExtendedModelMap;
@@ -35,7 +34,7 @@ import static org.mockito.Mockito.when;
  */
 class AdminSidebarAdviceSnapshotTest {
 
-    private final RolePermissionCache cache = mock(RolePermissionCache.class);
+    private final PermissionCache cache = mock(PermissionCache.class);
     private final AdminPermissionEvaluator evaluator = new AdminPermissionEvaluator(cache);
     private final MenuService menuService = mock(MenuService.class);
     private final AdminSecurityService securityService = mock(AdminSecurityService.class);
@@ -47,14 +46,15 @@ class AdminSidebarAdviceSnapshotTest {
     }
 
     private void login(String role) {
-        TestingAuthenticationToken token = new TestingAuthenticationToken("u", "p", role);
-        token.setAuthenticated(true);
-        SecurityContextHolder.setContext(new SecurityContextImpl(token));
+        // 권한 판정 키가 회원 ID라 실제 로그인과 같은 주체(CustomUserDetails, 회원 ID 1)를 쓴다
+        com.cms.config.auth.CustomUserDetails details = com.cms.support.TestMembers.detached(1L, com.cms.admin.member.domain.Role.valueOf(role));
+        SecurityContextHolder.setContext(new SecurityContextImpl(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(details, null, details.getAuthorities())));
         when(securityService.getCurrentAdminId()).thenReturn(1L);
     }
 
     private static PermissionSnapshot noticeRead() {
-        return new PermissionSnapshot(Set.of(new PermissionSnapshot.Grant("ROLE_MANAGER", AdminFeature.NOTICE, PermissionAction.READ)));
+        return new PermissionSnapshot(Set.of(new PermissionSnapshot.Grant(1L, AdminFeature.NOTICE, PermissionAction.READ)));
     }
 
     @Test

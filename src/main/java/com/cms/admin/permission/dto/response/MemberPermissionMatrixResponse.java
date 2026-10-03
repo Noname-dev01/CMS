@@ -1,5 +1,6 @@
 package com.cms.admin.permission.dto.response;
 
+import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.FeatureKind;
 import com.cms.admin.permission.PermissionAction;
@@ -11,10 +12,13 @@ import java.util.List;
 
 @Getter
 @AllArgsConstructor
-@Schema(description = "역할의 권한 매트릭스 — 카탈로그(기능·동작) + 현재 유효 허용값 + 버전")
-public class RolePermissionMatrixResponse {
+@Schema(description = "회원의 권한 매트릭스 — 카탈로그(기능·동작) + 현재 유효 허용값 + 버전")
+public class MemberPermissionMatrixResponse {
 
-    private final String role;
+    private final Long memberId;
+    private final String userId;
+    private final String userName;
+    private final MemberStatus status;
     private final Long version;
     private final List<ActionColumn> actions;
     private final List<FeatureRow> features;

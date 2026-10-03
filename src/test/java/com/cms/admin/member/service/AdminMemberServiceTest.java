@@ -65,6 +65,9 @@ class AdminMemberServiceTest {
     MemberRepository memberRepository;
 
     @Mock
+    com.cms.admin.permission.MemberPermissionRepository memberPermissionRepository;
+
+    @Mock
     PasswordEncoder passwordEncoder;
 
     @Mock
@@ -727,6 +730,49 @@ class AdminMemberServiceTest {
 
         assertEquals(Role.ROLE_MANAGER, response.getUserType());
         verify(eventPublisher).publishEvent(new AdminSessionRevokeEvent(2L));
+    }
+
+    @Test
+    @DisplayName("역할이 바뀌면 개별 권한 행을 삭제하고 버전을 올리며, 지워진 행이 있을 때만 캐시 무효화 이벤트를 발행한다")
+    void updateAdminMember_roleChange_deletesPermissionsAndBumpsVersion() {
+        Member target = targetManager(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+        given(memberPermissionRepository.deleteByMemberId(2L)).willReturn(4);
+        long before = target.getPermissionVersion();
+
+        adminMemberService.updateAdminMember(1L, 2L, AdminMemberUpdateRequest.builder().userType(Role.ROLE_ADMIN).build());
+
+        verify(memberPermissionRepository).deleteByMemberId(2L);
+        assertEquals(before + 1, target.getPermissionVersion());
+        verify(eventPublisher).publishEvent(new com.cms.admin.permission.PermissionChangedEvent(2L));
+    }
+
+    @Test
+    @DisplayName("허용 행이 0개인 회원도 역할이 바뀌면 버전이 오르지만 캐시 무효화 이벤트는 없다")
+    void updateAdminMember_roleChangeWithoutRows_bumpsVersionWithoutInvalidation() {
+        Member target = targetManager(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+        given(memberPermissionRepository.deleteByMemberId(2L)).willReturn(0);
+        long before = target.getPermissionVersion();
+
+        adminMemberService.updateAdminMember(1L, 2L, AdminMemberUpdateRequest.builder().userType(Role.ROLE_ADMIN).build());
+
+        assertEquals(before + 1, target.getPermissionVersion());
+        verify(eventPublisher, org.mockito.Mockito.never()).publishEvent(new com.cms.admin.permission.PermissionChangedEvent(2L));
+    }
+
+    @Test
+    @DisplayName("역할이 바뀌지 않는 수정(상태·같은 역할)은 개별 권한 행과 버전을 건드리지 않는다")
+    void updateAdminMember_noRoleChange_keepsPermissions() {
+        Member target = targetManager(2L, MemberStatus.LOCKED);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+        long before = target.getPermissionVersion();
+
+        adminMemberService.updateAdminMember(1L, 2L, AdminMemberUpdateRequest.builder()
+                .status(MemberStatus.ACTIVE).userType(Role.ROLE_MANAGER).build());
+
+        org.mockito.Mockito.verifyNoInteractions(memberPermissionRepository);
+        assertEquals(before, target.getPermissionVersion());
     }
 
     @Test

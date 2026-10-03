@@ -3,7 +3,10 @@ package com.cms.admin.menu.service;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
-import com.cms.admin.permission.RolePermissionCache;
+import com.cms.admin.member.repository.MemberRepository;
+import com.cms.admin.permission.PermissionCache;
+import com.cms.support.TestMembers;
+import org.junit.jupiter.api.BeforeEach;
 import com.cms.config.auth.CustomUserDetails;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
@@ -40,23 +43,37 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
 
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
-    @Autowired RolePermissionCache cache;
+    @Autowired PermissionCache cache;
+    @Autowired MemberRepository memberRepository;
     @Autowired ObjectMapper objectMapper;
 
-    @AfterEach
-    void restoreSeed() {
+    /** 권한 판정 키가 회원 ID라 실제 MANAGER 회원 행이 필요하다(member_permission FK). 시험마다 만들고 지운다. */
+    private Member manager;
+
+    @BeforeEach
+    void createManager() {
+        manager = TestMembers.save(memberRepository, "exposure-manager", Role.ROLE_MANAGER);
         setNoticeGrants("READ", "CREATE", "UPDATE", "DELETE");
     }
 
+    @AfterEach
+    void deleteManager() {
+        TestMembers.delete(jdbc, List.of(manager.getId()));
+        cache.invalidate();
+    }
+
     private void setNoticeGrants(String... actions) {
-        jdbc.update("DELETE FROM role_permission WHERE role = 'ROLE_MANAGER' AND feature = 'NOTICE'");
+        jdbc.update("DELETE FROM member_permission WHERE member_id = ? AND feature = 'NOTICE'", manager.getId());
         for (String action : actions) {
-            jdbc.update("INSERT INTO role_permission (role, feature, action) VALUES ('ROLE_MANAGER', 'NOTICE', ?)", action);
+            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)", manager.getId(), action);
         }
         cache.invalidate();
     }
 
-    private static RequestPostProcessor principal(Role role) {
+    private RequestPostProcessor principal(Role role) {
+        if (role == Role.ROLE_MANAGER) {
+            return TestMembers.asMember(manager);
+        }
         Member member = Member.builder().id(1L).userId("u01").userName("u01").email("u01@example.com")
                 .userType(role).status(MemberStatus.ACTIVE).build();
         CustomUserDetails details = new CustomUserDetails(member);

@@ -1,5 +1,6 @@
 package com.cms.admin.permission;
 
+import com.cms.config.auth.CustomUserDetails;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -13,12 +14,13 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
- * 유일한 권한 판정 함수(PLAN-menu-permission-management.md §1). URL 게이트(SecurityConfig)와 메서드 어노테이션
+ * 유일한 권한 판정 함수(PLAN-menu-permission-management.md §1, PLAN-member-permission.md §5-B). URL 게이트(SecurityConfig)와 메서드 어노테이션
  * ({@link RequirePermission})이 모두 이 클래스로 판정하므로 두 계층이 어긋나지 않는다. 빈 이름 {@code adminPermission}은 SpEL이 쓴다.
  *
  * <p>규칙: 인증 없음·익명 → false / {@code ROLE_ADMIN} → 항상 true(DB 미조회) / 상시 허용 기능 → ADMIN·MANAGER true /
- * 위임 불가 기능 → false / 위임 가능 기능 → {@code ROLE_MANAGER}이고 (기능, 동작) 허용 행이 있으며 쓰기 동작이면 READ도 있을 때만 true.
- * 역할은 세션 {@link Authentication}의 권한에서 읽는다(기존 URL 규칙과 같은 출처).
+ * 위임 불가 기능 → false / 위임 가능 기능 → {@code ROLE_MANAGER}이고 <b>그 회원 본인의</b> (기능, 동작) 허용 행이 있으며 쓰기 동작이면 READ도 있을 때만 true.
+ * 역할은 세션 {@link Authentication}의 권한에서, 회원 ID는 principal({@link CustomUserDetails})에서 읽는다. principal이 {@code CustomUserDetails}가
+ * 아니면(회원을 식별할 수 없으면) 위임 기능은 거부한다(fail-closed).
  */
 @Slf4j
 @Component("adminPermission")
@@ -27,9 +29,9 @@ public class AdminPermissionEvaluator {
     static final String ROLE_ADMIN = "ROLE_ADMIN";
     static final String ROLE_MANAGER = "ROLE_MANAGER";
 
-    private final RolePermissionCache cache;
+    private final PermissionCache cache;
 
-    public AdminPermissionEvaluator(RolePermissionCache cache) {
+    public AdminPermissionEvaluator(PermissionCache cache) {
         this.cache = cache;
     }
 
@@ -72,22 +74,24 @@ public class AdminPermissionEvaluator {
         if (hasAuthority(authentication, ROLE_ADMIN)) {
             return true;
         }
-        return hasAuthority(authentication, ROLE_MANAGER) && managerAllows(snapshot, feature, action);
+        return hasAuthority(authentication, ROLE_MANAGER)
+                && managerAllows(snapshot, memberIdOf(authentication), feature, action);
     }
 
-    /** MANAGER 관점 판정. 스냅샷은 위임 가능 기능일 때만 지연 조회한다(상시 허용·위임 불가는 DB를 보지 않는다). */
-    private boolean managerAllows(Supplier<PermissionSnapshot> snapshot, AdminFeature feature, PermissionAction action) {
+    /** MANAGER 관점 판정. 스냅샷은 위임 가능 기능이고 회원을 식별할 수 있을 때만 지연 조회한다(상시 허용·위임 불가는 DB를 보지 않는다). */
+    private boolean managerAllows(Supplier<PermissionSnapshot> snapshot, Long memberId, AdminFeature feature, PermissionAction action) {
         return switch (feature.getKind()) {
             case ALWAYS -> feature.supports(action);
-            case DELEGABLE -> grantedBy(snapshot.get(), feature, action);
+            case DELEGABLE -> memberId != null && grantedBy(snapshot.get(), memberId, feature, action);
             case ADMIN_ONLY -> false;
         };
     }
 
     /**
      * 사이드바가 메뉴 URL의 노출 여부를 정하는 판정(PLAN §7). ADMIN은 URL이 null이든 미분류든 항상 true,
-     * MANAGER는 URL이 어떤 기능의 {@code menuUrls}와 완전 일치할 때만 그 기능의 READ 허용 여부를 따르고 그 밖(미분류·null)은 false다.
-     * 그 외 역할·익명은 모두 false. 스냅샷은 MANAGER일 때만 지연 조회하므로 ADMIN 화면은 권한 캐시 장애·지연과 무관하고, 한 요청의 판정은 같은 권한 버전을 본다.
+     * MANAGER는 URL이 어떤 기능의 {@code menuUrls}와 완전 일치할 때만 그 기능의 READ 허용 여부를 <b>그 회원 본인의 허용 행으로</b> 따르고
+     * 그 밖(미분류·null)은 false다. 그 외 역할·익명은 모두 false. 스냅샷은 회원을 식별할 수 있는 MANAGER일 때만 조회하므로 ADMIN 화면은
+     * 권한 캐시 장애·지연과 무관하고, 한 요청의 판정은 같은 권한 버전을 본다.
      */
     public Predicate<String> menuUrlVisibility(Supplier<PermissionSnapshot> snapshot, Authentication authentication) {
         if (!isAuthenticated(authentication)) {
@@ -99,13 +103,20 @@ public class AdminPermissionEvaluator {
         if (!hasAuthority(authentication, ROLE_MANAGER)) {
             return url -> false;
         }
-        return managerMenuUrlVisibility(snapshot.get()); // MANAGER 경로에서만, 요청당 한 번 조회한다
+        Long memberId = memberIdOf(authentication);
+        PermissionSnapshot once = memberId == null ? PermissionSnapshot.EMPTY : snapshot.get(); // MANAGER 경로에서만, 요청당 한 번 조회한다
+        return url -> AdminFeature.forMenuUrl(url)
+                .map(feature -> managerAllows(() -> once, memberId, feature, PermissionAction.READ))
+                .orElse(false);
     }
 
-    /** "MANAGER 관점" 메뉴 URL 가시성 — 메뉴 관리 화면의 노출 안내가 실제 MANAGER 사이드바와 같은 규칙을 쓰도록 공유한다. */
-    public Predicate<String> managerMenuUrlVisibility(PermissionSnapshot snapshot) {
+    /**
+     * 메뉴 관리 화면의 노출 안내용 판정 — "권한을 받으면 MANAGER가 볼 수 있는 메뉴인가"(카탈로그 분류만 본다, 스냅샷 불필요).
+     * 사용자별 권한 체계에는 "MANAGER 한 명의 시점"이 없으므로 위임 불가 기능과 카탈로그 밖 URL만 false다.
+     */
+    public Predicate<String> anyManagerMenuUrlVisibility() {
         return url -> AdminFeature.forMenuUrl(url)
-                .map(feature -> managerAllows(() -> snapshot, feature, PermissionAction.READ))
+                .map(feature -> feature.getKind() != FeatureKind.ADMIN_ONLY)
                 .orElse(false);
     }
 
@@ -126,12 +137,17 @@ public class AdminPermissionEvaluator {
         return allows(SecurityContextHolder.getContext().getAuthentication(), parsedFeature, parsedAction);
     }
 
-    private static boolean grantedBy(PermissionSnapshot snapshot, AdminFeature feature, PermissionAction action) {
-        if (!feature.supports(action) || !snapshot.has(ROLE_MANAGER, feature, action)) {
+    private static boolean grantedBy(PermissionSnapshot snapshot, Long memberId, AdminFeature feature, PermissionAction action) {
+        if (!feature.supports(action) || !snapshot.has(memberId, feature, action)) {
             return false;
         }
         // 의존 규칙: 쓰기 동작(생성·수정·삭제)은 조회 권한이 함께 있어야 한다.
-        return action == PermissionAction.READ || snapshot.has(ROLE_MANAGER, feature, PermissionAction.READ);
+        return action == PermissionAction.READ || snapshot.has(memberId, feature, PermissionAction.READ);
+    }
+
+    /** 세션 principal에서 회원 ID를 읽는다. {@link CustomUserDetails}가 아니면 null(식별 불가 — 위임 기능은 거부한다). */
+    private static Long memberIdOf(Authentication authentication) {
+        return authentication.getPrincipal() instanceof CustomUserDetails details ? details.getId() : null;
     }
 
     private static boolean isAuthenticated(Authentication authentication) {

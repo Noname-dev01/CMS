@@ -1,5 +1,6 @@
 package com.cms.admin.notice.controller;
 
+import com.cms.config.WithManager;
 import com.cms.admin.notice.dto.request.NoticeCreateRequest;
 import com.cms.admin.notice.dto.request.NoticeUpdateRequest;
 import com.cms.admin.notice.dto.response.NoticePageResponse;
@@ -132,7 +133,7 @@ class NoticeControllerTest {
 
     @Test
     @DisplayName("목록 조회 성공 (MANAGER)")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void getNotices_success_manager() throws Exception {
         given(noticeService.getNotices(any(), any())).willReturn(pageResponse());
 
@@ -211,7 +212,7 @@ class NoticeControllerTest {
 
     @Test
     @DisplayName("생성 성공 (201 Created, MANAGER)")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void createNotice_success_manager() throws Exception {
         given(noticeService.createNotice(any())).willReturn(noticeResponse());
 
@@ -316,7 +317,7 @@ class NoticeControllerTest {
 
     @Test
     @DisplayName("수정 성공 (200, MANAGER)")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void updateNotice_success_manager() throws Exception {
         NoticeUpdateRequest request = NoticeUpdateRequest.builder().title("변경된 제목").build();
         given(noticeService.updateNotice(anyLong(), any())).willReturn(noticeResponse());
@@ -389,7 +390,7 @@ class NoticeControllerTest {
 
     @Test
     @DisplayName("삭제 성공 (204 No Content, MANAGER)")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void deleteNotice_success_manager() throws Exception {
         given(noticeService.deleteNotice(1L)).willReturn(noticeResponse());
 
@@ -426,13 +427,13 @@ class NoticeControllerTest {
     }
 
     @Autowired
-    com.cms.admin.permission.RolePermissionCache rolePermissionCache;
+    com.cms.admin.permission.PermissionCache permissionCache;
 
     @Test
     @DisplayName("READ만 가진 MANAGER의 공지 생성은 메서드 계층에서 403 ACCESS_DENIED이고 서비스는 호출되지 않는다 — message는 영문 Access Denied(공지 화면이 403에 고정 한국어 문구를 쓰는 이유)")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void createNotice_managerWithReadOnly_forbidden() throws Exception {
-        given(rolePermissionCache.snapshot()).willReturn(
+        given(permissionCache.snapshot()).willReturn(
                 com.cms.config.PermissionTestConfig.snapshotWith(com.cms.admin.permission.PermissionAction.READ));
         try {
             mockMvc.perform(post("/admin/api/notices").with(csrf())
@@ -444,7 +445,7 @@ class NoticeControllerTest {
                     .andExpect(jsonPath("$.message").value("Access Denied"));
             verifyNoInteractions(noticeService);
         } finally {
-            given(rolePermissionCache.snapshot()).willReturn(com.cms.config.PermissionTestConfig.seedSnapshot());
+            given(permissionCache.snapshot()).willReturn(com.cms.config.PermissionTestConfig.seedSnapshot());
         }
     }
 }

@@ -155,7 +155,7 @@ class SecurityConfigTest {
 
     @Test
     @DisplayName("MANAGER는 공지사항 관리 페이지(/admin/notice/manage)에 접근이 가능하다")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void manager_noticeManagePage_ok() throws Exception {
         mockMvc.perform(get("/admin/notice/manage"))
                 .andExpect(status().isOk());
@@ -163,7 +163,7 @@ class SecurityConfigTest {
 
     @Test
     @DisplayName("MANAGER는 공지사항 목록 API(/admin/api/notices)에 접근이 가능하다")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void manager_noticesApi_ok() throws Exception {
         mockMvc.perform(get("/admin/api/notices"))
                 .andExpect(status().isOk());

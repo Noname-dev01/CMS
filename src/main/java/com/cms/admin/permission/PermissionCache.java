@@ -12,7 +12,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 허용 행 스냅샷 캐시(PLAN-menu-permission-management.md §5). 단일 인스턴스 전제다(세션 레지스트리와 같은 한계).
+ * 회원별 허용 행 스냅샷 캐시(PLAN-menu-permission-management.md §5, PLAN-member-permission.md §5-B). 단일 인스턴스 전제다(세션 레지스트리와 같은 한계).
  *
  * <ul>
  *   <li>generation 카운터: {@link #invalidate()}가 올린다. 로드는 시작 전 generation을 기억했다가 설치 직전에 같을 때만 설치한다 —
@@ -21,20 +21,21 @@ import java.util.concurrent.atomic.AtomicLong;
  *       트랜잭션 안에서 읽으면 REPEATABLE READ의 낡은 스냅샷으로 회수된 권한이 "최신"으로 설치될 수 있다.</li>
  *   <li>로드 실패는 fail-closed: ERROR 로그를 남기고 이번 판정은 빈 스냅샷(MANAGER의 위임 기능 전부 거부)으로 한다. 실패는 캐시하지 않아
  *       다음 요청이 재시도한다. ADMIN과 상시 허용 기능은 DB를 보지 않으므로 영향이 없다.</li>
+ *   <li>전체 회원의 허용 행을 적재한다 — MANAGER 수 × 위임 동작 수라 메모리 부담이 작다.</li>
  * </ul>
  */
 @Slf4j
 @Component
-public class RolePermissionCache {
+public class PermissionCache {
 
     private record Holder(long generation, PermissionSnapshot snapshot) { }
 
-    private final RolePermissionRepository repository;
+    private final MemberPermissionRepository repository;
     private final TransactionTemplate loadTransaction;
     private final AtomicLong generation = new AtomicLong();
     private volatile Holder holder;
 
-    public RolePermissionCache(RolePermissionRepository repository, PlatformTransactionManager transactionManager) {
+    public PermissionCache(MemberPermissionRepository repository, PlatformTransactionManager transactionManager) {
         this.repository = repository;
         this.loadTransaction = new TransactionTemplate(transactionManager);
         this.loadTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -50,7 +51,7 @@ public class RolePermissionCache {
         return load();
     }
 
-    /** 허용 행이 바뀐 커밋 뒤 호출한다. 실패할 수 없는 메모리 연산이다. */
+    /** 허용 행이 바뀐 트랜잭션이 끝난 뒤 호출한다. 실패할 수 없는 메모리 연산이다. */
     public void invalidate() {
         generation.incrementAndGet();
         holder = null;
@@ -80,18 +81,18 @@ public class RolePermissionCache {
     static PermissionSnapshot toSnapshot(List<Object[]> rows) {
         Set<PermissionSnapshot.Grant> grants = new HashSet<>();
         for (Object[] row : rows) {
-            String role = String.valueOf(row[0]);
+            Long memberId = (Long) row[0];
             AdminFeature feature = parse(AdminFeature.class, row[1]);
             PermissionAction action = parse(PermissionAction.class, row[2]);
             if (feature == null || action == null) {
-                log.warn("알 수 없는 권한 행을 무시한다: role={}, feature={}, action={}", row[0], row[1], row[2]);
+                log.warn("알 수 없는 권한 행을 무시한다: memberId={}, feature={}, action={}", row[0], row[1], row[2]);
                 continue;
             }
             if (feature.getKind() != FeatureKind.DELEGABLE || !feature.supports(action)) {
-                log.warn("위임할 수 없는 권한 행을 무시한다: role={}, feature={}, action={}", row[0], row[1], row[2]);
+                log.warn("위임할 수 없는 권한 행을 무시한다: memberId={}, feature={}, action={}", row[0], row[1], row[2]);
                 continue;
             }
-            grants.add(new PermissionSnapshot.Grant(role, feature, action));
+            grants.add(new PermissionSnapshot.Grant(memberId, feature, action));
         }
         return new PermissionSnapshot(grants);
     }

@@ -4,12 +4,18 @@ import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.admin.log.domain.AdminActionLog;
 import com.cms.admin.log.domain.AdminActionResult;
 import com.cms.admin.log.repository.AdminActionLogRepository;
+import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.Role;
-import com.cms.admin.permission.dto.request.RolePermissionUpdateRequest;
-import com.cms.admin.permission.service.RolePermissionService;
+import com.cms.admin.member.dto.request.AdminMemberUpdateRequest;
+import com.cms.admin.member.repository.MemberRepository;
+import com.cms.admin.member.service.AdminMemberService;
+import com.cms.admin.permission.dto.request.MemberPermissionUpdateRequest;
+import com.cms.admin.permission.service.MemberPermissionService;
 import com.cms.common.exception.ConflictException;
+import com.cms.common.exception.InvalidRequestException;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.TestMembers;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -44,52 +50,59 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * 권한 저장의 동시성 시험(PLAN-permission-management-pr3.md §7-1): 실제 MariaDB 행 잠금 대기를 {@code INNODB_LOCK_WAITS}로 관측한다
- * ({@code MenuConcurrencyIntegrationTest}와 같은 패턴 — sleep을 증거로 쓰지 않는다). 이 시험은 일회용 MariaDBContainer 전용이다.
+ * 회원별 권한 저장의 동시성 시험(PLAN-member-permission.md §7-1 ⑤): 실제 MariaDB 행 잠금 대기를 {@code INNODB_LOCK_WAITS}로 관측한다
+ * ({@code MenuConcurrencyIntegrationTest}와 같은 패턴 — sleep을 증거로 쓰지 않는다). 권한 저장과 역할 변경이 <b>같은 회원 행</b>을 잠가
+ * 직렬화되는지도 두 방향으로 시험한다. 이 시험은 일회용 MariaDBContainer 전용이다.
  */
 @SpringBootTest(classes = CmsTestApplication.class)
-class RolePermissionConcurrencyIntegrationTest extends MariaDbContainerSupport {
+class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
-    private static final String MANAGER = "ROLE_MANAGER";
-
-    @Autowired RolePermissionService service;
-    @Autowired PermissionRoleRepository permissionRoleRepository;
+    @Autowired MemberPermissionService service;
+    @Autowired AdminMemberService adminMemberService;
+    @Autowired MemberRepository memberRepository;
     @Autowired AdminActionLogRepository auditRepository;
-    @Autowired RolePermissionCache cache;
+    @Autowired PermissionCache cache;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired JdbcConnectionDetails connectionDetails;
     @PersistenceContext EntityManager entityManager;
 
     private long auditBaseline;
+    private Member manager;
 
     @BeforeEach
     void setUp() {
+        manager = TestMembers.save(memberRepository, "perm-conc", Role.ROLE_MANAGER);
         restoreSeed();
         auditBaseline = auditRepository.findAll().stream().mapToLong(AdminActionLog::getId).max().orElse(0L);
     }
 
     @AfterEach
     void cleanUp() {
-        restoreSeed();
         audits().forEach(auditRepository::delete);
+        TestMembers.delete(jdbc, List.of(manager.getId()));
+        cache.invalidate();
     }
 
     private void restoreSeed() {
-        jdbc.update("DELETE FROM role_permission WHERE role = ?", MANAGER);
+        jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
         for (PermissionAction action : PermissionAction.values()) {
-            jdbc.update("INSERT INTO role_permission (role, feature, action) VALUES (?, 'NOTICE', ?)", MANAGER, action.name());
+            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)", manager.getId(), action.name());
         }
         cache.invalidate();
     }
 
     private long version() {
-        return jdbc.queryForObject("SELECT version FROM permission_role WHERE role = ?", Long.class, MANAGER);
+        return jdbc.queryForObject("SELECT permission_version FROM member WHERE id = ?", Long.class, manager.getId());
     }
 
     private Set<String> noticeActions() {
         return new TreeSet<>(jdbc.queryForList(
-                "SELECT action FROM role_permission WHERE BINARY role = ? AND BINARY feature = 'NOTICE'", String.class, MANAGER));
+                "SELECT action FROM member_permission WHERE member_id = ? AND BINARY feature = 'NOTICE'", String.class, manager.getId()));
+    }
+
+    private String role() {
+        return jdbc.queryForObject("SELECT user_type FROM member WHERE id = ?", String.class, manager.getId());
     }
 
     private List<AdminActionLog> audits() {
@@ -98,16 +111,16 @@ class RolePermissionConcurrencyIntegrationTest extends MariaDbContainerSupport {
                 .toList();
     }
 
-    private static RolePermissionUpdateRequest request(long version, PermissionAction... actions) {
-        return RolePermissionUpdateRequest.builder().version(version)
-                .grants(Arrays.stream(actions).map(a -> new RolePermissionUpdateRequest.Grant(AdminFeature.NOTICE, a)).toList())
+    private static MemberPermissionUpdateRequest request(long version, PermissionAction... actions) {
+        return MemberPermissionUpdateRequest.builder().version(version)
+                .grants(Arrays.stream(actions).map(a -> new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, a)).toList())
                 .build();
     }
 
     // ── ① 실제 락 대기 ──────────────────────────────────────
 
     @Test
-    @DisplayName("다른 트랜잭션이 기준 행을 잠그고 version을 올려 커밋하면, 대기하던 PUT은 실제 락 대기를 거친 뒤 409이고 행은 바뀌지 않는다")
+    @DisplayName("다른 트랜잭션이 회원 행을 잠그고 version을 올려 커밋하면, 대기하던 PUT은 실제 락 대기를 거친 뒤 409이고 행은 바뀌지 않는다")
     void replace_waitsForRowLock_thenConflicts() throws Exception {
         long before = version();
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -116,15 +129,15 @@ class RolePermissionConcurrencyIntegrationTest extends MariaDbContainerSupport {
         AtomicLong holderConnection = new AtomicLong();
         try {
             Future<?> holder = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-                PermissionRole base = permissionRoleRepository.findByIdForUpdate(MANAGER).orElseThrow();
+                Member locking = memberRepository.findByIdForUpdate(manager.getId()).orElseThrow();
                 holderConnection.set(((Number) entityManager.createNativeQuery("SELECT CONNECTION_ID()").getSingleResult()).longValue());
-                base.increaseVersion(LocalDateTime.now()); // 다른 관리자가 먼저 저장한 것과 같은 효과
+                locking.increasePermissionVersion(); // 다른 관리자가 먼저 저장한 것과 같은 효과
                 locked.countDown();
                 await(release);
             }));
             await(locked);
 
-            Future<?> waiter = executor.submit(() -> service.replace(Role.ROLE_MANAGER, request(before, PermissionAction.READ)));
+            Future<?> waiter = executor.submit(() -> service.replace(manager.getId(), request(before, PermissionAction.READ)));
             awaitSomeoneWaitingFor(holderConnection.get());
             assertThat(waiter.isDone()).as("잠금이 풀리기 전에는 PUT이 끝나지 않는다").isFalse();
 
@@ -170,14 +183,90 @@ class RolePermissionConcurrencyIntegrationTest extends MariaDbContainerSupport {
     }
 
     /** @return 성공하면 true, 409(ConflictException)이면 false. 그 외 예외는 시험 실패. */
-    private boolean attempt(CyclicBarrier barrier, RolePermissionUpdateRequest request) throws Exception {
+    private boolean attempt(CyclicBarrier barrier, MemberPermissionUpdateRequest request) throws Exception {
         barrier.await(15, TimeUnit.SECONDS);
         try {
-            service.replace(Role.ROLE_MANAGER, request);
+            service.replace(manager.getId(), request);
             return true;
         } catch (ConflictException e) {
             return false;
         }
+    }
+
+    // ── ③ 권한 저장 ↔ 역할 변경 직렬화(같은 회원 행 잠금) ──────────
+
+    @Test
+    @DisplayName("역할 변경이 먼저 커밋되면(권한 행 삭제·버전 증가) 대기하던 PUT은 실제 락 대기를 거친 뒤 ADMIN 대상 400이고 허용 행은 0개다")
+    void roleChangeFirst_thenReplaceIsRejected() throws Exception {
+        long before = version();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        try {
+            Future<?> holder = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Member locking = memberRepository.findByIdForUpdate(manager.getId()).orElseThrow();
+                holderConnection.set(((Number) entityManager.createNativeQuery("SELECT CONNECTION_ID()").getSingleResult()).longValue());
+                locking.changeRole(Role.ROLE_ADMIN, LocalDateTime.now()); // 역할 변경 트랜잭션이 잠금을 쥐고 있다
+                jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+                locking.increasePermissionVersion();
+                locked.countDown();
+                await(release);
+            }));
+            await(locked);
+
+            Future<?> waiter = executor.submit(() -> service.replace(manager.getId(), request(before, PermissionAction.READ)));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertThat(waiter.isDone()).as("역할 변경이 커밋되기 전에는 PUT이 끝나지 않는다").isFalse();
+
+            release.countDown();
+            holder.get(15, TimeUnit.SECONDS);
+            assertThat(causeOf(waiter)).as("커밋된 새 역할(ADMIN)을 본다").isInstanceOf(InvalidRequestException.class);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(role()).isEqualTo("ROLE_ADMIN");
+        assertThat(noticeActions()).isEmpty();
+        assertThat(version()).isEqualTo(before + 1);
+    }
+
+    @Test
+    @DisplayName("권한 저장 중(회원 행 잠금)에 들어온 역할 변경은 실제 락 대기를 거친 뒤 실행되어 개별 권한을 지우고 버전을 올린다")
+    void replaceInFlight_thenRoleChangeWaitsAndDeletesRows() throws Exception {
+        long before = version();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        try {
+            Future<?> holder = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                memberRepository.findByIdForUpdate(manager.getId()).orElseThrow(); // 진행 중인 권한 저장이 회원 행을 쥐고 있다
+                holderConnection.set(((Number) entityManager.createNativeQuery("SELECT CONNECTION_ID()").getSingleResult()).longValue());
+                locked.countDown();
+                await(release);
+            }));
+            await(locked);
+
+            Future<?> waiter = executor.submit(() -> adminMemberService.updateAdminMember(
+                    -1L, manager.getId(), AdminMemberUpdateRequest.builder().userType(Role.ROLE_ADMIN).build()));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertThat(waiter.isDone()).as("권한 저장이 끝나기 전에는 역할 변경이 끝나지 않는다").isFalse();
+
+            release.countDown();
+            holder.get(15, TimeUnit.SECONDS);
+            assertThat(causeOf(waiter)).as("역할 변경은 성공한다").isNull();
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(role()).isEqualTo("ROLE_ADMIN");
+        assertThat(noticeActions()).as("역할 변경이 개별 권한 행을 지웠다").isEmpty();
+        assertThat(version()).isEqualTo(before + 1);
+        assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.READ))
+                .as("삭제 뒤 캐시가 무효화돼 낡은 허용이 남지 않는다").isFalse();
     }
 
     // ── 보조 ────────────────────────────────────────────────

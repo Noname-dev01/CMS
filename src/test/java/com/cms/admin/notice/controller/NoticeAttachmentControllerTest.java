@@ -1,5 +1,6 @@
 package com.cms.admin.notice.controller;
 
+import com.cms.config.WithManager;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.admin.notice.dto.response.NoticeAttachmentDownload;
 import com.cms.admin.notice.dto.response.NoticeAttachmentResponse;
@@ -108,7 +109,7 @@ class NoticeAttachmentControllerTest {
 
     @Test
     @DisplayName("업로드 성공 (201 Created, MANAGER)")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void upload_success_manager() throws Exception {
         given(noticeAttachmentService.upload(anyLong(), any())).willReturn(attachmentResponse());
         MockMultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", "content".getBytes());
@@ -253,7 +254,7 @@ class NoticeAttachmentControllerTest {
 
     @Test
     @DisplayName("삭제 성공 (204 No Content, MANAGER)")
-    @WithMockUser(roles = "MANAGER")
+    @WithManager
     void delete_success_manager() throws Exception {
         given(noticeAttachmentService.delete(1L, 10L)).willReturn(attachmentResponse());
 

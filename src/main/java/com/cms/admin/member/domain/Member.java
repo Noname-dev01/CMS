@@ -95,6 +95,19 @@ public class Member {
     private LocalDateTime passwordChangedAt;
 
     /**
+     * 회원별 권한 매트릭스(member_permission)의 낙관적 버전. JPA {@code @Version}이 아니라 회원 행 잠금 아래 수동 비교다.
+     * 허용 행이 0개인 회원도 버전이 있어야 한다. {@code @Builder.Default}가 없으면 기존 생성 경로가 NULL을 INSERT해 NOT NULL 제약에 걸린다.
+     */
+    @Builder.Default
+    @Column(name = "permission_version", nullable = false)
+    private Long permissionVersion = 0L;
+
+    /** 권한 매트릭스가 바뀌었거나 이 회원의 역할이 바뀌었을 때 호출한다. 회원 정보 변경이 아니라 updateDate는 건드리지 않는다. */
+    public void increasePermissionVersion() {
+        this.permissionVersion = this.permissionVersion + 1;
+    }
+
+    /**
      * 내 정보(이름, 이메일) 수정. 수정 시각을 함께 갱신한다.
      * 이메일이 실제로 바뀌면 발급돼 있던 재설정 토큰도 무효화한다 —
      * 이전 주소의 메일함에 남은 재설정 링크가 계속 유효해서는 안 된다.

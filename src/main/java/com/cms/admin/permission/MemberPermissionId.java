@@ -6,13 +6,13 @@ import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
 
-/** {@link RolePermission} 복합 키(role, feature, action). */
+/** {@link MemberPermission} 복합 키(memberId, feature, action). */
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode
-public class RolePermissionId implements Serializable {
+public class MemberPermissionId implements Serializable {
 
-    private String role;
+    private Long memberId;
     private String feature;
     private String action;
 }

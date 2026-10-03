@@ -63,7 +63,7 @@ class MenuServiceTest {
 
     @BeforeEach
     void attachLogAppender() {
-        org.mockito.Mockito.lenient().when(adminPermissionEvaluator.managerMenuUrlVisibility(any())).thenReturn(url -> false);
+        org.mockito.Mockito.lenient().when(adminPermissionEvaluator.anyManagerMenuUrlVisibility()).thenReturn(url -> false);
         logAppender = new ListAppender<>();
         logAppender.start();
         ((Logger) LoggerFactory.getLogger(MenuService.class)).addAppender(logAppender);
@@ -674,7 +674,7 @@ class MenuServiceTest {
         Menu emptyGroup = urlMenu(5L, "빈 그룹", null, null, 3);
         given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
                 .willReturn(List.of(dashboard, noticeGroup, notice, menuManage, emptyGroup));
-        given(adminPermissionEvaluator.managerMenuUrlVisibility(any())).willReturn(MANAGER_WITH_NOTICE);
+        given(adminPermissionEvaluator.anyManagerMenuUrlVisibility()).willReturn(MANAGER_WITH_NOTICE);
 
         Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
 
@@ -691,7 +691,7 @@ class MenuServiceTest {
         Menu parent = urlMenu(1L, "대시보드 부모", null, "/admin", 0);
         Menu adminChild = urlMenu(2L, "메뉴 관리", 1L, "/admin/menu/manage", 0);
         given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(parent, adminChild));
-        given(adminPermissionEvaluator.managerMenuUrlVisibility(any())).willReturn(MANAGER_WITH_NOTICE);
+        given(adminPermissionEvaluator.anyManagerMenuUrlVisibility()).willReturn(MANAGER_WITH_NOTICE);
 
         Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
 
@@ -715,7 +715,7 @@ class MenuServiceTest {
         Menu level4 = urlMenu(6L, "4단", 5L, "/admin", 0);
         given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
                 .willReturn(List.of(inactiveParent, underInactive, root, child, grandchild, level4));
-        given(adminPermissionEvaluator.managerMenuUrlVisibility(any())).willReturn(MANAGER_WITH_NOTICE);
+        given(adminPermissionEvaluator.anyManagerMenuUrlVisibility()).willReturn(MANAGER_WITH_NOTICE);
 
         Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
 
@@ -726,29 +726,30 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("exposure: 공지 권한이 없는 스냅샷이면 공지만 담은 그룹은 ADMIN_ONLY, 공지 리프는 여전히 PERMISSION:NOTICE")
-    void getMenuTree_exposure_noticeRevoked() {
+    @DisplayName("exposure: 위임 가능 기능은 권한을 받으면 MANAGER가 볼 수 있으므로 공지만 담은 그룹은 VISIBLE_BY_CHILDREN, 공지 리프는 PERMISSION:NOTICE")
+    void getMenuTree_exposure_delegableLeafMakesGroupVisible() {
         Menu group = urlMenu(1L, "업무", null, null, 0);
         Menu notice = urlMenu(2L, "공지", 1L, "/admin/notice/manage", 0);
         given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(group, notice));
-        given(adminPermissionEvaluator.managerMenuUrlVisibility(any())).willReturn(url -> false);
+        // 실제 판정(카탈로그 분류)을 그대로 쓴다 — 이 판정은 캐시를 읽지 않는다
+        given(adminPermissionEvaluator.anyManagerMenuUrlVisibility())
+                .willReturn(new com.cms.admin.permission.AdminPermissionEvaluator(null).anyManagerMenuUrlVisibility());
 
         Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
 
-        assertEquals("ADMIN_ONLY", data.get(1L).getExposure());
+        assertEquals("VISIBLE_BY_CHILDREN", data.get(1L).getExposure());
         assertEquals("PERMISSION:NOTICE", data.get(2L).getExposure());
     }
 
     @Test
-    @DisplayName("트리 조회: 권한 스냅샷은 요청당 한 번만 받는다")
-    void getMenuTree_snapshotTakenOnce() {
+    @DisplayName("트리 조회: 권한 스냅샷(캐시)을 읽지 않는다 — 노출 안내는 카탈로그 분류만 본다")
+    void getMenuTree_doesNotReadPermissionSnapshot() {
         given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(menu(1L, "루트", null, true, 0)));
 
         menuService.getMenuTree("true");
 
-        verify(adminPermissionEvaluator, org.mockito.Mockito.times(1)).snapshot();
+        verify(adminPermissionEvaluator, org.mockito.Mockito.never()).snapshot();
     }
-@Test    @DisplayName("트리 조회: 권한 스냅샷을 메뉴 조회보다 먼저 받고, 서비스 트랜잭션을 열지 않는다(커넥션 보유 중 캐시 로드 대기 방지)")    void getMenuTree_snapshotBeforeMenuQuery_withoutServiceTransaction() throws Exception {        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of());        menuService.getMenuTree("all");        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(adminPermissionEvaluator, menuRepository);        inOrder.verify(adminPermissionEvaluator).snapshot();        inOrder.verify(menuRepository).findAllByOrderByOrdAscMenuNoAsc();        assertTrue(MenuService.class.getMethod("getMenuTree", String.class)                .getAnnotation(org.springframework.transaction.annotation.Transactional.class) == null);    }
 
     // ── 순환/미방문 노드 방어 ──────────────────────────────
 

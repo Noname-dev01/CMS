@@ -11,8 +11,8 @@
 | `/admin/api/password-reset-requests`, `/admin/api/password-resets` | 공개 (비밀번호 재설정 API — CSRF 토큰은 필요) |
 | `/swagger-ui.html`, `/swagger-ui/**`, `/v3/api-docs`, `/v3/api-docs/**` | `ROLE_ADMIN` 필수 |
 | `/admin`, `/admin/member/info`, `/admin/api/members/me`, `/admin/api/members/me/**` | `ROLE_ADMIN`·`ROLE_MANAGER` (상시 허용 기능 `DASHBOARD`·`MY_INFO` — 이전과 동일. 이제 `AdminFeature` 카탈로그(`com.cms.admin.permission`)에서 만든 게이트다) |
-| `/admin/notice/**`, `/admin/api/notices`, `/admin/api/notices/**` | **`ROLE_ADMIN` 또는 공지 조회(READ) 권한이 있는 `ROLE_MANAGER`** (위임 가능 기능 `NOTICE` — 기능 단위 READ 게이트, 동작별 판정은 핸들러의 `@RequirePermission`. 공지사항 관리 MANAGER 허용은 2026-07-20 승인, **2026-10-02 DB 허용 행(`role_permission`)으로 이관** — V14 시드가 오늘의 범위(조회·생성·수정·삭제)를 그대로 옮겨 배포 직후 동작은 같고 ADMIN이 권한관리 화면/API로 바꿀 수 있다 — 2026-10-02 PR 3/4). 상세는 `com.cms.admin.permission`의 `CLAUDE.md` 참조 |
-| `/admin/**` | `ROLE_ADMIN` 필수 (카탈로그에 없는 모든 `/admin/**` 캐치올 — 권한관리 `GET /admin/permission/manage`·`/admin/api/roles/**`도 여기에 걸려 ADMIN 전용이며 `SecurityConfig` 변경 없이 보호된다, 위임 불가 `PERMISSION`) |
+| `/admin/notice/**`, `/admin/api/notices`, `/admin/api/notices/**` | **`ROLE_ADMIN` 또는 공지 조회(READ) 권한을 개별로 받은 `ROLE_MANAGER` 회원** (위임 가능 기능 `NOTICE` — 기능 단위 READ 게이트, 동작별 판정은 핸들러의 `@RequirePermission`. 공지사항 관리 MANAGER 허용은 2026-07-20 승인, **2026-10-02 DB 허용 행으로 이관**, **2026-10-03 역할 단위(`role_permission`)에서 회원 단위(`member_permission`)로 전환** — V19가 기존 MANAGER 전원에게 당시 범위(조회·생성·수정·삭제)를 복사해 배포 직후 동작은 같고, 이후 생성되는 MANAGER는 권한이 없으며, ADMIN이 권한관리 화면/API로 회원마다 바꾼다). 상세는 `com.cms.admin.permission`의 `CLAUDE.md` 참조 |
+| `/admin/**` | `ROLE_ADMIN` 필수 (카탈로그에 없는 모든 `/admin/**` 캐치올 — 권한관리 `GET /admin/permission/manage`·`/admin/api/members/{id}/permissions`도 여기에 걸려 ADMIN 전용이며 `SecurityConfig` 변경 없이 보호된다, 위임 불가 `PERMISSION`) |
 | `/notices`, `/notices/**` | GET·HEAD만 공개 (`permitAll`), 그 외 메서드는 `denyAll`로 명시 차단 (공개 공지 페이지, 2026-07-28 승인). `/notices/**`가 하위 세그먼트 전체를 포괄해 `/notices/{id}/attachments/{attachmentId}`(2026-08-03 추가)도 별도 규칙 없이 이 매처가 적용됨 |
 | `/actuator/health` | 공개 (`permitAll`, 로드밸런서 헬스체크용) |
 | `/actuator/**`(health 제외) | `denyAll` 명시 차단 (2026-07-29 승인 — env/beans/metrics 등 노출 설정이 넓어져도 뚫리지 않도록 이중 방어) |

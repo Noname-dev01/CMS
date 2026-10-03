@@ -1,5 +1,6 @@
 package com.cms.admin.permission;
 
+import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.notice.domain.Notice;
 import com.cms.admin.notice.repository.NoticeAttachmentRepository;
 import com.cms.admin.notice.repository.NoticeRepository;
@@ -7,6 +8,8 @@ import com.cms.admin.notice.service.NoticeAttachmentService;
 import com.cms.common.storage.FileStorage;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.TestMembers;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,11 +60,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @AutoConfigureMockMvc
 class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
 
-    private static final String MANAGER = "ROLE_MANAGER";
-
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
-    @Autowired RolePermissionCache cache;
+    @Autowired PermissionCache cache;
+    @Autowired MemberRepository memberRepository;
     @Autowired NoticeRepository noticeRepository;
     @Autowired NoticeAttachmentRepository attachmentRepository;
     @Autowired NoticeAttachmentService attachmentService;
@@ -69,10 +71,22 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
 
     private final List<Long> noticeIds = new ArrayList<>();
     private final List<String> titlePrefixes = new ArrayList<>();
+    private final List<Long> extraMemberIds = new ArrayList<>();
+
+    /** 권한 판정 키가 회원 ID라 실제 MANAGER 회원 행이 필요하다(member_permission FK). 시험마다 만들고 지운다. */
+    private Member manager;
+
+    @BeforeEach
+    void createManager() {
+        manager = TestMembers.save(memberRepository, "matrix-manager", Role.ROLE_MANAGER);
+        restoreSeed();
+    }
 
     @AfterEach
     void cleanUp() {
-        restoreSeed();
+        TestMembers.delete(jdbc, extraMemberIds);
+        TestMembers.delete(jdbc, List.of(manager.getId()));
+        cache.invalidate();
         for (String prefix : titlePrefixes) {
             noticeRepository.findAll().stream()
                     .filter(n -> n.getTitle().startsWith(prefix))
@@ -108,8 +122,9 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
         return authentication(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities()));
     }
 
-    private static org.springframework.test.web.servlet.request.RequestPostProcessor asManager() {
-        return principal("manager01", Role.ROLE_MANAGER);
+    /** 시험 회원({@link #manager})으로 로그인한 것과 같은 요청 주체. */
+    private org.springframework.test.web.servlet.request.RequestPostProcessor asManager() {
+        return TestMembers.asMember(manager);
     }
 
     private static org.springframework.test.web.servlet.request.RequestPostProcessor asAdmin() {
@@ -118,11 +133,11 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
 
     // ── 권한 상태 조작 ───────────────────────────────────────────
 
-    /** MANAGER의 공지 허용 행을 지정한 동작 집합으로 바꾸고 캐시를 무효화한다(권한관리 저장과 같은 효과). */
+    /** 시험 MANAGER 회원의 공지 허용 행을 지정한 동작 집합으로 바꾸고 캐시를 무효화한다(권한관리 저장과 같은 효과). */
     private void grant(Set<PermissionAction> actions) {
-        jdbc.update("DELETE FROM role_permission WHERE role = ? AND feature = 'NOTICE'", MANAGER);
+        jdbc.update("DELETE FROM member_permission WHERE member_id = ? AND feature = 'NOTICE'", manager.getId());
         for (PermissionAction action : actions) {
-            jdbc.update("INSERT INTO role_permission (role, feature, action) VALUES (?, 'NOTICE', ?)", MANAGER, action.name());
+            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)", manager.getId(), action.name());
         }
         cache.invalidate();
     }
@@ -312,16 +327,16 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
         for (String path : List.of("/admin/unknown", "/admin/api/unknown", "/admin/menu/manage", "/admin/log/manage",
                 "/admin/member/manage", "/admin/api/menus/tree", "/admin/api/logs", "/admin/api/members",
                 // 권한관리 자체는 위임 불가 — MANAGER는 화면·API 모두 403
-                "/admin/permission/manage", "/admin/api/roles/ROLE_MANAGER/permissions")) {
+                "/admin/permission/manage", "/admin/api/members/" + manager.getId() + "/permissions")) {
             MvcResult result = mockMvc.perform(get(path).with(asManager())).andReturn();
             assertThat(result.getResponse().getStatus()).as(path).isEqualTo(403);
         }
         // 시드 상태 MANAGER가 유효한 CSRF·본문으로 PUT해도 403이고 권한은 그대로다(스스로 승격할 수 없다)
-        MvcResult put = mockMvc.perform(put("/admin/api/roles/ROLE_MANAGER/permissions").with(asManager()).with(csrf())
+        MvcResult put = mockMvc.perform(put("/admin/api/members/" + manager.getId() + "/permissions").with(asManager()).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"version\":0,\"grants\":[]}")).andReturn();
         assertThat(put.getResponse().getStatus()).isEqualTo(403);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM role_permission WHERE role = ?", Integer.class, MANAGER)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_permission WHERE member_id = ?", Integer.class, manager.getId())).isEqualTo(4);
     }
 
     @Test
@@ -364,5 +379,43 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
         MvcResult result = mockMvc.perform(get("/unknown-outside-admin").with(asManager())).andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(403);
+    }
+
+    // ── 사용자별 권한(PLAN-member-permission.md §7-1 ②·⑦) ──────
+
+    @Test
+    @DisplayName("교차 회원 격리: 회원 A에게만 준 공지 권한은 같은 역할의 회원 B에게 적용되지 않는다(API·페이지 모두)")
+    void grantsDoNotLeakToAnotherManager() throws Exception {
+        grant(EnumSet.allOf(PermissionAction.class)); // 회원 A = manager
+        Member other = TestMembers.save(memberRepository, "matrix-other", Role.ROLE_MANAGER);
+        extraMemberIds.add(other.getId());
+        cache.invalidate();
+
+        assertThat(mockMvc.perform(get("/admin/api/notices").with(asManager())).andReturn().getResponse().getStatus())
+                .as("A는 허용").isEqualTo(200);
+        MvcResult apiDenied = mockMvc.perform(get("/admin/api/notices").with(TestMembers.asMember(other))).andReturn();
+        assertThat(apiDenied.getResponse().getStatus()).as("B는 같은 역할이어도 거부").isEqualTo(403);
+        assertThat(apiDenied.getResponse().getContentAsString()).contains("ACCESS_DENIED");
+        assertThat(mockMvc.perform(get("/admin/notice/manage").with(TestMembers.asMember(other))).andReturn().getResponse().getStatus())
+                .as("B의 공지 페이지").isEqualTo(403);
+        assertThat(mockMvc.perform(post("/admin/api/notices").with(TestMembers.asMember(other)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"matrix-created-leak\",\"content\":\"본문\",\"useYn\":true}"))
+                .andReturn().getResponse().getStatus()).as("B의 공지 생성").isEqualTo(403);
+        assertThat(noticeCountByPrefix("matrix-created-leak")).isZero();
+    }
+
+    @Test
+    @DisplayName("새로 만든 MANAGER(권한 0개)는 대시보드·내 정보만 접근하고 공지는 API·페이지 모두 거부된다 — 사이드바에도 공지가 없다")
+    void newManagerWithoutGrantsSeesOnlyAlwaysAllowed() throws Exception {
+        Member fresh = TestMembers.save(memberRepository, "matrix-fresh", Role.ROLE_MANAGER);
+        extraMemberIds.add(fresh.getId());
+
+        assertThat(mockMvc.perform(get("/admin").with(TestMembers.asMember(fresh))).andReturn().getResponse().getStatus()).isEqualTo(200);
+        assertThat(mockMvc.perform(get("/admin/member/info").with(TestMembers.asMember(fresh))).andReturn().getResponse().getStatus()).isEqualTo(200);
+        assertThat(mockMvc.perform(get("/admin/api/notices").with(TestMembers.asMember(fresh))).andReturn().getResponse().getStatus()).isEqualTo(403);
+        assertThat(mockMvc.perform(get("/admin/notice/manage").with(TestMembers.asMember(fresh))).andReturn().getResponse().getStatus()).isEqualTo(403);
+        String dashboard = mockMvc.perform(get("/admin").with(TestMembers.asMember(fresh))).andReturn().getResponse().getContentAsString();
+        assertThat(dashboard).doesNotContain("href=\"/admin/notice/manage\"");
     }
 }

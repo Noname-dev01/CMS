@@ -353,10 +353,9 @@ public class MenuService {
         }
 
         // 노출 안내(exposure)는 필터와 무관하게 전체 메뉴로 계산한다 — 비활성 조상 아래 메뉴가 안내에서 어긋나지 않도록.
-        // 권한 스냅샷은 요청당 한 번만, **메뉴 조회보다 먼저** 받는다. 이 메서드는 서비스 트랜잭션을 열지 않는다 — 읽기 트랜잭션이
-        // 커넥션을 쥔 채 캐시 로더(REQUIRES_NEW, 별도 커넥션)를 기다리면 동시 요청이 풀을 채웠을 때 서로 타임아웃으로 막힌다(코드 리뷰 1라운드).
-        // 메뉴 조회는 단일 쿼리라 repository 자체의 읽기 트랜잭션으로 충분하다.
-        Predicate<String> managerVisible = adminPermissionEvaluator.managerMenuUrlVisibility(adminPermissionEvaluator.snapshot());
+        // 권한이 사용자별이라 "MANAGER 한 명의 시점"이 없다 — 안내는 "권한을 받으면 MANAGER가 볼 수 있는가"(카탈로그 분류)만 본다.
+        // 그래서 권한 스냅샷(캐시 로드)이 필요 없다.
+        Predicate<String> managerVisible = adminPermissionEvaluator.anyManagerMenuUrlVisibility();
         List<Menu> allMenus = menuRepository.findAllByOrderByOrdAscMenuNoAsc();
         MenuVisibility.Result visibility = MenuVisibility.evaluate(allMenus, managerVisible);
 
