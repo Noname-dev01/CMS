@@ -68,6 +68,14 @@ class AdminFeatureTest {
         }
     }
 
+    @Test
+    @DisplayName("통합 검색은 상시 허용 기능이고 게이트는 검색 API 경로 하나뿐이며 사이드바 메뉴가 아니다")
+    void searchFeatureIsAlwaysWithSingleGate() {
+        assertThat(AdminFeature.SEARCH.getKind()).isEqualTo(FeatureKind.ALWAYS);
+        assertThat(AdminFeature.SEARCH.getGatePatterns()).containsExactly("/admin/api/search-results");
+        assertThat(AdminFeature.SEARCH.getMenuUrls()).isEmpty();
+    }
+
     private static List<String> concat(List<String> a, List<String> b) {
         List<String> result = new ArrayList<>(a);
         result.addAll(b);

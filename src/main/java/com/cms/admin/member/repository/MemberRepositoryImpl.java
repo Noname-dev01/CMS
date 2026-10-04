@@ -76,6 +76,39 @@ public class MemberRepositoryImpl implements MemberRepositoryCustom {
         return new PageImpl<>(content, pageable, total == null ? 0 : total);
     }
 
+    @Override
+    public Page<Member> searchByKeyword(String keyword, Pageable pageable) {
+
+        QMember member = QMember.member;
+
+        BooleanBuilder builder = new BooleanBuilder();
+        builder.and(member.userType.in(Role.ROLE_ADMIN, Role.ROLE_MANAGER));
+        builder.and(member.status.ne(MemberStatus.DELETED));
+
+        // 빈 검색어는 전체 목록이 되므로 쿼리를 만들지 않는다(호출자가 최소 길이를 보장하지만 이중 방어).
+        if (!hasText(keyword)) {
+            return Page.empty(pageable);
+        }
+        String trimmed = keyword.trim();
+        builder.and(member.userId.contains(trimmed).or(member.userName.contains(trimmed)));
+
+        List<Member> content = queryFactory
+                .selectFrom(member)
+                .where(builder)
+                .orderBy(toOrderSpecifiers(pageable.getSort()))
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
+
+        Long total = queryFactory
+                .select(member.count())
+                .from(member)
+                .where(builder)
+                .fetchOne();
+
+        return new PageImpl<>(content, pageable, total == null ? 0 : total);
+    }
+
     /**
      * Pageable의 Sort를 QueryDSL OrderSpecifier 배열로 변환한다.
      * 화이트리스트에 없는 속성과 열거형 필드(userType, status)는 무시하며,

@@ -30,6 +30,10 @@ public enum AdminFeature {
             List.of("/admin/member/info"),
             List.of("/admin/member/info", "/admin/member/settings", "/admin/api/members/me", "/admin/api/members/me/**")),
 
+    /** 상단바 통합 검색 — 검색창 사용 자체는 상시 허용이고, 결과의 도메인별 노출은 서비스가 판정기로 필터한다. */
+    SEARCH(ALWAYS, "통합 검색", EnumSet.of(READ),
+            List.of(), List.of("/admin/api/search-results")),
+
     NOTICE(DELEGABLE, "공지사항", EnumSet.of(READ, CREATE, UPDATE, DELETE),
             List.of("/admin/notice/manage"),
             List.of("/admin/notice/**", "/admin/api/notices", "/admin/api/notices/**")),
