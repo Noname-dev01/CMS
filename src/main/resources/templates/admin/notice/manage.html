@@ -398,6 +398,10 @@
             const body = await response.json();
             return body.message || fallbackMessage;
         } catch (e) {
+            // 본문을 읽는 중 요청이 취소됐다면 일반 오류로 바꾸지 않고 그대로 던져 호출자가 무시하게 한다.
+            if (e && e.name === "AbortError") {
+                throw e;
+            }
             return fallbackMessage;
         }
     }
@@ -609,6 +613,8 @@
     }
 
     function abortPendingDetailRequest() {
+        // 다른 공지로 전환하거나 모달을 닫을 때 진행 중인 첨부 목록 응답도 버려지게 세대를 올린다.
+        attachmentRequestSeq++;
         if (currentDetailController) {
             currentDetailController.abort();
             currentDetailController = null;
@@ -675,9 +681,14 @@
             if (!response.ok) {
                 throw new Error(await extractErrorMessage(response, "첨부파일 목록 조회에 실패했습니다."));
             }
-            renderAttachments(await response.json(), noticeId);
+            const list = await response.json();
+            // 본문을 해석하는 사이 다른 공지로 전환했거나 모달을 닫았다면(세대·대상 공지가 달라짐) 이 응답은 버린다.
+            if (requestSeq !== attachmentRequestSeq || !currentDetail || currentDetail.id !== noticeId) {
+                return;
+            }
+            renderAttachments(list, noticeId);
         } catch (error) {
-            if (requestSeq !== attachmentRequestSeq) {
+            if (requestSeq !== attachmentRequestSeq || !currentDetail || currentDetail.id !== noticeId) {
                 return;
             }
             renderAttachments([], noticeId);
@@ -752,7 +763,8 @@
             showViewMode();
             showAttachmentSection();
         } catch (error) {
-            if (error && error.name === "AbortError") {
+            // 취소된 요청이거나, 오류 본문을 읽는 사이 다른 공지로 전환돼 컨트롤러가 교체됐다면 새 모달을 건드리지 않는다.
+            if ((error && error.name === "AbortError") || controller !== currentDetailController) {
                 return;
             }
             detailLoading.classList.add("d-none");
@@ -1040,6 +1052,19 @@
     });
 
     loadNotices(0);
+
+    // 상단바 검색 결과 링크(?id=)로 들어오면 그 공지의 상세를 바로 연다.
+    (function openDetailFromQuery() {
+        const params = new URLSearchParams(location.search);
+        const id = params.get("id");
+        if (id === null || !/^[1-9]\d{0,15}$/.test(id)) {
+            return;   // 없거나 형식이 아니면 무시하고 목록만 보여 준다
+        }
+        params.delete("id");
+        const rest = params.toString();
+        history.replaceState(null, "", location.pathname + (rest ? "?" + rest : ""));   // 새로고침·뒤로 가기에서 다시 열리지 않게
+        openDetailModal(id);
+    })();
 </script>
 
 </body>

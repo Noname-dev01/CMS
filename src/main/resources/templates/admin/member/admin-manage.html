@@ -236,6 +236,11 @@
     let currentAdminId = null;
     // 모달에 표시 중인 상세 데이터 (수정 모드 초기값·변경분 diff 계산에 사용)
     let currentDetail = null;
+    // 상세 조회·저장 응답 경쟁 방지 — 다른 회원을 열거나 모달을 닫으면 세대를 올려 늦게 도착한 응답을 버린다.
+    let detailSeq = 0;
+    let detailController = null;
+    // 본인 ID 조회 완료 대기용 — 상세를 그리기 전에 확정해 본인 계정에 수정 버튼이 잘못 뜨지 않게 한다.
+    let currentAdminReady = Promise.resolve();
 
     function getCsrfHeaders() {
         const token = document.querySelector('meta[name="_csrf"]');
@@ -573,9 +578,12 @@
         hideDetailError();
         hideDetailSuccess();
         btnSaveEdit.disabled = true;
+        // 저장 대상은 요청 시작 시점의 화면 대상으로 고정한다 — 응답이 오기 전에 다른 회원을 열었다면 그 화면을 건드리지 않는다.
+        const targetId = currentDetail.id;
+        const seq = detailSeq;
 
         try {
-            const response = await fetch("/admin/api/members/" + encodeURIComponent(currentDetail.id), {
+            const response = await fetch("/admin/api/members/" + encodeURIComponent(targetId), {
                 method: "PATCH",
                 headers: getCsrfHeaders(),
                 body: JSON.stringify(payload)
@@ -585,6 +593,10 @@
             }
 
             const data = await response.json();
+            if (seq !== detailSeq || !currentDetail || currentDetail.id !== targetId) {
+                loadAdminMembers(pageState.page);   // 저장은 서버에 반영됐으므로 목록만 갱신한다
+                return;
+            }
             currentDetail = data;
             renderDetail(data);
             exitEditMode();
@@ -592,7 +604,9 @@
                 + ((payload.status || payload.userType) ? " 대상자의 기존 로그인 세션은 만료 처리됩니다." : ""));
             loadAdminMembers(pageState.page);
         } catch (error) {
-            showDetailError(getRequestErrorMessage(error, "관리자 수정 중 오류가 발생했습니다."));
+            if (seq === detailSeq) {
+                showDetailError(getRequestErrorMessage(error, "관리자 수정 중 오류가 발생했습니다."));
+            }
         } finally {
             btnSaveEdit.disabled = false;
         }
@@ -664,23 +678,50 @@
     }
 
     async function loadAdminDetail(id) {
+        const seq = ++detailSeq;
+        if (detailController) {
+            detailController.abort();
+        }
+        const controller = new AbortController();
+        detailController = controller;
         resetDetailModal();
 
         try {
-            const response = await fetch("/admin/api/members/" + encodeURIComponent(id));
+            const response = await fetch("/admin/api/members/" + encodeURIComponent(id), { signal: controller.signal });
             if (!response.ok) {
                 throw new Error(await extractErrorMessage(response, "관리자 상세 조회에 실패했습니다."));
             }
 
             const data = await response.json();
+            await currentAdminReady;
+            // 본문 해석·본인 ID 대기 사이에 다른 회원을 열었거나 모달을 닫았다면 이 응답은 버린다.
+            if (seq !== detailSeq || String(data.id) !== String(id)) {
+                return;
+            }
             currentDetail = data;
             renderDetail(data);
             configureEditAccess(data);
         } catch (error) {
+            if ((error && error.name === "AbortError") || seq !== detailSeq) {
+                return;
+            }
             detailLoading.classList.add("d-none");
             showDetailError(getRequestErrorMessage(error, "관리자 상세 조회 중 오류가 발생했습니다."));
+        } finally {
+            if (detailController === controller) {
+                detailController = null;
+            }
         }
     }
+
+    // 모달을 닫으면 진행 중인 상세 조회를 취소하고 세대를 올려 늦은 응답이 다음에 열 모달을 덮지 않게 한다.
+    $("#adminDetailModal").on("hidden.bs.modal", function () {
+        detailSeq++;
+        if (detailController) {
+            detailController.abort();
+            detailController = null;
+        }
+    });
 
     searchForm.addEventListener("submit", function (event) {
         event.preventDefault();
@@ -751,8 +792,30 @@
         saveEdit();
     });
 
-    loadCurrentAdminId();
+    currentAdminReady = loadCurrentAdminId();
     loadAdminMembers(0);
+
+    // 상단바 검색 결과 링크(?id=)로 들어오면 그 회원의 상세를 바로 연다.
+    (async function openDetailFromQuery() {
+        const params = new URLSearchParams(location.search);
+        const id = params.get("id");
+        if (id === null) {
+            return;
+        }
+        if (!/^[1-9]\d{0,15}$/.test(id)) {
+            return;   // 형식이 아니면 무시하고 목록만 보여 준다
+        }
+        const seqAtStart = detailSeq;
+        await currentAdminReady;
+        if (seqAtStart !== detailSeq) {
+            return;   // 본인 ID를 기다리는 동안 사용자가 직접 회원을 열었다면 자동 진입을 버린다
+        }
+        params.delete("id");
+        const rest = params.toString();
+        history.replaceState(null, "", location.pathname + (rest ? "?" + rest : ""));   // 새로고침·뒤로 가기에서 다시 열리지 않게
+        $("#adminDetailModal").modal("show");
+        loadAdminDetail(id);
+    })();
 </script>
 
 </body>
