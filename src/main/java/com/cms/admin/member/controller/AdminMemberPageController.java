@@ -24,4 +24,9 @@ public class AdminMemberPageController {
     public String adminMyInfoPage() {
         return "admin/member/admin-my-info";
     }
+
+    @GetMapping("/settings")
+    public String adminSettingsPage() {
+        return "admin/member/admin-settings";
+    }
 }

@@ -126,6 +126,22 @@ class SecurityConfigTest {
     }
 
     @Test
+    @DisplayName("MANAGER는 내 설정 페이지(/admin/member/settings) 접근이 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_memberSettings_ok() throws Exception {
+        mockMvc.perform(get("/admin/member/settings"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비로그인 사용자는 내 설정 페이지(/admin/member/settings)에서 로그인으로 리다이렉트된다")
+    void unauthenticated_memberSettings_redirectsToLogin() throws Exception {
+        mockMvc.perform(get("/admin/member/settings"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
+    @Test
     @DisplayName("MANAGER는 self API(/admin/api/members/me)에 접근이 가능하다")
     @WithMockUser(roles = "MANAGER")
     void manager_selfApi_ok() throws Exception {
@@ -476,6 +492,11 @@ class AdminMemberInfoStubController {
     @GetMapping("/admin/member/info")
     String memberInfo() {
         return "info";
+    }
+
+    @GetMapping("/admin/member/settings")
+    String memberSettings() {
+        return "settings";
     }
 }
 

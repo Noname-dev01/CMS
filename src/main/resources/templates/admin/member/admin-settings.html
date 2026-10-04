@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>내 설정</title>
+</head>
+<body id="page-top">
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <h1 class="h3 mb-2 text-gray-800">내 설정</h1>
+                <p class="mb-4">내 계정의 비밀번호를 변경합니다. 이름·이메일·프로필 이미지는 <a th:href="@{/admin/member/info}">내 정보</a>에서 바꿀 수 있습니다.</p>
+
+                <div class="row">
+                    <div class="col-lg-6">
+                        <div class="card shadow mb-4">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary">비밀번호 변경</h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+                                <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
+
+                                <form id="passwordForm" novalidate>
+                                    <div class="form-group">
+                                        <label for="currentPassword">현재 비밀번호</label>
+                                        <input type="password" class="form-control" id="currentPassword"
+                                               autocomplete="current-password">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="newPassword">새 비밀번호</label>
+                                        <input type="password" class="form-control" id="newPassword"
+                                               autocomplete="new-password">
+                                        <small class="form-text text-muted">15자 이상(UTF-8 기준 72바이트 이하)으로 입력해주세요.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="confirmPassword">새 비밀번호 확인</label>
+                                        <input type="password" class="form-control" id="confirmPassword"
+                                               autocomplete="new-password">
+                                    </div>
+                                    <p class="small text-muted">변경하면 보안을 위해 모든 세션이 종료되고 다시 로그인해야 합니다.</p>
+                                    <button type="submit" class="btn btn-primary" id="btnChangePassword">비밀번호 변경</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+
+<script>
+    const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
+
+    const MIN_PASSWORD_LENGTH = 15;
+
+    const passwordForm = document.getElementById("passwordForm");
+    const currentPasswordInput = document.getElementById("currentPassword");
+    const newPasswordInput = document.getElementById("newPassword");
+    const confirmPasswordInput = document.getElementById("confirmPassword");
+    const changeButton = document.getElementById("btnChangePassword");
+    const pageAlert = document.getElementById("pageAlert");
+    const pageSuccess = document.getElementById("pageSuccess");
+
+    function showError(message) {
+        pageSuccess.classList.add("d-none");
+        pageAlert.textContent = message;
+        pageAlert.classList.remove("d-none");
+    }
+
+    function clearMessages() {
+        pageAlert.classList.add("d-none");
+        pageSuccess.classList.add("d-none");
+    }
+
+    // 서버가 최종 판정하고 화면은 UX 보조다(길이는 유니코드 코드포인트 기준 — 서버 @MinCodePoints와 같다).
+    function validateInputs() {
+        if (!currentPasswordInput.value || !newPasswordInput.value || !confirmPasswordInput.value) {
+            return "모든 항목을 입력해주세요.";
+        }
+        if (Array.from(newPasswordInput.value).length < MIN_PASSWORD_LENGTH) {
+            return "새 비밀번호는 " + MIN_PASSWORD_LENGTH + "자 이상이어야 합니다.";
+        }
+        if (newPasswordInput.value !== confirmPasswordInput.value) {
+            return "새 비밀번호와 확인 값이 일치하지 않습니다.";
+        }
+        return null;
+    }
+
+    async function extractErrorMessage(response, fallbackMessage) {
+        try {
+            const body = await response.json();
+            return body.message || fallbackMessage;
+        } catch (error) {
+            return fallbackMessage;
+        }
+    }
+
+    passwordForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        clearMessages();
+
+        const validationError = validateInputs();
+        if (validationError) {
+            showError(validationError);
+            return;
+        }
+
+        changeButton.disabled = true;
+        try {
+            const response = await fetch("/admin/api/members/me/password", {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json", [csrfHeader]: csrfToken },
+                body: JSON.stringify({
+                    currentPassword: currentPasswordInput.value,
+                    newPassword: newPasswordInput.value,
+                    confirmPassword: confirmPasswordInput.value
+                })
+            });
+
+            if (!response.ok) {
+                showError(await extractErrorMessage(response, "비밀번호를 변경하지 못했습니다."));
+                changeButton.disabled = false;
+                return;
+            }
+
+            // 성공하면 서버가 본인 포함 모든 세션을 폐기하므로 로그인 화면으로 보낸다.
+            passwordForm.reset();
+            pageSuccess.textContent = "비밀번호가 변경되었습니다. 잠시 후 로그인 화면으로 이동합니다.";
+            pageSuccess.classList.remove("d-none");
+            setTimeout(function () { window.location.href = "/admin/login"; }, 2000);
+        } catch (error) {
+            showError("네트워크 연결을 확인해주세요.");
+            changeButton.disabled = false;
+        }
+    });
+</script>
+
+</body>
+</html>

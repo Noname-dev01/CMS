@@ -28,7 +28,7 @@ public enum AdminFeature {
 
     MY_INFO(ALWAYS, "내 정보", EnumSet.of(READ, UPDATE),
             List.of("/admin/member/info"),
-            List.of("/admin/member/info", "/admin/api/members/me", "/admin/api/members/me/**")),
+            List.of("/admin/member/info", "/admin/member/settings", "/admin/api/members/me", "/admin/api/members/me/**")),
 
     NOTICE(DELEGABLE, "공지사항", EnumSet.of(READ, CREATE, UPDATE, DELETE),
             List.of("/admin/notice/manage"),
