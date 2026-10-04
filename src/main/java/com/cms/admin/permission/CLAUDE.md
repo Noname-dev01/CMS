@@ -9,7 +9,7 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 | 기능 | 종류 | 설명 |
 |---|---|---|
-| `DASHBOARD`, `MY_INFO` | `ALWAYS` | 로그인한 ADMIN·MANAGER 전원 상시 허용. DB를 보지 않고 끌 수 없다(로그인 직후 `/admin`으로 이동하므로 대시보드를 끄면 403이 난다) |
+| `DASHBOARD`, `MY_INFO`, `SEARCH` | `ALWAYS` | 로그인한 ADMIN·MANAGER 전원 상시 허용(`SEARCH`=상단바 통합 검색 API 사용 자체 — 결과의 도메인별 노출은 `AdminSearchService`가 판정기로 필터한다, 아래 "통합 검색"). DB를 보지 않고 끌 수 없다(로그인 직후 `/admin`으로 이동하므로 대시보드를 끄면 403이 난다) |
 | `NOTICE` | `DELEGABLE` | ADMIN은 항상, MANAGER는 **그 회원의** (기능, 동작) 허용 행이 있을 때만. 동작 `READ·CREATE·UPDATE·DELETE` |
 | `MEMBER`, `MENU`, `ACTION_LOG`, `PERMISSION` | `ADMIN_ONLY` | 위임 불가. `PERMISSION`을 `DELEGABLE`로 바꾸면 `AdminFeature` 생성자가 **클래스 로딩 시점에 예외**를 던진다(자기 승격 차단). 권한관리 메뉴는 ADMIN만 접근한다 |
 
@@ -56,6 +56,10 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 - **앱 롤백**: 이전 앱은 `role_permission`을 읽는다 — 회원별 회수·부여 결과는 사라지고 배포 시점의 역할 단위 권한으로 돌아간다(회수한 권한이 되살아날 수 있다, 역할별 PR ①의 롤백 주의와 같은 유형). 회원별 회수 이력이 생긴 뒤에는 되돌리기보다 roll-forward(수정 버전 배포)를 기본으로 한다.
 - **롤백했다가 신버전을 다시 배포할 때**: 구버전 운영 중의 역할 변경·회원 생성은 `member_permission`에 반영되지 않아(V19는 재실행되지 않는다) 낡은 행이 되살아난다. 앱 정지 → `DELETE FROM member_permission; UPDATE member SET permission_version = permission_version + 1;` 한 트랜잭션 → 기동(fail-closed: MANAGER 전원 권한 0개로 시작, ADMIN이 재부여). 허용 행이 0개인 회원까지 **전원의 버전을 올려야** 정리 전 화면의 오래된 PUT이 과거 권한을 복원하지 못한다. 앱이 켜진 채 SQL을 실행했다면 **재시작이 캐시 폐기**다. 정리 뒤 기존 권한 보유 MANAGER의 공지 접근이 실제 403인지 확인한다(`docs/deployment.md`).
+
+## 통합 검색 (`com.cms.admin.search`, 2026-10-05, `PLAN-admin-unified-search.md` — 적대적 리뷰 4라운드 ship)
+
+`GET /admin/api/search-results?keyword=`(ALWAYS 기능 `SEARCH`, 게이트 패턴은 **이 경로 하나**라 하위 경로는 ADMIN 캐치올) — 상단바 드롭다운이 호출한다. **검색이 권한 우회 경로가 되지 않는 것이 불변식**이라 섹션 노출을 `AdminSearchService`가 이 판정기로 결정하고, 권한 없는 섹션은 빈 배열이 아니라 **응답 키 자체를 생략**한다(`NON_NULL`): 메뉴 = 사이드바와 같은 `getSidebarMenus(menuUrlVisibility)` 결과를 평탄화(자식 있는 그룹은 건너뜀), 공지 = ADMIN 또는 그 회원의 `NOTICE:READ`, 관리자 계정 = ADMIN만(이메일 등 제외). MANAGER 스냅샷은 요청당 한 번만 읽는다(ADMIN은 캐시 미호출). **최소 검색어 2코드포인트**(미만은 쿼리 없이 빈 결과 200 — 서버 비용 제한, 레이트리밋은 두지 않았다), 최대 100자(초과 400), 섹션당 5건 + 전체 건수. **메뉴 이동 URL은 같은 출처 경로만**(`/`로 시작, `//`·`\`·공백·제어문자 없음) 결과에 넣는다 — 메뉴 URL은 저장 시 길이만 검사해 `javascript:` 등이 저장될 수 있기 때문이며(저장 검증·사이드바 `href`는 범위 밖 후속), 화면(`topbar-search.js`)도 같은 검사를 한 번 더 한다. 결과 클릭은 메뉴 → URL, 공지·관리자 → `/admin/notice/manage?id=`·`/admin/member/manage?id=`로 이동해 **관리 화면이 상세 모달을 바로 연다**(`id`는 `^[1-9]\d{0,15}$`만, 연 뒤 `replaceState`로 쿼리에서 제거). 이동 뒤 권한은 기존 게이트·상세 API가 다시 판정한다 — 링크를 연 시점에 권한이 없으면 페이지 게이트 403, 페이지를 받은 뒤 회수되면 상세 API 403이 모달에 표시된다(검색 결과와 이후 요청 사이의 권한 변경은 보장하지 않는다). 시험: `AdminSearchServiceTest`(권한 조합·URL 필터·최소 길이)·`AdminSearchControllerTest`·`AdminSearchIntegrationTest`(실제 스택에서 권한 부여·회수 효과, 메뉴가 사이드바 가시성을 따름)·`MemberKeywordSearchDataJpaTest`.
 
 ## 사이드바 연동
 

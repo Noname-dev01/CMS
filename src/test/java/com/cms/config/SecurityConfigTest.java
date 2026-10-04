@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
@@ -164,6 +164,48 @@ class SecurityConfigTest {
     @WithMockUser(roles = "MANAGER")
     void manager_memberManagePage_forbidden() throws Exception {
         mockMvc.perform(get("/admin/member/manage"))
+                .andExpect(status().isForbidden());
+    }
+
+    // ==================== 통합 검색 인가 범위 검증 ====================
+
+    @Test
+    @DisplayName("MANAGER는 통합 검색 API(/admin/api/search-results)에 접근이 가능하다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_searchApi_ok() throws Exception {
+        mockMvc.perform(get("/admin/api/search-results"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("ADMIN은 통합 검색 API에 접근이 가능하다")
+    @WithMockUser(roles = "ADMIN")
+    void admin_searchApi_ok() throws Exception {
+        mockMvc.perform(get("/admin/api/search-results"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("USER는 통합 검색 API에 접근할 수 없다(403)")
+    @WithMockUser(roles = "USER")
+    void user_searchApi_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/search-results"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("미인증 사용자의 통합 검색 API 호출은 JSON 401")
+    void unauthenticated_searchApi_json401() throws Exception {
+        mockMvc.perform(get("/admin/api/search-results"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
+    }
+
+    @Test
+    @DisplayName("통합 검색 API 하위 경로는 게이트에 포함되지 않아 MANAGER가 접근할 수 없다(ADMIN 캐치올, 403)")
+    @WithMockUser(roles = "MANAGER")
+    void manager_searchApiSubPath_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/search-results/x"))
                 .andExpect(status().isForbidden());
     }
 
@@ -497,6 +539,15 @@ class AdminMemberInfoStubController {
     @GetMapping("/admin/member/settings")
     String memberSettings() {
         return "settings";
+    }
+}
+
+@TestStubController
+class AdminSearchApiStubController {
+
+    @GetMapping({"/admin/api/search-results", "/admin/api/search-results/x"})
+    String searchResults() {
+        return "{}";
     }
 }
 

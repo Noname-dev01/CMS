@@ -8,10 +8,28 @@
         <i class="fa fa-bars"></i>
     </button>
 
+    <!-- 통합 검색: 입력 요소 하나를 데스크톱·모바일이 공유한다(xs에서는 아이콘 버튼이 펼친다). 동작은 /js/admin/topbar-search.js -->
+    <form class="topbar-search form-inline mr-auto ml-md-3 my-2 my-md-0" role="search" autocomplete="off">
+        <button type="button" id="topbarSearchToggle" class="btn btn-link d-sm-none" aria-label="검색 열기" aria-expanded="false">
+            <i class="fas fa-search fa-fw"></i>
+        </button>
+        <div id="topbarSearchBox" class="topbar-search-box d-none d-sm-block">
+            <div class="input-group">
+                <input type="search" id="topbarSearchInput" class="form-control bg-light border-0 small"
+                       placeholder="메뉴·공지·관리자 검색" maxlength="100" aria-label="통합 검색"
+                       role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="topbarSearchResults">
+                <div class="input-group-append">
+                    <span class="btn btn-primary disabled" aria-hidden="true"><i class="fas fa-search fa-sm"></i></span>
+                </div>
+            </div>
+            <div id="topbarSearchResults" class="topbar-search-results shadow d-none" role="listbox" aria-label="검색 결과"></div>
+        </div>
+    </form>
+
     <!-- Topbar Navbar -->
     <ul class="navbar-nav ml-auto">
 
-        <!-- 알림·쪽지·검색 위젯은 각각 실제 기능과 함께 추가한다(데모 하드코딩 제거) -->
+        <!-- 알림·쪽지 위젯은 각각 실제 기능과 함께 추가한다(데모 하드코딩 제거) -->
 
         <div class="topbar-divider d-none d-sm-block"></div>
 
@@ -51,5 +69,6 @@
     </ul>
 
 </nav>
+<script th:src="@{/js/admin/topbar-search.js}" defer></script>
 </body>
 </html>

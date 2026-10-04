@@ -1,0 +1,107 @@
+/* 상단바 통합 검색 드롭다운 (동작: /js/admin/topbar-search.js) */
+.topbar-search-box {
+    position: relative;
+    min-width: 20rem;
+}
+
+@media (max-width: 575.98px) {
+    /* xs: 입력 상자가 펼쳐지면 상단바 폭을 채운다 */
+    .topbar-search {
+        flex: 1 1 auto;
+        flex-wrap: wrap;
+    }
+    .topbar-search-box.d-block {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+}
+
+.topbar-search-results {
+    position: absolute;
+    top: calc(100% + .25rem);
+    left: 0;
+    right: 0;
+    z-index: 1050;
+    max-height: 70vh;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #e3e6f0;
+    border-radius: .35rem;
+}
+
+.topbar-search-results .search-section-title {
+    padding: .5rem .85rem .25rem;
+    font-size: .7rem;
+    font-weight: 800;
+    letter-spacing: .05em;
+    color: #858796;
+    text-transform: uppercase;
+}
+
+.topbar-search-results .search-section-note {
+    padding: 0 .85rem .5rem;
+    font-size: .7rem;
+    color: #b7b9cc;
+}
+
+.topbar-search-results .search-item {
+    display: flex;
+    align-items: center;
+    padding: .45rem .85rem;
+    color: #3a3b45;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.topbar-search-results .search-item:hover,
+.topbar-search-results .search-item.active {
+    background: #eaecf4;
+    color: #224abe;
+    text-decoration: none;
+}
+
+.topbar-search-results .search-item .search-icon {
+    width: 1.5rem;
+    color: #b7b9cc;
+    text-align: center;
+    flex: 0 0 auto;
+}
+
+.topbar-search-results .search-item .search-main {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.topbar-search-results .search-item .search-primary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topbar-search-results .search-item .search-secondary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: .75rem;
+    color: #858796;
+}
+
+.topbar-search-results .search-badge {
+    flex: 0 0 auto;
+    margin-left: .5rem;
+    padding: .1rem .4rem;
+    font-size: .65rem;
+    color: #858796;
+    background: #eaecf4;
+    border-radius: .25rem;
+}
+
+.topbar-search-results .search-status {
+    padding: .75rem .85rem;
+    font-size: .85rem;
+    color: #858796;
+}
+
+.topbar-search-results .search-status a {
+    font-weight: 700;
+}

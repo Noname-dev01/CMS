@@ -374,8 +374,9 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
                 .andExpect(jsonPath("$.memberId").value(manager.getId()))
                 .andExpect(jsonPath("$.userId").value(manager.getUserId()))
                 .andExpect(jsonPath("$.version").value(version()))
-                .andExpect(jsonPath("$.features[2].feature").value("NOTICE"))
-                .andExpect(jsonPath("$.features[2].grantedActions.length()").value(4));
+                // 카탈로그에 상시 허용 기능이 추가돼도 깨지지 않도록 위치가 아니라 기능 이름으로 찾는다.
+                .andExpect(jsonPath("$.features[?(@.feature=='NOTICE')].grantedActions.length()").value(4))
+                .andExpect(jsonPath("$.features[?(@.feature=='SEARCH')].kind").value("ALWAYS"));
     }
 
     // ── ④ 즉시 반영(실제 로그인 세션 재사용) ───────────────────
