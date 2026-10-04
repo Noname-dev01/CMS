@@ -166,6 +166,15 @@
         .jstree-default .jstree-node {
             margin-left: 12px;
         }
+        .icon-preview { display: inline-flex; width: 2.25rem; height: 2.25rem; align-items: center; justify-content: center;
+            border: 1px solid #d1d3e2; border-radius: .35rem; font-size: 1.1rem; color: #4e73df; }
+        .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: .5rem; max-height: 50vh; overflow-y: auto; }
+        .icon-grid .icon-item { display: flex; flex-direction: column; align-items: center; padding: .5rem .25rem; background: #fff;
+            border: 1px solid #e3e6f0; border-radius: .35rem; cursor: pointer; color: #5a5c69; }
+        .icon-grid .icon-item:hover, .icon-grid .icon-item:focus { border-color: #4e73df; color: #4e73df; outline: none; }
+        .icon-grid .icon-item.selected { background: #4e73df; border-color: #4e73df; color: #fff; }
+        .icon-grid .icon-item i { font-size: 1.25rem; margin-bottom: .25rem; }
+        .icon-grid .icon-item span { font-size: .65rem; word-break: break-all; text-align: center; }
         .jstree-default .jstree-themeicon {
             color: #4e73df;
         }
@@ -276,7 +285,14 @@
                                         </div>
                                         <div class="form-group">
                                             <label for="menuIcon">아이콘</label>
-                                            <input type="text" class="form-control" id="menuIcon" name="menuIcon">
+                                            <!-- 값은 hidden에 클래스 문자열(예: "fas fa-fw fa-users")로 담고, 사용자는 모달에서 아이콘을 골라 지정한다 -->
+                                            <input type="hidden" id="menuIcon" name="menuIcon">
+                                            <div class="d-flex align-items-center flex-wrap">
+                                                <span class="icon-preview mr-3" id="menuIconPreview" aria-hidden="true"></span>
+                                                <span class="text-muted small mr-3" id="menuIconLabel">선택 안 함</span>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap mr-2" id="btnIconPick">아이콘 선택</button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm text-nowrap" id="btnIconClear">지우기</button>
+                                            </div>
                                         </div>
                                         <div class="form-group">
                                             <label for="menuDesc">설명</label>
@@ -336,6 +352,26 @@
         </div>
     </div>
 </div>
+
+<!-- 아이콘 선택 모달 -->
+<div class="modal fade" id="iconPickerModal" tabindex="-1" role="dialog" aria-labelledby="iconPickerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="iconPickerModalLabel">아이콘 선택</h5>
+                <button class="close" type="button" data-dismiss="modal" aria-label="닫기"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" class="form-control mb-3" id="iconSearch" placeholder="아이콘 검색 (예: user, chart)"
+                       autocomplete="off" aria-label="아이콘 검색">
+                <div id="iconGrid" class="icon-grid"></div>
+                <p id="iconEmpty" class="text-muted small mb-0 d-none">검색 결과가 없습니다.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
 
 <!-- Bootstrap core JavaScript-->
 <script src="/vendor/jquery/jquery.min.js"></script>
@@ -489,8 +525,76 @@ $(document).ready(function () {
         }
     }
 
+    // ── 아이콘 선택기 ──────────────────────────────────
+    // 선택 가능한 Font Awesome 5 Free(solid) 아이콘. 저장 값은 사이드바가 그대로 class로 쓰는 "fas fa-fw fa-<이름>"이다.
+    const ICON_NAMES = ('home tachometer-alt chart-line chart-bar chart-pie table list list-alt clipboard-list clipboard-check ' +
+        'file file-alt folder folder-open book bookmark bullhorn bell envelope comment comments inbox ' +
+        'user users user-plus user-shield user-lock user-cog id-badge id-card address-book lock unlock key shield-alt ' +
+        'cog cogs wrench tools sliders-h bars sitemap network-wired database server cloud hdd ' +
+        'calendar calendar-alt clock history search filter tag tags flag star heart image images camera video music ' +
+        'map-marker-alt globe link paperclip download upload print edit pen trash plus minus check times ' +
+        'info-circle question-circle exclamation-triangle shopping-cart credit-card wallet building briefcase ' +
+        'laptop mobile-alt desktop code terminal bug rocket gift lightbulb palette layer-group th-large circle').split(' ');
+    const menuIconPreview = document.getElementById('menuIconPreview');
+    const menuIconLabel = document.getElementById('menuIconLabel');
+    const btnIconPick = document.getElementById('btnIconPick');
+    const btnIconClear = document.getElementById('btnIconClear');
+    const iconSearch = document.getElementById('iconSearch');
+    const iconGrid = document.getElementById('iconGrid');
+    const iconEmpty = document.getElementById('iconEmpty');
+
+    // 현재 값에서 아이콘 이름(fa-xxx 중 fa-fw 제외)을 뽑는다. 목록 밖의 기존 값도 미리보기는 그대로 그린다.
+    function iconNameOf(value) {
+        const token = (value || '').split(/\s+/).find(function (t) { return t.startsWith('fa-') && t !== 'fa-fw'; });
+        return token ? token.substring(3) : '';
+    }
+
+    function setIcon(value) {
+        menuIconInput.value = value || '';
+        menuIconPreview.innerHTML = '';
+        if (value) {
+            const icon = document.createElement('i');
+            icon.className = value;
+            menuIconPreview.appendChild(icon);
+        }
+        menuIconLabel.textContent = iconNameOf(value) || '선택 안 함';
+    }
+
+    function renderIconGrid(keyword) {
+        const query = (keyword || '').trim().toLowerCase();
+        const current = iconNameOf(menuIconInput.value);
+        iconGrid.innerHTML = '';
+        ICON_NAMES.filter(function (name) { return name.includes(query); }).forEach(function (name) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'icon-item' + (name === current ? ' selected' : '');
+            item.title = name;
+            item.dataset.icon = name;
+            item.innerHTML = '<i class="fas fa-fw fa-' + name + '"></i><span>' + name + '</span>';
+            iconGrid.appendChild(item);
+        });
+        iconEmpty.classList.toggle('d-none', iconGrid.children.length > 0);
+    }
+
+    btnIconPick.addEventListener('click', function () {
+        iconSearch.value = '';
+        renderIconGrid('');
+        $('#iconPickerModal').modal('show');
+    });
+    btnIconClear.addEventListener('click', function () { setIcon(''); });
+    iconSearch.addEventListener('input', function () { renderIconGrid(iconSearch.value); });
+    iconGrid.addEventListener('click', function (event) {
+        const item = event.target.closest('.icon-item');
+        if (!item) {
+            return;
+        }
+        setIcon('fas fa-fw fa-' + item.dataset.icon);
+        $('#iconPickerModal').modal('hide');
+    });
+
     function clearForm() {
         menuForm.reset();
+        setIcon('');
         // 신규 메뉴는 기본 활성으로 생성한다(API의 생성 기본값 useYn=true와 일치).
         // reset()은 스위치를 HTML 기본값(미체크)으로 되돌리므로 명시적으로 다시 켠다.
         menuUseYnInput.checked = true;
@@ -501,7 +605,7 @@ $(document).ready(function () {
         menuExposureText.textContent = exposureLabel || "-";
         menuNameInput.value = menu.menuName || '';
         menuUrlInput.value = menu.menuUrl || '';
-        menuIconInput.value = menu.menuIcon || '';
+        setIcon(menu.menuIcon || '');
         menuDescInput.value = menu.menuDesc || '';
 
         menuUseYnInput.checked = !!menu.useYn;
@@ -615,7 +719,7 @@ $(document).ready(function () {
         btnCancel.disabled = !dirty || busy;
 
         includeInactiveToggle.disabled = dirty;
-        [btnNewTop, btnNewChild, btnSave, btnDeactivate, btnPermanentDelete, btnReset].forEach(function (button) {
+        [btnNewTop, btnNewChild, btnSave, btnDeactivate, btnPermanentDelete, btnReset, btnIconPick, btnIconClear].forEach(function (button) {
             button.disabled = dirty;
         });
         menuForm.querySelectorAll('input, select, textarea').forEach(function (field) {
