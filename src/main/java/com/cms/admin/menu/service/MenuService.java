@@ -82,7 +82,7 @@ public class MenuService {
         Menu saved = menuRepository.save(
                 Menu.builder()
                         .menuName(menuName)
-                        .menuUrl(request.getMenuUrl())
+                        .menuUrl(blankToNull(request.getMenuUrl()))
                         .menuIcon(request.getMenuIcon())
                         .menuDesc(request.getMenuDesc())
                         .useYn(useYn)
@@ -112,7 +112,8 @@ public class MenuService {
             effectiveMenuName = requireNonBlank(request.getMenuName(), "메뉴명은 공백일 수 없습니다.");
         }
 
-        String effectiveMenuUrl = request.getMenuUrl() != null ? request.getMenuUrl() : target.getMenuUrl();
+        // null이면 기존값 유지, 빈 문자열이면 URL 제거(null 저장 — 그룹 메뉴로 되돌리는 화면 흐름)
+        String effectiveMenuUrl = request.getMenuUrl() != null ? blankToNull(request.getMenuUrl()) : target.getMenuUrl();
         String effectiveMenuIcon = request.getMenuIcon() != null ? request.getMenuIcon() : target.getMenuIcon();
         String effectiveMenuDesc = request.getMenuDesc() != null ? request.getMenuDesc() : target.getMenuDesc();
 
@@ -419,6 +420,11 @@ public class MenuService {
             }
         }
         return siblings.size();
+    }
+
+    /** 공백만 있는 값은 "URL 없음"(null)으로 정규화한다. 형식 검증은 요청 DTO의 {@code @SafeMenuUrl}이 끝낸 값이다. */
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private String requireNonBlank(String value, String message) {

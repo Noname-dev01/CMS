@@ -239,6 +239,58 @@ class MenuServiceTest {
     }
 
     @Test
+    @DisplayName("생성: 공백만 있는 URL은 null로 저장한다")
+    void createMenu_blankUrl_storedAsNull() {
+        given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        menuService.createMenu(MenuCreateRequest.builder().menuName("그룹").menuUrl("   ").build());
+
+        ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
+        verify(menuRepository).save(captor.capture());
+        assertNull(captor.getValue().getMenuUrl());
+    }
+
+    @Test
+    @DisplayName("수정: URL이 null이면 기존값 유지, 빈 문자열이면 URL 제거(null), 값이 있으면 교체")
+    void updateMenu_urlNullKeepsBlankClearsValueReplaces() {
+        Menu existing = urlMenu(1L, "메뉴", null, "/admin/old", 0);
+        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(existing));
+
+        menuService.updateMenu(1L, MenuUpdateRequest.builder().menuName("이름만").build());
+        assertEquals("/admin/old", existing.getMenuUrl());
+
+        menuService.updateMenu(1L, MenuUpdateRequest.builder().menuUrl("https://example.com/x").build());
+        assertEquals("https://example.com/x", existing.getMenuUrl());
+
+        menuService.updateMenu(1L, MenuUpdateRequest.builder().menuUrl("").build());
+        assertNull(existing.getMenuUrl());
+    }
+
+    @Test
+    @DisplayName("사이드바 조회: 저장 검증 도입 전에 들어간 위험 URL은 null로 바뀌어 담기고, 외부 http(s)와 경로는 그대로 남는다")
+    void getSidebarMenus_unsafeStoredUrl_nulledOut() {
+        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(
+                urlMenu(1L, "js", null, "javascript:alert(1)", 0),
+                urlMenu(2L, "slashes", null, "//evil.example/x", 1),
+                urlMenu(3L, "data", null, "data:text/html,x", 2),
+                urlMenu(4L, "relative", null, "admin/x", 3),
+                urlMenu(5L, "external", null, "https://example.com/x", 4),
+                urlMenu(6L, "path", null, "/admin/x?a=1", 5)));
+
+        List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(url -> true);
+
+        assertEquals(6, sidebar.size());
+        for (int i = 0; i < 4; i++) {
+            assertNull(sidebar.get(i).getMenuUrl(), sidebar.get(i).getMenuName());
+            assertFalse(sidebar.get(i).isExternal());
+        }
+        assertEquals("https://example.com/x", sidebar.get(4).getMenuUrl());
+        assertTrue(sidebar.get(4).isExternal());
+        assertEquals("/admin/x?a=1", sidebar.get(5).getMenuUrl());
+        assertFalse(sidebar.get(5).isExternal());
+    }
+
+    @Test
     @DisplayName("생성 시 useYn 누락은 true로 기본화")
     void createMenu_useYnDefaultsToTrue() {
         MenuCreateRequest request = MenuCreateRequest.builder()
