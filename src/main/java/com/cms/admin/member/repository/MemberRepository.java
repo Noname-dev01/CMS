@@ -91,6 +91,15 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
     List<Long> findActiveAdminIdsForUpdate();
 
     /**
+     * 알림 수신자(ACTIVE ADMIN) ID를 <b>잠금 없는 일반 SELECT</b>로 읽는다 — 위 {@code findActiveAdminIdsForUpdate}와 달리 행 잠금이 없다.
+     * {@code INSERT … SELECT … FROM member}는 REPEATABLE READ에서 원본 읽기가 공유 잠금을 걸어 수신자가 아닌 회원의 변경까지 지연시킬 수 있어
+     * 쓰지 않는다(PLAN-admin-notification.md v6 R-17). {@code excludeMemberId}는 잠긴 본인을 뺀다.
+     */
+    @Query("select m.id from Member m where m.userType = com.cms.admin.member.domain.Role.ROLE_ADMIN "
+            + "and m.status = com.cms.admin.member.domain.MemberStatus.ACTIVE and m.id <> :excludeMemberId order by m.id")
+    List<Long> findActiveAdminIdsExcluding(@Param("excludeMemberId") Long excludeMemberId);
+
+    /**
      * ACTIVE인 관리자(ADMIN/MANAGER) 계정의 로그인 실패 카운트를 DB에서 원자적으로 1 증가시킨다.
      * 엔티티 조회 후 +1 저장은 동시 실패 시 lost update가 나므로 벌크 UPDATE로 고정.
      * 상태 조건은 상태 변경과 경합해도 비ACTIVE 계정에 카운트가 숨어 누적되지 않게 하고,

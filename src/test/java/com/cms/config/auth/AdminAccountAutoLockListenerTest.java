@@ -75,7 +75,7 @@ class AdminAccountAutoLockListenerTest {
     @Test
     @DisplayName("감사 필드 매핑 — actionId/actionUserId null, SUCCESS, MEMBER, targetId, IP·URI, POST, errorMessage null")
     void onAutoLock_auditFieldMapping() {
-        listener.onAutoLock(new AdminAccountAutoLockEvent(7L, "admin01", "1.2.3.4", "/admin/login"));
+        listener.onAutoLock(new AdminAccountAutoLockEvent(7L, "admin01", "1.2.3.4", "/admin/login", "admin01", java.time.LocalDateTime.of(2026, 10, 5, 14, 3)));
 
         verify(adminActionLogService).log(
                 isNull(),                               // actionId — 미인증 흐름
@@ -100,7 +100,7 @@ class AdminAccountAutoLockListenerTest {
                         anyLong(), any(), any(), any(), any(), any());
 
         assertDoesNotThrow(() ->
-                listener.onAutoLock(new AdminAccountAutoLockEvent(7L, "admin01", "1.2.3.4", "/admin/login")));
+                listener.onAutoLock(new AdminAccountAutoLockEvent(7L, "admin01", "1.2.3.4", "/admin/login", "admin01", java.time.LocalDateTime.of(2026, 10, 5, 14, 3))));
 
         assertThat(logAppender.list)
                 .anySatisfy(event -> {

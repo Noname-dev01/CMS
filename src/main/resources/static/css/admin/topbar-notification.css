@@ -1,0 +1,64 @@
+/* 상단바 알림 드롭다운 (동작: /js/admin/topbar-notification.js) */
+.notification-menu {
+    width: 22rem;
+    max-width: calc(100vw - 1.5rem);
+}
+
+.notification-menu .notification-read-all {
+    font-size: .7rem;
+    color: #fff;
+    text-decoration: underline;
+}
+
+#notificationList {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+#notificationList .notification-item {
+    display: block;
+    padding: .6rem 1rem;
+    color: #3a3b45;
+    border-bottom: 1px solid #f1f3f9;
+    text-decoration: none;
+    white-space: normal;
+}
+
+#notificationList a.notification-item:hover,
+#notificationList .notification-item[role="button"]:hover {
+    background: #eaecf4;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+#notificationList .notification-item .notification-time {
+    display: block;
+    font-size: .7rem;
+    color: #858796;
+}
+
+#notificationList .notification-item .notification-message {
+    display: block;
+    font-size: .85rem;
+    word-break: break-word;
+}
+
+#notificationList .notification-item.unread .notification-message {
+    font-weight: 700;
+}
+
+#notificationList .notification-item.unread .notification-time::before {
+    content: "";
+    display: inline-block;
+    width: .45rem;
+    height: .45rem;
+    margin-right: .35rem;
+    border-radius: 50%;
+    background: #e74a3b;
+}
+
+#notificationList .notification-status {
+    padding: .9rem 1rem;
+    font-size: .85rem;
+    color: #858796;
+}

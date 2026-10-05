@@ -87,6 +87,7 @@ class RateLimitFilterTest {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
             PasswordExpiryService mockExpiry = Mockito.mock(PasswordExpiryService.class);
             return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService, mockExpiry,
+                    org.mockito.Mockito.mock(com.cms.admin.notification.service.NotificationRecorder.class),
                     Clock.systemDefaultZone());
         }
 

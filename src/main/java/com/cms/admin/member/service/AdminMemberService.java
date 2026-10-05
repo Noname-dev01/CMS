@@ -17,6 +17,9 @@ import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.dto.response.ProfileImageContent;
 import com.cms.admin.member.repository.MemberRepository;
+import com.cms.admin.notification.NotificationMessages;
+import com.cms.admin.notification.domain.NotificationType;
+import com.cms.admin.notification.event.NotificationRequestedEvent;
 import com.cms.admin.permission.MemberPermissionRepository;
 import com.cms.admin.permission.PermissionChangedEvent;
 import com.cms.common.exception.ConflictException;
@@ -248,6 +251,11 @@ public class AdminMemberService {
             if (deletedPermissions > 0) {
                 eventPublisher.publishEvent(new PermissionChangedEvent(target.getId()));
             }
+            // 알림 E2 — 발행만 하고 저장은 커밋 뒤 리스너가 한다(롤백이면 알림 없음). 삭제되는 계정에는 보낼 곳이 없다.
+            if (effectiveStatus != MemberStatus.DELETED) {
+                eventPublisher.publishEvent(new NotificationRequestedEvent(target.getId(), NotificationType.PERMISSION,
+                        NotificationMessages.roleChanged(beforeRole, effectiveRole), null));
+            }
         }
 
         boolean statusChanged = effectiveStatus != beforeStatus;
@@ -257,6 +265,11 @@ public class AdminMemberService {
                 // 비ACTIVE→ACTIVE 복구는 실패 연쇄 단절 — 리셋 없이는 해제 직후 1회 실패로 재잠금되고,
                 // 상태 전이 경합으로 비ACTIVE 계정에 숨어 있던 카운트도 여기서 정리된다.
                 target.resetFailedLoginCount();
+            }
+            // 알림 E1 — 삭제는 다시 볼 수 없는 계정이라 만들지 않는다. 잠금·비활성 계정은 세션이 만료되므로 다시 로그인할 수 있게 된 뒤에 보인다.
+            if (effectiveStatus != MemberStatus.DELETED) {
+                eventPublisher.publishEvent(new NotificationRequestedEvent(target.getId(), NotificationType.ACCOUNT_STATUS,
+                        NotificationMessages.statusChangedByAdmin(effectiveStatus), null));
             }
         }
 

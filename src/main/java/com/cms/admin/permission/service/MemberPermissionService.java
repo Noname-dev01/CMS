@@ -6,6 +6,9 @@ import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
+import com.cms.admin.notification.NotificationMessages;
+import com.cms.admin.notification.domain.NotificationType;
+import com.cms.admin.notification.event.NotificationRequestedEvent;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.FeatureKind;
 import com.cms.admin.permission.MemberPermission;
@@ -128,6 +131,9 @@ public class MemberPermissionService {
         long oldVersion = member.getPermissionVersion();
         member.increasePermissionVersion();
         eventPublisher.publishEvent(new PermissionChangedEvent(memberId));
+        // 알림 E2 — 실제 변경(추가·회수)이 있을 때만, 커밋 뒤 리스너가 저장한다. 항목은 "공지사항 조회"처럼 기능·동작 라벨이다.
+        eventPublisher.publishEvent(new NotificationRequestedEvent(memberId, NotificationType.PERMISSION,
+                NotificationMessages.permissionChanged(notificationLabels(added), notificationLabels(removed)), null));
 
         String label = "v" + oldVersion + "→v" + member.getPermissionVersion() + ": " + changeSummary(added, removed);
         // 새 상태 = 요청 집합(검증으로 READ 의존이 이미 보장됨)
@@ -232,6 +238,11 @@ public class MemberPermissionService {
 
     private static List<PermissionAction> inActionOrder(Set<PermissionAction> actions) {
         return Arrays.stream(PermissionAction.values()).filter(actions::contains).toList();
+    }
+
+    /** 알림 문장용 항목 라벨("공지사항 조회") — 코드 상수만으로 만들어 사용자 입력이 섞이지 않는다. */
+    private static List<String> notificationLabels(Set<Key> keys) {
+        return keys.stream().map(key -> key.feature().getLabel() + " " + key.action().getLabel()).toList();
     }
 
     /** 추가(+) 먼저, 그다음 삭제(-). 항목 형식은 {@code 기능라벨.동작라벨}이며 코드 상수만으로 만들어 사용자 입력이 섞이지 않는다. */

@@ -1,6 +1,7 @@
 package com.cms.config.auth;
 
 import com.cms.admin.member.domain.MemberStatus;
+import com.cms.admin.notification.service.NotificationRecorder;
 import com.cms.admin.visit.domain.VisitLog;
 import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.common.web.ClientIpResolver;
@@ -41,6 +42,7 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
     private final VisitLogRepository visitLogRepository;
     private final LoginFailureService loginFailureService;
     private final PasswordExpiryService passwordExpiryService;
+    private final NotificationRecorder notificationRecorder;
     private final Clock clock;
 
     @PostConstruct
@@ -55,7 +57,8 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
                                         HttpServletResponse response,
                                         Authentication authentication) throws ServletException, IOException {
         // 첫 작업: 상태·역할·해시 재확인 — 거부될 인증이 성공 방문으로 기록되면 안 되므로 방문 로그보다 먼저.
-        if (!verifyFreshMemberState(authentication)) {
+        Optional<MemberSnapshot> verified = verifyFreshMemberState(authentication);
+        if (verified.isEmpty()) {
             rejectAuthentication(request, response);
             return;
         }
@@ -63,6 +66,7 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
         // ROLE_ADMIN·ROLE_MANAGER 로그인만 방문으로 기록한다.
         if (hasAdminOrManagerRole(authentication.getAuthorities())) {
             tryLogVisit(request, authentication);
+            tryRecordLoginNotifications(authentication, verified.get());
         }
 
         super.onAuthenticationSuccess(request, response, authentication);
@@ -73,8 +77,9 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
      * 이 판정은 방문 로그 같은 부가 기능이 아니라 인증 결정이므로 예외도 거부(fail-closed)로
      * 처리한다 — fail-open이면 DB 일시 장애 인터리빙에서 잠긴 계정 세션이 살아남는다.
      * (실패 카운트 리셋도 같은 트랜잭션에서 함께 수행된다 — 리셋 0행은 허용, 예외는 거부.)
+     * 통과하면 그 재확인이 읽은 fresh 스냅샷을 돌려준다 — 알림 E3가 최신 비밀번호 주기를 판정하는 기준이다(비어 있으면 거부).
      */
-    private boolean verifyFreshMemberState(Authentication authentication) {
+    private Optional<MemberSnapshot> verifyFreshMemberState(Authentication authentication) {
         try {
             // 인증 처리(BCrypt 검증 등) 중 90일 경계를 넘은 계정을 여기서 전이 —
             // 직후 fresh 조회가 PASSWORD_EXPIRED를 읽어 아래 ACTIVE 검사가 거부한다.
@@ -82,12 +87,12 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
 
             Optional<MemberSnapshot> found = loginFailureService.resetFailuresAndCheckActive(authentication.getName());
             if (found.isEmpty()) {
-                return false;
+                return Optional.empty();
             }
             MemberSnapshot snapshot = found.get();
 
             if (snapshot.status() != MemberStatus.ACTIVE) {
-                return false;
+                return Optional.empty();
             }
 
             // 인증 중 역할 변경 경합 — 낡은 권한(특히 ADMIN)의 세션 생존 차단. 재로그인하면 새 권한으로 정상 로그인.
@@ -95,19 +100,21 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
                     .map(GrantedAuthority::getAuthority)
                     .anyMatch(authority -> authority.equals(snapshot.role().name()));
             if (!roleMatches) {
-                return false;
+                return Optional.empty();
             }
 
             // 인증 중 비밀번호 변경 경합 — 변경 전 비밀번호로 만들어진 세션 차단.
             // CustomUserDetails는 CredentialsContainer가 아니라 인증 당시 해시가 소거되지 않고 보존된다.
             if (!(authentication.getPrincipal() instanceof CustomUserDetails details)) {
-                return false; // 예상 밖 principal 타입 — fail-closed
+                return Optional.empty(); // 예상 밖 principal 타입 — fail-closed
             }
             String authenticatedHash = details.getPassword();
-            return authenticatedHash != null && authenticatedHash.equals(snapshot.passwordHash());
+            return authenticatedHash != null && authenticatedHash.equals(snapshot.passwordHash())
+                    ? Optional.of(snapshot)
+                    : Optional.empty();
         } catch (Exception e) {
             log.error("로그인 성공 재확인 실패 — 로그인을 거부합니다 (user={})", authentication.getName(), e);
-            return false;
+            return Optional.empty();
         }
     }
 
@@ -128,6 +135,28 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
         return authorities.stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_MANAGER"));
+    }
+
+    /**
+     * 로그인 성공에 따른 알림 처리 — E3(비밀번호 만료 7일 이내 알림)와 읽은 지 90일 지난 본인 알림 정리(D7·D8).
+     * 재확인을 통과한 뒤에만 호출되며, 각각 <b>자기 트랜잭션</b>(별개 {@code @Transactional} 메서드)이라 한쪽이 실패해도 다른 쪽과 로그인을 막지 않는다.
+     * 로그인 경로는 {@code REQUIRES_NEW}로 요청당 커넥션 2개를 잡지 않는다(풀 고갈 규칙) — 호출 시점에 열린 트랜잭션이 없으므로 REQUIRED가 새 트랜잭션을 연다.
+     */
+    private void tryRecordLoginNotifications(Authentication authentication, MemberSnapshot snapshot) {
+        if (!(authentication.getPrincipal() instanceof CustomUserDetails details) || details.getId() == null) {
+            return;
+        }
+        Long memberId = details.getId();
+        try {
+            notificationRecorder.recordPasswordExpiryIfNear(memberId, snapshot.passwordChangedAt());
+        } catch (Exception e) {
+            log.error("비밀번호 만료 임박 알림 저장 실패 (user={})", authentication.getName(), e);
+        }
+        try {
+            notificationRecorder.purgeOldReadNotifications(memberId);
+        } catch (Exception e) {
+            log.error("읽은 알림 정리 실패 (user={})", authentication.getName(), e);
+        }
     }
 
     /**

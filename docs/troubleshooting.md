@@ -314,6 +314,30 @@ IDE로 개발할 때는 저장 시 자동 컴파일(Build project automatically)
 
 Spring Security 필터, AOP 로깅, 트랜잭션 경계, JPA/QueryDSL 동작 등 런타임 문제를 기록한다.
 
+### 이벤트 리스너 순서가 설정과 다르게 동작함 — 클래스 `@Order`는 메서드 리스너에 적용되지 않고 `AFTER_COMMIT`은 `AFTER_COMPLETION`보다 항상 먼저 실행된다 (2026-10-05, PLAN-admin-notification.md 계획 리뷰 2라운드 + 구현 중 발견)
+
+#### 증상 (구현 전에 계획 리뷰와 코드 확인으로 발견 — 운영 사고 아님)
+
+알림 저장(`AFTER_COMMIT`, 연결·락 대기가 길어질 수 있음)이 **세션 만료·권한 캐시 무효화를 막지 않도록** "알림 리스너에 `@Order(30)`을 붙여 기존 리스너 뒤에 실행한다"고 계획했다. 그대로 구현하면 알림이 오히려 **먼저** 실행되거나, 순서 설정 자체가 적용되지 않는다.
+
+#### 원인 (두 가지)
+
+1. **메서드 리스너는 메서드의 `@Order`만 읽는다.** `@TransactionalEventListener` 메서드(`ApplicationListenerMethodAdapter`)는 클래스에 붙은 `@Order`를 무시하고, 메서드에 없으면 `LOWEST_PRECEDENCE`다. 기존 `AdminSessionRevokeListener`(`@Order(10)`)·`AdminAccountAutoLockListener`(`@Order(20)`)는 `@Order`가 **클래스**에 있어 사실상 우선순위가 없었다 — 그래서 알림에 `@Order(30)`을 **메서드**에 붙이면 기존 두 리스너보다 먼저 실행된다.
+2. **`AFTER_COMMIT` 콜백은 모두 실행된 뒤에야 `AFTER_COMPLETION`이 실행된다.** 권한 캐시 무효화(`PermissionChangedListener`)는 커밋·롤백·결과 불명을 모두 덮으려고 `AFTER_COMPLETION`에 있다. 같은 트랜잭션의 알림 저장이 `AFTER_COMMIT`이므로 `@Order`를 어떻게 매겨도 **알림 저장이 끝날 때까지 캐시 무효화가 늦어진다**(알림 저장이 연결 풀 포화·락 대기로 막히면 회수한 권한이 그동안 계속 허용된다).
+
+#### 해결 방법
+
+- 순서가 필요한 리스너의 **메서드에 `@Order`를 명시**한다: 세션 만료 `10`, 감사 `20`, 권한 캐시 무효화 `10`, 알림 `100`(클래스 `@Order`는 그대로 두되 메서드 값이 실제 순서를 정한다는 주석을 남김).
+- 캐시 무효화를 **`AFTER_COMMIT`(`@Order(10)`)에도 추가**하고 기존 `AFTER_COMPLETION` 무효화는 롤백·결과 불명용 백스톱으로 유지한다. 무효화는 멱등이라 커밋 성공 경로에서 `invalidate()`가 2회 호출돼도 안전하다 — 단, 기존 시험의 `verify(cache, times(1)).invalidate()`는 커밋 성공 경로에서 `atLeastOnce()`로 바꿔야 한다(롤백·결과 불명 경로는 `AFTER_COMPLETION`뿐이라 `times(1)` 유지).
+
+#### 검증
+
+`NotificationGenerationIntegrationTest.sessionRevokeAndCacheInvalidation_runBeforeNotificationSave`가 세션 만료·캐시 무효화·알림 저장 호출 순서를 단언한다. 변이 실험으로 `PermissionChangedListener.onCommitted`의 `@Order(10)`을 제거하면 이 시험이 실패함을 확인했다.
+
+#### 교훈
+
+`@Order`는 **어느 위치에 붙었는지**(클래스 vs 메서드)와 **어느 단계의 콜백인지**(`AFTER_COMMIT` vs `AFTER_COMPLETION`)를 함께 봐야 의미가 있다. 순서 계약은 설정을 믿지 말고 호출 순서를 직접 단언하는 시험으로 고정한다.
+
 ### 최후 활성 ADMIN 계정이 로그인 실패 자동 잠금(LOCKED)으로 잠긴 경우 복구
 
 #### 오류 메시지

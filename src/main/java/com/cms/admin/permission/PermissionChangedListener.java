@@ -1,6 +1,7 @@
 package com.cms.admin.permission;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -19,6 +20,18 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class PermissionChangedListener {
 
     private final PermissionCache cache;
+
+    /**
+     * 커밋 성공 경로의 <b>앞선</b> 무효화 — Spring은 {@code AFTER_COMMIT} 콜백을 모두 실행한 <b>뒤에</b> {@code AFTER_COMPLETION}을 실행하므로,
+     * 같은 트랜잭션의 알림 저장({@code AFTER_COMMIT}, 연결·락 대기가 길어질 수 있다)이 {@code AFTER_COMPLETION} 무효화를 늦추지 않도록
+     * 같은 {@code AFTER_COMMIT} 단계에서 알림보다 먼저(@Order 10 &lt; 100) 한 번 더 폐기한다. 아래 {@code AFTER_COMPLETION} 무효화는
+     * 롤백·결과 불명을 위한 백스톱으로 그대로 둔다(무효화는 멱등이다). 메서드 리스너는 메서드의 {@code @Order}만 읽는다 — 클래스에 붙이면 무시된다.
+     */
+    @Order(10)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onCommitted(PermissionChangedEvent event) {
+        cache.invalidate();
+    }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMPLETION)
     public void onChanged(PermissionChangedEvent event) {
