@@ -315,6 +315,16 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 새 CVE가 공개돼 `prod-smoke`가 빨개지면 (1) 수정 버전으로 상향, (2) 불가하면 `.trivyignore.yaml`에 CVE ID·`paths`·사유·책임자·`expired_at`을 적어 예외 처리한다. 예외 없이 우회하려면 필수 체크 설정을 임시 해제하는 방법뿐이며, 그 사실을 PR에 기록한다. Spring Boot BOM이 관리하는 라이브러리는 `build.gradle`의 `ext['tomcat.version']`·`ext['jackson-bom.version']` 오버라이드로 올리며(Boot가 이 버전 이상을 관리하게 되면 제거), 현재 값과 사유는 해당 파일 주석에 있다.
 
 
+## 쪽지 서버 로그 비유출의 JDBC·세션 설정 전제 (쪽지 V21, adversarial-review/plan/PLAN-admin-message.md R4-1·R5-1)
+
+쪽지 제목·본문은 다른 회원이 쓴 대화 내용이다. 감사 로그(`admin_action_log`)에는 제목·본문이 없고 실패 `errorMessage`도 고정 문구(`@AdminActionLogged.safeErrorMessage`)지만, Hibernate가 JDBC 예외를 변환하며 서버 로그에 찍는 출력은 코드로 막을 수 없다. 따라서 **서버 로그에 쪽지 내용이 남지 않는다는 보장은 아래 설정이 유지될 때에 한한다** — 운영 `DB_URL`·MariaDB 설정은 코드가 강제하지 않는 외부 값이므로 배포 전 점검한다.
+
+- **Connector/J 진단 옵션 비활성**: `DB_URL`에 `dumpQueriesOnException=true`나 `includeInnodbStatusInDeadlockExceptions=true`가 **없어야 한다**(기본값은 꺼짐). 켜면 SQL(텍스트 프로토콜에서는 값이 치환된 INSERT)·InnoDB 상태가 예외 메시지에 붙어 서버 로그에 제목·본문이 남을 수 있다(교착·FK 진단 때문에 일시적으로 켜더라도 쪽지가 오가는 운영 DB에서는 쓰지 않는다).
+- **바인딩·JDBC 쿼리 로깅 비활성**: `org.hibernate.orm.jdbc.bind`(BasicBinder)와 JDBC 쿼리 DEBUG/TRACE 로거를 켜지 않는다. `application-prod.yml`은 `show-sql: false`이고 바인딩 값 로깅 설정이 없다 — 로깅 레벨을 환경변수 등으로 바꿀 때 이 로거를 건드리지 않는다.
+- **연결 문자셋·SQL 모드**: 연결이 `utf8mb4`(`character_set_client`)이고 strict SQL 모드(`STRICT_TRANS_TABLES` 또는 `STRICT_ALL_TABLES`)여야 한다. 테이블의 `utf8mb4` 선언만으로 연결 설정이 보장되지 않는다 — `Incorrect string value` 계열 오류는 입력 일부를 오류 메시지에 담을 수 있고, non-strict 모드에서는 오류 대신 값이 조정·경고 처리된다. 확인: `SELECT @@session.character_set_client, @@session.sql_mode;`(앱 연결에서).
+
+시험(`AdminMessageSendIntegrationTest.send_roundTripsFourByteCharacters`·`AdminMessageInstrumentedIntegrationTest`)은 **테스트 연결에서** 문자셋·strict 모드·4바이트 문자 왕복과 로그 비유출(FK 위반·`beforeCommit` 롤백 주입)을 단언한다 — 운영 연결 설정을 대신 증명하지 않는다.
+
 ## 권한관리 롤백 주의 (권한관리 PR ①~④, adversarial-review/plan/PLAN-menu-permission-management.md "롤백 호환표")
 
 MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 ADMIN이 `/admin/permission/manage`(권한 관리)에서 바꾼다. **판정기가 없는 앱(PR ① 이전)으로 되돌리면 회수한 권한이 되살아날 수 있으므로** 되돌리기 전에 아래를 확인한다. **기본은 roll-forward(수정 버전 배포)**다.
