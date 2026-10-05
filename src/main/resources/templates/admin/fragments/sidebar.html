@@ -46,7 +46,8 @@
         <!-- 하위 메뉴 없음: 단일 링크 -->
         <li class="nav-item" th:if="${#lists.isEmpty(menu.children)}"
             th:classappend="${menu.menuUrl == currentUri} ? 'active'">
-            <a class="nav-link" th:href="${menu.menuUrl != null} ? @{${menu.menuUrl}} : '#'">
+            <a class="nav-link" th:href="${menu.menuUrl != null} ? @{${menu.menuUrl}} : '#'"
+               th:target="${menu.external} ? '_blank'" th:rel="${menu.external} ? 'noopener noreferrer'">
                 <i th:class="${menu.menuIcon ?: 'fas fa-fw fa-circle'}"></i>
                 <span th:text="${menu.menuName}">메뉴</span></a>
         </li>
@@ -68,6 +69,7 @@
                         <!-- 3단 없음: 단일 링크 -->
                         <a class="collapse-item" th:if="${#lists.isEmpty(child.children)}"
                            th:href="${child.menuUrl != null} ? @{${child.menuUrl}} : '#'"
+                           th:target="${child.external} ? '_blank'" th:rel="${child.external} ? 'noopener noreferrer'"
                            th:classappend="${child.menuUrl == currentUri} ? 'active'">
                             <i th:class="${child.menuIcon ?: 'fas fa-fw fa-circle'}"></i>
                             <span class="ml-2" th:text="${child.menuName}">하위 메뉴</span></a>
@@ -86,6 +88,7 @@
                                  th:classappend="${subActive} ? 'show'">
                                 <a class="collapse-item" th:each="grandchild : ${child.children}"
                                    th:href="${grandchild.menuUrl != null} ? @{${grandchild.menuUrl}} : '#'"
+                                   th:target="${grandchild.external} ? '_blank'" th:rel="${grandchild.external} ? 'noopener noreferrer'"
                                    th:classappend="${grandchild.menuUrl == currentUri} ? 'active'">
                                     <i th:class="${grandchild.menuIcon ?: 'fas fa-fw fa-circle'}"></i>
                                     <span class="ml-2" th:text="${grandchild.menuName}">하위 메뉴</span></a>

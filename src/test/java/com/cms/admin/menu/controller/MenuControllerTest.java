@@ -257,6 +257,37 @@ class MenuControllerTest {
     }
 
     @Test
+    @DisplayName("메뉴 생성: 위험한 URL(javascript:·data:·//host·상대 경로)은 400 VALIDATION_ERROR이고 서비스를 호출하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void createMenu_unsafeUrl_rejected() throws Exception {
+        for (String url : List.of("javascript:alert(1)", "data:text/html,x", "//evil.example", "admin/x", "/a\\\\b")) {
+            mockMvc.perform(post("/admin/api/menus")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(MenuCreateRequest.builder().menuName("m").menuUrl(url).build())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("메뉴 생성: 외부 http(s) URL·빈 URL은 201")
+    @WithMockUser(roles = "ADMIN")
+    void createMenu_externalAndBlankUrl_allowed() throws Exception {
+        given(menuService.createMenu(any())).willReturn(menuResponse());
+
+        for (String url : List.of("https://example.com/docs", "")) {
+            mockMvc.perform(post("/admin/api/menus")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(MenuCreateRequest.builder().menuName("m").menuUrl(url).build())))
+                    .andExpect(status().isCreated());
+        }
+    }
+
+    @Test
     @DisplayName("비활성 부모 아래 활성 메뉴 생성 시 400 INVALID_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void createMenu_activeUnderInactiveParent() throws Exception {
@@ -323,6 +354,22 @@ class MenuControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.menuNo").value(1));
+    }
+
+    @Test
+    @DisplayName("메뉴 수정: 위험한 URL은 400 VALIDATION_ERROR이고 서비스를 호출하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void updateMenu_unsafeUrl_rejected() throws Exception {
+        for (String url : List.of("javascript:alert(1)", "//evil.example", "https://evil@example.com", "data:text/html,x")) {
+            mockMvc.perform(patch("/admin/api/menus/1")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(MenuUpdateRequest.builder().menuUrl(url).build())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        verifyNoInteractions(menuService);
     }
 
     @Test

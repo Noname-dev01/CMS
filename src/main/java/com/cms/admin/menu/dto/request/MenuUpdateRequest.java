@@ -1,5 +1,6 @@
 package com.cms.admin.menu.dto.request;
 
+import com.cms.admin.menu.dto.request.validation.SafeMenuUrl;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -28,7 +29,8 @@ public class MenuUpdateRequest {
     private String menuName;
 
     @Size(max = 255)
-    @Schema(description = "메뉴 URL. null이면 기존값 유지", example = "/admin/member/manage")
+    @SafeMenuUrl
+    @Schema(description = "메뉴 URL. null이면 기존값 유지, 빈 문자열이면 URL 제거(null로 저장). /로 시작하는 경로 또는 http(s):// 주소만 허용", example = "/admin/member/manage")
     private String menuUrl;
 
     @Size(max = 100)

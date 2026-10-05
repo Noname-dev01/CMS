@@ -1,6 +1,7 @@
 package com.cms.admin.menu.dto.response;
 
 import com.cms.admin.menu.Menu;
+import com.cms.common.web.SafeUrls;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -34,11 +35,22 @@ public class SidebarMenuResponse {
                 .anyMatch(child -> url.equals(child.getMenuUrl()) || child.hasDescendantUrl(url));
     }
 
+    /** 외부 http(s) 주소인가 — 템플릿이 새 탭·noopener로 여는 데 쓴다. */
+    public boolean isExternal() {
+        return SafeUrls.isExternalHttpUrl(menuUrl);
+    }
+
+    /**
+     * 저장된 URL이 {@link SafeUrls#isSafeMenuUrl}을 통과하지 못하면(저장 검증 도입 전에 들어간 값 등) {@code null}로 바꿔 담는다.
+     * 템플릿은 null이면 {@code #}을 그리므로, 위험 값이 href에 나가거나 Thymeleaf가 {@code javascript:}에서
+     * 예외를 던져 모든 관리자 페이지가 500이 되는 것을 막는다.
+     */
     public static SidebarMenuResponse of(Menu menu, List<SidebarMenuResponse> children) {
+        String url = menu.getMenuUrl();
         return SidebarMenuResponse.builder()
                 .menuNo(menu.getMenuNo())
                 .menuName(menu.getMenuName())
-                .menuUrl(menu.getMenuUrl())
+                .menuUrl(SafeUrls.isSafeMenuUrl(url) ? url : null)
                 .menuIcon(menu.getMenuIcon())
                 .children(children)
                 .build();
