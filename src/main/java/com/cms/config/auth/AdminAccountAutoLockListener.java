@@ -29,6 +29,7 @@ public class AdminAccountAutoLockListener {
 
     private final AdminActionLogService adminActionLogService;
 
+    @Order(20) // 메서드 리스너는 메서드의 @Order만 읽는다(위 클래스 @Order는 무시된다) — 세션 만료(10) 뒤, 알림(100) 앞
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onAutoLock(AdminAccountAutoLockEvent event) {
         log.warn("로그인 연속 실패로 계정 자동 잠금 (userId={}, memberId={})", event.userId(), event.memberId());

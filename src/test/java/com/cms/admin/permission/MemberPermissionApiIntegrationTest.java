@@ -285,7 +285,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(audit.getTargetId()).as("감사 targetId는 반환 객체의 getMemberId()에서 추출된다").isEqualTo(manager.getId());
         assertThat(audit.getTargetLabel())
                 .isEqualTo("v" + before + "→v" + (before + 1) + ": -공지사항.생성, -공지사항.수정, -공지사항.삭제");
-        verify(cache, times(1)).invalidate();
+        verify(cache, org.mockito.Mockito.atLeastOnce()).invalidate(); // 커밋 성공 경로는 AFTER_COMMIT(앞선 무효화)+AFTER_COMPLETION(백스톱) 두 번 폐기한다 — 무효화는 멱등이다
     }
 
     @Test
@@ -477,7 +477,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
 
         assertThat(noticeActions()).containsExactly("READ");
         assertThat(version()).isEqualTo(before + 1);
-        verify(cache, times(1)).invalidate();
+        verify(cache, org.mockito.Mockito.atLeastOnce()).invalidate(); // 커밋 성공 경로 — 이중 폐기는 의도(멱등)
     }
 
     // ── ⑧ 대소문자·공백 변형 행 ─────────────────────────────

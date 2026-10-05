@@ -120,7 +120,22 @@ class LoginFailureServiceTest extends MariaDbContainerSupport {
                 .containsExactly(new AdminSessionRevokeEvent(member.getId()));
         assertThat(events.stream(AdminAccountAutoLockEvent.class))
                 .containsExactly(new AdminAccountAutoLockEvent(
-                        member.getId(), member.getUserId(), "1.2.3.4", "/admin/login"));
+                        member.getId(), member.getUserId(), "1.2.3.4", "/admin/login", member.getUserId(), FIXED_NOW));
+    }
+
+    @Test
+    @DisplayName("요청 username이 대소문자·후행 공백 변형이어도 이벤트는 DB의 정규 userId와 잠금 시각을 담는다(알림 메시지에 요청 원문을 쓰지 않는다)")
+    void recordFailure_variantUsername_eventCarriesCanonicalUserIdAndLockedAt(ApplicationEvents events) {
+        Member member = createMember(Role.ROLE_ADMIN, MemberStatus.ACTIVE);
+        String variant = member.getUserId().toUpperCase() + "          ";
+
+        for (int i = 0; i < 5; i++) {
+            loginFailureService.recordFailure(variant, "1.2.3.4", "/admin/login");
+        }
+
+        assertThat(events.stream(AdminAccountAutoLockEvent.class))
+                .containsExactly(new AdminAccountAutoLockEvent(
+                        member.getId(), variant, "1.2.3.4", "/admin/login", member.getUserId(), FIXED_NOW));
     }
 
     @Test
@@ -184,7 +199,7 @@ class LoginFailureServiceTest extends MariaDbContainerSupport {
 
         Optional<MemberSnapshot> snapshot = loginFailureService.resetFailuresAndCheckActive(member.getUserId());
 
-        assertThat(snapshot).hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "encoded"));
+        assertThat(snapshot).hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "encoded", FIXED_NOW));
         assertThat(reload(member.getId()).getFailedLoginCount()).isZero();
     }
 

@@ -25,6 +25,7 @@ public class AdminSessionRevokeListener {
      * <p>커밋 후 실패는 이미 반환된 성공 응답을 뒤집을 수 없으므로 ERROR 로그 기록이 필수 계약이며,
      * 예외는 전파하지 않는다. 운영 복구 경로: 같은 값으로 재저장(멱등 재잠금)하면 만료가 재시도된다.
      */
+    @Order(10) // 메서드 리스너는 메서드의 @Order만 읽는다(위 클래스 @Order는 무시된다) — 알림(100)·감사(20)보다 먼저 실행되게 명시한다
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onRevoke(AdminSessionRevokeEvent event) {
         try {

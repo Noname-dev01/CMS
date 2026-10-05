@@ -40,10 +40,10 @@ public class LoginFailureService {
     private final Clock clock;
 
     /**
-     * 성공 핸들러의 재확인용 스냅샷 — 인증 완료 직전의 fresh 상태·역할·비밀번호 해시.
+     * 성공 핸들러의 재확인용 스냅샷 — 인증 완료 직전의 fresh 상태·역할·비밀번호 해시·비밀번호 변경 시각(알림 E3가 최신 비밀번호 주기를 판정하는 기준).
      * 해시를 담으므로 toString에서 가린다.
      */
-    public record MemberSnapshot(MemberStatus status, Role role, String passwordHash) {
+    public record MemberSnapshot(MemberStatus status, Role role, String passwordHash, LocalDateTime passwordChangedAt) {
         @Override
         public String toString() {
             return "MemberSnapshot{status=" + status + ", role=" + role + "}";
@@ -80,7 +80,8 @@ public class LoginFailureService {
 
         // 발행 순서 = AFTER_COMMIT 재생 순서: 세션 만료(인메모리)가 감사 저장(DB)보다 먼저
         eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));
-        eventPublisher.publishEvent(new AdminAccountAutoLockEvent(member.getId(), userId, requestIp, requestUri));
+        eventPublisher.publishEvent(new AdminAccountAutoLockEvent(
+                member.getId(), userId, requestIp, requestUri, member.getUserId(), now));
     }
 
     /**
@@ -93,7 +94,7 @@ public class LoginFailureService {
         memberRepository.resetFailedLoginCountIfActive(userId);
         // clearAutomatically로 1차 캐시가 비워져 fresh 조회
         return memberRepository.findByUserId(userId)
-                .map(m -> new MemberSnapshot(m.getStatus(), m.getUserType(), m.getPwd()));
+                .map(m -> new MemberSnapshot(m.getStatus(), m.getUserType(), m.getPwd(), m.getPasswordChangedAt()));
     }
 
     /**
