@@ -658,6 +658,27 @@ Member member = createMember(sha256Hex(plainToken), LocalDateTime.now(clock).plu
 
 단순 `createDate`/`updateDate`처럼 서비스가 시각 비교를 하지 않는 필드는 시스템 기본 `LocalDateTime.now()`여도 무방하다.
 
+### 메뉴 URL이 `javascript:`로 저장되면 사이드바 렌더링 예외로 모든 관리자 페이지가 500이 된다 (2026-10-05, 메뉴 URL 저장 검증)
+
+#### 오류 메시지
+
+```
+org.thymeleaf.exceptions.TemplateProcessingException: 'javascript:' is forbidden in this context.
+Link expressions cannot contain inlined JavaScript code. (template: "admin/fragments/sidebar" - line 49, col 33)
+```
+
+#### 원인
+
+메뉴 URL은 저장 시 길이(`@Size(max=255)`)만 검사했고, 사이드바는 `th:href="@{${menu.menuUrl}}"`로 그 값을 그대로 링크 표현식에 넣는다. Thymeleaf는 `javascript:`로 시작하는 링크 표현식을 **예외로 거부**하므로(XSS 방어 동작), 그런 메뉴가 하나라도 활성 상태로 저장되면 사이드바를 그리는 **모든 `/admin` 페이지가 500**이 된다 — 메뉴 관리 화면도 같은 사이드바를 쓰므로 화면에서 고칠 수도 없다. 가용성 문제이며, 실측(dev 앱에 직접 삽입)으로 확인했다. 그 밖의 값은 예외 없이 그대로 출력됐다: `//evil.example/x`·`https://evil.example/x`·`admin/rel`은 원문 그대로, `data:text/html,...`은 HTML 이스케이프만 된 채 href로 나갔다.
+
+#### 해결 방법
+
+1. 저장 검증: 생성·수정 DTO의 `menuUrl`에 `@SafeMenuUrl`(같은 출처 경로 `/...` 또는 외부 `http(s)://호스트...`만 허용, userinfo `@`·`//host`·역슬래시·공백·제어문자 거부). 규칙은 `com.cms.common.web.SafeUrls` 한 곳에 두고 통합 검색(`AdminSearchService`)도 참조한다. 빈 문자열은 서비스가 `null`(그룹 메뉴)로 정규화한다.
+2. 렌더링 방어(이미 저장된 값 대비, 마이그레이션 없음): `SidebarMenuResponse.of`가 규칙을 통과하지 못한 URL을 `null`로 바꿔 담아 템플릿이 `#`을 그린다. 템플릿 3곳에서 각각 판정하지 않고 서버에서 걸러야 `javascript:` 500이 구조적으로 막힌다. 외부 http(s)는 `SidebarMenuResponse.isExternal()`로 판정해 `target="_blank" rel="noopener noreferrer"`로 연다.
+3. 회귀 시험: `MenuUrlSidebarRenderingIntegrationTest`가 DB에 위험 값을 직접 넣고 `/admin`이 200이며 href가 `#`임을 확인한다.
+
+주의: 외부 http(s) 메뉴는 `AdminFeature.forMenuUrl`(문자열 완전 일치)에 걸리지 않아 MANAGER에게는 항상 숨겨지고(ADMIN 전용), 통합 검색 결과에서도 제외된다(같은 출처 경로만 이동 대상).
+
 ### 비관리자(공개) Thymeleaf 페이지 컨트롤러의 예외가 HTML이 아니라 JSON으로 응답됨
 
 #### 오류 메시지
