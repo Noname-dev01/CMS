@@ -22,6 +22,8 @@
 
 - **관리자 관리 화면의 상세 모달 비동기 보호와 `?id=` 진입**(`admin-manage.html`, 2026-10-05, 상단바 통합 검색): `loadAdminDetail`에 모달 세대(`detailSeq`)·`AbortController`·응답 `id` 일치 검사를 두어 다른 회원을 열거나 모달을 닫을 때 늦게 도착한 응답이 `currentDetail`(수정 PATCH 대상)을 덮지 못하게 한다 — 과거에는 응답 순서가 뒤집히면 A의 입력이 B에게 저장될 수 있었다. `saveEdit`의 대상 ID는 요청 시작 시점에 고정하고 응답이 올 때 세대·대상이 달라졌으면 화면을 건드리지 않고 목록만 갱신한다(서버 저장은 이미 반영됨). 상세는 본인 ID 조회(`currentAdminReady`) 뒤에 그려 본인 계정에 수정 버튼이 뜨지 않는다. 검색 결과 링크 `?id=`(`^[1-9]\d{0,15}$`)는 본인 ID를 기다린 뒤 모달을 열되, 기다리는 동안 사용자가 직접 회원을 열었으면(세대 변화) 자동 진입을 버린다. 연 직후 `id`를 쿼리에서 지운다.
 
+- **로그인 성공·자동 잠금과 알림**(2026-10-05, `PLAN-admin-notification.md`): `VisitLoggingAuthenticationSuccessHandler`는 재확인 통과 시 fresh `MemberSnapshot`을 돌려주고(`verifyFreshMemberState`가 `boolean`이 아니라 `Optional<MemberSnapshot>`), 그 `passwordChangedAt`으로 알림 E3(만료 7일 이내)와 읽은 알림 정리를 **각각 별도 트랜잭션·개별 try/catch**로 호출한다(로그인을 막지 않는다). `LoginFailureService.MemberSnapshot`에 `passwordChangedAt`이, `AdminAccountAutoLockEvent`에 `canonicalUserId`(DB 정규 아이디)·`lockedAt`이 추가됐다 — 기존 `userId`는 로그인 요청 **원문**이라 알림에 쓰지 않는다. 상세는 `com.cms.admin.notification`의 `CLAUDE.md`.
+
 ## 프로필 이미지 (Base64-in-DB → FileStorage 이관 완료, 2026-08-10)
 
 업로드된 이미지는 더 이상 DB에 Base64로 저장되지 않는다 — `com.cms.common.storage.FileStorage`(공지 첨부파일용, 2026-07-22 도입)의 **`"profile"` 네임스페이스**에 실파일로 저장된다. `FileStorage`에 네임스페이스 인자 오버로드 3종(`store`/`load`/`delete`)이 추가되어(하위 호환 default 메서드, 기존 2-인자 시그니처·`NoticeAttachmentService` 호출부는 무변경) 프로필 이미지는 공지 첨부파일과 **물리적으로 분리된 디렉터리**(`root/profile/...`)에 저장된다 — `member.profile_image_url`에는 storageKey(공지 첨부파일과 같은 `yyyy/MM/dd/uuid.ext` 형태)가 그대로 들어가도, 네임스페이스가 다르므로 물리 경로가 겹치지 않는다. 네임스페이스 없는 기존 `load()/delete()`는 예약된 최상위 세그먼트(`"profile"`)로 시작하는 storageKey를 아예 해석하지 않는다(공지 첨부파일 storageKey가 오염되어 `profile/...` 형태가 되어도 프로필 파일에 접근 못함 — 반대 방향도 마찬가지).

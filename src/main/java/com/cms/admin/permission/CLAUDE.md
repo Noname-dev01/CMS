@@ -49,7 +49,7 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 - `member.permission_version bigint NOT NULL DEFAULT 0`(V17): 회원별 권한 매트릭스의 낙관적 버전. 허용 행이 0개인 회원도 잠글 대상(회원 행)과 버전이 있다. `Member.permissionVersion`은 `@Builder.Default 0L` 필수(없으면 기존 생성 경로가 NULL을 INSERT해 깨진다).
 - `member_permission(member_id, feature, action)`(V18) PK 3컬럼 + `member` FK(RESTRICT). **행이 있으면 허용**(거부 행 없음), ADMIN 행 없음. `feature`·`action`은 `VARCHAR`(DB enum 아님). **테스트 정리 코드가 `DELETE FROM member`를 쓰면 `member_permission`을 먼저 지워야 한다**(`TestMembers.delete`).
 - V19: 배포 시점의 `ROLE_MANAGER` 허용 행을 **`DELETED`가 아닌 기존 MANAGER 전원에게 복사**(정확 일치·NOTICE 유효 4동작만, NOTICE READ 행이 있을 때만) — 배포 직후 기존 계정 동작은 같다. **일회성 초기화이지 복구 수단이 아니다**: 성공한 뒤 수동 재실행하면 ADMIN이 회수한 권한이 되살아난다(`MemberPermissionMigrationTest`가 복사 규칙·재실행 중복 없음을 고정).
-- 기존 `permission_role`·`role_permission` 테이블(V13·V14)은 **이 PR에서 지우지 않고 남긴다**(앱 롤백 대비). 엔티티·리포지토리·API는 제거됐다. 후속 PR B(V20 DROP)가 지운다 — 되돌릴 수 없으므로 운영 안정 확인 뒤.
+- 기존 `permission_role`·`role_permission` 테이블(V13·V14)은 **이 PR에서 지우지 않고 남긴다**(앱 롤백 대비). 엔티티·리포지토리·API는 제거됐다. 후속 PR B(DROP 마이그레이션 — V20은 알림 테이블이 사용해 V21 이상)가 지운다 — 되돌릴 수 없으므로 운영 안정 확인 뒤.
 - **V17·V18 실패 복구**(DDL 암묵 커밋으로 Flyway 이력과 어긋난 경우): `docs/migration-guide.md` "V17~V19 실패 복구". 핵심은 **`success=1`인 버전의 객체는 건드리지 않고 실패·이력 없는 버전의 잔여 객체만 DROP**한 뒤 `flyway repair`다(`MemberPermissionMigrationTest`가 "V17 성공 + V18 실패" 복구와 잘못된 절차의 반례를 고정).
 
 ## 롤백·재배포 주의
@@ -81,4 +81,4 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 ## 남은 작업
 
-- **PR B**(`chore/drop-role-permission`): V20으로 `role_permission`·`permission_role` DROP — PR A가 운영에서 안정된 뒤. 되돌릴 수 없으므로 배포 전 백업이 필요하고 `PermissionMigrationTest`(V13·V14)를 함께 조정한다.
+- **PR B**(`chore/drop-role-permission`): V21 이상의 번호(V20은 알림 테이블이 사용)로 `role_permission`·`permission_role` DROP — PR A가 운영에서 안정된 뒤. 되돌릴 수 없으므로 배포 전 백업이 필요하고 `PermissionMigrationTest`(V13·V14)를 함께 조정한다.
