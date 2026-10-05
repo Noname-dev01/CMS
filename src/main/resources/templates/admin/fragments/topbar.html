@@ -29,7 +29,25 @@
     <!-- Topbar Navbar -->
     <ul class="navbar-nav ml-auto">
 
-        <!-- 알림·쪽지 위젯은 각각 실제 기능과 함께 추가한다(데모 하드코딩 제거) -->
+        <!-- Nav Item - Alerts: 내 알림. 동작은 /js/admin/topbar-notification.js (배지는 페이지 로드 시 1회 조회, 폴링 없음) -->
+        <li class="nav-item dropdown no-arrow mx-1">
+            <a class="nav-link dropdown-toggle" href="#" id="alertsDropdown" role="button"
+               data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-label="알림">
+                <i class="fas fa-bell fa-fw"></i>
+                <span class="badge badge-danger badge-counter d-none" id="notificationBadge" aria-live="polite"></span>
+            </a>
+            <div class="dropdown-list dropdown-menu dropdown-menu-right shadow animated--grow-in notification-menu"
+                 aria-labelledby="alertsDropdown">
+                <h6 class="dropdown-header d-flex justify-content-between align-items-center">
+                    <span>알림</span>
+                    <button type="button" class="btn btn-link btn-sm p-0 notification-read-all d-none" id="notificationReadAll">모두 읽음</button>
+                </h6>
+                <div id="notificationList" role="list"></div>
+                <div class="dropdown-item text-center small text-gray-500 d-none" id="notificationMore" role="button" tabindex="0">더 불러오기</div>
+            </div>
+        </li>
+
+        <!-- 쪽지 위젯은 실제 기능과 함께 추가한다(데모 하드코딩 제거) -->
 
         <div class="topbar-divider d-none d-sm-block"></div>
 
@@ -70,5 +88,6 @@
 
 </nav>
 <script th:src="@{/js/admin/topbar-search.js}" defer></script>
+<script th:src="@{/js/admin/topbar-notification.js}" defer></script>
 </body>
 </html>
