@@ -200,6 +200,78 @@ class GlobalApiExceptionHandlerTest {
         assertThat(response.getBody().code()).isEqualTo("NOT_ACCEPTABLE");
     }
 
+    // ===================== RateLimitedException / 잠금 충돌 409 (PLAN-admin-message.md R2-3·F15) =====================
+
+    @Test
+    @DisplayName("handleRateLimited: 서비스 빈도 제한 초과는 429 + RATE_LIMITED + Retry-After + JSON (필터와 같은 형식)")
+    void handleRateLimited_returns429WithRetryAfter() {
+        ResponseEntity<ApiErrorResponse> response = handler.handleRateLimited(
+                new com.cms.common.exception.RateLimitedException("쪽지 발송 한도를 초과했습니다.", 42),
+                requestStub("/admin/api/members/me/messages", "POST"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("42");
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
+        assertThat(response.getBody().code()).isEqualTo("RATE_LIMITED");
+        assertThat(response.getBody().message()).isEqualTo("쪽지 발송 한도를 초과했습니다.");
+    }
+
+    @Test
+    @DisplayName("RateLimitedException: Retry-After는 최소 1초다")
+    void rateLimitedException_retryAfterIsAtLeastOneSecond() {
+        assertThat(new com.cms.common.exception.RateLimitedException("m", 0).getRetryAfterSeconds()).isEqualTo(1);
+        assertThat(new com.cms.common.exception.RateLimitedException("m", -5).getRetryAfterSeconds()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("잠금 충돌: 원인 체인에 MariaDB 오류 1020·1213이 있는 비분류 데이터 접근 예외·커밋 예외는 409 RESOURCE_CONFLICT다")
+    void handleLockConflictOrUnexpected_mapsMariaDbLockErrorsTo409() {
+        for (int code : new int[]{1020, 1213}) {
+            java.sql.SQLException sql = new java.sql.SQLException("원문 메시지는 응답에 쓰이지 않는다", "HY000", code);
+            Exception[] candidates = {
+                    new org.springframework.orm.jpa.JpaSystemException(new RuntimeException("래핑", new RuntimeException("한 단계 더", sql))),
+                    new org.springframework.transaction.TransactionSystemException("커밋 실패", new RuntimeException(sql))
+            };
+            for (Exception candidate : candidates) {
+                ResponseEntity<ApiErrorResponse> response =
+                        handler.handleLockConflictOrUnexpected(candidate, requestStub("/admin/api/members/me/messages", "POST"));
+
+                assertThat(response.getStatusCode()).as("오류 코드 %d, %s", code, candidate.getClass().getSimpleName())
+                        .isEqualTo(HttpStatus.CONFLICT);
+                assertThat(response.getBody().code()).isEqualTo("RESOURCE_CONFLICT");
+                assertThat(response.getBody().message()).doesNotContain("원문 메시지");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("잠금 충돌: 다른 오류 코드이거나 SQLException이 없으면 기존 catch-all과 같이 500 INTERNAL_ERROR다")
+    void handleLockConflictOrUnexpected_otherCausesStay500() {
+        HttpServletRequest request = requestStub("/admin/api/members/me/messages", "POST");
+        given(request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE)).willReturn("/admin/api/members/me/messages");
+
+        ResponseEntity<ApiErrorResponse> otherCode = handler.handleLockConflictOrUnexpected(
+                new org.springframework.orm.jpa.JpaSystemException(new RuntimeException(new java.sql.SQLException("x", "23000", 1062))),
+                request);
+        ResponseEntity<ApiErrorResponse> noCause = handler.handleLockConflictOrUnexpected(
+                new org.springframework.transaction.TransactionSystemException("커밋 실패"), request);
+
+        assertThat(otherCode.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(noCause.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(otherCode.getBody().code()).isEqualTo("INTERNAL_ERROR");
+    }
+
+    @Test
+    @DisplayName("hasLockConflictCause: 순환 원인 체인에서도 무한 루프 없이 끝난다")
+    void hasLockConflictCause_survivesCyclicCauseChain() {
+        RuntimeException cyclic = new RuntimeException("a");
+        RuntimeException other = new RuntimeException("b", cyclic);
+        cyclic.initCause(other);
+
+        assertThat(GlobalApiExceptionHandler.hasLockConflictCause(cyclic)).isFalse();
+        assertThat(GlobalApiExceptionHandler.hasLockConflictCause(null)).isFalse();
+    }
+
     // ===================== BindException 타입 변환 메시지 비노출 =====================
 
     @Test
