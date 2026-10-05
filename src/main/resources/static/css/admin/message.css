@@ -1,0 +1,148 @@
+/* 쪽지: 상단바 드롭다운(topbar-message.js)과 쪽지함 페이지(message-box.js) 공용 스타일 */
+
+/* ── 상단바 드롭다운 ─────────────────────────────── */
+.message-menu {
+    width: 22rem;
+    max-width: calc(100vw - 1.5rem);
+}
+
+.message-menu .message-open-box {
+    font-size: .7rem;
+    color: #fff;
+    text-decoration: underline;
+}
+
+#messageList {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+#messageList .message-item {
+    display: block;
+    padding: .6rem 1rem;
+    color: #3a3b45;
+    border-bottom: 1px solid #f1f3f9;
+    text-decoration: none;
+    white-space: normal;
+}
+
+#messageList a.message-item:hover {
+    background: #eaecf4;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+#messageList .message-item .message-meta {
+    display: block;
+    font-size: .7rem;
+    color: #858796;
+}
+
+#messageList .message-item .message-title {
+    display: block;
+    font-size: .85rem;
+    word-break: break-word;
+}
+
+#messageList .message-item.unread .message-title {
+    font-weight: 700;
+}
+
+#messageList .message-item.unread .message-meta::before {
+    content: "";
+    display: inline-block;
+    width: .45rem;
+    height: .45rem;
+    margin-right: .35rem;
+    border-radius: 50%;
+    background: #e74a3b;
+}
+
+#messageList .message-status {
+    padding: .9rem 1rem;
+    font-size: .85rem;
+    color: #858796;
+}
+
+/* ── 쪽지함 페이지 ────────────────────────────────── */
+.message-row {
+    display: block;
+    padding: .7rem 1rem;
+    color: #3a3b45;
+    border-bottom: 1px solid #eaecf4;
+    cursor: pointer;
+}
+
+.message-row:hover {
+    background: #f8f9fc;
+}
+
+.message-row .message-row-top {
+    display: flex;
+    justify-content: space-between;
+    gap: .5rem;
+    font-size: .8rem;
+    color: #858796;
+}
+
+.message-row .message-row-title {
+    font-size: .95rem;
+    word-break: break-word;
+}
+
+.message-row.unread .message-row-title {
+    font-weight: 700;
+}
+
+.message-row.unread .message-row-top .message-counterpart::before {
+    content: "";
+    display: inline-block;
+    width: .5rem;
+    height: .5rem;
+    margin-right: .4rem;
+    border-radius: 50%;
+    background: #e74a3b;
+}
+
+/* 본문은 textContent로만 넣고 개행·공백을 그대로 보여 준다(자동 링크화 없음) */
+.message-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: .75rem 1rem;
+    background: #f8f9fc;
+    border: 1px solid #eaecf4;
+    border-radius: .35rem;
+    min-height: 6rem;
+}
+
+.message-recipient-results {
+    max-height: 12rem;
+    overflow-y: auto;
+    border: 1px solid #d1d3e2;
+    border-top: 0;
+}
+
+.message-recipient-results .message-recipient-option {
+    display: block;
+    width: 100%;
+    padding: .4rem .75rem;
+    text-align: left;
+    background: #fff;
+    border: 0;
+    border-bottom: 1px solid #f1f3f9;
+}
+
+.message-recipient-results .message-recipient-option:hover,
+.message-recipient-results .message-recipient-option:focus {
+    background: #eaecf4;
+}
+
+.message-counter {
+    font-size: .75rem;
+    color: #858796;
+}
+
+.message-counter.over {
+    color: #e74a3b;
+    font-weight: 700;
+}

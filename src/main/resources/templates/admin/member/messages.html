@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>쪽지함</title>
+</head>
+<body id="page-top">
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <h1 class="h3 mb-2 text-gray-800">쪽지함</h1>
+                <p class="mb-4">관리자끼리 주고받는 1:1 쪽지입니다. 삭제는 내 보관함에서만 되며 상대에게는 남습니다.</p>
+
+                <div class="card shadow mb-4">
+                    <div class="card-header py-3 d-flex flex-wrap justify-content-between align-items-center">
+                        <ul class="nav nav-pills" id="boxTabs" role="tablist">
+                            <li class="nav-item">
+                                <button type="button" class="nav-link active" data-box="inbox" role="tab" aria-selected="true">받은 쪽지</button>
+                            </li>
+                            <li class="nav-item">
+                                <button type="button" class="nav-link" data-box="sent" role="tab" aria-selected="false">보낸 쪽지</button>
+                            </li>
+                        </ul>
+                        <button type="button" class="btn btn-primary btn-sm" id="btnCompose">
+                            <i class="fas fa-pen fa-sm"></i> 쪽지 쓰기
+                        </button>
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="pageAlert" class="alert alert-danger m-3 d-none" role="alert"></div>
+                        <div id="pageSuccess" class="alert alert-success m-3 d-none" role="status"></div>
+                        <div id="boxList" role="list"></div>
+                        <div class="text-center p-3">
+                            <button type="button" class="btn btn-outline-secondary btn-sm d-none" id="btnMore">더 보기</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<!-- 쪽지 상세 -->
+<div class="modal fade" id="detailModal" tabindex="-1" role="dialog" aria-labelledby="detailTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="detailTitle">쪽지</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="닫기"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div id="detailError" class="alert alert-danger d-none" role="alert"></div>
+                <div id="detailMeta" class="small text-muted mb-2"></div>
+                <div id="detailBody" class="message-body"></div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <div id="deleteArea">
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="btnDelete">삭제</button>
+                    <span id="deleteConfirm" class="d-none">
+                        <span class="small text-danger mr-1">내 보관함에서 삭제할까요? 상대에게는 남습니다.</span>
+                        <button type="button" class="btn btn-danger btn-sm" id="btnDeleteConfirm">삭제 확인</button>
+                        <button type="button" class="btn btn-light btn-sm" id="btnDeleteCancel">취소</button>
+                    </span>
+                </div>
+                <div>
+                    <button type="button" class="btn btn-primary btn-sm d-none" id="btnReply">답장</button>
+                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">닫기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 쪽지 쓰기 -->
+<div class="modal fade" id="composeModal" tabindex="-1" role="dialog" aria-labelledby="composeHeading" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="composeHeading">쪽지 쓰기</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="닫기"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div id="composeError" class="alert alert-danger d-none" role="alert"></div>
+                <form id="composeForm" novalidate autocomplete="off">
+                    <div class="form-group">
+                        <label for="composeRecipient">받는 사람</label>
+                        <!-- 입력을 바꾸면 선택된 수신자가 즉시 해제된다 — 결과를 눌러 선택해야 보낼 수 있다 -->
+                        <input type="text" class="form-control" id="composeRecipient" placeholder="아이디 또는 이름으로 검색 후 선택"
+                               aria-describedby="recipientNote" aria-autocomplete="list" aria-controls="recipientResults">
+                        <div id="recipientResults" class="message-recipient-results d-none" role="listbox" aria-label="수신자 검색 결과"></div>
+                        <small id="recipientNote" class="form-text text-muted">아이디를 정확히 입력하면 바로 찾습니다. 2글자 이상이면 이름·아이디 일부로도 찾습니다.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="composeTitle">제목</label>
+                        <input type="text" class="form-control" id="composeTitle">
+                        <small class="message-counter" id="titleCounter">0 / 100</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="composeBody">본문</label>
+                        <textarea class="form-control" id="composeBody" rows="8"></textarea>
+                        <small class="message-counter" id="bodyCounter">0 / 2000</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" id="btnSend">보내기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+<script th:src="@{/js/admin/message-box.js}"></script>
+
+</body>
+</html>

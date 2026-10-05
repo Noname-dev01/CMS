@@ -47,7 +47,23 @@
             </div>
         </li>
 
-        <!-- 쪽지 위젯은 실제 기능과 함께 추가한다(데모 하드코딩 제거) -->
+        <!-- Nav Item - Messages: 내 쪽지. 동작은 /js/admin/topbar-message.js (배지는 페이지 로드 시 1회 조회, 폴링 없음).
+             미읽음 배지의 값·요청 세대는 이 스크립트가 단독으로 소유하고, 쪽지함 페이지는 window.CmsMessageBadge로만 갱신한다 -->
+        <li class="nav-item dropdown no-arrow mx-1">
+            <a class="nav-link dropdown-toggle" href="#" id="messagesDropdown" role="button"
+               data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-label="쪽지">
+                <i class="fas fa-envelope fa-fw"></i>
+                <span class="badge badge-danger badge-counter d-none" id="messageBadge" aria-live="polite"></span>
+            </a>
+            <div class="dropdown-list dropdown-menu dropdown-menu-right shadow animated--grow-in message-menu"
+                 aria-labelledby="messagesDropdown">
+                <h6 class="dropdown-header d-flex justify-content-between align-items-center">
+                    <span>쪽지</span>
+                    <a class="message-open-box" th:href="@{/admin/member/messages}">쪽지함 열기</a>
+                </h6>
+                <div id="messageList" role="list"></div>
+            </div>
+        </li>
 
         <div class="topbar-divider d-none d-sm-block"></div>
 
@@ -89,5 +105,6 @@
 </nav>
 <script th:src="@{/js/admin/topbar-search.js}" defer></script>
 <script th:src="@{/js/admin/topbar-notification.js}" defer></script>
+<script th:src="@{/js/admin/topbar-message.js}" defer></script>
 </body>
 </html>

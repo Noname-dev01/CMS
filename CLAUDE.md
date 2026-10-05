@@ -11,6 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `com.cms.admin.log` | `@AdminActionLogged` 독립 트랜잭션(REQUIRES_NEW)·예외 격리 계약 |
 | `com.cms.admin.member` | 초기 관리자 부트스트랩, 비밀번호 재설정·로그인 실패 잠금·90일 만료, 프로필 이미지 |
 | `com.cms.admin.menu` | 사이드바 3단 제약·권한 판정기 기반 노출 계산(`MenuVisibility`)·노출 안내(`exposure`)·메뉴 시드 조건 |
+| `com.cms.admin.message` | 상단바 쪽지(1:1)·쪽지함 페이지 — 입력 파이프라인·`REQUIRES_NEW`+`READ_COMMITTED` 발송(상태 행 잠금·삭제와 무관한 발송 이력)·각자 보관함 삭제(네이티브 조건부 DELETE)·모든 API의 현재 자격 가드·수신자 검색 노출·`safeErrorMessage` 로그 비유출 범위·V21 |
 | `com.cms.admin.notice` | `useYn`/`deleted` 분리, 비관적 락, 첨부파일 상한·삭제 차단 |
 | `com.cms.admin.notification` | 상단바 알림(E1~E4)의 최선 노력 생성 계약·리스너 실행 순서(메서드 `@Order`, AFTER_COMMIT이 AFTER_COMPLETION보다 먼저)·`beforeId` 커서·D11(열람 시점 ADMIN)·V20 |
 | `com.cms.admin.permission` | MANAGER 위임 권한 카탈로그·판정기·캐시(**회원별 허용 행**), 권한관리 API·화면(`PUT` 교체·409·변형 행 가드), 역할 변경 시 개별 권한 삭제, 인가 선언 컨벤션, 롤백·재배포 주의 |

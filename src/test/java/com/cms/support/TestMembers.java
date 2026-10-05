@@ -58,9 +58,15 @@ public final class TestMembers {
         return new CustomUserDetails(member);
     }
 
-    /** 만든 회원과 그 개별 권한 행을 지운다(FK 때문에 권한 행 먼저). */
+    /**
+     * 만든 회원과 그 개별 권한 행·쪽지·발송 이력·발송 상태 행을 지운다(FK가 RESTRICT라 종속 행 먼저).
+     * 쪽지는 보낸 쪽·받은 쪽 어느 쪽이든 이 회원이 걸린 행을 모두 지운다(상대 회원 행은 건드리지 않는다).
+     */
     public static void delete(JdbcTemplate jdbc, Collection<Long> memberIds) {
         for (Long id : memberIds) {
+            jdbc.update("DELETE FROM admin_message WHERE sender_id = ? OR recipient_id = ?", id, id);
+            jdbc.update("DELETE FROM admin_message_send_log WHERE sender_id = ?", id);
+            jdbc.update("DELETE FROM admin_message_sender_state WHERE member_id = ?", id);
             jdbc.update("DELETE FROM member_permission WHERE member_id = ?", id);
             jdbc.update("DELETE FROM member WHERE id = ?", id);
         }

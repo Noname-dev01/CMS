@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
@@ -132,6 +132,67 @@ class SecurityConfigTest {
     void manager_memberSettings_ok() throws Exception {
         mockMvc.perform(get("/admin/member/settings"))
                 .andExpect(status().isOk());
+    }
+
+    // ===================== 쪽지함 페이지(/admin/member/messages) — MY_INFO 게이트에 정확 경로 1개 추가(2026-10-05 승인) =====================
+
+    @Test
+    @DisplayName("쪽지함: ADMIN·MANAGER(권한 0개)는 /admin/member/messages 페이지에 접근할 수 있다(GET·HEAD)")
+    @WithMockUser(roles = "MANAGER")
+    void manager_messagesPage_ok() throws Exception {
+        mockMvc.perform(get("/admin/member/messages")).andExpect(status().isOk());
+        mockMvc.perform(head("/admin/member/messages")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("쪽지함: ADMIN도 접근할 수 있다")
+    @WithMockUser(roles = "ADMIN")
+    void admin_messagesPage_ok() throws Exception {
+        mockMvc.perform(get("/admin/member/messages")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("쪽지함: ROLE_USER는 403이고 비로그인은 로그인으로 리다이렉트된다")
+    void messagesPage_userForbidden_anonymousRedirects() throws Exception {
+        mockMvc.perform(get("/admin/member/messages")
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("u").roles("USER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/member/messages"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrlPattern("**/admin/login"));
+    }
+
+    @Test
+    @DisplayName("쪽지함: 게이트는 정확 경로 1개다 — 하위·유사 경로(/messages/x, /messagesX, /messages/../x)는 MANAGER에게 403(ADMIN 캐치올)이다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_messagesPageLookalikePaths_forbidden() throws Exception {
+        for (String path : new String[]{"/admin/member/messages/x", "/admin/member/messages/x/y", "/admin/member/messagesX",
+                "/admin/member/message", "/admin/member/messages.json"}) {
+            mockMvc.perform(get(path)).andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    @DisplayName("쪽지함: 세미콜론 매트릭스 파라미터가 든 경로는 방화벽이 400으로 거부해 게이트에 닿지 않는다(403보다 더 엄격한 차단)")
+    @WithMockUser(roles = "MANAGER")
+    void manager_messagesPageMatrixParameterPath_rejectedByFirewall() throws Exception {
+        mockMvc.perform(get("/admin/member/messages;x=1/y")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/admin/member/messages;jsessionid=1")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("쪽지함: 게이트는 메서드를 구분하지 않는다 — 유효한 CSRF 토큰의 POST는 게이트를 통과해 핸들러가 없어 405다(MANAGER 403이 아님을 기록)")
+    @WithMockUser(roles = "MANAGER")
+    void manager_messagesPagePost_passesGateButHasNoHandler() throws Exception {
+        // 그래서 이 경로에 쓰기 핸들러를 추가하면 안 된다 — MessagePageMethodConventionTest가 CI에서 막는다
+        mockMvc.perform(post("/admin/member/messages").with(csrf())).andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    @DisplayName("쪽지함: CSRF 토큰이 없는 POST의 403은 위 405 시험과 별개의 CSRF 거부다")
+    @WithMockUser(roles = "MANAGER")
+    void manager_messagesPagePost_withoutCsrf_forbidden() throws Exception {
+        mockMvc.perform(post("/admin/member/messages")).andExpect(status().isForbidden());
     }
 
     @Test
@@ -638,5 +699,15 @@ class PublicNoticeStubController {
     ResponseEntity<String> attachmentCreate() {
         // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
         return ResponseEntity.ok("{}");
+    }
+}
+
+@TestStubController
+class AdminMessagePageStubController {
+
+    /** 쪽지함 페이지 스텁 — 실제 컨트롤러처럼 GET 핸들러만 둔다(HEAD는 GET이 처리). */
+    @GetMapping("/admin/member/messages")
+    String messagesPage() {
+        return "messages";
     }
 }

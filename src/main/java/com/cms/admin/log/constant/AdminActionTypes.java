@@ -32,12 +32,14 @@ public final class AdminActionTypes {
     public static final String NOTICE_ATTACHMENT_DELETE = "NOTICE_ATTACHMENT_DELETE";
     /** MANAGER 회원의 권한 매트릭스 저장 — targetType = MEMBER_PERMISSION, targetId = 대상 회원 ID, targetLabel = "v3→v4: +공지사항.생성, -공지사항.삭제" */
     public static final String PERMISSION_UPDATE = "PERMISSION_UPDATE";
+    /** 쪽지 발송 — targetType = MEMBER, targetId = 수신자 회원 ID. 제목·본문은 기록하지 않는다(targetLabel 없음, 실패 errorMessage는 고정 문구) */
+    public static final String MESSAGE_SEND = "MESSAGE_SEND";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
             ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_DELETE, MENU_REORDER, MENU_MOVE, MENU_STRUCTURE_APPLY,
             ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE,
-            NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE, PERMISSION_UPDATE
+            NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE, PERMISSION_UPDATE, MESSAGE_SEND
     );
 
     private AdminActionTypes() {}
