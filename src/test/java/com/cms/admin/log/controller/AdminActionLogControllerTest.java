@@ -3,6 +3,7 @@ package com.cms.admin.log.controller;
 import com.cms.admin.log.domain.AdminActionResult;
 import com.cms.admin.log.dto.request.AdminActionLogSearchRequest;
 import com.cms.admin.log.dto.response.AdminActionLogPageResponse;
+import com.cms.admin.log.dto.response.AdminActionLogResponse;
 import com.cms.admin.log.service.AdminActionLogQueryService;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
@@ -23,6 +24,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -118,6 +120,33 @@ class AdminActionLogControllerTest {
                 .andExpect(status().isOk());
 
         Mockito.verify(adminActionLogQueryService).searchActionLogs(any(), any());
+    }
+
+    @Test
+    @DisplayName("MVC 응답 직렬화 — LocalDateTime은 ISO 로컬 일시 문자열, null 필드는 키 생략(spring.jackson 설정이 Boot 매퍼에 적용됨)")
+    @WithMockUser(roles = "ADMIN")
+    void MVC_응답_날짜는_ISO_문자열이고_null_필드는_생략된다() throws Exception {
+        // 401·403·429 응답의 날짜 단언은 자체 ObjectMapper 경로라 MVC 메시지 컨버터를 검증하지 못한다
+        // (PLAN-modular-starters.md R3-1) — Boot가 구성한 매퍼를 타는 DTO 응답으로 직접 고정한다.
+        AdminActionLogPageResponse page = AdminActionLogPageResponse.builder()
+                .content(List.of(AdminActionLogResponse.builder()
+                        .id(1L)
+                        .actionUserId("admin")
+                        .actionType("MENU_CREATE")
+                        .actionResult(AdminActionResult.SUCCESS)
+                        .createAt(LocalDateTime.of(2026, 10, 6, 9, 5, 7, 123_000_000))
+                        .build()))
+                .page(0).size(20).totalElements(1).totalPages(1).last(true)
+                .build();
+        given(adminActionLogQueryService.searchActionLogs(any(), any())).willReturn(page);
+
+        mockMvc.perform(get("/admin/api/logs")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].createAt").value("2026-10-06T09:05:07.123"))
+                .andExpect(jsonPath("$.content[0].actionId").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.content[0].targetLabel").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.content[0].errorMessage").doesNotHaveJsonPath());
     }
 
     @Test
