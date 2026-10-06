@@ -1,8 +1,14 @@
 # PLAN — 권한관리를 역할별에서 사용자별(MANAGER 개별)로 전환
 
-> 상태: v5 (2026-10-03) — **적대적 리뷰 5라운드 ship, 신규 지적 0건**(정적 계획 리뷰). **PR A 구현 완료(2026-10-03, 커밋·PR 전)** — 구현 중 계획과 달라진 점은 문서 맨 아래 "구현 메모" 참조. PR B(V20 DROP)는 PR A 운영 안정 뒤
+> 상태: v5 (2026-10-03) — **적대적 리뷰 5라운드 ship, 신규 지적 0건**(정적 계획 리뷰). **PR A 구현 완료(2026-10-03, #86 `1b6b196` 머지)** — 구현 중 계획과 달라진 점은 문서 맨 아래 "구현 메모" 참조. **PR B(V22 DROP): 맨 아래 "PR B 계획" 절(v7, 적대적 리뷰 2라운드 ship) — 구현·검증 완료(2026-10-06, 커밋·PR 전), 결과는 "PR B 구현·검증 결과" 절.**
 >
 > **개정 이력**
+> - PR B 2라운드: **ship, 신규 지적 0건**(codex `gpt-6.1-sol`). 제안 1건(B-3 4단계 문구 — 로컬 전체 테스트는 실행, UTC 재실행만 생략임을 명확히) 반영
+> - v7 (PR B 1라운드 needs-attention, codex `gpt-6.1-sol`, 지적 3건):
+>   - R-B1 수용(사실 확인: `v19_isRetrySafe`가 `flyway(null)` 뒤 V19 SQL을 직접 실행 — V22 후 `role_permission` 없음으로 실패): 이 시험도 `target("21")`로 고정, 최신 업그레이드 보존·삭제는 별도 시험이 맡는다(D-B4)
+>   - R-B2 수용(사실 확인: `AdminMessageMigrationTest`가 V21만 빼고 전부 복사 → V22가 location에 있으면 적용된 V21은 future가 아니라 **missing**으로 분류돼 기본 validate 실패): 그 시험의 이전 앱 location을 **버전 ≤ 20만** 복사하도록 조정, 새 V22 롤백 시험도 버전 상한(≤ 21)으로 파일을 고른다(D-B4). 다른 마이그레이션 시험에 같은 패턴 없음(grep)
+>   - R-B3 부분 수용(사실 확인: `prod-restore.sh:193`이 복구 후 **현재** 앱 컨테이너를 재기동 → PR B 이미지면 복원된 V21 이력 위에서 V22가 다시 실행돼 테이블을 또 지움): 백업 복원 런북에 "**V22 없는 이미지로 컨테이너를 먼저 교체(정지 상태) → 복구**" 순서를 명시, 실기에서 DB 수준으로 관측(D-B3 d, B-3 5). **기각한 부분**: prod 스택 전체 복원 drill — `prod-restore.sh`는 무변경이고 CI `prod-smoke` 왕복이 검증하며, 새 쟁점은 "어느 이미지가 기동되는가" 하나라 jar 수준 관측이 그 사실을 직접 증명한다
+> - v6 (2026-10-06): PR B 계획 초안 추가(맨 아래 "PR B 계획" 절). 번호는 V20(알림)·V21(쪽지)이 이미 써서 **V22**
 > - 5라운드: **ship, 신규 지적 0건**(codex `gpt-6.1-sol`). 실제 배포 승인은 §11의 테스트·브라우저 검증·구버전 기동 및 롤백 왕복 시험 결과가 충족돼야 한다는 단서
 > - v5 변경(4라운드 needs-attention, codex `gpt-6.1-sol`, 지적 2건 전부 수용):
 >   - R-12 수용: R-11에서 추가한 복구 절차가 "DDL이 적용됐으면 DROP"만 말해, V17 `success=1`·V18만 실패한 경우 두 객체를 다 지우면 V17이 재실행되지 않아 `permission_version` 없이 기동 → 절차를 **버전별 분기**(해당 버전의 성공 이력이 없는 잔여 객체만 DROP, `success=1`인 버전의 객체는 보존)로 정정하고 "V17 성공 + V18 실패" 복구 시험 추가(§8, §7-1 ⑬)
@@ -416,3 +422,136 @@ ADMIN과 MANAGER 두 명(A·B)을 각각 별도 browser context로: ADMIN이 A�
 - **감사 `targetId`**: 반환 객체 `MemberPermissionUpdateResult.getMemberId()`가 `AdminActionLogAspect.extractTargetId`의 입력이다(R-9). 변경 없음 결과도 같다.
 - **화면 검증(playwright, 2026-10-03, 일회용 MariaDB·8081)**: 목록 100명 + [더 보기] 107명·아이디 검색, READ 자동 체크, dirty 상태 회원 전환 차단, 저장 후 DB 행·버전 0→1·감사(`MEMBER_PERMISSION`, `target_id`=회원 ID), **같은 MANAGER 로그인 세션**에서 회수 직후 공지 API·페이지 403·사이드바에서 공지 제거·대시보드 유지, MANAGER의 권한 API 403·`me` 경로 400, 응답 지연+선택 잠금 우회 시 늦은 응답 폐기를 확인했다.
 - **미확인(배포 승인 조건 그대로)**: 이전 앱이 V17~V19가 적용된 DB에서 Flyway 검증을 통과해 기동하는지(`docs/deployment.md`에 "미확인"으로 기록 — 되돌릴 일이 생기면 백업본으로 먼저 확인).
+
+---
+
+## PR B 계획 — 역할 단위 레거시 테이블 DROP (V22, 2026-10-06)
+
+> 유형: chore · **스키마 변경(되돌릴 수 없음)** · 인가 정책 변경 없음 · `SecurityConfig`·Java 제품 코드 변경 없음 · 신규 의존성 없음
+> 브랜치: `chore/drop-role-permission` · 기준 master = `9a6e3ef`
+
+### B-0. 정찰 결과 (코드·테스트·문서를 열어 확인한 사실)
+
+| # | 사실 | 근거 |
+|---|---|---|
+| B-F1 | 제품 코드(`src/main/java`)에 `role_permission`·`permission_role`·`RolePermission*`·`PermissionRole*` 참조 0건. 엔티티 매핑이 없어 `ddl-auto: validate`는 두 테이블 존재 여부와 무관 | 저장소 전체 grep(adversarial-review 제외) — 참조는 마이그레이션 V13·V14·V16(주석)·V19, 테스트 2개, 문서뿐 |
+| B-F2 | 최신 마이그레이션은 V21. V19(회원별 복사)가 `role_permission`을 읽으므로 DROP은 반드시 V19 뒤 — 새 번호 V22면 신규 DB(V1→최신)에서도 순서가 보장된다 | `db/migration/` |
+| B-F3 | `role_permission`이 FK `fk_role_permission_role`로 `permission_role`을 참조 → **자식(`role_permission`)부터** 지워야 한다 | V13 |
+| B-F4 | 테스트 파급 2곳: `PermissionMigrationTest`(V12→**최신** migrate 후 두 테이블·시드를 단언, `seedIsOneTimeInitialization`도 최신 migrate 뒤 `role_permission`을 조작) · `MemberPermissionMigrationTest.upgrade_copiesRoleGrantsToActiveManagersOnly`(최신 migrate 뒤 `role_permission` 4행 단언, 146행). 나머지 V16 준비(`v16Database`)는 `target("16")`이라 영향 없음 | 두 파일 |
+| B-F5 | 모든 통합 테스트는 공용 Testcontainers DB(V1→최신 전체 적용)로 기동 → V22 추가 후 **테이블 없이 현재 앱이 뜨는 것**을 전체 스위트가 자동으로 증명 | `MariaDbContainerSupport`, `src/test/java/CLAUDE.md` |
+| B-F6 | 이전 앱 롤백 호환 시험 선례: `AdminMessageMigrationTest.rollbackToAppWithoutV21_startsAgainstV21Database`(V21 파일을 뺀 임시 디렉터리를 `filesystem:` location으로 써서 validate·migrate — Flyway 기본 `ignoreMigrationPatterns=*:future`) | 해당 시험 262행 |
+| B-F7 | DROP 선례 V16: 단일 DDL·`IF EXISTS`·배포 전 백업 필수·실패 복구 문서(`migration-guide.md` "V16 실패 복구")·`MenuAccessRoleDropMigrationTest` | V16, migration-guide 22~30행 |
+| B-F8 | PR A 직전 앱 = `3679f86`(Boot 3.5.16, Java 17, 마이그레이션 V1~V16, `RolePermission`·`PermissionRole` 엔티티 매핑). `docs/deployment.md` 353행이 "이 앱이 V17~V19 적용 DB에서 기동하는지 **미확인**"으로 남겨 둠 | `git show 3679f86:build.gradle` |
+| B-F9 | 운영(prod) 실배포는 아직 없다(로드맵: 실배포 인프라 미착수). PR A의 "운영 안정" 게이트는 실운영 관측이 아니라 dev·CI 기준으로만 판단 가능 | 로드맵 "후속 과제 ①" |
+
+**핵심 쟁점**: (1) DROP 파일 형태와 부분 실패 복구, (2) 테이블을 지울지 보관(이름 변경)할지, (3) 이전 앱(PR A 이전) 기동 여부 검증 방법과 V22 이후 롤백 표의 변화, (4) 기존 마이그레이션 테스트를 어떻게 조정할지.
+
+### B-1. 설계 결정
+
+**D-B1. 마이그레이션 형태 — `V22__drop_role_permission_tables.sql` 한 파일, `DROP TABLE IF EXISTS` 2문(자식 → 부모)**
+
+| 선택지 | 장점 | 단점 |
+|---|---|---|
+| **A. 한 파일 2문 + `IF EXISTS` (채택)** | 의미 단위 하나. 중간 중단(첫 DROP 커밋 후 끊김) 뒤에도 같은 SQL 재실행이 안전 → 복구가 **원인 제거 → `flyway repair` → 재기동**으로 끝나고 수동 DROP 분기가 없다 | MariaDB DDL 암묵 커밋으로 "파일 안 부분 성공"은 생긴다(그러나 IF EXISTS가 흡수) |
+| B. V22·V23 두 파일 1문씩 | 이력이 문장 단위 | 파일만 늘고 A와 복구 난이도 같음(IF EXISTS로 이미 해결) |
+| C. `IF EXISTS` 없이 | 예상 밖 상태를 큰 소리로 실패 | 부분 실패 후 수동 DROP 분기 필요(V13·V17~V19처럼 버전별 분기 절차) — 복구 절차가 복잡해진다 |
+
+왜 A: V16이 같은 이유로 `IF EXISTS`를 썼고, 지울 대상의 **잔여 상태가 무엇이든 목표 상태(둘 다 없음)가 같다** — 생성 마이그레이션(V13 등)과 달리 "있어야 할 것을 잘못 지우는" 위험이 없다. **DDL 단독 파일**(DML 혼합 금지 규칙).
+
+**D-B2. 지운다(DROP) — 이름 변경 보관은 하지 않는다**
+
+| 선택지 | 판단 |
+|---|---|
+| **DROP + 배포 전 백업 필수 (채택)** | PR A부터 앱이 읽지도 쓰지도 않는 동결 데이터. 값은 V19가 이미 `member_permission`으로 옮겼고, 원본 값은 `make prod-backup` 논리 덤프에 남는다(V16과 같은 정책) |
+| `RENAME TABLE … TO …_archived_v22` | 되돌리기는 쉬워지지만 이전 앱은 원래 이름을 매핑하므로 어차피 수동 개입 필요 → 백업 복원과 수고가 같고, 정리 목적(레거시 제거)을 못 이룬다 |
+| 안전 가드(예: `member_permission`이 비어 있으면 중단) | 과설계 — `member_permission`이 빈 것은 정상 상태(신규 MANAGER 0개·전부 회수)라 가드가 정상 배포를 막는다 |
+
+**D-B3. 롤백 호환 — 시험으로 고정할 것과 실기로 1회 확인할 것을 나눈다**
+
+- **(a) PR B 앱 → PR A 시대 앱(현재 master `9a6e3ef`)**: 현재 앱은 두 테이블을 매핑하지 않으므로(B-F1) Hibernate 검증 무관, Flyway는 이력의 미래 버전 V22를 기본값으로 무시 → **기동 가능해야 한다.** 자동 시험으로 고정: V22 파일을 뺀 임시 location으로 V22 적용 DB를 `validate`·`migrate`(B-F6 선례 재사용).
+- **(b) PR A 이전 앱(`3679f86`) on V17~V21 DB** — 22차 로드맵의 "미확인" 항목: 실기로 1회 확인한다. 방법: 일회용 MariaDB를 **현재 master 앱으로 V21까지 올린 뒤** `3679f86`을 별도 worktree에서 빌드한 jar로 같은 DB에 기동 → health·로그(Flyway "future" 경고, Hibernate validate 통과)·MANAGER 공지 접근이 역할 단위로 판정됨을 확인. 자동 시험으로 만들지 않는 이유: V22 이후에는 이 경로 자체가 불가능해져 회귀 대상이 아니다(일회성 사실 확인 → 문서 기록).
+- **(c) PR A 이전 앱 on V22 DB**: **불가**(엔티티가 매핑하는 `role_permission`이 없어 `ddl-auto: validate` 실패)가 예상 — (b)에서 만든 jar로 함께 실기 확인해 문서의 "불가"를 추정이 아니라 관측으로 기록한다.
+- **(d) 백업 복원으로 V22 이전 상태로 되돌리기(R-B3)**: `prod-restore.sh`는 복구 뒤 **그 시점의 앱 컨테이너**를 재기동한다. PR B 이미지인 채로 V21 백업을 복원하면 복원된 이력에 V22가 없어 기동 시 V22가 다시 실행돼 테이블이 또 지워진다(health는 정상). 런북 순서: ① 앱 정지 ② **V22 파일이 없는 버전의 이미지로 앱 컨테이너를 재생성하되 기동하지 않음** ③ `prod-restore.sh`(복구 후 그 컨테이너를 기동) ④ 두 테이블 존재·`flyway_schema_history` 최신 버전 확인. 실기에서 DB 수준으로 관측: V21 덤프 → V22 적용 → 덤프 복원 → master jar(V22 없음) 기동 = 테이블 유지 / PR B jar 기동 = 다시 삭제.
+- 결과에 따라 `docs/deployment.md`의 롤백 표를 갱신: V22 배포 후 PR A 이전 앱으로의 롤백은 **백업 복원 외 수단 없음**.
+
+**D-B4. 기존 마이그레이션 테스트 조정 — 과거 경로 시험은 `target("21")`로 고정, V22 효과는 새 시험으로**
+
+- `PermissionMigrationTest`: 두 시험의 "최신" migrate를 `target("21")`로 바꾼다 — V13·V14 시드 동작은 **V22 이전 DB 상태에 대한 사실**이라 대상 버전을 고정하는 것이 의미에 맞다(삭제하지 않는 이유: V22 배포 전 DB에서 V14 수동 재실행 위험은 여전히 사실이고, 문서의 경고 근거다). 클래스 주석에 "V22에서 두 테이블이 지워지므로 V21까지로 고정" 한 줄.
+- `MemberPermissionMigrationTest.v19_isRetrySafe`(R-B1): `flyway(null)` → `flyway("21")` — V19 재실행 안전성은 `role_permission`이 있는 V22 이전 DB에 대한 사실이다.
+- `AdminMessageMigrationTest.rollbackToAppWithoutV21_startsAgainstV21Database`(R-B2): 이전 앱 location 복사 조건을 "V21 파일 제외"에서 **"버전 ≤ 20"**으로(파일명에서 버전 숫자 파싱). V22가 location에 남으면 적용된 V21이 missing으로 분류돼 실패하기 때문 — 이전 앱은 자기 버전 이하 파일만 갖는다는 실제 조건을 정확히 모사한다. 복사 개수 단언도 정확히 20으로.
+- `MemberPermissionMigrationTest.upgrade_copiesRoleGrantsToActiveManagersOnly`: 146행 "역할 단위 행은 이 PR에서 지우지 않는다" 단언을 **"V16 → 최신: 복사된 회원별 행은 남고 두 역할 테이블은 없다"**로 교체(V19 복사가 V22 DROP보다 먼저 실행돼 데이터가 보존되는 **업그레이드 경로 전체**를 증명). 클래스 주석의 "V17~V19" 범위에 V22 언급 추가.
+- 신규 `RolePermissionDropMigrationTest`(`com.cms.admin.permission`, `MariaDbContainerSupport`):
+  1. **V21 → V22**: V21 DB(시드 4행 + MANAGER 회원·회원별 행)에서 migrate → 두 테이블 없음, `member_permission` 행·`member.permission_version` 그대로, V22 `success=1`.
+  2. **이력 없는 부분 적용**(첫 DROP 커밋 후 중단 모사: `DROP TABLE role_permission` 수동 실행) → 재기동 migrate가 그대로 성공(IF EXISTS).
+  3. **실패 이력 복구**: V21 DB에 `permission_role`을 참조하는 시험용 FK 테이블을 만들어 두 번째 DROP을 실패시킴 → `success=0` + 다음 migrate가 "failed migration to version 22"로 거부 → 시험용 FK 테이블 제거 → `repair` → migrate 성공, 두 테이블 없음. (첫 DROP은 이미 커밋된 상태 = 실제 부분 실패를 재현)
+  4. **롤백 호환 (D-B3 a)**: V22 적용 DB를 **버전 ≤ 21 파일만 복사한** location으로 `validate`·`migrate` 성공, 테이블은 여전히 없음.
+
+**D-B5. 배포 전제 — "PR A 운영 안정" 게이트의 해석**
+
+실운영이 없으므로(B-F9) 게이트는 **dev·CI 관측**(PR A 머지(2026-10-03) 뒤 master에 #87~#100 14개 커밋이 회원별 권한 위에서 CI를 통과했고, 그중 #91 통합 검색은 판정기로 섹션 노출을 거른다 — 권한 관련 결함 수정 커밋 0건, `git log 1b6b196..9a6e3ef`)으로 판단한다. 실배포가 생기기 전에 PR B를 머지하면 **첫 실배포는 처음부터 V22까지 적용**되므로 "PR A 이전 앱으로의 롤백"이라는 경로는 운영에 존재한 적이 없게 된다 — 이 점이 지금 진행해도 되는 근거다(사용자 확인 사항으로 승인 단계에 명시).
+
+### B-2. 설계 제약
+
+- 머지된 마이그레이션(V13·V14·V19 포함) 수정 금지 — 주석의 "PR B가 지운다" 문구도 고치지 않는다.
+- 제품 Java 코드·`SecurityConfig`·인가 판정 무변경(바뀌면 계획 이탈로 보고).
+- 문서만으로 끝나는 "불가" 주장은 실기 관측(D-B3 c)으로 뒷받침한다.
+
+### B-3. 작업 단계
+
+1. 브랜치 `chore/drop-role-permission`.
+2. `V22__drop_role_permission_tables.sql` 작성(헤더 주석: 근거·되돌릴 수 없음·백업·IF EXISTS 의미·DDL 단독).
+3. 테스트 조정(D-B4) + 신규 `RolePermissionDropMigrationTest` → 해당 클래스 실행 → 변이 실험(① IF EXISTS 제거 → 시험 2 실패 ② DROP 순서 뒤집기 → 시험 1 실패(FK) 확인).
+4. 로컬 전체 `./gradlew test` 실행(PR CI `test`·`prod-smoke` 통과도 완료 조건). `JAVA_TOOL_OPTIONS=-Duser.timezone=UTC` 재실행만 시각 코드 무변경이라 생략.
+5. 실기(D-B3 b·c + 현재 앱 골든 패스): 일회용 MariaDB → master 앱으로 V21 → `3679f86` jar 기동 확인 → PR B 앱 기동(V22 적용, 로그 확인) → ADMIN 권한관리 화면에서 MANAGER 공지 권한 부여→MANAGER 공지 접근→회수→403 왕복(playwright, 스크린샷) → `3679f86` jar를 V22 DB에 기동해 실패 관측 → master 앱(V22 미보유)을 V22 DB에 기동해 성공 관측 → (d) V21 시점 덤프를 V22 DB에 복원 → master jar 기동 시 테이블 유지·V22 미실행, PR B jar 기동 시 다시 삭제 관측.
+6. 문서: `docs/migration-guide.md`(V22 행·"V22 배포 전 백업과 실패 복구"·백업 복원 순서(D-B3 d)), `docs/deployment.md`(353행 "미확인" → 관측 결과, V22 이후 롤백 표, 330~345행 PR ① 이전 롤백 절에 "V22 이후 불가"), `admin/permission/CLAUDE.md`(스키마 절·롤백 주의·"남은 작업" 제거), 계획 인덱스 26행, 이 문서의 구현·검증 결과.
+
+### B-4. 리스크
+
+| 리스크 | 대응 |
+|---|---|
+| 되돌릴 수 없음 — V22 후 PR A 이전 앱 기동 불가 | 배포 전 백업 필수(V16 절차), 롤백 표에 명시, 실배포 전 머지라 운영에 그 롤백 경로가 생기지 않음(D-B5) |
+| 두 번째 DROP 실패 시 `success=0`으로 기동 거부 | IF EXISTS + `repair` 절차 문서화, 시험 3이 재현 |
+| DROP의 메타데이터 잠금 대기(다른 세션이 테이블을 열고 있을 때) | 앱은 두 테이블을 열지 않음(B-F1). 운영자가 수동 조회 중이면 대기 → `lock_wait_timeout` 초과 시 실패 = 시험 3과 같은 복구 |
+| 백업 복원 후 PR B 이미지가 재기동돼 V22 재실행(R-B3) | 런북에 "이미지 교체(정지) → 복구" 순서 명시, 실기 (d) 관측 |
+| 수동 SQL·외부 도구가 두 테이블을 읽고 있었다면 깨짐 | 저장소 내 참조 0건(B-F1). `docs/deployment.md` 340행의 `role_permission` 조회 SQL은 "V22 이전 DB 전용"으로 표시 |
+
+---
+
+## PR B 구현·검증 결과 (2026-10-06)
+
+### Context
+PR A(#86) 이후 동결 상태로 남아 있던 역할 단위 테이블을 지우고, 로드맵 22차에 "미확인"으로 남은 "전환 이전 앱이 V17~V19 DB에서 기동하는가"를 실기로 확인했다. 실배포가 없어 "PR A 운영 안정" 게이트는 dev·CI 관측으로 판단했다(D-B5, 사용자 승인 2026-10-06).
+
+### 핵심 확정 사항
+- V22 = 한 파일 `DROP TABLE IF EXISTS` 2문(자식 → 부모), DDL 단독. 보관(RENAME)하지 않고 백업으로 대체(D-B1·D-B2).
+- 과거 마이그레이션 시험은 `target("21")`로 고정, V22 효과는 새 시험 클래스(D-B4). "이전 앱" location은 **버전 상한으로** 파일을 고른다(R-B2).
+- 백업 복원으로 되돌릴 때는 V22 없는 이미지로 컨테이너를 먼저 교체(R-B3) — 문서화 + 실기 재현.
+- 계획 대비 달라진 점: 없음.
+
+### 구현 파일
+- 신규: `src/main/resources/db/migration/V22__drop_role_permission_tables.sql`, `src/test/java/com/cms/admin/permission/RolePermissionDropMigrationTest.java`(4개 시험)
+- 수정(테스트): `PermissionMigrationTest`(2개 시험 `target("21")`), `MemberPermissionMigrationTest`(업그레이드 시험 단언을 "복사 행 유지 + 두 테이블 없음"으로, `v19_isRetrySafe` `target("21")`), `AdminMessageMigrationTest`(이전 앱 location = 버전 ≤ 20, 복사 개수 정확히 20)
+- 문서: `docs/migration-guide.md`(V22 행·"V22 배포 전 백업과 복구"·V14 경고 보충), `docs/deployment.md`(롤백 절 V22 이후 불가 표기·"미확인" → 실기 결과), `com.cms.admin.permission`의 `CLAUDE.md`(스키마·롤백·"남은 작업" 제거·이전 앱 location 규칙), `plan/README.md` 26행
+- 제품 Java 코드·`SecurityConfig` 변경 없음
+
+### 검증 결과
+- **대상 시험**: `RolePermissionDropMigrationTest` 4 · `PermissionMigrationTest` 2 · `MemberPermissionMigrationTest` 9 · `AdminMessageMigrationTest` 6 — 전부 통과.
+- **변이 실험**: ① `IF EXISTS` 제거 → 부분 적용 재실행·실패 repair 2개 실패 ② DROP 순서 뒤집기 → FK 위반(`foreign key constraint fails`)으로 3개 실패 ③ (R-B2 전제) 쪽지 시험을 원래 "V21만 제외" 필터로 되돌리면 `Detected applied migration not resolved locally: 21.`로 실패 — 셋 다 원복.
+- **전체**: `SPRING_PROFILES_ACTIVE=dev ./gradlew test` BUILD SUCCESSFUL — 138개 클래스 1360건, 실패·에러 0, 스킵 3(기존 Windows 심볼릭 링크 시험). 공용 Testcontainers DB가 V22까지 적용된 상태로 모든 통합 테스트가 기동 = 테이블 없이 현재 앱 정상. UTC 재실행은 시각 코드 무변경이라 생략.
+- **실기(일회용 MariaDB 10.11 고정 digest, 포트 3399, dev 프로파일 8091)**:
+  1. master(`9a6e3ef`) jar로 V21 적용, MANAGER `mgr1`(회원별 권한 0개) 생성, V21 덤프 저장.
+  2. **전환 이전 앱(`3679f86`) on V21 DB → 기동 성공**(`newer than the latest available migration (16)` 경고만, Hibernate validate 통과). `mgr1` `GET /admin/api/notices` **200** — 역할 단위 시드 4행으로 판정(문서의 "회수 결과가 사라짐"이 실제 동작). → 22차 "미확인" 해소.
+  3. PR B jar on V21 DB → V22 적용(`now at version v22`), `%permission%` 테이블은 `member_permission`만, V22 `success=1`. `mgr1` 공지 API 403(권한 0개).
+  4. playwright(ADMIN): 권한 관리에서 `mgr1`에 공지 조회 부여 → DB 행 1·`permission_version` 0→1·감사 `PERMISSION_UPDATE SUCCESS target_id=2 "v0→v1: +공지사항.조회"` → `mgr1` 같은 세션 공지 API 200 → 회수 → 행 0·버전 2·감사 `"v1→v2: -공지사항.조회"` → 403. 경계: `mgr1`의 권한 API·공지/메뉴/로그/회원 관리 페이지 403, 대시보드 200, CSRF 없는 POST 403. ADMIN 공지·활동 로그 화면 정상. 스크린샷 `.playwright-mcp/prb-grant-saved.png`·`prb-revoke-saved.png`·`prb-admin-notice.png`·`prb-admin-log.png`(git 추적 제외 폴더).
+  5. **전환 이전 앱 on V22 DB → 기동 실패**: `Schema-validation: missing table [permission_role]`.
+  6. master jar(V22 없음) on V22 DB → 기동 성공(`newer than … (21)`), ADMIN 권한 API 200.
+  7. **R-B3 재현**: V21 덤프 복원 → master jar 기동: 세 테이블 유지·최신 이력 21 / 이어서 PR B jar 기동: V22 재실행 → 두 테이블 다시 삭제·이력 22.
+  - 정리: 컨테이너·worktree 삭제, 8091 포트 해제 확인.
+
+### 이슈
+- 실기 첫 기동 실패는 Git Bash PATH에 `java`가 없어서였다(환경 — `JAVA_HOME`의 corretto-17 경로로 해결). 코드 문제 아님.
+- 긴 경로로 worktree 제거가 `Filename too long` — `\?\` 경로로 삭제 후 `git worktree prune`.
+
+### 후속
+- PR CI `test`·`prod-smoke` 통과 확인(머지 조건).
+- 실배포 시 V22는 첫 배포에 함께 적용된다 — 배포 전 백업 절차는 V16과 같다.

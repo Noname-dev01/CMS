@@ -15,10 +15,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * V13(권한 테이블)·V14(MANAGER 공지 시드)·V15(권한 관리 메뉴 시드, 상세는 PermissionMenuMigrationTest) 업그레이드 경로(PLAN-menu-permission-management.md §4). 공용 Testcontainers 구성은 빈 DB에서
  * V1부터 전부 적용하므로, 이미 운영 중인 V12 DB가 올라가는 경로는 별도 스키마에서 {@code target("12")}로 먼저 적용한 뒤 나머지를 적용해 확인한다.
+ * V22가 두 테이블을 지우므로 이 시험은 그 직전({@link #BEFORE_DROP})까지만 적용한다 — V22 효과는 {@code RolePermissionDropMigrationTest}.
  */
 class PermissionMigrationTest extends MariaDbContainerSupport {
 
     private static final String SCHEMA = "upgrade_v14_test";
+    private static final String BEFORE_DROP = "21";
 
     private static Flyway flyway(String url, String target) {
         var configuration = Flyway.configure()
@@ -54,7 +56,7 @@ class PermissionMigrationTest extends MariaDbContainerSupport {
             }
         }
 
-        flyway(schemaUrl, null).migrate();
+        flyway(schemaUrl, BEFORE_DROP).migrate();
 
         try (Connection conn = DriverManager.getConnection(schemaUrl, "root", MARIA_DB.getPassword());
              Statement st = conn.createStatement()) {
@@ -101,13 +103,13 @@ class PermissionMigrationTest extends MariaDbContainerSupport {
             st.execute("DROP DATABASE IF EXISTS " + SCHEMA + "_rerun");
             st.execute("CREATE DATABASE " + SCHEMA + "_rerun CHARACTER SET utf8mb4");
         }
-        flyway(schemaUrl, null).migrate();
+        flyway(schemaUrl, BEFORE_DROP).migrate();
 
         try (Connection conn = DriverManager.getConnection(schemaUrl, "root", MARIA_DB.getPassword());
              Statement st = conn.createStatement()) {
             // 정상 Flyway 경로: 같은 마이그레이션을 다시 migrate해도 V14는 재실행되지 않는다(이력에 성공으로 남음)
             st.execute("DELETE FROM role_permission WHERE action = 'DELETE'");
-            flyway(schemaUrl, null).migrate();
+            flyway(schemaUrl, BEFORE_DROP).migrate();
             assertThat(count(st, "SELECT COUNT(*) FROM role_permission WHERE action = 'DELETE'"))
                     .as("Flyway는 성공한 V14를 다시 실행하지 않으므로 회수한 행이 되살아나지 않는다").isZero();
 

@@ -264,18 +264,19 @@ class AdminMessageMigrationTest extends MariaDbContainerSupport {
         freshSchema();
         flyway(null).migrate();
 
-        // target('20') 설정만으로는 V21 파일이 여전히 해석 대상이라 증명이 되지 않는다 — V21이 없는 디렉터리를 만들어 쓴다
+        // target('20') 설정만으로는 V21 파일이 여전히 해석 대상이라 증명이 되지 않는다 — 이전 앱처럼 V20 이하 파일만 둔 디렉터리를 만들어 쓴다.
+        // V21만 빼면 V22 이후 파일이 남아 적용된 V21이 future가 아니라 missing으로 분류돼 validate가 실패한다(이전 앱의 실제 조건이 아니다).
         Path withoutV21 = Files.createTempDirectory("migration-without-v21");
         try {
             int copied = 0;
             for (Resource resource : new PathMatchingResourcePatternResolver().getResources("classpath:db/migration/V*.sql")) {
                 String name = resource.getFilename();
-                if (name != null && !name.startsWith("V21__")) {
+                if (name != null && Integer.parseInt(name.substring(1, name.indexOf("__"))) <= 20) {
                     Files.write(withoutV21.resolve(name), resource.getInputStream().readAllBytes());
                     copied++;
                 }
             }
-            assertThat(copied).isGreaterThanOrEqualTo(20);
+            assertThat(copied).isEqualTo(20);
             assertThat(withoutV21.resolve("V21__create_admin_message.sql")).doesNotExist();
 
             Flyway previousApp = Flyway.configure()

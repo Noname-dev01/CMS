@@ -20,7 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * V17~V19(회원별 권한 전환)의 업그레이드·복구 경로(PLAN-member-permission.md §7-1 ①·⑫·⑬). 운영 중인 V16 DB(역할 단위 허용 행 + 여러 상태의 회원)를
  * 별도 스키마에서 만든 뒤 최신을 적용한다. 컨텍스트가 실제로 뜨는지({@code ddl-auto: validate})는 공용 Testcontainers 구성이 V1부터 최신까지 적용한
- * DB로 모든 통합 테스트를 기동하는 것으로 이미 고정돼 있다.
+ * DB로 모든 통합 테스트를 기동하는 것으로 이미 고정돼 있다. 최신까지 올리면 V22가 역할 단위 테이블을 지우므로, {@code role_permission}을 다시 읽는
+ * 시험(V19 재실행)은 V21까지만 적용한다 — V22 자체는 {@code RolePermissionDropMigrationTest}.
  */
 class MemberPermissionMigrationTest extends MariaDbContainerSupport {
 
@@ -125,7 +126,7 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
     // ── ① V16 → V19 업그레이드 ─────────────────────────────
 
     @Test
-    @DisplayName("V16 DB를 올리면 활성·잠금·비밀번호 만료 MANAGER 전원에게 공지 4동작이 복사되고 삭제된 MANAGER·ADMIN·USER는 제외되며 버전은 0이다")
+    @DisplayName("V16 DB를 최신까지 올리면 활성·잠금·비밀번호 만료 MANAGER 전원에게 공지 4동작이 복사되고 삭제된 MANAGER·ADMIN·USER는 제외되며 버전은 0이고, 복사가 끝난 뒤 역할 단위 테이블은 지워진다")
     void upgrade_copiesRoleGrantsToActiveManagersOnly() throws Exception {
         v16Database();
 
@@ -143,7 +144,9 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
             for (String version : List.of("17", "18", "19")) {
                 assertThat(success(st, version, 1)).as("V" + version).isEqualTo(1);
             }
-            assertThat(count(st, "SELECT COUNT(*) FROM role_permission")).as("역할 단위 행은 이 PR에서 지우지 않는다(롤백 대비)").isEqualTo(4);
+            // V19 복사가 V22 DROP보다 먼저 실행되므로 복사된 회원별 행은 위에서 확인한 대로 남는다
+            assertThat(count(st, "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '" + SCHEMA
+                    + "' AND table_name IN ('role_permission', 'permission_role')")).as("V22가 역할 단위 테이블을 지운다").isZero();
         }
     }
 
@@ -186,10 +189,10 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("V19를 다시 실행해도 중복 행이 생기지 않는다(부분 실패 재시도 안전)")
+    @DisplayName("V19를 다시 실행해도 중복 행이 생기지 않는다(부분 실패 재시도 안전 — role_permission이 남아 있는 V22 이전 DB)")
     void v19_isRetrySafe() throws Exception {
         v16Database();
-        flyway(null).migrate();
+        flyway("21").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             long before = count(st, "SELECT COUNT(*) FROM member_permission");

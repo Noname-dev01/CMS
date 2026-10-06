@@ -329,6 +329,8 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 ADMIN이 `/admin/permission/manage`(권한 관리)에서 바꾼다. **판정기가 없는 앱(PR ① 이전)으로 되돌리면 회수한 권한이 되살아날 수 있으므로** 되돌리기 전에 아래를 확인한다. **기본은 roll-forward(수정 버전 배포)**다.
 
+> **V22(2026-10-06) 이후에는 이 절의 역할 단위 롤백 경로가 모두 없다** — `role_permission`·`permission_role`이 지워져 이 절에 나오는 앱(PR ①~④, 사용자별 전환 이전)은 전부 기동에 실패한다(아래 "사용자별 권한 전환" 참조). 이 절은 V22 이전 DB에만 해당한다.
+
 - **③ 이후 → ②**: 안전. 권한 테이블은 ②도 읽어 회수 결과가 유지된다. 권한관리 화면·API만 사라지고 V15가 만든 "권한 관리" 메뉴는 남아 ADMIN 사이드바에 링크가 보이지만 핸들러가 없어 404다(표시 회귀). 필요하면 메뉴 관리에서 그 메뉴를 비활성화한다.
 - **③ 이후 → ①**: 보안 회귀는 없다(판정기 유지). 다만 ①은 `menu.access_role`을 매핑해 V15 메뉴(`access_role NULL`)를 ALL로 정규화하므로 **MANAGER 사이드바에 "권한 관리" 링크가 보이고 누르면 403**이다(표시 회귀). 메뉴를 비활성화해 숨긴다.
 - **① 이전(판정기 없는 앱)으로 되돌리기**: 권한 회수 이력이 있으면 **금지가 기본**이다 — 회수가 무효화돼 MANAGER 공지 CRUD가 전부 열린다. 되돌리기 전에 회수 여부를 확인한다. **감사 이력만으로 판단하지 않는다** — 감사 저장은 최선 노력이라 회수는 성공했는데 감사가 유실됐을 수 있다. 감사와 **현재 DB의 NOTICE 유효 허용 집합을 정확 일치로 함께** 확인한다:
@@ -336,7 +338,7 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
   -- 회수 이력(감사)
   SELECT create_at, action_user_id, action_result, target_label FROM admin_action_log
   WHERE action_type = 'PERMISSION_UPDATE' ORDER BY id DESC;
-  -- 현재 유효 허용 집합: 정확히 4행(READ·CREATE·UPDATE·DELETE)이어야 시드 상태 (BINARY로 general_ci 비교를 피한다)
+  -- 현재 유효 허용 집합: 정확히 4행(READ·CREATE·UPDATE·DELETE)이어야 시드 상태 (BINARY로 general_ci 비교를 피한다) — V22 이전 DB 전용
   SELECT action FROM role_permission
   WHERE BINARY role = 'ROLE_MANAGER' AND BINARY feature = 'NOTICE' AND BINARY action IN ('READ','CREATE','UPDATE','DELETE');
   ```
@@ -348,9 +350,10 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 
 ### 사용자별 권한 전환(V17~V19, 2026-10-03, adversarial-review/plan/PLAN-member-permission.md)
 
-권한이 **역할 단위(`role_permission`)에서 회원 단위(`member_permission`)로** 바뀌었다. 배포 직후 기존 MANAGER는 V19 복사로 **동작이 같고**, 배포 후 새로 만든 MANAGER는 권한이 없다(대시보드·내 정보만). `role_permission`·`permission_role`은 앱 롤백 대비로 남아 있으며 후속 PR(V20)이 지운다.
+권한이 **역할 단위(`role_permission`)에서 회원 단위(`member_permission`)로** 바뀌었다. 배포 직후 기존 MANAGER는 V19 복사로 **동작이 같고**, 배포 후 새로 만든 MANAGER는 권한이 없다(대시보드·내 정보만). `role_permission`·`permission_role`은 **V22(2026-10-06, PR B)가 지운다**.
 
-- **앱 롤백(전환 이후 → 전환 이전)**: 이전 앱은 `role_permission`을 읽으므로 **회원별로 회수·부여한 결과는 사라지고 배포 시점의 역할 단위 권한으로 돌아간다**(회수한 권한이 되살아날 수 있다). 회원별 회수 이력이 생긴 뒤에는 되돌리기보다 **roll-forward가 기본**이다. 이전 앱이 V17~V19가 적용된 DB에서 Flyway 검증을 통과해 기동하는지는 **미확인**이다 — 되돌릴 일이 생기면 먼저 백업본으로 이전 이미지를 기동해 확인한다(`prod-smoke` 백업복구 왕복 스크립트 재사용 가능).
+- **앱 롤백(전환 이후 → 전환 이전, V22 이전 DB에서만 가능)**: 이전 앱은 `role_permission`을 읽으므로 **회원별로 회수·부여한 결과는 사라지고 배포 시점의 역할 단위 권한으로 돌아간다**(회수한 권한이 되살아날 수 있다). 회원별 회수 이력이 생긴 뒤에는 되돌리기보다 **roll-forward가 기본**이다. **실기 확인(2026-10-06, 일회용 MariaDB)**: 전환 직전 앱(`3679f86`, Boot 3.5)은 V17~V21이 적용된 DB에서 Flyway 검증을 통과해 기동했고(`Schema … has a version (21) that is newer than the latest available migration (16)` 경고만), 회원별 권한 0개인 MANAGER가 역할 단위 시드 4행 때문에 `GET /admin/api/notices` **200**을 받았다(위 서술이 실제로 일어남).
+- **V22 이후**: 전환 이전 앱은 **기동 불가**(`Schema-validation: missing table [permission_role]`, 2026-10-06 실기 관측) — 되돌리는 수단은 백업 복원뿐이고, 복원 순서(V22 없는 이미지로 컨테이너를 먼저 교체한 뒤 복원)는 `docs/migration-guide.md` "V22 배포 전 백업과 복구". 사용자별 전환 이후 앱(V22 파일 없음)으로 되돌리는 것은 그대로 기동한다(이력의 미래 버전 무시, 실기·`RolePermissionDropMigrationTest`).
 - **롤백했다가 신버전을 다시 배포할 때(필수 정리)**: 구버전 운영 중의 역할 변경·회원 생성은 `member_permission`에 반영되지 않고 V19는 재실행되지 않아 **낡은 행이 되살아난다**. 다음 순서를 지킨다.
   1. **앱 정지**(구버전 인스턴스가 떠 있지 않은지 확인)
   2. 한 트랜잭션으로 정리 — 허용 행이 0개인 회원까지 **전원의 버전을 올려야** 정리 전에 권한 화면을 열어 둔 ADMIN의 오래된 PUT이 과거 권한을 복원하지 못한다:

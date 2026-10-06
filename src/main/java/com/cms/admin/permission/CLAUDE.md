@@ -44,17 +44,17 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 - 모르는 기능·동작 행, 위임 불가 기능 행은 WARN 후 무시한다(코드에서 기능을 지웠는데 행이 남아도 로딩 전체가 실패하지 않는다). 기능을 카탈로그에서 제거할 때는 행 삭제 마이그레이션을 함께 쓴다.
 - **단일 인스턴스 전제**(세션 레지스트리·레이트리밋과 같은 한계). 다중 인스턴스로 확장하면 다른 인스턴스 캐시가 무효화 신호를 받지 못해 낡아진다 — 그때는 DB 버전 폴링 또는 캐시 제거가 필요하다. **직접 SQL로 `member_permission`을 바꿔도 캐시는 무효화되지 않는다**(앱 재시작이 곧 캐시 폐기) — 아래 "롤백 후 재배포" 참조.
 
-## 스키마 (V17~V19, 2026-10-03)
+## 스키마 (V17~V19, 2026-10-03 · V22, 2026-10-06)
 
 - `member.permission_version bigint NOT NULL DEFAULT 0`(V17): 회원별 권한 매트릭스의 낙관적 버전. 허용 행이 0개인 회원도 잠글 대상(회원 행)과 버전이 있다. `Member.permissionVersion`은 `@Builder.Default 0L` 필수(없으면 기존 생성 경로가 NULL을 INSERT해 깨진다).
 - `member_permission(member_id, feature, action)`(V18) PK 3컬럼 + `member` FK(RESTRICT). **행이 있으면 허용**(거부 행 없음), ADMIN 행 없음. `feature`·`action`은 `VARCHAR`(DB enum 아님). **테스트 정리 코드가 `DELETE FROM member`를 쓰면 `member_permission`을 먼저 지워야 한다**(`TestMembers.delete`).
 - V19: 배포 시점의 `ROLE_MANAGER` 허용 행을 **`DELETED`가 아닌 기존 MANAGER 전원에게 복사**(정확 일치·NOTICE 유효 4동작만, NOTICE READ 행이 있을 때만) — 배포 직후 기존 계정 동작은 같다. **일회성 초기화이지 복구 수단이 아니다**: 성공한 뒤 수동 재실행하면 ADMIN이 회수한 권한이 되살아난다(`MemberPermissionMigrationTest`가 복사 규칙·재실행 중복 없음을 고정).
-- 기존 `permission_role`·`role_permission` 테이블(V13·V14)은 **이 PR에서 지우지 않고 남긴다**(앱 롤백 대비). 엔티티·리포지토리·API는 제거됐다. 후속 PR B(DROP 마이그레이션 — V20은 알림, V21은 쪽지 테이블이 사용해 **V22 이상**)가 지운다 — 되돌릴 수 없으므로 운영 안정 확인 뒤.
+- 역할 단위 `permission_role`·`role_permission` 테이블(V13·V14)은 **V22(2026-10-06, PR B)에서 제거됐다**(`DROP TABLE IF EXISTS`, 자식 먼저, 되돌릴 수 없음 — 배포 전 백업). V22 이후 사용자별 전환 이전 앱은 기동하지 못하고, 백업 복원 시에는 V22 없는 이미지로 컨테이너를 먼저 교체해야 V22가 다시 실행되지 않는다(`docs/migration-guide.md` "V22 배포 전 백업과 복구"). 과거 마이그레이션 시험(`PermissionMigrationTest`·`MemberPermissionMigrationTest`의 V19 재실행)은 **`target("21")`로 V22 직전까지만** 적용하고, V22 자체는 `RolePermissionDropMigrationTest`(적용·부분 적용 재실행·실패 repair·롤백 호환)가 고정한다. **새 마이그레이션 시험에서 "이전 앱" location을 흉내 낼 때는 특정 파일만 빼지 말고 그 앱의 버전 이하 파일만 복사한다** — 더 높은 버전 파일이 남으면 적용된 버전이 future가 아니라 missing으로 분류돼 validate가 실패한다.
 - **V17·V18 실패 복구**(DDL 암묵 커밋으로 Flyway 이력과 어긋난 경우): `docs/migration-guide.md` "V17~V19 실패 복구". 핵심은 **`success=1`인 버전의 객체는 건드리지 않고 실패·이력 없는 버전의 잔여 객체만 DROP**한 뒤 `flyway repair`다(`MemberPermissionMigrationTest`가 "V17 성공 + V18 실패" 복구와 잘못된 절차의 반례를 고정).
 
 ## 롤백·재배포 주의
 
-- **앱 롤백**: 이전 앱은 `role_permission`을 읽는다 — 회원별 회수·부여 결과는 사라지고 배포 시점의 역할 단위 권한으로 돌아간다(회수한 권한이 되살아날 수 있다, 역할별 PR ①의 롤백 주의와 같은 유형). 회원별 회수 이력이 생긴 뒤에는 되돌리기보다 roll-forward(수정 버전 배포)를 기본으로 한다.
+- **앱 롤백**: V22 이후 사용자별 전환 이전 앱으로는 **되돌릴 수 없다**(테이블 없음 → 기동 실패). V22 이전 DB에서는 이전 앱이 기동하며 `role_permission`을 읽어 회원별 회수·부여 결과가 사라지고 역할 단위 권한으로 돌아간다(2026-10-06 실기 관측). 기본은 roll-forward(수정 버전 배포)다.
 - **롤백했다가 신버전을 다시 배포할 때**: 구버전 운영 중의 역할 변경·회원 생성은 `member_permission`에 반영되지 않아(V19는 재실행되지 않는다) 낡은 행이 되살아난다. 앱 정지 → `DELETE FROM member_permission; UPDATE member SET permission_version = permission_version + 1;` 한 트랜잭션 → 기동(fail-closed: MANAGER 전원 권한 0개로 시작, ADMIN이 재부여). 허용 행이 0개인 회원까지 **전원의 버전을 올려야** 정리 전 화면의 오래된 PUT이 과거 권한을 복원하지 못한다. 앱이 켜진 채 SQL을 실행했다면 **재시작이 캐시 폐기**다. 정리 뒤 기존 권한 보유 MANAGER의 공지 접근이 실제 403인지 확인한다(`docs/deployment.md`).
 
 ## 통합 검색 (`com.cms.admin.search`, 2026-10-05, `PLAN-admin-unified-search.md` — 적대적 리뷰 4라운드 ship)
@@ -78,7 +78,3 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 - **화면**(`manage.html`): 왼쪽 **MANAGER 목록**(`GET /admin/api/members?userType=ROLE_MANAGER&size=100&sort=userName,asc` 재사용 — 서버가 `DELETED`를 이미 제외) + 아이디·이름 검색 + **[더 보기]**(다음 페이지 이어 붙이기)·[새로고침], 오른쪽 선택 회원의 매트릭스(READ 연동·`dirty`·저장 중 잠금·409 재조회·400 초안 유지·`beforeunload`·[되돌리기]). 검색은 `contains`라 정확 일치가 아니므로 [더 보기]가 모든 회원에게 도달하는 경로다(offset 페이징이라 조회 사이에 목록이 바뀌면 누락·중복 가능 — 목록 API의 알려진 한계, [새로고침]으로 복구). **비동기 응답 결합**: `selectedId`·`loadSeq`(요청 세대)·`loaded`·초안을 함께 관리해, 응답이 도착했을 때 자신의 세대가 현재 세대이고 응답 `memberId`가 선택한 회원일 때만 반영한다(늦은 응답이 다른 회원의 매트릭스·버전을 덮어 저장이 엉뚱한 회원에게 적용되는 것을 막는다). 조회·저장 중에는 목록 선택이 잠기고, `dirty`면 회원 전환이 막힌다(저장 또는 [되돌리기] 후 선택). 저장의 URL·`version`은 반영된 응답에서만 가져오며 `loaded.memberId !== selectedId`면 [저장]이 비활성이다. 이름·아이디는 `textContent`로만 삽입한다.
 - **화면 버튼 숨김**: `AdminSidebarAdvice`가 한 `@ModelAttribute` 메서드에서 `sidebarMenus`와 `myPermissions`(`"NOTICE:CREATE"` 같은 키 집합, `AdminPermissionEvaluator.grantedActionKeys`)를 같은 스냅샷으로 계산하고, `notice/manage.html`이 [새 공지]·[수정]·[삭제]·첨부 업로드·삭제 버튼을 숨긴다(첨부 업로드·삭제는 **UPDATE** — U4). 서버 판정이 최종이며 화면을 연 사이 권한이 회수되면 다음 API가 403이다 — 메서드 계층 403의 `message`는 영문 `Access Denied`(`NoticeControllerTest`가 고정)라 공지 화면은 **403에 고정 한국어 문구**를 쓴다. DELETE만 가진 MANAGER가 첨부 있는 공지를 지우다 409를 받으면 첨부 삭제에 수정 권한이 필요하다는 안내 한 문장이 덧붙는다.
 - 시험: `MemberPermissionServiceTest`(단위), `MemberPermissionControllerTest`(슬라이스), `MemberPermissionApiIntegrationTest`(실제 MariaDB — 저장 결과·감사 targetId·**실제 로그인 세션 재사용 즉시 반영**·커밋 직전 실패 주입·감사 저장 실패 격리·변형 행·대상 검증), `MemberPermissionConcurrencyIntegrationTest`(`INNODB_LOCK_WAITS` 락 대기 관측·동시 PUT 정확히 하나만 성공·PUT↔역할 변경 직렬화), `MemberRoleChangePermissionIntegrationTest`, `MemberPermissionMigrationTest`(V16→V19 복사·재배포 정리 SQL·V17/V18 실패 복구), `PermissionCacheTest`·`PermissionCacheIsolationIntegrationTest`, `AdminPermissionEvaluatorTest`(교차 회원 격리·식별 불가 주체), `AdminSidebarAdviceSnapshotTest`.
-
-## 남은 작업
-
-- **PR B**(`chore/drop-role-permission`): **V22 이상**의 번호(V20은 알림, V21은 쪽지 테이블이 사용)로 `role_permission`·`permission_role` DROP — PR A가 운영에서 안정된 뒤. 되돌릴 수 없으므로 배포 전 백업이 필요하고 `PermissionMigrationTest`(V13·V14)를 함께 조정한다.
