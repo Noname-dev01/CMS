@@ -36,14 +36,16 @@ repositories {
 }
 
 dependencies {
-    // Boot 4는 자동 구성이 기술별 모듈로 쪼개졌다. classic 스타터로 3.x와 같은 자동 구성 가용성을 유지하고
-    // 모듈식 스타터 전환은 후속 PR에서 한다(PLAN-spring-boot-4.md §4-2).
-    implementation 'org.springframework.boot:spring-boot-starter-classic'
+    // Boot 4 모듈식 스타터 — 실제로 쓰는 기술의 스타터만 선언한다(classic 스타터는 약 90개 모듈을 올려
+    // 쓰지 않는 자동 구성까지 켰다, PLAN-modular-starters.md). 새 기술을 쓰면 해당 스타터를 추가해야
+    // 자동 구성이 켜진다.
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-security'
+    // @AdminActionLogged 감사 로그 AOP — aspectjweaver를 data-jpa 전이 의존에 맡기지 않고 명시한다.
+    implementation 'org.springframework.boot:spring-boot-starter-aspectj'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
@@ -60,7 +62,11 @@ dependencies {
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
     annotationProcessor 'org.projectlombok:lombok'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test-classic'
+    // 테스트 슬라이스별 스타터. starter-security-test는 @WebMvcTest·@AutoConfigureMockMvc에 Security 자동 구성과
+    // @WithMockUser 연동(SecurityMockMvcAutoConfiguration)을 넣는다 — 테스트 import에 드러나지 않는 필수 의존.
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation 'org.springframework.security:spring-security-test'
     // Testcontainers (버전은 Boot BOM 관리) — 테스트가 로컬/CI service container 없이
