@@ -42,7 +42,7 @@ M-06에서 컨테이너 이미지를 digest(`image:tag@sha256:...`)로 고정했
 
 1. **CI 결과부터 본다.** `test`와 `prod-smoke`가 모두 통과해야 머지 후보다. 실패하면 로그로 원인을 확인한다.
 2. **이미지 PR은 참조 일치를 맞춘다.** `mariadb` compose PR은 스크립트·테스트 리터럴을 같은 digest로 함께 수정한다.
-3. **Boot BOM 오버라이드 확인.** `build.gradle`의 `ext['jackson-bom.version']`(Jackson 3)·`ext['jackson-2-bom.version']`(Jackson 2, SpringDoc 경유)은 Spring Boot가 그 버전 이상을 관리하게 되면 제거한다(파일 주석 참조). Boot 4.0.x 패치 PR이 올라오면 그때 확인한다. (Boot 3.5 시절의 `tomcat.version` 오버라이드는 2026-10-06 Boot 4.0.8 전환 때 제거했다 — `adversarial-review/plan/PLAN-spring-boot-4.md`.)
+3. **Boot BOM 오버라이드 확인.** `build.gradle`의 `ext['jackson-bom.version']`(Jackson 3)·`ext['jackson-2-bom.version']`(Jackson 2, SpringDoc 경유)·`ext['tomcat.version']`(11.0.x)은 Spring Boot가 그 버전 이상을 관리하게 되면 제거한다(파일 주석 참조). Boot 4.0.x 패치 PR이 올라오면 그때 확인한다. **메이저가 바뀌어 BOM 버전 숫자가 높아져도 오버라이드를 그냥 지우지 않는다** — 2026-10-06 Boot 4.0.8 전환에서 Tomcat 11.0.24·Jackson 3.1.5가 이미 해소했던 CVE를 다시 들여왔다(새 라인의 수정판 버전을 권고에서 확인할 것).
 4. **필요 없는 PR은 닫는다.** 닫을 때 댓글로 `@dependabot ignore this major version`을 달면 그 메이저를 이후로 무시한다(설정 파일을 바꾸지 않고 PR 단위로 쓸 수 있는 수단).
 
 ## 첫 실행 스냅샷과 처리 결과 (2026-09-29)
