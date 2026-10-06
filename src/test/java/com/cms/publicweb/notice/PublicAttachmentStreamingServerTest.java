@@ -145,6 +145,19 @@ class PublicAttachmentStreamingServerTest extends MariaDbContainerSupport {
         }
     }
 
+    /**
+     * 정상 전송은 마지막 바이트를 쓴 뒤에 try-with-resources를 빠져나가며 스트림을 닫으므로, 클라이언트가
+     * 본문을 다 받은 시점에 서버 스레드가 아직 닫기 전일 수 있다. 제한 시간 안에 닫히기를 기다린 뒤 판정한다.
+     * (오류 경로는 응답을 마무리하기 전에 닫으므로 즉시 단언해도 된다.)
+     */
+    private static boolean awaitClosed(FillerStream stream) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (!stream.closed.get() && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        return stream.closed.get();
+    }
+
     private FillerStream stubOpen(FillerStream stream) throws Exception {
         doReturn(new StoredFileStream(stream, DECLARED_SIZE)).when(fileStorage).open(FAKE_KEY);
         return stream;
@@ -167,7 +180,7 @@ class PublicAttachmentStreamingServerTest extends MariaDbContainerSupport {
         assertThat(get.headers().firstValue("Cache-Control").orElse("")).contains("no-store");
         assertThat(get.headers().firstValue("Content-Disposition").orElse("")).contains("report.bin");
         assertThat(get.body()).hasSize(DECLARED_SIZE);
-        assertThat(stream.closed.get()).as("전송 후 스트림이 닫힘").isTrue();
+        assertThat(awaitClosed(stream)).as("전송 후 스트림이 닫힘").isTrue();
 
         FillerStream headStream = stubOpen(new FillerStream(DECLARED_SIZE, -1));
         HttpResponse<byte[]> head = client.send(
@@ -338,6 +351,6 @@ class PublicAttachmentStreamingServerTest extends MariaDbContainerSupport {
                 HttpResponse.BodyHandlers.ofByteArray());
         assertThat(next.statusCode()).isEqualTo(200);
         assertThat(next.body()).hasSize(DECLARED_SIZE);
-        assertThat(healthy.closed.get()).isTrue();
+        assertThat(awaitClosed(healthy)).isTrue();
     }
 }
