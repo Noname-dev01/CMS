@@ -1,6 +1,6 @@
 # PLAN — Java 17 → 21 전환
 
-> 상태: v3 승인(적대적 리뷰 3라운드 ship) → 구현·로컬 검증 완료(2026-10-07), 커밋·PR 대기 · 작성 2026-10-07
+> 상태: ✅ 완료 (2026-10-07 · #106 `b143f5a`) — v3 승인(적대적 리뷰 3라운드 ship) → 구현·검증 → 머지. 머지 후 IntelliJ 직접 실행 경로도 사용자 실행으로 확인(`corretto-21.0.9`, `/admin/login` 200) · 작성 2026-10-07
 > 출처: 로드맵 "현재 상태 진단 > 공백 5(버전 부채)"·"선정에서 탈락한 후보"에 남은 마지막 항목(`/suggestRoadmap` 2026-10-07 선택)
 > 유형: chore(빌드·런타임 상향) · 브랜치 `chore/java-21` · **스키마 변경 없음 · 인가 정책 변경 없음 · 신규 의존성 없음**
 
@@ -193,7 +193,7 @@ v3 계획(3라운드 ship) 승인 후 구현했다. 계획과 달라진 결정�
 | 취약점 | `aquasec/trivy` 0.74.0, CI와 같은 옵션 — ubuntu 26.04 OS 0건, `app/app.jar` 0건(HIGH/CRITICAL, 수정판 있는 것). 최종 판정은 PR CI |
 | Unicode 데이터 점검 | 로컬 dev DB(`cms-db-dev`, 회원 6명) 비ASCII 이메일 **0건** |
 | 실기(dev, toolchain 21 `bootRun` + 폐기용 MariaDB 10.11 동일 digest + Playwright) | 기동 로그 `using Java 21.0.9`, 마이그레이션 22개 적용. 비로그인 `/admin` → `/admin/login`. 잘못된 비밀번호 → "아이디 또는 비밀번호가 올바르지 않습니다." ADMIN 로그인 → 대시보드(KST 기준 2026-10-07 집계, 스크린샷 `.playwright-mcp/java21-01-dashboard.png`). 공지 작성 201 → 첨부(`검증.PDF`, 대문자 확장자·한글 파일명) 201 → 관리자 다운로드 200(바이트 동일, `filename*=UTF-8''…`) → 공개 상세 렌더링(스크린샷 `java21-02-public-notice.png`) → 무인증 공개 다운로드 200(바이트 동일) → 원복: 첨부·공지 삭제 204, 공개 상세·첨부 404, 관리 목록 0건. 권한 경계: 권한 없는 MANAGER 로그인 302 → `/admin/api/notices`·`/admin/notice/manage`·`/admin/api/members` 403, 비인증 API 401. 비밀번호 정책(15자) 400 유지. 서버 ERROR 로그 0건, 브라우저 콘솔 오류는 의도한 400·404뿐 |
-| IntelliJ 직접 실행 | **미검증** — GUI 조작이 불가해 수행하지 못했다. README 안내만 반영 |
+| IntelliJ 직접 실행 | PR 시점에는 **미검증**(GUI 조작 불가, README 안내만 반영). 머지 후 사용자가 IntelliJ에서 실행한 `CmsApplication`(PID 17920, 부모 `idea64.exe`, `corretto-21.0.9`)이 `/admin/login` 200으로 확인됨(2026-10-07) |
 
 검증 중 사용자 dev 앱(`cms-app-dev`)은 승인을 받아 잠시 멈췄다가(8080 충돌) 끝난 뒤 `docker start`로 복구했다(기존 이미지, 로그인 페이지 200). 폐기용 DB·저장 디렉터리는 삭제했다.
 
