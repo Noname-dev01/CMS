@@ -1006,6 +1006,31 @@ Content-Length 100000을 선언하고 40000바이트만 보낸 뒤 서버 쪽 �
 
 ---
 
+### 실서버 스트리밍 테스트가 CI에서 가끔 "스트림 닫힘" 단언으로 실패한다 — 클라이언트 수신 완료가 서버의 close보다 먼저일 수 있다 (2026-10-06, 문서 전용 PR #102 CI에서 발견)
+
+```text
+PublicAttachmentStreamingServerTest > 커밋 후 읽기 실패 — ... 다음 요청은 정상이다 FAILED
+    org.opentest4j.AssertionFailedError at PublicAttachmentStreamingServerTest.java:341
+    (assertThat(healthy.closed.get()).isTrue() — 바로 앞의 200·본문 100000바이트 단언은 통과)
+1360 tests completed, 1 failed
+```
+
+#### 원인
+
+정상 전송 경로는 `PublicNoticeController.attachment()`가 본문 마지막 바이트를 쓴 **뒤에** try-with-resources를 빠져나가며 스트림을 닫는다. 클라이언트는 `Content-Length`만큼 받으면 응답을 완료로 보므로, 서버 스레드가 close를 실행하기 전에 테스트 스레드가 `closed`를 읽을 수 있다(러너가 느릴 때 드물게). 코드는 같은데 직전 PR(#101)은 통과하고 문서만 바꾼 #102가 실패해 경쟁 조건임이 드러났다.
+
+오류 경로(첫 청크 실패·미커밋 실패·커밋 후 실패)와 HEAD는 스트림을 응답 마무리 **전에** 닫으므로(예외가 try-with-resources를 빠져나가며 close → 그 뒤 HTML 500 렌더링·연결 중단, HEAD는 핸들러 반환 뒤 커밋) 즉시 단언해도 안전하다.
+
+#### 해결 방법
+
+정상 전송 뒤의 두 단언(골든 패스 GET, 잘린 응답 뒤 정상 요청)만 `awaitClosed()`로 바꿔 최대 5초 동안 닫히기를 기다린 뒤 판정한다. 스트림이 끝내 닫히지 않으면 여전히 실패한다.
+
+**검증**: 변이 실험(`FillerStream.close()`를 무력화)에서 `closed`를 단언하는 4건이 모두 실패함을 확인해 검출력이 유지됨을 확인했다. 전체 `./gradlew cleanTest test` 1360건 실패 0.
+
+**교훈**: 실서버 테스트에서 "응답을 받았다"는 서버 핸들러가 끝났다는 뜻이 아니다. 응답 전송 **이후** 서버 쪽에서 일어나는 부수 효과(자원 닫기 등)는 제한 시간 대기로 판정한다.
+
+---
+
 ---
 
 # 정리
