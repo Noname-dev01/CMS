@@ -41,8 +41,13 @@ class AdminSessionExpiredStrategyTest {
         assertThat(response.getContentAsString())
                 .contains("\"UNAUTHORIZED\"")
                 .contains("세션이 만료되었습니다");
+        assertThat(response.getContentAsString()).matches(ISO_TIMESTAMP_FIELD);
         assertThat(response.getRedirectedUrl()).isNull();
     }
+
+    /** timestamp가 ISO-8601 로컬 일시 문자열로 직렬화된다(Boot 4·Jackson 3 전환 시 배열에서 통일, PLAN-spring-boot-4.md §2). */
+    private static final String ISO_TIMESTAMP_FIELD =
+            "(?s).*\"timestamp\":\"\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?\".*";
 
     @Test
     @DisplayName("페이지 요청은 /admin/login으로 리다이렉트한다")

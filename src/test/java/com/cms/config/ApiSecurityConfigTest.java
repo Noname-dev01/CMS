@@ -13,7 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -40,6 +40,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @ActiveProfiles({"test", "webmvc-test"})
 class ApiSecurityConfigTest {
+
+    /** ApiErrorResponse.timestamp 형식 — ISO-8601 로컬 일시 문자열(Boot 4·Jackson 3 전환 시 배열에서 통일, PLAN-spring-boot-4.md §2). */
+    private static final String ISO_LOCAL_DATE_TIME = "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?";
 
     @Autowired
     MockMvc mockMvc;
@@ -90,7 +93,7 @@ class ApiSecurityConfigTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
                 .andExpect(jsonPath("$.message").exists())
-                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.timestamp").value(org.hamcrest.Matchers.matchesPattern(ISO_LOCAL_DATE_TIME)))
                 .andExpect(jsonPath("$.path").value("/admin/api/security-test"));
     }
 
@@ -103,7 +106,7 @@ class ApiSecurityConfigTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.code").value("ACCESS_DENIED"))
                 .andExpect(jsonPath("$.message").exists())
-                .andExpect(jsonPath("$.timestamp").exists())
+                .andExpect(jsonPath("$.timestamp").value(org.hamcrest.Matchers.matchesPattern(ISO_LOCAL_DATE_TIME)))
                 .andExpect(jsonPath("$.path").value("/admin/api/security-test"));
     }
 
