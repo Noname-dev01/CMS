@@ -163,7 +163,7 @@ echo "🔎 대상 볼륨 여유 공간 확인 중..."
 # MSYS_NO_PATHCONV=1: "df -Pk /target"의 /target이 컨테이너 내부 경로인데 Windows
 # Git Bash가 host 경로로 잘못 치환하는 것을 막는다(prod-backup.sh 상단 주석 참조,
 # 구현 단계 실측 발견).
-target_avail_kb=$(MSYS_NO_PATHCONV=1 docker run --rm -v "$FILES_VOLUME:/target:ro" mariadb:10.11@sha256:7f22313fc130a377a44999965bcb0a08dd5b21e8502824c1b864f792f9bc66ab df -Pk /target | tail -1 | awk '{print $4}')
+target_avail_kb=$(MSYS_NO_PATHCONV=1 docker run --rm -v "$FILES_VOLUME:/target:ro" mariadb:10.11@sha256:7db29378d4fdab73f8123bbc2b48905c90d1a4b00cf848b028f1e81e623257f2 df -Pk /target | tail -1 | awk '{print $4}')
 uncompressed_kb=$(( $(gzip -dc "$dir/files.tar.gz" | wc -c) / 1024 ))
 required_kb=$(( uncompressed_kb * 2 ))  # 스테이징 사본 + 기존 데이터가 일시적으로 공존
 if [ "${target_avail_kb:-0}" -lt "$required_kb" ]; then
@@ -178,7 +178,7 @@ gunzip -c "$dir/db.sql.gz" \
   | docker exec -i "$DB_CONTAINER" sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mariadb -u root'
 
 echo "⏳ 첨부·프로필 파일 복구 중 (볼륨 내부 스테이징 → 검증 후 교체)..."
-docker run --rm -i -v "$FILES_VOLUME:/target" mariadb:10.11@sha256:7f22313fc130a377a44999965bcb0a08dd5b21e8502824c1b864f792f9bc66ab sh -c '
+docker run --rm -i -v "$FILES_VOLUME:/target" mariadb:10.11@sha256:7db29378d4fdab73f8123bbc2b48905c90d1a4b00cf848b028f1e81e623257f2 sh -c '
   set -e
   rm -rf /target/.restore-staging
   mkdir -p /target/.restore-staging

@@ -30,7 +30,7 @@ public abstract class MariaDbContainerSupport {
     @ServiceConnection
     protected static final MariaDBContainer MARIA_DB =
             new MariaDBContainer(
-                    DockerImageName.parse("mariadb@sha256:7f22313fc130a377a44999965bcb0a08dd5b21e8502824c1b864f792f9bc66ab")
+                    DockerImageName.parse("mariadb@sha256:7db29378d4fdab73f8123bbc2b48905c90d1a4b00cf848b028f1e81e623257f2")
                             .asCompatibleSubstituteFor("mariadb"));
 
     static {
