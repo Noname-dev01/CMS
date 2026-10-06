@@ -6,8 +6,15 @@ spring:
     # dev+prod 동시 활성화·활성 프로파일 0개는 ProfileGuardEnvironmentPostProcessor가 추가로 차단한다.
     active: ${SPRING_PROFILES_ACTIVE}
   jackson:
-    serialization:
-      write-dates-as-timestamps: false
+    # Boot 4(Jackson 3): 날짜 직렬화 기능은 DateTimeFeature로 옮겨져 datatype.datetime 아래에 둔다.
+    datatype:
+      datetime:
+        write-dates-as-timestamps: false
+    # 미지 필드 무시를 기본값에 맡기지 않고 명시적으로 고정한다 — 낡은 클라이언트가 보낸 제거된 필드
+    # (메뉴 accessRole·ord 등)가 400이 되지 않아야 한다(com.cms.admin.menu CLAUDE.md 계약,
+    # MenuControllerTest.createMenu_legacyAccessRoleIgnored). Boot 4.0.8 기본 구성에서도 무시됨을 확인했다.
+    deserialization:
+      fail-on-unknown-properties: false
     default-property-inclusion: non_null
   servlet:
     multipart:

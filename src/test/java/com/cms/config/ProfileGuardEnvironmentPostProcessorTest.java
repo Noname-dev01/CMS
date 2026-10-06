@@ -2,6 +2,9 @@ package com.cms.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.env.MockEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -48,6 +51,23 @@ class ProfileGuardEnvironmentPostProcessorTest {
 
         assertThatIllegalStateException()
                 .isThrownBy(() -> processor.postProcessEnvironment(environment, null));
+    }
+
+    @Test
+    @DisplayName("META-INF/spring.factories 등록으로 실제 SpringApplication 기동 경로에서도 dev+prod를 막는다")
+    void registeredViaSpringFactories_blocksDevAndProdOnRealStartup() {
+        // 위 테스트들은 클래스를 직접 호출해 등록 키가 틀려도 통과한다 — Boot 4는 등록 키가
+        // org.springframework.boot.EnvironmentPostProcessor로 바뀌어 키 불일치 시 가드가 조용히 빠진다(PLAN-spring-boot-4.md R5).
+        SpringApplication application = new SpringApplication(EmptyConfiguration.class);
+        application.setWebApplicationType(WebApplicationType.NONE);
+
+        assertThatIllegalStateException()
+                .isThrownBy(() -> application.run("--spring.profiles.active=dev,prod"))
+                .withMessageContaining("dev와 prod 프로파일을 동시에 활성화할 수 없습니다");
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class EmptyConfiguration {
     }
 
     @Test

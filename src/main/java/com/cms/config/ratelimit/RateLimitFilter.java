@@ -1,7 +1,7 @@
 package com.cms.config.ratelimit;
 
 import com.cms.common.api.ApiErrorResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,7 +31,7 @@ import static com.cms.common.api.GlobalApiExceptionHandler.API_MATCHER;
  */
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final RateLimitProperties properties;
     private final TokenBucketRateLimiter limiter;

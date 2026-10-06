@@ -14,7 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,7 +26,7 @@ import com.cms.config.auth.CustomUserDetails;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -174,7 +174,7 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
 
     /** 한 핸들러: 요구 동작, 기대 성공 상태, 요청 생성, 저장 결과 단언. */
     private record HandlerCase(String name, PermissionAction action, boolean needsAttachment, int successStatus,
-                               java.util.function.Function<Fixture, MockHttpServletRequestBuilder> request,
+                               java.util.function.Function<Fixture, AbstractMockHttpServletRequestBuilder<?>> request,
                                Consumer<Effect> effect) { }
 
     /** 효과 단언에 필요한 값: 실행 전후 비교용. */
@@ -346,7 +346,7 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
         Fixture fixture = fixture(false);
         long before = noticeRepository.count();
 
-        List<MockHttpServletRequestBuilder> attempts = List.of(
+        List<AbstractMockHttpServletRequestBuilder<?>> attempts = List.of(
                 get("/admin/api/notices/"),
                 get("/admin/api/notices;x=1"),
                 get("/admin/api/notices/./"),
@@ -359,7 +359,7 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
                 get("/admin/notice/manage/"),
                 get("/admin/notice/manage;jsessionid=abc"));
 
-        for (MockHttpServletRequestBuilder attempt : attempts) {
+        for (AbstractMockHttpServletRequestBuilder<?> attempt : attempts) {
             try {
                 MvcResult result = mockMvc.perform(attempt.with(asManager()).with(csrf())).andReturn();
                 assertThat(result.getResponse().getStatus()).as(attempt.toString()).matches(status -> status < 200 || status > 299);
