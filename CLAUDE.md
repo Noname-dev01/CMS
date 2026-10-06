@@ -37,6 +37,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 
 ### 구조상 알아둘 점
 
+- **Spring Boot 4.0.8 + classic 스타터**(2026-10-06, CVE-2026-47884 대응 — `adversarial-review/plan/PLAN-spring-boot-4.md`): `spring-boot-starter-classic`·`spring-boot-starter-test-classic`으로 3.x와 같은 자동 구성 가용성을 유지한다(모듈식 스타터 전환은 후속). JSON은 **Jackson 3** — databind 코드는 `tools.jackson.databind.*`를 import하고(`com.fasterxml.jackson.databind`는 SpringDoc이 끌어온 Jackson 2라 쓰지 않는다), 어노테이션은 Jackson 3에서도 `com.fasterxml.jackson.annotation.*` 그대로다. 테스트 슬라이스 어노테이션은 모듈 패키지(`org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest` 등)에 있다. `EnvironmentPostProcessor` 등록 키는 `org.springframework.boot.EnvironmentPostProcessor`.
 - `AdminPage`는 Thymeleaf 페이지 컨트롤러 마커 어노테이션이다. 새 페이지 컨트롤러에 **필수 부착** — 누락은 `AdminPageAnnotationConventionTest`가 감지한다.
 - `AdminSidebarAdvice`는 `@AdminPage` 컨트롤러에만 사이드바 모델을 주입한다. REST API 요청에 메뉴 DB 조회가 나가지 않도록 의도적으로 범위를 제한한 것이다.
 - `publicweb`은 비관리자(공개) 화면 전용으로 `admin` 패키지와 분리한다. `@AdminPage` 미부착 대상이며, 예외 처리도 `publicweb/support/PublicWebExceptionAdvice`가 범위 한정으로 담당한다.

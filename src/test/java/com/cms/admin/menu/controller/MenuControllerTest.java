@@ -14,15 +14,15 @@ import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.MethodSecurityTestConfig;
 import com.cms.config.auth.AdminSecurityService;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -223,6 +223,20 @@ class MenuControllerTest {
                 .andExpect(jsonPath("$.accessRole").doesNotExist());
     }
 
+    @Test
+    @DisplayName("JSON 본문 뒤에 후행 토큰이 있으면 400 JSON_PARSE_ERROR — Jackson 3 FAIL_ON_TRAILING_TOKENS 기본값(PLAN-spring-boot-4.md §2)")
+    @WithMockUser(roles = "ADMIN")
+    void createMenu_trailingTokens_returns400() throws Exception {
+        mockMvc.perform(post("/admin/api/menus")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"menuName\":\"메뉴\"} {}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("JSON_PARSE_ERROR"));
+
+        verifyNoInteractions(menuService);
+    }
+
     // ===================== createMenu =====================
 
     @Test
@@ -254,6 +268,37 @@ class MenuControllerTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
         verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("메뉴 생성: 위험한 URL(javascript:·data:·//host·상대 경로)은 400 VALIDATION_ERROR이고 서비스를 호출하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void createMenu_unsafeUrl_rejected() throws Exception {
+        for (String url : List.of("javascript:alert(1)", "data:text/html,x", "//evil.example", "admin/x", "/a\\\\b")) {
+            mockMvc.perform(post("/admin/api/menus")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(MenuCreateRequest.builder().menuName("m").menuUrl(url).build())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        verifyNoInteractions(menuService);
+    }
+
+    @Test
+    @DisplayName("메뉴 생성: 외부 http(s) URL·빈 URL은 201")
+    @WithMockUser(roles = "ADMIN")
+    void createMenu_externalAndBlankUrl_allowed() throws Exception {
+        given(menuService.createMenu(any())).willReturn(menuResponse());
+
+        for (String url : List.of("https://example.com/docs", "")) {
+            mockMvc.perform(post("/admin/api/menus")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(MenuCreateRequest.builder().menuName("m").menuUrl(url).build())))
+                    .andExpect(status().isCreated());
+        }
     }
 
     @Test
@@ -323,6 +368,22 @@ class MenuControllerTest {
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.menuNo").value(1));
+    }
+
+    @Test
+    @DisplayName("메뉴 수정: 위험한 URL은 400 VALIDATION_ERROR이고 서비스를 호출하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void updateMenu_unsafeUrl_rejected() throws Exception {
+        for (String url : List.of("javascript:alert(1)", "//evil.example", "https://evil@example.com", "data:text/html,x")) {
+            mockMvc.perform(patch("/admin/api/menus/1")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(MenuUpdateRequest.builder().menuUrl(url).build())))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        }
+
+        verifyNoInteractions(menuService);
     }
 
     @Test

@@ -13,7 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -89,7 +89,18 @@ class SecurityConfigTest {
     void openApiDocs_unauthenticated_redirectsToLogin() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
+    }
+
+    @Test
+    @DisplayName("미인증 페이지 요청의 로그인 리다이렉트 Location 정확값을 고정한다")
+    void unauthenticated_page_loginRedirectLocation() throws Exception {
+        // 다른 테스트의 "**/admin/login" 패턴은 절대·상대 URI를 모두 통과시키므로 형식 변화를 감지하지 못한다.
+        // Security 7부터 sendRedirect에 상대 URI를 넘긴다(Boot 3.5까지는 http://localhost/admin/login) — MockMvc는
+        // 이 값을 그대로 보여 준다. 실제 Tomcat 응답은 절대 URL로 나감을 실서버로 확인했다(PLAN-spring-boot-4.md §2).
+        mockMvc.perform(get("/admin/member/settings"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", "/admin/login"));
     }
 
     @Test
@@ -200,7 +211,7 @@ class SecurityConfigTest {
     void unauthenticated_memberSettings_redirectsToLogin() throws Exception {
         mockMvc.perform(get("/admin/member/settings"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -319,7 +330,7 @@ class SecurityConfigTest {
     void unauthenticated_noticeManagePage_redirectsToLogin() throws Exception {
         mockMvc.perform(get("/admin/notice/manage"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -366,7 +377,7 @@ class SecurityConfigTest {
     void publicNotices_unauthenticatedPost_withCsrf_redirectsToLogin() throws Exception {
         mockMvc.perform(post("/notices").with(csrf()))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -400,7 +411,7 @@ class SecurityConfigTest {
     void publicNoticeAttachment_unauthenticatedPost_withCsrf_redirectsToLogin() throws Exception {
         mockMvc.perform(post("/notices/1/attachments/1").with(csrf()))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     // ==================== actuator 인가 범위 검증 (PLAN-prod-profile.md 결정 3, 2026-07-29 승인) ====================
@@ -417,7 +428,7 @@ class SecurityConfigTest {
     void actuatorEnv_unauthenticatedGet_redirectsToLogin() throws Exception {
         mockMvc.perform(get("/actuator/env"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -478,7 +489,7 @@ class SecurityConfigTest {
     void defaultDeny_anonymousUnclassifiedPath_redirectsToLogin() throws Exception {
         mockMvc.perform(get("/does-not-exist"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -486,7 +497,7 @@ class SecurityConfigTest {
     void defaultDeny_anonymousRoot_redirectsToLogin() throws Exception {
         mockMvc.perform(get("/"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -528,7 +539,7 @@ class SecurityConfigTest {
     void defaultDeny_staticPrefix_postNotPublic() throws Exception {
         mockMvc.perform(post("/css/__none__.txt").with(csrf()))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -565,7 +576,7 @@ class SecurityConfigTest {
     void defaultDeny_unauthenticatedPostUnclassifiedPath_withCsrf_redirectsToLogin() throws Exception {
         mockMvc.perform(post("/does-not-exist").with(csrf()))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 }
 

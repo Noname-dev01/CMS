@@ -17,6 +17,7 @@ import com.cms.admin.search.dto.AdminSearchResponse.MemberItem;
 import com.cms.admin.search.dto.AdminSearchResponse.MenuItem;
 import com.cms.admin.search.dto.AdminSearchResponse.NoticeItem;
 import com.cms.admin.search.dto.AdminSearchResponse.Section;
+import com.cms.common.web.SafeUrls;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -29,7 +30,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 
 /**
  * 상단바 통합 검색. 결과는 <b>현재 사용자가 원래 볼 수 있는 것만</b> 담는다 — 검색이 권한 우회 경로가 되지 않도록
@@ -48,12 +48,6 @@ public class AdminSearchService {
     /** 서버 측 비용 제한 — 이보다 짧은 검색어는 쿼리 없이 빈 결과를 돌려준다(코드포인트 기준). */
     static final int MIN_KEYWORD_LENGTH = 2;
     static final int SECTION_LIMIT = 5;
-
-    /**
-     * 메뉴 이동 대상으로 허용하는 같은 출처 경로 — {@code /}로 시작하고 {@code //}·{@code \}·공백·제어문자가 없다.
-     * 메뉴 URL은 저장 시 길이만 검사하므로 {@code javascript:}·{@code //host} 등이 결과 이동에 쓰이지 않게 걸러낸다.
-     */
-    private static final Pattern SAFE_PATH = Pattern.compile("^/(?![/\\\\])[^\\s\\\\\\x00-\\x1f\\x7f]*$");
 
     private final MenuService menuService;
     private final NoticeRepository noticeRepository;
@@ -111,8 +105,8 @@ public class AdminSearchService {
     private boolean matchesMenu(SidebarMenuResponse node, String needle) {
         return node.getMenuName() != null
                 && node.getMenuName().toLowerCase(Locale.ROOT).contains(needle)
-                && node.getMenuUrl() != null
-                && SAFE_PATH.matcher(node.getMenuUrl()).matches();
+                // 같은 출처 경로만 — 외부 http(s) 메뉴는 사이드바에만 보이고 검색 결과 이동에는 쓰지 않는다
+                && SafeUrls.isSameOriginPath(node.getMenuUrl());
     }
 
     private Section<NoticeItem> searchNotices(String keyword) {
