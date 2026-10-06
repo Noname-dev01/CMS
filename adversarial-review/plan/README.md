@@ -38,6 +38,7 @@
 | 27 | ✅ **완료 (2026-10-05 · #92 `a5a2b2f`)** [PLAN-admin-notification.md](PLAN-admin-notification.md) — 상단바 알림(벨) E1~E4, V20 (v6, 적대적 리뷰 5라운드 ship) | feat | 없음 | 승인 완료(스키마 변경 V20, 사용자 결정 D11) |
 | 28 | ✅ **완료 (2026-10-06 · #94 `63c4e33`)** [PLAN-admin-message.md](PLAN-admin-message.md) — 관리자 1:1 쪽지(상단바 봉투) + 쪽지함 페이지, V21 (v9, 적대적 리뷰 7라운드 ship) | feat | 없음 | 승인 완료(스키마 변경 V21·`/admin/member/messages` 상시 허용 경로 추가 D3, 2026-10-05) |
 | 29 | ✅ **완료 (2026-10-06 · #97 `1505c43`)** [PLAN-spring-boot-4.md](PLAN-spring-boot-4.md) — Spring Boot 3.5.16 → 4.0.8 전환으로 spring-webmvc CVE-2026-47884 해소 (v3, 적대적 리뷰 3라운드 ship, classic 스타터 단계 전환·Tomcat 11.0.26·Jackson 3.1.7/2.21.7 오버라이드) | security | 없음 | 승인 완료(의존성 메이저 상향, 사용자 결정: 후행 토큰 400·로그인 Location 상대 URI·`timestamp` ISO 통일, 2026-10-06) |
+| 30 | ✅ **완료 (2026-10-06 · #99 `b3566c4`)** [PLAN-modular-starters.md](PLAN-modular-starters.md) — classic 스타터 → 모듈식 스타터 전환(`starter-webmvc`·`starter-aspectj`, 테스트 `webmvc-test`·`data-jpa-test`·`security-test`) — 자동 구성 표면 축소, 동작 계약 무변경 (v4, 적대적 리뷰 4라운드 ship) | refactor | 29번 완료 | 불필요(스키마·인가 정책 변경 없음) |
 | 14 | [PLAN-audit-log-integrity.md](PLAN-audit-log-integrity.md) — 감사 로그 신뢰성 강화: IP 위조 차단 + 커밋 순서 보장 (로드맵 2026-09-05 선정 Top 5 ③, 외부 기술 감사 H-03·M-01) | security/fix | 없음 | 불필요(신규 의존성 없음, 스키마·인가 정책 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)
