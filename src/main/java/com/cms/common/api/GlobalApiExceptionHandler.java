@@ -3,12 +3,14 @@ package com.cms.common.api;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.RateLimitedException;
 import com.cms.common.exception.ResourceNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.dao.UncategorizedDataAccessException;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -17,6 +19,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+import org.springframework.transaction.TransactionSystemException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
@@ -35,6 +38,7 @@ import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.io.IOException;
+import java.sql.SQLException;
 import java.util.Set;
 
 @Slf4j
@@ -43,6 +47,11 @@ public class GlobalApiExceptionHandler {
 
     private static final int MAX_LOGGED_STACK_FRAMES = 10;
     private static final String UNMATCHED_ROUTE = "unmatched";
+
+    /** MariaDB ER_CHECKREAD(1020) — innodb_snapshot_isolation=ON에서 스냅샷 이후 변경된 행 접근. */
+    private static final int MARIADB_ERROR_CHECKREAD = 1020;
+    /** MariaDB ER_LOCK_DEADLOCK(1213) — 교착 희생자. */
+    private static final int MARIADB_ERROR_DEADLOCK = 1213;
 
     /**
      * /admin/api/** 여부 판정 — SecurityConfig가 인가 규칙에 쓰는 것과 동일한
@@ -287,6 +296,58 @@ public class GlobalApiExceptionHandler {
             HttpServletRequest request
     ) {
         return jsonError(HttpStatus.CONFLICT, request.getRequestURI(), "RESOURCE_CONFLICT", "동시 변경과 충돌했습니다. 다시 시도해주세요.");
+    }
+
+    /**
+     * 서비스가 판정한 빈도 제한 초과(쪽지 발송 한도 등). 무인증 경로의 {@code RateLimitFilter}와 같은 형식이다
+     * ({@code RATE_LIMITED}·{@code Retry-After}). 메시지는 서비스가 만든 고정 문구다.
+     */
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<ApiErrorResponse> handleRateLimited(
+            RateLimitedException e,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiErrorResponse.of(request.getRequestURI(), "RATE_LIMITED", e.getMessage()));
+    }
+
+    /**
+     * Hibernate·Spring이 잠금 예외로 변환하지 못하는 MariaDB 잠금 충돌을 409로 돌린다 — 오류 1213(교착 희생자)과
+     * 1020(`innodb_snapshot_isolation=ON`에서 스냅샷 이후 수정된 행을 잠글 때). 이 오류들은 {@code UncategorizedDataAccessException}
+     * (`JpaSystemException`·`HibernateJdbcException`)이나 커밋 시점 {@code TransactionSystemException}으로 올라와
+     * {@link PessimisticLockingFailureException} 핸들러를 지나쳐 catch-all 500이 될 수 있었다(PLAN-admin-message.md R2-3).
+     * 원인 체인에 해당 코드가 없으면 기존 catch-all과 같이 500으로 처리한다 — 예외 메시지는 응답·로그에 쓰지 않는다.
+     */
+    @ExceptionHandler({UncategorizedDataAccessException.class, TransactionSystemException.class})
+    public ResponseEntity<ApiErrorResponse> handleLockConflictOrUnexpected(
+            Exception e,
+            HttpServletRequest request
+    ) {
+        if (hasLockConflictCause(e)) {
+            return jsonError(HttpStatus.CONFLICT, request.getRequestURI(), "RESOURCE_CONFLICT", "동시 변경과 충돌했습니다. 다시 시도해주세요.");
+        }
+        return handleException(e, request);
+    }
+
+    /** 원인 체인(최대 20단계, 순환 방어)에 MariaDB 잠금 충돌 오류 코드(1020·1213)를 가진 {@link SQLException}이 있는가. */
+    static boolean hasLockConflictCause(Throwable throwable) {
+        Throwable current = throwable;
+        for (int depth = 0; current != null && depth < 20; depth++) {
+            if (current instanceof SQLException sqlException) {
+                int code = sqlException.getErrorCode();
+                if (code == MARIADB_ERROR_CHECKREAD || code == MARIADB_ERROR_DEADLOCK) {
+                    return true;
+                }
+            }
+            Throwable next = current.getCause();
+            if (next == current) {
+                break;
+            }
+            current = next;
+        }
+        return false;
     }
 
     /**

@@ -9,7 +9,7 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 | 기능 | 종류 | 설명 |
 |---|---|---|
-| `DASHBOARD`, `MY_INFO`, `SEARCH` | `ALWAYS` | 로그인한 ADMIN·MANAGER 전원 상시 허용(`SEARCH`=상단바 통합 검색 API 사용 자체 — 결과의 도메인별 노출은 `AdminSearchService`가 판정기로 필터한다, 아래 "통합 검색"). DB를 보지 않고 끌 수 없다(로그인 직후 `/admin`으로 이동하므로 대시보드를 끄면 403이 난다) |
+| `DASHBOARD`, `MY_INFO`, `SEARCH` | `ALWAYS` | 로그인한 ADMIN·MANAGER 전원 상시 허용(`SEARCH`=상단바 통합 검색 API 사용 자체 — 결과의 도메인별 노출은 `AdminSearchService`가 판정기로 필터한다, 아래 "통합 검색"). DB를 보지 않고 끌 수 없다(로그인 직후 `/admin`으로 이동하므로 대시보드를 끄면 403이 난다). **`MY_INFO`의 게이트에는 쪽지함 페이지 `/admin/member/messages`가 정확 경로 1개로 포함**된다(2026-10-05 승인, `com.cms.admin.message`의 `CLAUDE.md`) — ALWAYS 게이트는 HTTP 메서드를 구분하지 않아 그 경로에는 GET 핸들러만 두고 `MessagePageMethodConventionTest`가 CI에서 잠근다. 쪽지 API는 기존 `/admin/api/members/me/**` 안이다 |
 | `NOTICE` | `DELEGABLE` | ADMIN은 항상, MANAGER는 **그 회원의** (기능, 동작) 허용 행이 있을 때만. 동작 `READ·CREATE·UPDATE·DELETE` |
 | `MEMBER`, `MENU`, `ACTION_LOG`, `PERMISSION` | `ADMIN_ONLY` | 위임 불가. `PERMISSION`을 `DELEGABLE`로 바꾸면 `AdminFeature` 생성자가 **클래스 로딩 시점에 예외**를 던진다(자기 승격 차단). 권한관리 메뉴는 ADMIN만 접근한다 |
 
@@ -49,7 +49,7 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 - `member.permission_version bigint NOT NULL DEFAULT 0`(V17): 회원별 권한 매트릭스의 낙관적 버전. 허용 행이 0개인 회원도 잠글 대상(회원 행)과 버전이 있다. `Member.permissionVersion`은 `@Builder.Default 0L` 필수(없으면 기존 생성 경로가 NULL을 INSERT해 깨진다).
 - `member_permission(member_id, feature, action)`(V18) PK 3컬럼 + `member` FK(RESTRICT). **행이 있으면 허용**(거부 행 없음), ADMIN 행 없음. `feature`·`action`은 `VARCHAR`(DB enum 아님). **테스트 정리 코드가 `DELETE FROM member`를 쓰면 `member_permission`을 먼저 지워야 한다**(`TestMembers.delete`).
 - V19: 배포 시점의 `ROLE_MANAGER` 허용 행을 **`DELETED`가 아닌 기존 MANAGER 전원에게 복사**(정확 일치·NOTICE 유효 4동작만, NOTICE READ 행이 있을 때만) — 배포 직후 기존 계정 동작은 같다. **일회성 초기화이지 복구 수단이 아니다**: 성공한 뒤 수동 재실행하면 ADMIN이 회수한 권한이 되살아난다(`MemberPermissionMigrationTest`가 복사 규칙·재실행 중복 없음을 고정).
-- 기존 `permission_role`·`role_permission` 테이블(V13·V14)은 **이 PR에서 지우지 않고 남긴다**(앱 롤백 대비). 엔티티·리포지토리·API는 제거됐다. 후속 PR B(DROP 마이그레이션 — V20은 알림 테이블이 사용해 V21 이상)가 지운다 — 되돌릴 수 없으므로 운영 안정 확인 뒤.
+- 기존 `permission_role`·`role_permission` 테이블(V13·V14)은 **이 PR에서 지우지 않고 남긴다**(앱 롤백 대비). 엔티티·리포지토리·API는 제거됐다. 후속 PR B(DROP 마이그레이션 — V20은 알림, V21은 쪽지 테이블이 사용해 **V22 이상**)가 지운다 — 되돌릴 수 없으므로 운영 안정 확인 뒤.
 - **V17·V18 실패 복구**(DDL 암묵 커밋으로 Flyway 이력과 어긋난 경우): `docs/migration-guide.md` "V17~V19 실패 복구". 핵심은 **`success=1`인 버전의 객체는 건드리지 않고 실패·이력 없는 버전의 잔여 객체만 DROP**한 뒤 `flyway repair`다(`MemberPermissionMigrationTest`가 "V17 성공 + V18 실패" 복구와 잘못된 절차의 반례를 고정).
 
 ## 롤백·재배포 주의
@@ -81,4 +81,4 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 ## 남은 작업
 
-- **PR B**(`chore/drop-role-permission`): V21 이상의 번호(V20은 알림 테이블이 사용)로 `role_permission`·`permission_role` DROP — PR A가 운영에서 안정된 뒤. 되돌릴 수 없으므로 배포 전 백업이 필요하고 `PermissionMigrationTest`(V13·V14)를 함께 조정한다.
+- **PR B**(`chore/drop-role-permission`): **V22 이상**의 번호(V20은 알림, V21은 쪽지 테이블이 사용)로 `role_permission`·`permission_role` DROP — PR A가 운영에서 안정된 뒤. 되돌릴 수 없으므로 배포 전 백업이 필요하고 `PermissionMigrationTest`(V13·V14)를 함께 조정한다.

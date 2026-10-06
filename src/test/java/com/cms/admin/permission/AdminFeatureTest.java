@@ -69,6 +69,18 @@ class AdminFeatureTest {
     }
 
     @Test
+    @DisplayName("내 정보 기능의 쪽지함 페이지 게이트는 정확 경로 1개다 — 와일드카드 하위 경로를 열지 않고 사이드바 메뉴 URL은 늘리지 않는다(2026-10-05 승인)")
+    void myInfoFeatureGatesMessagesPageAsExactPathOnly() {
+        assertThat(AdminFeature.MY_INFO.getKind()).isEqualTo(FeatureKind.ALWAYS);
+        assertThat(AdminFeature.MY_INFO.getGatePatterns()).contains("/admin/member/messages");
+        assertThat(AdminFeature.MY_INFO.getGatePatterns())
+                .as("쪽지함 하위 경로를 여는 패턴이 있으면 안 된다")
+                .noneMatch(pattern -> pattern.startsWith("/admin/member/messages") && !pattern.equals("/admin/member/messages"));
+        assertThat(AdminFeature.MY_INFO.getGatePatterns()).noneMatch(pattern -> pattern.equals("/admin/member/**") || pattern.equals("/admin/member/*"));
+        assertThat(AdminFeature.MY_INFO.getMenuUrls()).containsExactly("/admin/member/info");
+    }
+
+    @Test
     @DisplayName("통합 검색은 상시 허용 기능이고 게이트는 검색 API 경로 하나뿐이며 사이드바 메뉴가 아니다")
     void searchFeatureIsAlwaysWithSingleGate() {
         assertThat(AdminFeature.SEARCH.getKind()).isEqualTo(FeatureKind.ALWAYS);

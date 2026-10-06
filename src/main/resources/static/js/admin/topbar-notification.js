@@ -232,12 +232,20 @@
 
     // ── 이벤트 ────────────────────────────────────────────
 
-    toggle.addEventListener("click", function () {
-        // Bootstrap이 aria-expanded를 바꾸기 전에 호출된다 — "false"였다면 지금 열리는 중이다.
-        if (toggle.getAttribute("aria-expanded") !== "true") {
+    if (window.jQuery) {
+        // 키보드(방향키·Space)로 열 때는 Bootstrap이 jQuery trigger('click')을 쓰고 기본 동작을 취소하므로
+        // 네이티브 click 리스너가 호출되지 않는다 — 열림 이벤트(show.bs.dropdown)에서 조회한다.
+        window.jQuery(toggle.parentNode).on("show.bs.dropdown", function () {
             loadList(true);
-        }
-    });
+        });
+    } else {
+        toggle.addEventListener("click", function () {
+            // Bootstrap이 aria-expanded를 바꾸기 전에 호출된다 — "false"였다면 지금 열리는 중이다.
+            if (toggle.getAttribute("aria-expanded") !== "true") {
+                loadList(true);
+            }
+        });
+    }
 
     moreButton.addEventListener("click", function (event) {
         event.stopPropagation();   // 드롭다운이 닫히지 않게 한다

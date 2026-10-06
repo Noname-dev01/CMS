@@ -26,9 +26,15 @@ public enum AdminFeature {
     DASHBOARD(ALWAYS, "대시보드", EnumSet.of(READ),
             List.of("/admin"), List.of("/admin")),
 
+    /**
+     * 본인 계정 관련 상시 허용 기능. {@code /admin/member/messages}(쪽지함 페이지, 2026-10-05 사용자 승인 — PLAN-admin-message.md D3)는
+     * <b>정확 경로 1개</b>만 추가했다. ALWAYS 게이트는 HTTP 메서드를 구분하지 않으므로 이 경로에는 GET/HEAD 핸들러만 둘 수 있고
+     * {@code MessagePageMethodConventionTest}가 이를 CI에서 잠근다. 쪽지 API는 기존 {@code /admin/api/members/me/**} 안이다.
+     */
     MY_INFO(ALWAYS, "내 정보", EnumSet.of(READ, UPDATE),
             List.of("/admin/member/info"),
-            List.of("/admin/member/info", "/admin/member/settings", "/admin/api/members/me", "/admin/api/members/me/**")),
+            List.of("/admin/member/info", "/admin/member/settings", "/admin/member/messages",
+                    "/admin/api/members/me", "/admin/api/members/me/**")),
 
     /** 상단바 통합 검색 — 검색창 사용 자체는 상시 허용이고, 결과의 도메인별 노출은 서비스가 판정기로 필터한다. */
     SEARCH(ALWAYS, "통합 검색", EnumSet.of(READ),

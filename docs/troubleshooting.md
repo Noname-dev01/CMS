@@ -329,6 +329,59 @@ IDE로 개발할 때는 저장 시 자동 컴파일(Build project automatically)
 
 Spring Security 필터, AOP 로깅, 트랜잭션 경계, JPA/QueryDSL 동작 등 런타임 문제를 기록한다.
 
+### 동시성 시험이 잠금을 제거해도 통과한다 — Hikari 기본 풀(10)이 경합을 한도와 같은 수로 제한하고 "병렬로 시작"만으로는 요청이 겹치지 않는다 (2026-10-05, PLAN-admin-message.md 구현 중 변이 실험으로 발견)
+
+#### 증상
+
+쪽지 발송 한도의 동시성 시험(같은 발신자의 병렬 12건 중 정확히 10건만 201)이 처음부터 통과했는데, 발신자별 상태 행 잠금 호출을 **주석 처리한 변이 실험에서도 통과**했다 — 잠금이 한도를 지킨다는 증거가 아니었다.
+
+#### 원인 (두 가지)
+
+1. **요청이 겹치지 않는다.** `CountDownLatch`로 12개 스레드를 동시에 풀어도 각 요청의 처리 시간(수 ms)이 짧고 스레드 시작이 어긋나, 집계(COUNT)와 저장(INSERT) 사이의 경합 창에 두 요청이 함께 들어가지 못한다.
+2. **HikariCP 기본 풀 크기 10이 동시 서비스 트랜잭션 수를 한도(10)와 우연히 같게 만든다.** 풀을 넘는 요청은 연결을 기다리므로 먼저 들어간 10건이 모두 COUNT=0을 읽고 10건을 저장하고, 나머지 2건이 COUNT=10을 보고 거부된다 — 잠금이 없어도 결과가 똑같다.
+
+#### 해결 방법
+
+- **경합 창을 강제로 넓힌다**: 리포지토리 프록시 advice(`BeanPostProcessor`)로 한도 집계 직후 120ms 지연을 주입한다.
+- **한도를 풀 크기보다 낮추고 스레드를 풀 크기 아래로 둔다**: `cms.message.send-per-minute=4`(`@SpringBootTest(properties=...)`)·스레드 8 — 잠금이 없으면 8건이 모두 성공해 실패한다. 이 조합에서 잠금 제거 변이가 시험을 실제로 실패시킴을 확인했다.
+
+#### 교훈
+
+동시성 시험은 **통과만 보지 말고 보호 장치를 제거한 변이 실험으로 실패하는지** 확인한다. 이 프로젝트에서 같은 방식으로 감도를 확인한 변이는 쪽지에 모두 기록돼 있다(`com.cms.admin.message`의 `CLAUDE.md` "시험").
+
+### 시험이 DB `NOW()`로 시각을 넣으면 앱의 `Clock`(KST) 창 밖에 놓인다 — Testcontainers MariaDB는 UTC다 (2026-10-05, PLAN-admin-message.md 구현 중)
+
+#### 증상
+
+"외부 RR 스냅샷에서 호출해도 서비스가 직전 커밋된 발송 이력 10건을 본다"는 시험이 `Expecting code to raise a throwable`로 실패했다 — 시험이 JDBC로 넣은 이력(`NOW(6)`)이 서비스의 1분 한도 창에 잡히지 않았다. 일일 한도 시험(`NOW(6) - INTERVAL 12 HOUR`)은 **시차 덕분에 우연히 통과**하고 있었다.
+
+#### 원인
+
+앱의 시각 원천은 KST `Clock` 하나다(`AppConfig.clock()` — 루트 `CLAUDE.md`). 쪽지 한도 창도 `LocalDateTime.now(clock) - 1분`으로 계산하는데, 시험이 `NOW(6)`으로 넣은 값은 **DB 서버(컨테이너) 시간대(UTC)**의 naive 시각이라 앱 기준으로 9시간 과거다.
+
+#### 해결 방법
+
+시험 데이터의 시각은 DB 함수가 아니라 **주입한 `Clock`에서 만든 `LocalDateTime` 파라미터**로 넣는다(`LocalDateTime.now(clock).minusHours(25)` 등).
+
+### MariaDB 10.11에는 `@@transaction_isolation`이 없다 — 변수명은 `@@session.tx_isolation`이다 (2026-10-05, PLAN-admin-message.md 2라운드 리뷰 + 구현 중)
+
+`transaction_isolation`은 11.1.1에서 도입된 이름이다. 10.11(운영·시험 이미지 10.11.19)에서 `SELECT @@transaction_isolation`은 `Unknown system variable`로 실패하고, 값은 `READ-COMMITTED`·`REPEATABLE-READ`(하이픈) 형식이다. 트랜잭션 계약 시험은 서비스가 쓰는 연결에서 `@@session.tx_isolation`을 읽는다. 이미지를 11.x로 올릴 때 이 질의와 `innodb_snapshot_isolation` 기본값 변화(11.6+ ON 방향)를 함께 재확인한다. 참고로 `innodb_snapshot_isolation`은 10.11.9+에서 존재하고 10.11.19의 기본값은 `OFF`다.
+
+### `innodb_snapshot_isolation=ON`에서 REPEATABLE READ 트랜잭션의 잠금 문장이 오류 1020으로 실패하고 `PessimisticLockingFailureException`으로 변환되지 않는다 (2026-10-05, PLAN-admin-message.md 2라운드 리뷰 + 변이 실험으로 재현)
+
+#### 증상
+
+이 설정이 ON이고 트랜잭션이 일관 읽기로 스냅샷을 연 뒤, **스냅샷 이후 다른 트랜잭션이 커밋한 행**을 잠그려 하면(외래키 검사의 공유 잠금 포함) MariaDB가 오류 1020(`Record has changed since last read`)을 낸다. 쪽지 발송에서 집계(COUNT) 뒤 수신자 행이 수정·커밋되면 INSERT의 FK 검사가 실패한다. `GlobalApiExceptionHandler`는 `PessimisticLockingFailureException`만 409로 처리하고 1020은 Hibernate·Spring 변환 규칙에 없어 `JpaSystemException`으로 올라와 **500**이 될 수 있었다.
+
+#### 해결 방법
+
+- 쪽지 발송·삭제 서비스는 `@Transactional(propagation = REQUIRES_NEW, isolation = READ_COMMITTED)`다. RC에서는 일관 읽기가 문장마다 최신 커밋을 보고 스냅샷 격리 오류가 적용되지 않는다. `REQUIRES_NEW`가 필수인 이유는 `REQUIRED`가 기존 트랜잭션에 **참여하면서 격리 수준을 무시**하기 때문이다.
+- 방어로 `GlobalApiExceptionHandler`가 `UncategorizedDataAccessException`·`TransactionSystemException`의 **원인 체인에서 MariaDB 오류 1020·1213**을 찾아 409로 매핑한다(없으면 기존 catch-all 500).
+
+#### 검증
+
+`AdminMessageSnapshotIsolation{Off,On}IntegrationTest`(`connection-init-sql`로 풀 전체에 설정, 전용 컨텍스트 + `@DirtiesContext`). 변이 실험으로 발송 격리를 `REPEATABLE_READ`로 바꾸면 **ON 컨텍스트에서 이 오류가 실제로 재현돼** 시험이 실패한다. `SET SESSION innodb_snapshot_isolation`을 공유 컨텍스트의 풀에 설정하면 HikariCP가 임의 세션 변수를 복원하지 않아 다른 시험을 오염시키므로 전용 컨텍스트로 격리한다.
+
 ### 이벤트 리스너 순서가 설정과 다르게 동작함 — 클래스 `@Order`는 메서드 리스너에 적용되지 않고 `AFTER_COMMIT`은 `AFTER_COMPLETION`보다 항상 먼저 실행된다 (2026-10-05, PLAN-admin-notification.md 계획 리뷰 2라운드 + 구현 중 발견)
 
 #### 증상 (구현 전에 계획 리뷰와 코드 확인으로 발견 — 운영 사고 아님)

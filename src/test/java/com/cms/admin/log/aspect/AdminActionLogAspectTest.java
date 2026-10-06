@@ -94,6 +94,18 @@ class AdminActionLogAspectTest {
     private void annotatedLabeledSample() {
     }
 
+    @AdminActionLogged(actionType = "TEST_ACTION", targetType = "MEMBER", targetIdExpression = "id",
+            safeErrorMessage = "고정된 실패 문구입니다.")
+    @SuppressWarnings("unused")
+    private void annotatedSafeMessageSample() {
+    }
+
+    private AdminActionLogged safeMessageAnnotation() throws NoSuchMethodException {
+        return getClass()
+                .getDeclaredMethod("annotatedSafeMessageSample")
+                .getAnnotation(AdminActionLogged.class);
+    }
+
     private AdminActionLogged sampleAnnotation() throws NoSuchMethodException {
         return getClass()
                 .getDeclaredMethod("annotatedSample")
@@ -184,6 +196,45 @@ class AdminActionLogAspectTest {
                 isNull(),                          // requestMethod
                 eq("boom")                         // errorMessage
         );
+    }
+
+    @Test
+    @DisplayName("safeErrorMessage가 지정된 액션은 예외 메시지(SQL·사용자 입력이 섞일 수 있음)를 저장하지 않고 고정 문구를 저장한다")
+    void logFailure_withSafeErrorMessage_storesFixedMessageNotExceptionMessage() throws Exception {
+        RuntimeException commitFailure = new RuntimeException(
+                "could not execute statement [Data truncation: INSERT INTO admin_message ... values ('비밀 제목','비밀 본문')]",
+                new java.sql.SQLException("원인 체인 메시지: 비밀 본문"));
+
+        adminActionLogAspect.logFailure(safeMessageAnnotation(), commitFailure);
+
+        verify(adminActionLogService).log(
+                isNull(), isNull(), eq("TEST_ACTION"), eq(AdminActionResult.FAIL), eq("MEMBER"),
+                isNull(), isNull(), isNull(), isNull(), isNull(),
+                eq("고정된 실패 문구입니다.")           // 예외 메시지·원인 메시지가 아니다
+        );
+    }
+
+    @Test
+    @DisplayName("safeErrorMessage가 비어 있는 기존 액션은 예외 메시지 저장이 그대로다(동작 불변)")
+    void logFailure_withoutSafeErrorMessage_keepsExceptionMessage() throws Exception {
+        assertThat(sampleAnnotation().safeErrorMessage()).isEmpty();
+
+        adminActionLogAspect.logFailure(sampleAnnotation(), new RuntimeException("기존 메시지"));
+
+        verify(adminActionLogService).log(
+                isNull(), isNull(), eq("TEST_ACTION"), eq(AdminActionResult.FAIL), eq("MEMBER"),
+                isNull(), isNull(), isNull(), isNull(), isNull(),
+                eq("기존 메시지"));
+    }
+
+    @Test
+    @DisplayName("safeErrorMessage가 지정된 액션도 SUCCESS의 errorMessage는 null이다")
+    void logSuccess_withSafeErrorMessage_errorMessageStaysNull() throws Exception {
+        adminActionLogAspect.logSuccess(null, safeMessageAnnotation(), new SampleResult());
+
+        verify(adminActionLogService).log(
+                isNull(), isNull(), eq("TEST_ACTION"), eq(AdminActionResult.SUCCESS), eq("MEMBER"),
+                eq(99L), isNull(), isNull(), isNull(), isNull(), isNull());
     }
 
     @Test

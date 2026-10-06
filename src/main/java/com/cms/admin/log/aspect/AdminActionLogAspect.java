@@ -92,7 +92,7 @@ public class AdminActionLogAspect {
                     ClientIpResolver.resolve(getCurrentRequest()),
                     getRequestUri(),
                     getRequestMethod(),
-                    truncateErrorMessage(e.getMessage())
+                    failureMessage(adminActionLogged, e)
             );
         } catch (Exception loggingError) {
             log.error("관리자 액션 실패 로그 저장 실패 (actionType={})", adminActionLogged.actionType(), loggingError);
@@ -208,6 +208,18 @@ public class AdminActionLogAspect {
             }
         }
         return escaped.toString();
+    }
+
+    /**
+     * FAIL 감사 행의 errorMessage. {@code safeErrorMessage}가 지정된 액션은 예외 메시지를 읽지 않고 고정 문구를 저장한다
+     * (flush·커밋 단계 예외의 메시지에 사용자 입력·SQL이 섞여 감사 행에 남는 것을 막는다).
+     */
+    private String failureMessage(AdminActionLogged adminActionLogged, Exception e){
+        String safe = adminActionLogged.safeErrorMessage();
+        if (safe != null && !safe.isBlank()){
+            return truncateErrorMessage(safe);
+        }
+        return truncateErrorMessage(e.getMessage());
     }
 
     private String truncateErrorMessage(String errorMessage){
