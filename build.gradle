@@ -14,6 +14,10 @@ version = '0.0.1-SNAPSHOT'
 // (PLAN-spring-boot-4.md §4-1).
 ext['jackson-bom.version'] = '3.1.7'
 ext['jackson-2-bom.version'] = '2.21.7'
+// Boot 4.0.8 BOM의 Tomcat 11.0.24는 Boot 3.5 시절 10.1.60 오버라이드로 해소했던 CVE-2026-65182·65905·68525
+// (CRITICAL, 11.0.x 수정판 11.0.25)의 영향 범위라 같은 마이너 라인의 최신 패치로 올린다(Trivy, 2026-10-06 #97).
+// Boot BOM이 11.0.25 이상을 관리하게 되면 제거한다.
+ext['tomcat.version'] = '11.0.26'
 
 java {
     toolchain {
