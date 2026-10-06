@@ -16,7 +16,16 @@
 | V1 | `V1__init_schema.sql` | baseline 스키마 (member, menu, admin_action_log, visit_log — 인덱스 포함, dev DB 실물 추출) |
 | V2 | `V2__backfill_menu_access_role.sql` | 방어적 `ADD COLUMN IF NOT EXISTS` + access_role 3단계 백필 (멱등). 컬럼은 권한관리 PR ②부터 엔티티에서 매핑하지 않고 V16에서 제거된다 |
 | V3 | `V3__seed_default_menus.sql` | 기본 메뉴 시드 — menu 테이블이 완전히 빌 때만 실행 (보충 기능 없음) |
-| V4~V12 | (파일명 참조) | 공지·첨부·감사 로그 라벨 등 — `src/main/resources/db/migration/` 참조 || V13 | `V13__create_permission_tables.sql` | 권한 테이블 `permission_role`·`role_permission` (DDL만) || V14 | `V14__seed_manager_notice_permissions.sql` | MANAGER × 공지 4동작 시드 — **일회성 초기화이며 복구 수단이 아니다**(수동 재실행은 회수한 권한을 되살린다) || V15 | `V15__seed_permission_menu.sql` | "권한 관리" 메뉴 시드(멱등, 최상위 맨 끝, `ord`는 INT 상한으로 제한) || V17 | `V17__add_member_permission_version.sql` | `member.permission_version`(회원별 권한 낙관적 버전, DDL 1문) || V18 | `V18__create_member_permission.sql` | 회원별 허용 행 테이블 `member_permission`(DDL 1문) || V19 | `V19__copy_manager_permissions_to_members.sql` | 배포 시점의 `ROLE_MANAGER` 허용 행을 `DELETED`가 아닌 기존 MANAGER 전원에게 복사 — **일회성 초기화이며 복구 수단이 아니다**(수동 재실행은 회수한 권한을 되살린다) || V16 | `V16__drop_menu_access_role.sql` | `menu.access_role` 컬럼 제거(`DROP COLUMN IF EXISTS`, **되돌릴 수 없음 — 아래 백업 필수**) |
+| V4~V12 | (파일명 참조) | 공지·첨부·감사 로그 라벨 등 — `src/main/resources/db/migration/` 참조 |
+| V13 | `V13__create_permission_tables.sql` | 권한 테이블 `permission_role`·`role_permission` (DDL만) |
+| V14 | `V14__seed_manager_notice_permissions.sql` | MANAGER × 공지 4동작 시드 — **일회성 초기화이며 복구 수단이 아니다**(수동 재실행은 회수한 권한을 되살린다) |
+| V15 | `V15__seed_permission_menu.sql` | "권한 관리" 메뉴 시드(멱등, 최상위 맨 끝, `ord`는 INT 상한으로 제한) |
+| V16 | `V16__drop_menu_access_role.sql` | `menu.access_role` 컬럼 제거(`DROP COLUMN IF EXISTS`, **되돌릴 수 없음 — 아래 백업 필수**) |
+| V17 | `V17__add_member_permission_version.sql` | `member.permission_version`(회원별 권한 낙관적 버전, DDL 1문) |
+| V18 | `V18__create_member_permission.sql` | 회원별 허용 행 테이블 `member_permission`(DDL 1문) |
+| V19 | `V19__copy_manager_permissions_to_members.sql` | 배포 시점의 `ROLE_MANAGER` 허용 행을 `DELETED`가 아닌 기존 MANAGER 전원에게 복사 — **일회성 초기화이며 복구 수단이 아니다**(수동 재실행은 회수한 권한을 되살린다) |
+| V20 | `V20__create_notification.sql` | 상단바 알림 테이블 `notification`(DDL 1문) |
+| V21 | `V21__create_admin_message.sql` | 쪽지 테이블 `admin_message`·`admin_message_sender_state`·`admin_message_send_log`(DDL 3문 — 실패 복구는 아래 "V21 실패 복구") |
 | V22 | `V22__drop_role_permission_tables.sql` | 역할 단위 권한 테이블 `role_permission`·`permission_role` 제거(`DROP TABLE IF EXISTS`, 자식 먼저, **되돌릴 수 없음 — 아래 백업 필수**) |
 
 
@@ -71,19 +80,23 @@ SHOW INDEX FROM menu;              -- (PRIMARY만)
 
 ### 2. 일회성 baseline 기동
 
+**먼저 대상 DB를 백업한다.** 1회차 기동은 V2부터 최신 버전까지 전부 적용하며, 그중 V16(`menu.access_role` 제거)·V22(역할 단위 권한 테이블 제거)는 되돌릴 수 없다(아래 "V16/V22 배포 전 백업과 복구"). 사전 점검·백업·baseline은 **모두 같은 대상 DB**여야 한다 — `make prod-backup`은 prod 스택(`cms-db-prod`) 전용이므로, dev나 별도 DB를 전환할 때는 그 DB의 `mariadb-dump`를 먼저 확보한다.
+
 ```bash
-# 사전 점검 통과 후 1회만
+# 사전 점검·백업 통과 후 1회만
 SPRING_FLYWAY_BASELINE_ON_MIGRATE=true ./gradlew bootRun
 ```
 
-- 1회차 기동: baseline(version 1) 기록 + V2·V3 적용 (백필 완료된 DB에서는 둘 다 no-op).
+- **실행 전제**: 이 명령은 앱 기동이므로 프로파일(`SPRING_PROFILES_ACTIVE`)·DB·메일 환경변수가 **이 명령을 실행하는 셸의 환경변수로** 주입돼 있어야 한다(dev 키 목록은 README "`.env.dev` 작성"). IntelliJ 실행 설정이나 `.env.dev` 파일이 있다는 것만으로는 터미널의 `bootRun`에 전달되지 않는다. 기동 전에 `DB_URL`(생략 시 `application-dev.yml` 기본값)이 1단계에서 점검한 바로 그 DB를 가리키는지 확인한다.
+- 1회차 기동: baseline(version 1) 기록 + V2부터 `src/main/resources/db/migration/`의 최대 버전까지 적용 (V2·V3는 백필 완료된 DB에서 no-op).
 - 이후 기동부터는 `flyway_schema_history`가 존재하므로 환경변수 없이 정상 기동된다.
 
 ### 3. 전환 확인
 
 ```sql
 SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank;
--- 기대: << Flyway Baseline >> (1), V2, V3 모두 success=1
+-- 기대: << Flyway Baseline >> (1)과 V2~최신 버전의 모든 행이 success=1,
+--       마지막 version = src/main/resources/db/migration/의 최대 버전
 ```
 
 ## 시드 데이터 정책

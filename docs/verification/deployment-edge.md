@@ -16,7 +16,7 @@
 - [ ] client가 보낸 `X-Forwarded-For` / `X-Real-IP` / `Forwarded` 및 scheme 관련 헤더를 ingress가 제거·재작성한다. 여러 proxy가 있으면 승인된 hop 정책을 명시했다.
 - [ ] 앱이 신뢰할 proxy 범위를 명시했다. `server.forward-headers-strategy` 설정 한 줄만으로 검증 완료라고 보지 않는다.
 - [ ] 서로 다른 두 외부 client가 서로 다른 `remoteAddr`/rate-limit key로 관찰된다. 같은 NAT의 두 브라우저를 "두 IP"로 오인하지 않는다.
-- [ ] 임의 forwarded 헤더를 바꿔 레이트리밋 quota를 회피하거나 `AdminActionLogAspect`의 감사 IP를 위조할 수 없는지 시험했다. `RateLimitFilter`(`remoteAddr` 사용)와 `AdminActionLogAspect`(전달 헤더 우선 사용)가 서로 다른 IP 소스를 신뢰하는 기존 불일치를 실제 경로에서 대조했다(로드맵 Top5 ③ H-03·M-01 참조 — 이 불일치 자체의 코드 수정은 PR 6 범위 밖).
+- [ ] 임의 forwarded 헤더를 바꿔 레이트리밋 quota를 회피하거나 `AdminActionLogAspect`의 감사 IP를 위조할 수 없는지 시험했다. `RateLimitFilter`와 `ClientIpResolver`(감사·방문 로그)가 같은 `remoteAddr`를 쓰는지 실제 경로에서 대조했다(작성 당시의 IP 소스 불일치 — 감사 로그가 전달 헤더를 우선 사용 — 는 2026-09-28 `d8952ef` #44, 감사 H-03으로 `remoteAddr` 단일 소스로 통일됨).
 - [ ] HTTPS 외부 요청을 앱이 올바른 scheme으로 인식하고 `Secure`/`HttpOnly` cookie, HTTP→HTTPS redirect, 혼합 콘텐츠, redirect loop를 확인했다.
 - [ ] `APP_BASE_URL`의 비밀번호 재설정 링크가 최종 HTTPS origin과 일치한다.
 - [ ] **세션·CSRF 쿠키의 `SameSite` 속성이 실제 ingress 구성(단일 origin/서브도메인 분리 등)과 맞는지 확인했다** — 로드맵 "후속 과제 — ① 실배포 인프라"가 명시한 `forward-headers-strategy`·secure/SameSite 쿠키 항목. 현재 코드는 별도 `SameSite` 설정이 없어 서블릿 컨테이너 기본값을 따른다.
@@ -25,4 +25,5 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목들�
 
 ## 갱신 이력
 
+- 2026-10-06: 문서 정합(감사 L-02) — 7번째 항목의 IP 소스 불일치 서술을 #44 이후 상태로 갱신. 체크 상태는 그대로(전 항목 미검증).
 - 2026-09-27: PR 6(M-01·M-05) — 최초 작성. `adversarial-review/remediation-plan.md` 7절 M-05 체크리스트를 제품 중립적으로 옮기고 SameSite 항목을 추가. 전 항목 미검증.
