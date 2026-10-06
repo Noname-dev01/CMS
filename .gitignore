@@ -71,3 +71,6 @@ src/main/generated/
 /backups
 /backups-quiesced
 /backups-drill
+
+### 개인 문서 (포트폴리오 PDF 등 — 저장소 작업과 무관, 공개 금지) ###
+/portfolio/
