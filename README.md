@@ -1,6 +1,6 @@
 # CMS (Content Management System)
 
-![Java](https://img.shields.io/badge/Java-17-blue)
+![Java](https://img.shields.io/badge/Java-21-blue)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.0-brightgreen)
 ![Spring Security](https://img.shields.io/badge/Spring%20Security-7-green)
 ![Spring Data JPA](https://img.shields.io/badge/Spring%20Data%20JPA-Hibernate%207-yellowgreen)
@@ -187,6 +187,8 @@ make logs-prod   # prod 로그
 ---
 
 ## 개발환경 (IntelliJ + Docker DB)
+
+> **JDK 21 필요** — Gradle toolchain이 Java 21을 요구한다(자동 다운로드는 설정하지 않았으므로 PC에 설치돼 있어야 한다). IntelliJ는 Project Structure에서 **Project SDK와 언어 수준을 21**로 맞추고 Gradle 프로젝트를 다시 불러온다(Reload). IntelliJ에서 직접 실행하는 경로는 Gradle toolchain을 따르지 않는다. Docker 실행(`make dev-up`·prod)은 이미지 안의 JDK 21을 쓴다.
 
 1. DB 실행
    ```

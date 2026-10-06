@@ -17,7 +17,7 @@ Windows에서는 `gradlew.bat`을 사용합니다. Make 대상은 WSL2 또는 �
 
 ## 코딩 스타일 및 명명 규칙
 
-Java 17, 공백 4칸 들여쓰기, 표준 Spring 규칙을 사용합니다. 패키지는 소문자, 클래스는 PascalCase, 메서드와 필드는 camelCase, 상수는 `UPPER_SNAKE_CASE`를 사용합니다. 컨트롤러는 간결하게 유지하고, 비즈니스 규칙은 서비스, 영속성 처리는 리포지토리, 요청 및 응답 모델은 `dto/request`와 `dto/response`에 둡니다. Lombok의 `@RequiredArgsConstructor`를 통한 생성자 주입을 권장합니다. 포매터나 린터가 설정되어 있지 않으므로 주변 코드의 스타일을 따르고 IDE로 import를 정리합니다.
+Java 21, 공백 4칸 들여쓰기, 표준 Spring 규칙을 사용합니다. 패키지는 소문자, 클래스는 PascalCase, 메서드와 필드는 camelCase, 상수는 `UPPER_SNAKE_CASE`를 사용합니다. 컨트롤러는 간결하게 유지하고, 비즈니스 규칙은 서비스, 영속성 처리는 리포지토리, 요청 및 응답 모델은 `dto/request`와 `dto/response`에 둡니다. Lombok의 `@RequiredArgsConstructor`를 통한 생성자 주입을 권장합니다. 포매터나 린터가 설정되어 있지 않으므로 주변 코드의 스타일을 따르고 IDE로 import를 정리합니다.
 
 ## 테스트 가이드라인
 
