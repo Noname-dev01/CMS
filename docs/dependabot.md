@@ -61,4 +61,6 @@ M-06에서 컨테이너 이미지를 digest(`image:tag@sha256:...`)로 고정했
 | #50 | `eclipse-temurin` 17-jre→25-jre | fail / pass | 닫음 + 메이저 무시 댓글 |
 | #53 | `mariadb` 10.11→13.0 | fail / pass | 닫음 + 메이저 무시 댓글 |
 
+**이후 상태(2026-10-06 확인)**: "열어 둠"이던 #56은 같은 날(2026-09-29) Dependabot이 직접 닫았다("gradle-wrapper is no longer being updated by Dependabot" — 같은 날 추가한 메이저 무시 설정이 wrapper에도 적용된 결과). wrapper는 같은 날 Dependabot이 대신 연 마이너 상향 #60(8.12.1→8.14.5)으로 갱신됐다. 위 표는 첫 실행 당시의 스냅샷이라 그대로 둔다.
+
 실패한 4건의 원인은 로그로 확인하지 않았고 다음은 추정이다: #49·#52는 Boot 4 이행이 필요한 상향, #50은 런타임 JRE만 25로 올라 빌더 JDK 17과 불일치, #53은 compose만 바뀌어 `check-image-refs.sh` 일치 검사에 걸림. 새 게이트가 위험한 메이저 상향을 실제로 걸러낸 사례다.

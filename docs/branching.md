@@ -19,7 +19,8 @@
 | 리팩터링 | `refactor/` | `리팩터링:` | `refactor/localdatetime-unify` |
 | 보안 | `security/` | `보안:` | `security/csrf-enable` |
 | 테스트 | `test/` | `테스트:` | `test/ci-db-isolation` |
-| 문서/잡일 | `docs/`, `chore/` | `정리:` | `chore/gitignore-cleanup` |
+| 문서 | `docs/`, `chore/` | `문서:` | `chore/roadmap-member-permission-pr-b` |
+| 잡일·정리 | `chore/` | `정리:` | `chore/gitignore-cleanup` |
 
 - 슬래시(`/`) 뒤는 영문 소문자 하이픈 케이스(`kebab-case`).
 - GitHub 이슈 번호가 있으면 `feat/12-menu-management`처럼 번호를 앞에 붙인다.

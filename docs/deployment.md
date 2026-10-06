@@ -291,7 +291,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 **실제 ingress(리버스 프록시·TLS 종료 위치·호스팅)가 아직 정해지지 않았다** — 이 문서·`docker-compose.prod.yml`은 `127.0.0.1:8080` 루프백 바인딩까지만 다루며, 그대로 인터넷에 노출하면 안 된다. ingress topology가 확정되지 않은 상태에서 특정 제품(nginx 등) 설정을 미리 만들지 않는다 — 대신 실제 외부 공개 전에 통과해야 할 체크리스트만 `docs/verification/deployment-edge.md`에 문서화해뒀다.
 
-**현재 코드에 이미 존재하는 IP 소스 불일치(체크리스트에서 짚음)**: `RateLimitFilter`는 `request.getRemoteAddr()`(위조 불가)를 쓰지만, `AdminActionLogAspect`(감사 로그)는 `X-FORWARDED-FOR`/`X-Real-IP` 헤더를 검증 없이 우선 사용한다 — 리버스 프록시 뒤에서는 두 코드가 서로 다른 IP를 신뢰하게 될 수 있다. 이 불일치 자체는 이번 문서화 작업의 범위가 아니며(로드맵 Top5 ③ H-03·M-01 "감사 로그 신뢰성 강화" 항목 참조), 외부 공개 전 실제 ingress 경로에서 반드시 재확인해야 한다.
+**클라이언트 IP 소스(체크리스트에서 짚음)**: 레이트리밋(`RateLimitFilter`)과 감사 로그·방문 로그·비밀번호 재설정 로그(`ClientIpResolver`)가 모두 `request.getRemoteAddr()`만 쓴다 — `X-Forwarded-For`/`X-Real-IP` 등 전달 헤더는 신뢰하지 않는다(2026-09-28 `d8952ef` #44, 감사 H-03으로 통일. 그 전에는 감사 로그가 전달 헤더를 검증 없이 우선 사용했다). 리버스 프록시를 도입하면 모든 요청의 `remoteAddr`가 프록시 주소가 되므로, `server.forward-headers-strategy`와 프록시의 헤더 재작성을 함께 구성하고 실제 ingress 경로에서 재확인해야 한다(`ClientIpResolver` 주석도 같은 재검토를 요구한다).
 
 **`docs/verification/deployment-edge.md`의 체크리스트는 전부 "미검증(ingress 미확정)"으로 남아 있다.** 이 문서화 작업의 완료는 로드맵 "후속 과제 — ① 실배포 인프라"(nginx·TLS 인증서·실제 호스팅·CD 파이프라인까지 포함) 항목 자체의 완료를 의미하지 않는다 — 그 항목은 실제 ingress가 구축·검증돼야 완료된다.
 
@@ -312,7 +312,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 ### 스캔 실패 시 절차
 
-새 CVE가 공개돼 `prod-smoke`가 빨개지면 (1) 수정 버전으로 상향, (2) 불가하면 `.trivyignore.yaml`에 CVE ID·`paths`·사유·책임자·`expired_at`을 적어 예외 처리한다. 예외 없이 우회하려면 필수 체크 설정을 임시 해제하는 방법뿐이며, 그 사실을 PR에 기록한다. Spring Boot BOM이 관리하는 라이브러리는 `build.gradle`의 `ext['tomcat.version']`·`ext['jackson-bom.version']` 오버라이드로 올리며(Boot가 이 버전 이상을 관리하게 되면 제거), 현재 값과 사유는 해당 파일 주석에 있다.
+새 CVE가 공개돼 `prod-smoke`가 빨개지면 (1) 수정 버전으로 상향, (2) 불가하면 `.trivyignore.yaml`에 CVE ID·`paths`·사유·책임자·`expired_at`을 적어 예외 처리한다. 예외 없이 우회하려면 필수 체크 설정을 임시 해제하는 방법뿐이며, 그 사실을 PR에 기록한다. Spring Boot BOM이 관리하는 라이브러리는 `build.gradle`의 `ext['tomcat.version']`·`ext['jackson-bom.version']`(Jackson 3)·`ext['jackson-2-bom.version']`(Jackson 2, SpringDoc 경유) 오버라이드로 올리며(Boot가 이 버전 이상을 관리하게 되면 제거), 현재 값과 사유는 해당 파일 주석에 있다.
 
 
 ## 쪽지 서버 로그 비유출의 JDBC·세션 설정 전제 (쪽지 V21, adversarial-review/plan/PLAN-admin-message.md R4-1·R5-1)
@@ -374,7 +374,7 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 
 - `GET /swagger-ui.html`·`/v3/api-docs`는 springdoc 비활성 시(prod) 핸들러가 등록되지 않는다. `/admin/api/**` 밖 경로라 `GlobalApiExceptionHandler.API_MATCHER`에 걸리지 않고 `CustomErrorController`의 일반 HTML 404(`error/404.html`)로 응답한다(2026-08-06 `7c64307` #26로 해결됨 — 이전에는 500이었다. 상세는 `docs/troubleshooting.md` "핸들러가 아예 없는 경로가 404가 아니라 500으로 응답됨" 참조).
 - 이 문서의 절차는 로컬/서버에서 사람이 직접 실행하는 것을 전제로 한다(`prod-up.sh`는 호스트 `curl`이 필요). 단 CI의 `prod-smoke` job은 `scripts/ci/`의 래퍼로 `prod-up.sh`·`prod-backup.sh`·`prod-restore.sh`를 폐기 가능한 러너에서 그대로 호출해 검증한다(아래 "CI 배포 게이트" 참조).
-- **백업은 오프사이트 보관을 포함하지 않는다** — 같은 호스트 디스크에만 있는 백업은 디스크 전체 손실을 막지 못한다(범위 밖, 후속 과제로 로드맵에 기록 예정).
+- **백업은 오프사이트 보관을 포함하지 않는다** — 같은 호스트 디스크에만 있는 백업은 디스크 전체 손실을 막지 못한다(범위 밖, 로드맵 "후속 과제 — ①"에 기록됨).
 - **파일 복구가 중단되면 이전 상태·빈 상태·일부만 새 데이터로 교체된 혼합 상태 중 하나로 남을 수 있다** — 볼륨 내부 스테이징 후 최상위 항목 단위로 교체하는 방식이라 완전한 원자성은 아니다. 이 경우 `scripts/prod-restore.sh`의 트랩이 앱을 정지 상태로 유지하고 복구 직전 안전 백업 경로를 안내한다.
 - **`_CMS_BACKUP_INTERNAL_CALL` 환경변수를 수동으로 설정하면 잠금·보존 정리를 우회할 수 있다** — 단일 신뢰 운영자가 로컬에서 수동 실행하는 도구라는 위협 모델을 전제로 문서화된 제약으로만 남긴다(직접 설정하지 않는다).
 - **정규(quiesced) 백업은 자동화돼 있지 않다** — 운영자가 매일 수동으로 실행해야 하며, 실행을 잊으면 RPO 24시간 목표가 실제로는 지켜지지 않는다(스크립트가 실행 누락 자체를 감지·알리지 않음). 실사용자 운영 규모가 커지면 무인 자동화(cron이 stop/start까지 수행)를 재검토한다.
