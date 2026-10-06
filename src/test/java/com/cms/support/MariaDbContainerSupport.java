@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MariaDBContainer;
+import org.testcontainers.mariadb.MariaDBContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -28,8 +28,8 @@ public abstract class MariaDbContainerSupport {
 
     // protected: 스프링 컨텍스트 없이 컨테이너에 직접 접속하는 테스트(Flyway 업그레이드 경로 등)가 접속 정보를 읽는다
     @ServiceConnection
-    protected static final MariaDBContainer<?> MARIA_DB =
-            new MariaDBContainer<>(
+    protected static final MariaDBContainer MARIA_DB =
+            new MariaDBContainer(
                     DockerImageName.parse("mariadb@sha256:7f22313fc130a377a44999965bcb0a08dd5b21e8502824c1b864f792f9bc66ab")
                             .asCompatibleSubstituteFor("mariadb"));
 

@@ -308,6 +308,21 @@ Gradle 빌드, QueryDSL Q클래스 생성, 라이브러리 호환성 등 빌드�
 
 IDE로 개발할 때는 저장 시 자동 컴파일(Build project automatically)이 켜져 있으면 이 문제가 발생하지 않는다. CLI/에이전트로 파일만 직접 편집하는 워크플로우에서만 겪는 함정이다.
 
+### Spring Boot 4 전환 시 조용히 지나가는 함정 — BOM 취약 버전 재유입·정적 ObjectMapper 형식·리다이렉트 Location·EnvironmentPostProcessor 키 (2026-10-06, PLAN-spring-boot-4.md)
+
+**증상**: Boot 3.5.16 → 4.0.8 전환(CVE-2026-47884, `spring-webmvc` 6.2.x 수정판 없음)에서 컴파일·테스트가 통과해도 놓치기 쉬운 네 가지가 있었다.
+
+**원인과 해결**
+1. **BOM 오버라이드의 의미가 바뀐다.** Boot 4에서 `jackson-bom.version`은 Jackson 3(`tools.jackson`), `jackson-2-bom.version`은 Jackson 2 BOM이다. Boot 3 시절 `ext['jackson-bom.version'] = '2.21.7'`을 지우면 Boot 4.0.8 BOM의 Jackson 3.1.5·2.21.5가 들어와 이미 해소했던 CVE-2026-68497(< 3.1.6 / < 2.21.6)이 재유입된다. Jackson 2는 SpringDoc(swagger-core)이 계속 끌어온다. → 두 BOM을 각각 수정판으로 오버라이드(`3.1.7`·`2.21.7`). **Tomcat도 같다**: Boot 3.5의 `tomcat.version=10.1.60`을 "BOM이 11.0.24로 더 높다"는 이유로 지웠더니 CVE-2026-65182·65905·68525(CRITICAL, 11.0.x 수정판 11.0.25)가 재유입돼 PR #97의 Trivy가 실패했다(로컬 테스트·이미지 빌드는 모두 통과) → `tomcat.version=11.0.26`. 메이저 전환 시 기존 오버라이드는 숫자 비교가 아니라 **각 CVE의 새 라인 수정판**과 대조해 판단한다.
+2. **정적 `ObjectMapper`는 `spring.jackson.*`을 받지 않는다.** `ApiAuthenticationEntryPoint`·`ApiAccessDeniedHandler`·`AdminSessionExpiredStrategy`·`RateLimitFilter`가 쓰던 `new ObjectMapper().findAndRegisterModules()`(Jackson 2)는 `WRITE_DATES_AS_TIMESTAMPS` 기본값이 켜져 있어, 401·403·세션 만료·429의 `timestamp`가 **배열**(`[2026,10,6,...]`)이었다 — 컨트롤러 오류 응답은 문자열이라 같은 `ApiErrorResponse`가 경로마다 달랐다. 기존 테스트는 `$.timestamp` 존재만 봐서 몰랐다. Jackson 3 `new ObjectMapper()`는 기본이 ISO 문자열이라 전환으로 통일됐다(사용자 결정). 형식 단언 테스트로 고정.
+3. **MockMvc의 `Location`과 실제 응답이 다르다.** Security 7은 로그인 리다이렉트에 상대 URI(`/admin/login`)를 넘겨 MockMvc가 그 값을 보여 주므로 기존 `redirectedUrlPattern("**/admin/login")`(절대 URL 전제)이 10건 실패한다. 그러나 실서버(Tomcat 11) 응답은 여전히 `http://host/admin/login` 절대 URL이었다 — 클라이언트 영향 없음. 테스트는 `redirectedUrl("/admin/login")` 정확값으로 바꿨다.
+
+4. **`spring.factories`의 옛 `EnvironmentPostProcessor` 키는 Boot 4에서 조용히 무시된다.** `org.springframework.boot.env.EnvironmentPostProcessor` 키로 등록된 `ProfileGuardEnvironmentPostProcessor`(dev+prod 동시 활성화 차단)가 실행되지 않는데도 컴파일·기존 테스트는 전부 통과했다(기존 테스트는 클래스를 직접 호출). 키를 `org.springframework.boot.EnvironmentPostProcessor`로, 인터페이스를 `org.springframework.boot.EnvironmentPostProcessor`로 바꾸고, 실제 `SpringApplication.run("--spring.profiles.active=dev,prod")`이 실패하는지 보는 테스트를 추가했다 — 옛 키로 되돌리는 변이 실험에서 이 테스트만 실패함을 확인했다.
+
+또한 `application.yml`의 `spring.jackson.serialization.write-dates-as-timestamps`는 Jackson 3에서 `DateTimeFeature`로 옮겨져 `spring.jackson.datatype.datetime.write-dates-as-timestamps`가 됐다.
+
+**검증**: `./gradlew dependencies --configuration runtimeClasspath`로 `tools.jackson.core:jackson-databind`·`com.fasterxml.jackson.core:jackson-databind`·`spring-webmvc` 해석 버전 확인, prod 이미지 `app.jar` 내 jar 이름 확인, `curl -D - http://localhost:<port>/admin/member/settings`로 실제 `Location` 확인.
+
 ---
 
 ## 애플리케이션 / 런타임

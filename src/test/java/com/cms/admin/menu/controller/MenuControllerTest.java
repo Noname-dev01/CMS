@@ -14,15 +14,15 @@ import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.MethodSecurityTestConfig;
 import com.cms.config.auth.AdminSecurityService;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -221,6 +221,20 @@ class MenuControllerTest {
                         .content("{\"menuName\":\"메뉴\",\"accessRole\":\"ADMIN\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessRole").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("JSON 본문 뒤에 후행 토큰이 있으면 400 JSON_PARSE_ERROR — Jackson 3 FAIL_ON_TRAILING_TOKENS 기본값(PLAN-spring-boot-4.md §2)")
+    @WithMockUser(roles = "ADMIN")
+    void createMenu_trailingTokens_returns400() throws Exception {
+        mockMvc.perform(post("/admin/api/menus")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"menuName\":\"메뉴\"} {}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("JSON_PARSE_ERROR"));
+
+        verifyNoInteractions(menuService);
     }
 
     // ===================== createMenu =====================
