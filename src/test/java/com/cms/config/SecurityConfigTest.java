@@ -170,7 +170,7 @@ class SecurityConfigTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(get("/admin/member/messages"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/admin/login"));
+                .andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
