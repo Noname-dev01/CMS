@@ -64,6 +64,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 - **트랜잭션**: 비즈니스 로직과 트랜잭션 경계는 Service에 둔다. 조회 전용은 `@Transactional(readOnly = true)`.
 - **QueryDSL 우선**: 동적 조건·복잡한 조인은 `@Query` 문자열보다 QueryDSL(`*RepositoryImpl`)로 작성한다.
 - **예외 처리**: `GlobalApiExceptionHandler`(`@RestControllerAdvice`)를 통해 처리한다. 컨트롤러에서 try-catch를 남발하지 않는다.
+- **대소문자 변환은 `Locale.ROOT`**: `toLowerCase()`·`toUpperCase()`를 인자 없이 쓰지 않는다 — JVM 기본 로케일이 tr/az이면 `"GIF"` → `"gıf"`처럼 결과가 바뀐다(2026-10-07 전수 정리, `adversarial-review/plan/PLAN-extension-locale-root.md`). 자동 검사는 없으니 리뷰에서 확인한다.
 
 ## RESTful API 설계 규칙
 

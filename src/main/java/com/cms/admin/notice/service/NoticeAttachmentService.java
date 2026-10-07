@@ -25,6 +25,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -205,7 +206,7 @@ public class NoticeAttachmentService {
     private String requireAllowedExtension(String filename) {
         int dotIndex = filename.lastIndexOf('.');
         String extension = dotIndex >= 0 && dotIndex < filename.length() - 1
-                ? filename.substring(dotIndex + 1).toLowerCase()
+                ? filename.substring(dotIndex + 1).toLowerCase(Locale.ROOT)
                 : "";
         if (!ALLOWED_CONTENT_TYPES_BY_EXTENSION.containsKey(extension)) {
             throw new InvalidRequestException("허용되지 않는 파일 형식입니다: ." + extension);

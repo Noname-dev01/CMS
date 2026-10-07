@@ -6,10 +6,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,6 +43,38 @@ class LocalDiskFileStorageTest {
         byte[] loaded = storage.load(storageKey);
 
         assertArrayEquals(content, loaded);
+    }
+
+    /**
+     * 기본 로케일을 잠시 바꿔 body를 실행하고 기본·DISPLAY·FORMAT 로케일을 모두 되돌린다
+     * (adversarial-review/plan/PLAN-extension-locale-root.md 쟁점 4).
+     */
+    private static void withDefaultLocale(Locale locale, Runnable body) {
+        Locale original = Locale.getDefault();
+        Locale display = Locale.getDefault(Locale.Category.DISPLAY);
+        Locale format = Locale.getDefault(Locale.Category.FORMAT);
+        try {
+            Locale.setDefault(locale);
+            body.run();
+        } finally {
+            Locale.setDefault(original);
+            Locale.setDefault(Locale.Category.DISPLAY, display);
+            Locale.setDefault(Locale.Category.FORMAT, format);
+        }
+        assertEquals(original, Locale.getDefault());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GIF", "ZIP"})
+    @DisplayName("기본 로케일이 터키어여도 대문자 I가 든 확장자가 ASCII 소문자로 저장 키에 붙는다")
+    void store_uppercaseExtensionUnderTurkishLocale_keepsAsciiExtension(String extension, @TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        String[] key = new String[1];
+
+        withDefaultLocale(Locale.forLanguageTag("tr-TR"),
+                () -> key[0] = storage.store("x".getBytes(), "A." + extension));
+
+        assertTrue(key[0].endsWith("." + extension.toLowerCase(Locale.ROOT)), "저장 키: " + key[0]);
     }
 
     @Test
