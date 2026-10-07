@@ -17,6 +17,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -342,7 +343,7 @@ public class LocalDiskFileStorage implements FileStorage {
         if (dotIndex < 0 || dotIndex == originalFilename.length() - 1) {
             return "";
         }
-        String ext = originalFilename.substring(dotIndex + 1).toLowerCase();
+        String ext = originalFilename.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
         if (!ext.matches("[a-z0-9]{1,10}")) {
             return "";
         }

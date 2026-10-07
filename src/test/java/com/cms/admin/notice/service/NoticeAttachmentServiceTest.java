@@ -15,6 +15,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -29,6 +31,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -154,6 +157,56 @@ class NoticeAttachmentServiceTest {
         MockMultipartFile file = new MockMultipartFile("file", "malware.exe", "application/octet-stream", "x".getBytes());
 
         assertThrows(InvalidRequestException.class, () -> noticeAttachmentService.upload(1L, file));
+        verify(fileStorage, never()).store(any(byte[].class), anyString());
+    }
+
+    // ===== 확장자 소문자화의 로케일 독립성 (adversarial-review/plan/PLAN-extension-locale-root.md 쟁점 3·4) =====
+
+    /**
+     * 기본 로케일을 잠시 바꿔 body를 실행하고 기본·DISPLAY·FORMAT 로케일을 모두 되돌린다.
+     * JUnit 병렬 실행이 꺼져 있어(junit-platform.properties 없음) 메서드 안 복원으로 충분하다.
+     */
+    private static void withDefaultLocale(Locale locale, Runnable body) {
+        Locale original = Locale.getDefault();
+        Locale display = Locale.getDefault(Locale.Category.DISPLAY);
+        Locale format = Locale.getDefault(Locale.Category.FORMAT);
+        try {
+            Locale.setDefault(locale);
+            body.run();
+        } finally {
+            Locale.setDefault(original);
+            Locale.setDefault(Locale.Category.DISPLAY, display);
+            Locale.setDefault(Locale.Category.FORMAT, format);
+        }
+        assertEquals(original, Locale.getDefault());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GIF", "ZIP"})
+    @DisplayName("기본 로케일이 터키어여도 대문자 I가 든 확장자(GIF·ZIP)가 화이트리스트를 통과한다")
+    void upload_uppercaseExtensionUnderTurkishLocale_allowed(String extension) {
+        given(noticeRepository.findByIdAndDeletedFalseForUpdate(1L)).willReturn(Optional.of(activeNotice()));
+        given(noticeAttachmentRepository.countByNoticeId(1L)).willReturn(0L);
+        given(fileStorage.store(any(byte[].class), anyString())).willReturn("2026/10/07/uuid");
+        given(noticeAttachmentRepository.save(any(NoticeAttachment.class))).willAnswer(inv -> inv.getArgument(0));
+        MockMultipartFile file = new MockMultipartFile("file", "FILE." + extension, "application/octet-stream", "x".getBytes());
+
+        withDefaultLocale(Locale.forLanguageTag("tr-TR"),
+                () -> assertDoesNotThrow(() -> noticeAttachmentService.upload(1L, file)));
+
+        verify(fileStorage).store(any(byte[].class), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GİF", "ZİP"})
+    @DisplayName("기본 로케일이 터키어여도 점 있는 대문자 İ(U+0130) 확장자는 다른 로케일과 같이 거부된다")
+    void upload_dottedCapitalIExtensionUnderTurkishLocale_rejected(String extension) {
+        given(noticeRepository.findByIdAndDeletedFalseForUpdate(1L)).willReturn(Optional.of(activeNotice()));
+        MockMultipartFile file = new MockMultipartFile("file", "FILE." + extension, "application/octet-stream", "x".getBytes());
+
+        withDefaultLocale(Locale.forLanguageTag("tr-TR"),
+                () -> assertThrows(InvalidRequestException.class, () -> noticeAttachmentService.upload(1L, file)));
+
         verify(fileStorage, never()).store(any(byte[].class), anyString());
     }
 
