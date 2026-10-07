@@ -1,6 +1,6 @@
 # PLAN — 공개 공지 목록 검색
 
-> 상태: ✅ 구현·검증 완료 (2026-10-07, 커밋·PR 전) — v2 승인(적대적 리뷰 2라운드 ship, 검색 대상 제목만 사용자 확정) → 구현 → 테스트 → dev Docker 실기(Playwright 비로그인) + 1만·5만 행 비용 실측. 결과는 문서 끝 "구현·검증 결과" 참조
+> 상태: ✅ 완료 (2026-10-07 · #110 `c762fe4`, PR·master CI `test`·`prod-smoke` success — Linux CI 1392건 실패·건너뜀 0) — v2 승인(적대적 리뷰 2라운드 ship, 검색 대상 제목만 사용자 확정) → 구현 → 테스트 → dev Docker 실기(Playwright 비로그인) + 1만·5만 행 비용 실측. 결과는 문서 끝 "구현·검증 결과" 참조
 > 출처: 로드맵 "선정에서 탈락한 후보 > 공개 공지 목록 검색"(`PLAN-public-notice.md`가 의도적으로 범위 제외) — `/suggestRoadmap` 2026-10-07 선택
 > 유형: feat · 브랜치 `feat/public-notice-search` · **스키마 변경 없음 · 인가 정책 변경 없음 · 신규 의존성 없음**
 
