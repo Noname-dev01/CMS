@@ -3,6 +3,8 @@ package com.cms.common.storage;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -325,6 +327,155 @@ class LocalDiskFileStorageTest {
         LocalDiskFileStorage storage = newStorage(root);
 
         assertThrows(IllegalStateException.class, () -> storage.open("2020/link.txt"));
+    }
+
+    // ===== load()의 최종 파일 링크 거부 + 네임스페이스 루트 링크 차단 =====
+    // (adversarial-review/plan/PLAN-storage-load-nofollow.md 쟁점 4·6 — 링크를 만들 수 없는 환경(권한 없는 Windows)에서는 건너뛴다)
+
+    private static void createSymlinkOrSkip(Path link, Path target) {
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (IOException | UnsupportedOperationException e) {
+            Assumptions.assumeTrue(false, "이 환경은 심볼릭 링크 생성을 지원하지 않아 테스트를 건너뜁니다: " + e.getMessage());
+        }
+    }
+
+    /** 링크 거부는 "파일 없음"(404)이 아니라 서버 오류(500) 계약이어야 한다 — open()과 동일(쟁점 2). */
+    private static void assertRejectedAsServerError(org.junit.jupiter.api.function.Executable executable) {
+        IllegalStateException e = assertThrows(IllegalStateException.class, executable);
+        assertFalse(e instanceof StorageFileNotFoundException, "링크 거부가 not-found로 분류됐습니다: " + e);
+    }
+
+    @Test
+    @DisplayName("load는 최종 파일 자체가 외부를 가리키는 심볼릭 링크이면 서버 오류로 거부한다")
+    void load_finalFileSymlink_rejected(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Path dir = root.resolve("2020");
+        Files.createDirectories(dir);
+        Path outsideFile = tempDir.resolve("secret.txt");
+        Files.writeString(outsideFile, "secret");
+        createSymlinkOrSkip(dir.resolve("link.txt"), outsideFile);
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertRejectedAsServerError(() -> storage.load("2020/link.txt"));
+    }
+
+    @Test
+    @DisplayName("네임스페이스 load도 최종 파일 자체가 심볼릭 링크이면 거부한다")
+    void load_namespace_finalFileSymlink_rejected(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Path dir = root.resolve("profile").resolve("2020");
+        Files.createDirectories(dir);
+        Path outsideFile = tempDir.resolve("secret.png");
+        Files.writeString(outsideFile, "secret");
+        createSymlinkOrSkip(dir.resolve("link.png"), outsideFile);
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertRejectedAsServerError(() -> storage.load("2020/link.png", "profile"));
+    }
+
+    @Test
+    @DisplayName("대상 없는(dangling) 최종 링크도 not-found가 아니라 서버 오류로 거부한다 (의도된 동작 변화 — 쟁점 2)")
+    void load_danglingFinalFileSymlink_rejectedAsServerError(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Path dir = root.resolve("2020");
+        Files.createDirectories(dir);
+        createSymlinkOrSkip(dir.resolve("dangling.txt"), tempDir.resolve("missing.txt"));
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertRejectedAsServerError(() -> storage.load("2020/dangling.txt"));
+    }
+
+    @Test
+    @DisplayName("네임스페이스 디렉터리 자체가 외부 링크이면 네임스페이스 load가 거부된다")
+    void load_namespaceDirSymlink_rejected(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Files.createDirectories(root);
+        Path outside = tempDir.resolve("outside");
+        Files.createDirectories(outside.resolve("2020"));
+        Files.writeString(outside.resolve("2020").resolve("x.png"), "secret");
+        createSymlinkOrSkip(root.resolve("profile"), outside);
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertRejectedAsServerError(() -> storage.load("2020/x.png", "profile"));
+    }
+
+    @Test
+    @DisplayName("네임스페이스 디렉터리 자체가 외부 링크이면 네임스페이스 delete가 거부되고 외부 파일은 남는다")
+    void delete_namespaceDirSymlink_rejectedWithoutDeletingOutside(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Files.createDirectories(root);
+        Path outside = tempDir.resolve("outside");
+        Path outsideFile = outside.resolve("2020").resolve("x.png");
+        Files.createDirectories(outsideFile.getParent());
+        Files.writeString(outsideFile, "secret");
+        createSymlinkOrSkip(root.resolve("profile"), outside);
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertThrows(IllegalStateException.class, () -> storage.delete("2020/x.png", "profile"));
+        assertTrue(Files.exists(outsideFile), "루트 밖 파일이 삭제됐습니다");
+    }
+
+    @Test
+    @DisplayName("네임스페이스 디렉터리 자체가 외부 링크이면 네임스페이스 store가 거부되고 외부에 파일이 생기지 않는다")
+    void store_namespaceDirSymlink_rejected(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Files.createDirectories(root);
+        Path outside = tempDir.resolve("outside");
+        Files.createDirectories(outside);
+        createSymlinkOrSkip(root.resolve("profile"), outside);
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertThrows(IllegalStateException.class, () -> storage.store("img".getBytes(), "a.png", "profile"));
+        // 빈 날짜 디렉터리는 생길 수 있다(검증 전 createDirectories — 계획서 쟁점 6 잔여) — 일반 파일만 없으면 된다.
+        try (var files = Files.walk(outside)) {
+            assertEquals(0, files.filter(Files::isRegularFile).count());
+        }
+    }
+
+    @Test
+    @DisplayName("설정 루트 자체가 링크인 구성은 무네임스페이스·네임스페이스 모두 store→load→delete 왕복이 정상이다")
+    void rootItselfSymlink_stillWorks(@TempDir Path tempDir) throws IOException {
+        Path realRoot = tempDir.resolve("real-root");
+        Files.createDirectories(realRoot);
+        Path linkRoot = tempDir.resolve("link-root");
+        createSymlinkOrSkip(linkRoot, realRoot);
+
+        LocalDiskFileStorage storage = newStorage(linkRoot);
+
+        String key = storage.store("plain".getBytes(), "a.txt");
+        assertArrayEquals("plain".getBytes(), storage.load(key));
+        String profileKey = storage.store("img".getBytes(), "a.png", "profile");
+        assertArrayEquals("img".getBytes(), storage.load(profileKey, "profile"));
+
+        storage.delete(key);
+        storage.delete(profileKey, "profile");
+        assertFalse(Files.exists(realRoot.resolve(key)));
+        assertFalse(Files.exists(realRoot.resolve("profile").resolve(profileKey)));
+    }
+
+    @Test
+    @DisabledOnOs(value = OS.WINDOWS, disabledReason = "Windows는 경로의 \"..\"를 링크 해석 전에 어휘적으로 처리해 POSIX와 실경로 의미가 다르다")
+    @DisplayName("링크 뒤에 \"..\"가 오는 설정 루트는 원본 설정의 실경로를 경계로 삼는다 (어휘 정규화 위치로 경계가 옮겨가지 않음)")
+    void rootWithDotDotAfterSymlink_boundaryUsesRealPath(@TempDir Path tempDir) throws IOException {
+        Path volSub = tempDir.resolve("vol").resolve("sub");
+        Files.createDirectories(volSub);
+        Files.createDirectories(tempDir.resolve("vol").resolve("attachments"));
+        createSymlinkOrSkip(tempDir.resolve("link"), volSub);
+        // 어휘 정규화 위치(<tmp>/attachments)에만 파일을 둔다 — 실경로 기준(<tmp>/vol/attachments) 밖이다.
+        Path lexicalFile = tempDir.resolve("attachments").resolve("2020").resolve("x.txt");
+        Files.createDirectories(lexicalFile.getParent());
+        Files.writeString(lexicalFile, "secret");
+
+        LocalDiskFileStorage storage = newStorage(tempDir.resolve("link").resolve("..").resolve("attachments"));
+
+        assertThrows(IllegalStateException.class, () -> storage.load("2020/x.txt"));
     }
 
     @Test
