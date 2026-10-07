@@ -1,5 +1,6 @@
 package com.cms.admin.notice.dto.request;
 
+import com.cms.admin.member.dto.request.validation.MaxUtf8Bytes;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -23,9 +24,13 @@ public class NoticeCreateRequest {
     private String title;
 
     @NotBlank
-    @Size(max = 10000)
-    @Schema(description = "본문", example = "2026-07-21 02:00~04:00 시스템 점검이 진행됩니다.")
+    @MaxUtf8Bytes(value = 200_000, message = "본문이 너무 깁니다.")
+    @Schema(description = "본문 HTML(편집기 출력). 서버가 허용 목록으로 정리한 뒤 저장한다 — 보이는 글자 10,000자 이하",
+            example = "<p>2026-07-21 02:00~04:00 시스템 점검이 진행됩니다.</p>")
     private String content;
+
+    @Schema(description = "본문 형식 표식. \"HTML\" 필수 — 배포 전에 열어 둔 평문 편집 화면의 저장을 막는다", example = "HTML")
+    private String contentFormat;
 
     @Schema(description = "노출 여부. 누락 시 true로 기본화", example = "true")
     private Boolean useYn;

@@ -6,7 +6,13 @@
 
 ## Notice (공지사항, 2026-07-20 구현 완료 — 첫 콘텐츠 도메인)
 
-- 필드: `title`(200자)·`content`(TEXT, 최대 10,000자)·`useYn`(노출 여부)·`deleted`(소프트 삭제)·`authorId`(작성 시점 로그인 userId 문자열 스냅샷, member FK 아님) — 5개 컬럼 모두 NOT NULL
+- 필드: `title`(200자)·`content`(**HTML**, MEDIUMTEXT — V23)·`useYn`(노출 여부)·`deleted`(소프트 삭제)·`authorId`(작성 시점 로그인 userId 문자열 스냅샷, member FK 아님) — 5개 컬럼 모두 NOT NULL
+- **본문은 편집기(Quill) HTML이다**(2026-10-07, `adversarial-review/plan/PLAN-html-editor.md`). 계약:
+  - 저장 경로(`NoticeService.createNotice`·`updateNotice`)와 출력 경로(`NoticeResponse.from`·`PublicNoticeDetail.from`) **양쪽에서** `com.cms.common.html.HtmlContentSanitizer`를 거친다 — 본문을 내보내는 새 경로를 만들면 반드시 이 sanitizer를 거친다(관리 상세는 `innerHTML`, 공개 상세는 `th:utext`로 렌더링하므로 정리되지 않은 값이 나가면 곧바로 저장형 XSS다).
+  - `content`가 있는 생성·수정 요청은 `contentFormat: "HTML"`이 필수(없으면 400 "새로고침" 안내) — 배포 전에 열어 둔 평문 편집 화면이 평문을 보내 HTML로 해석되는 것을 막는다. `useYn`만 바꾸는 PATCH는 불필요.
+  - 길이 규칙: 보이는 텍스트(텍스트 문자 수 + 블록 종료·블록 중간 `br`당 1, 공백 정규화 없음) ≤ 10,001, 정리된 HTML ≤ 200,000바이트, 요청 원문 ≤ 200,000바이트(`@MaxUtf8Bytes`). "텍스트가 공백(`&nbsp;` 포함)이고 이미지도 없음"이면 400(이미지만 있는 본문은 허용).
+  - 저장·수정 때 본문의 `/content-images/{id}` 집합으로 `content_image_ref`의 `(NOTICE, 공지ID)` 참조를 **같은 트랜잭션·같은 행 잠금 안에서** 교체한다(`ContentImageService.replaceRefs`). 소프트 삭제는 참조를 남긴다(공개 판정이 `deleted=false`로 거른다). 이미지 업로드는 `POST /admin/api/notices/content-images`(`com.cms.admin.contentimage`의 `CLAUDE.md`).
+  - 기존 평문은 V25가 일괄 변환했다(롤백 주의는 `docs/migration-guide.md`).
 - `useYn`(노출)과 `deleted`(소프트 삭제)는 **별도 컬럼**이다 — 공지는 노출 여부와 삭제 상태를 별도 컬럼으로 두는 소프트 삭제이고, 메뉴는 `useYn`(비활성화)과 하드 삭제(영구삭제)를 별개 동작으로 가진다. 목록·상세·수정·삭제는 항상 `deleted=false` 필터
 - **PATCH·DELETE는 비관적 락**(`NoticeRepository.findByIdAndDeletedFalseForUpdate` — 명시적 `@Query` + `@Lock(PESSIMISTIC_WRITE)`, `MenuRepository.findByIdForUpdate`와 동일 패턴)으로 직렬화한다. 락 없이는 DELETE 커밋 후 먼저 읽은 PATCH가 삭제 상태를 되돌리는 lost update가 발생한다. `DELETE`도 `NoticeResponse`를 반환(컨트롤러가 버리고 204) — `AdminActionLogAspect`가 반환 객체 getter에서만 targetId를 추출하므로 `void`면 감사 로그 targetId가 항상 null이 된다(`MenuService.deleteMenu()`와 동일 이유 — 삭제 전 스냅샷 `MenuDeleteResult`를 반환)
 - 목록(`GET /admin/api/notices`)은 `NoticeSummaryResponse`(본문 제외), 상세·생성·수정·삭제는 `NoticeResponse`(본문 포함) — 목록 응답의 JSON 직렬화·전송량만 줄이며, QueryDSL 조회 자체(DB에서 content 읽기)는 줄지 않는다

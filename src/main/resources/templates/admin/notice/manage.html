@@ -5,11 +5,42 @@
 </head>
 <body id="page-top">
 <link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
+<link rel="stylesheet" th:href="@{/vendor/quill/quill.snow.css}">
 <style>
-    /* 본문(content)은 줄바꿈이 있는 긴 텍스트라 상세 뷰에서 pre-wrap으로 표시한다. */
+    /* 본문은 서버가 정리한 HTML이다. 표시 규칙은 Quill 편집 영역(.ql-editor)과 같게 맞춘다 —
+       pre-wrap(연속 공백·빈 줄 보존) + 문단 여백 0(PLAN-html-editor.md 쟁점 12). */
     .notice-content-view {
         white-space: pre-wrap;
         word-break: break-word;
+    }
+
+    .notice-content-view p,
+    .notice-content-view h2,
+    .notice-content-view h3,
+    .notice-content-view ol,
+    .notice-content-view ul,
+    .notice-content-view blockquote {
+        margin: 0;
+    }
+
+    .notice-content-view ol,
+    .notice-content-view ul {
+        padding-left: 1.5em;
+    }
+
+    .notice-content-view blockquote {
+        border-left: 4px solid #d1d3e2;
+        padding-left: 1em;
+    }
+
+    .notice-content-view img,
+    .notice-editor .ql-editor img {
+        max-width: 100%;
+    }
+
+    .notice-editor .ql-editor {
+        min-height: 240px;
+        font-size: 1rem;
     }
 
     .attachment-section {
@@ -213,8 +244,9 @@
                         <input type="text" class="form-control" id="formTitle" maxlength="200">
                     </div>
                     <div class="form-group">
-                        <label class="form-label" for="formContent">본문</label>
-                        <textarea class="form-control" id="formContent" rows="8" maxlength="10000"></textarea>
+                        <label class="form-label">본문</label>
+                        <div class="notice-editor"><div id="formContentEditor"></div></div>
+                        <small id="editorBusy" class="form-text text-muted d-none">이미지를 올리는 중입니다. 끝난 뒤 저장할 수 있습니다.</small>
                     </div>
                     <div class="form-group">
                         <div class="custom-control custom-switch">
@@ -257,6 +289,8 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
+<script src="/vendor/quill/quill.js"></script>
+<script src="/js/admin/notice-editor.js"></script>
 
 <!-- 현재 사용자의 위임 기능 동작 키(예 "NOTICE:CREATE") — 버튼 표시용이며 서버 판정이 최종이다. th:inline은 이 작은 스크립트에만 쓴다. -->
 <script th:inline="javascript">
@@ -292,8 +326,19 @@
     const viewContent = document.getElementById("viewContent");
 
     const formTitle = document.getElementById("formTitle");
-    const formContent = document.getElementById("formContent");
     const formUseYn = document.getElementById("formUseYn");
+    const editorBusy = document.getElementById("editorBusy");
+    // 진행 중인 저장 요청의 identity 토큰(없으면 null) — 이미지 업로드가 끝났을 때 저장 버튼을 다시 켜도 되는지 판단한다.
+    // 불리언이 아니라 토큰인 이유: 저장 중 다른 공지로 전환하면 이전 요청의 finally가 해제를 건너뛰므로, 그 요청의 것일 때만 지운다.
+    let saveInFlightToken = null;
+    const editor = NoticeEditor.create(document.getElementById("formContentEditor"), {
+        onBusyChange: function (busy) {
+            editorBusy.classList.toggle("d-none", !busy);
+            // 현재 모달의 저장만 본다 — 다른 공지의 저장이 진행 중이어도 이 모달의 저장 버튼을 막지 않는다
+            btnSave.disabled = busy || (saveInFlightToken !== null && saveInFlightToken === currentDetailController);
+        },
+        onError: showDetailError
+    });
 
     const btnDelete = document.getElementById("btnDelete");
     const btnEditMode = document.getElementById("btnEditMode");
@@ -594,27 +639,30 @@
         btnCancelEdit.classList.remove("d-none");
     }
 
-    // 상세 뷰는 textContent만 사용한다 — HTML로 해석되지 않으므로 별도 이스케이프가
-    // 필요 없다(innerHTML을 절대 쓰지 않는다). 저장형 XSS 방어 — 설계 결정 5.
+    // 상세 뷰의 평문 필드는 textContent만 사용한다. 본문(content)만 예외로 innerHTML을 쓴다 — 서버가 응답 직전에
+    // 허용 목록 sanitizer(HtmlContentSanitizer)를 거친 HTML만 내려준다(저장 시 + 출력 시 이중, PLAN-html-editor.md 쟁점 4·12).
+    // 응답 본문 외의 값을 이 요소에 innerHTML로 넣지 않는다.
     function renderView(data) {
         viewTitle.textContent = data.title || "-";
         viewAuthor.textContent = data.authorId || "-";
         viewUseYn.textContent = data.useYn ? "노출" : "비노출";
         viewCreateDate.textContent = formatDate(data.createDate);
         viewUpdateDate.textContent = formatDate(data.updateDate);
-        viewContent.textContent = data.content || "";
+        viewContent.innerHTML = data.content || "";
     }
 
-    // 폼 필드는 .value 대입만 사용한다 — HTML로 해석되지 않는다.
+    // 제목은 .value 대입, 본문은 편집기 내용 교체(삽입 아님 — 업로드 무효화·undo 이력 초기화 포함).
     function fillForm(data) {
         formTitle.value = data ? (data.title || "") : "";
-        formContent.value = data ? (data.content || "") : "";
+        editor.setHtml(data ? (data.content || "") : "");
         formUseYn.checked = data ? !!data.useYn : true;
     }
 
     function abortPendingDetailRequest() {
         // 다른 공지로 전환하거나 모달을 닫을 때 진행 중인 첨부 목록 응답도 버려지게 세대를 올린다.
         attachmentRequestSeq++;
+        // 진행 중인 본문 이미지 업로드도 무효화한다 — 공지 A의 이미지가 B의 편집기에 들어가지 않게(R1-2)
+        editor.invalidate();
         if (currentDetailController) {
             currentDetailController.abort();
             currentDetailController = null;
@@ -792,6 +840,7 @@
 
     btnCancelEdit.addEventListener("click", function () {
         hideDetailError();
+        editor.invalidate();
         if (mode === "edit" && currentDetail) {
             mode = "view";
             renderView(currentDetail);
@@ -802,9 +851,11 @@
     });
 
     async function saveCreate() {
+        // contentFormat은 "이 본문은 편집기 HTML"이라는 표식 — 없으면 서버가 구 평문 화면의 요청으로 보고 거부한다(R2-2)
         const payload = {
             title: formTitle.value.trim(),
-            content: formContent.value.trim(),
+            content: editor.getHtml(),
+            contentFormat: "HTML",
             useYn: formUseYn.checked
         };
 
@@ -823,13 +874,14 @@
     function buildEditPayload() {
         const payload = {};
         const title = formTitle.value.trim();
-        const content = formContent.value.trim();
 
         if (title !== (currentDetail.title || "")) {
             payload.title = title;
         }
-        if (content !== (currentDetail.content || "")) {
-            payload.content = content;
+        // 본문은 편집기를 연 시점의 결과와 비교한다(서버 정리본과 Quill 출력은 표기가 달라 직접 비교할 수 없다)
+        if (editor.isChanged()) {
+            payload.content = editor.getHtml();
+            payload.contentFormat = "HTML";
         }
         if (formUseYn.checked !== !!currentDetail.useYn) {
             payload.useYn = formUseYn.checked;
@@ -857,7 +909,13 @@
     btnSave.addEventListener("click", async function () {
         hideDetailError();
         hideDetailSuccess();
+        if (editor.isBusy()) {
+            // 업로드가 끝나기 전에 저장하면 그 이미지가 본문·참조에서 빠진다(R1-2)
+            showDetailError("이미지 업로드가 끝난 뒤 저장해 주세요.");
+            return;
+        }
         btnSave.disabled = true;
+        saveInFlightToken = currentDetailController;
         // 응답이 도착했을 때 모달이 그대로인지 판단하기 위한 identity 토큰 —
         // 쓰기 요청 자체는 중단하지 않고 끝까지 서버 응답을 기다린다.
         const requestToken = currentDetailController;
@@ -893,8 +951,11 @@
             // btnSave는 모달 컨텍스트와 무관하게 공유되는 버튼이다 — 이전 요청의 finally가
             // 무조건 재활성화하면, 그 사이 다른 공지로 전환해 새로 시작된 저장 요청이 아직
             // 진행 중인데도 버튼이 눌려 중복 제출될 수 있다.
+            if (saveInFlightToken === requestToken) {
+                saveInFlightToken = null;
+            }
             if (requestToken === currentDetailController) {
-                btnSave.disabled = false;
+                btnSave.disabled = editor.isBusy();
             }
         }
     });

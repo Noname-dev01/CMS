@@ -91,6 +91,10 @@ springdoc:
     withCredentials: true
 
 cms:
+  # 편집기 본문 이미지 전체 저장 상한(DB 등록 이미지 기준, 업로드가 카운터 행을 잠가 정확히 집행 — PLAN-html-editor.md 쟁점 9)
+  content-image:
+    max-total-bytes: ${CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES:1073741824}
+    max-count: ${CMS_CONTENT_IMAGE_MAX_COUNT:10000}
   rate-limit:
     # 무인증 공개 엔드포인트(/notices/**, 비밀번호 재설정 API)의 최소 방어 —
     # 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단"하는 목적이다.
@@ -110,6 +114,12 @@ cms:
         pattern: /notices/**
         methods: [GET, HEAD]
         capacity: 120
+        refill-period-seconds: 60
+      # 편집기 본문 이미지 공개 다운로드 — 공지 1건에 이미지가 여러 장이라 공지 페이지보다 넉넉하게(PLAN-html-editor.md).
+      - id: content-image
+        pattern: /content-images/*
+        methods: [GET, HEAD]
+        capacity: 240
         refill-period-seconds: 60
       - id: reset-request
         pattern: /admin/api/password-reset-requests

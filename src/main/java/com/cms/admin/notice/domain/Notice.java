@@ -28,7 +28,7 @@ public class Notice {
     private String title;
 
     @Lob
-    @Column(nullable = false, columnDefinition = "TEXT")
+    @Column(nullable = false, columnDefinition = "MEDIUMTEXT")
     private String content;
 
     @Column(name = "use_yn", nullable = false)

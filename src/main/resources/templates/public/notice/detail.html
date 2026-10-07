@@ -15,7 +15,10 @@
     <div class="notice-detail">
         <h2 class="notice-detail-title" th:text="${notice.title}"></h2>
         <div class="notice-detail-meta" th:text="${#temporals.format(notice.createDate, 'yyyy-MM-dd HH:mm')}"></div>
-        <div class="notice-detail-content" th:text="${notice.content}"></div>
+        <!--/* 본문은 PublicNoticeDetail.from이 HtmlContentSanitizer로 정리한 HTML이다. 이스케이프 없는 출력은
+             이 한 곳만 허용된다(PublicNoticeTemplateConventionTest가 고정 — PLAN-html-editor.md 쟁점 12).
+             파서 수준 주석이라 응답에 나가지 않는다. */-->
+        <div class="notice-detail-content" th:utext="${notice.content}"></div>
 
         <div class="notice-attachments" th:if="${not #lists.isEmpty(notice.attachments)}">
             <h3 class="notice-attachments-title">첨부파일</h3>
