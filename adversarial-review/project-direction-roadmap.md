@@ -2,7 +2,8 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-10-07(29차) — `/updateRoadmap` 사실확인: **첨부 확장자 소문자화 `Locale.ROOT` 고정 완료 반영.** 27차 갱신의 "범위 밖 후속(계획 §8)"에 남아 있던 인자 없는 `toLowerCase()` 2곳이다. `/suggestRoadmap`에서 3개 후보(`Locale.ROOT` 고정·공개 공지 목록 검색·Mockito `-javaagent` 명시 로드) 중 사용자가 선택 → `/feature` 8단계(정찰: jshell로 로케일별 결과 재현 — tr/az에서 `"GIF"` → `"gıf"`) → 계획 `plan/PLAN-extension-locale-root.md`(`/plan-review-loop` 2라운드 ship, 수용 2 — 영향 확장자가 `gif`뿐 아니라 `zip`도 있음, tr/az에서 지금 통과하던 `GİF`·`ZİP`(U+0130)이 거부로 바뀌는 변화 명시) → 구현 → `/code-review-loop`(1라운드 approve, 지적 0) → `/commitPR`(커밋 4개, 28차 로드맵 반영 문서 포함). PR #109(`c01ff79`) `gh pr view` state=MERGED(mergedAt=2026-10-07T07:26:17Z), `gh pr checks 109` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37587314984) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1374건 실패·건너뜀 0, 신규 6케이스(GIF·ZIP 허용, GİF·ZİP 거부, 저장 키 `.gif`·`.zip`) 전부 success. master 직접 확인: 두 호출이 `toLowerCase(Locale.ROOT)`, `src/main/java`의 인자 없는 `toLowerCase()`·`toUpperCase()` 0곳, CLAUDE.md 코딩 컨벤션 "대소문자 변환은 `Locale.ROOT`". 로컬 검증: 신규 6케이스는 수정 전 코드에서 전부 실패(판별력), dev Docker 스택 실기 — en_US 회귀(업로드·다운로드 바이트 일치, `.exe`·`GİF` 400, 비인증 401)와 `user.language=tr` 재기동 상태의 대문자 GIF·ZIP 업로드 201(저장 키 ASCII). 현재 런타임(운영 en_US·로컬 ko_KR) 동작 변화 없음, 스키마·인가 정책·의존성 변경 없음. 같은 PR에 28차 갱신 문서가 포함돼 머지됐다. 27차 "범위 밖 후속"에 남은 것: 가상 스레드 도입 검토, 다음 JDK 메이저 때 Mockito `-javaagent` 명시 로드.
+> 최근 갱신: 2026-10-07(30차) — `/updateRoadmap` 사실확인: **공개 공지 목록 제목 검색 완료 반영.** "선정에서 탈락한 후보"의 마지막 기능 항목이다. `/suggestRoadmap`에서 3개 후보(공개 공지 목록 검색·Mockito `-javaagent` 명시 로드·dev compose healthcheck 따옴표) 중 사용자가 선택 → `/feature` 8단계(정찰: QueryDSL `TemplateFactory.escapeForLike` 바이트코드 확인, `JPAQueryFactory` 기본 이스케이프 문자 `!`, notice 콜레이션·인덱스) → 계획 `plan/PLAN-public-notice-search.md`(`/plan-review-loop` 2라운드 ship, 수용 3·기각 1 — COUNT·페이지 메타데이터의 공개 불변식 검증, 비용 근거 정정과 1만·5만 행 실측, 길이 단위를 UTF-16 코드 유닛으로 통일 / 기각: 버스트 동시 부하 측정은 기존 목록과 같은 위험이라 후속) → 승인 시 검색 대상 **제목만** 사용자 확정 → 구현 → `/code-review-loop`(1라운드 approve, 지적 0) → `/commitPR`(커밋 4개, 29차 로드맵 반영 문서 포함). PR #110(`c762fe4`) `gh pr view` state=MERGED(mergedAt=2026-10-07T08:54:28Z), `gh pr checks 110` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37596925685) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1392건 실패·건너뜀 0(`NoticeRepositoryDataJpaTest` 18·`PublicNoticeControllerTest` 38·`PublicNoticeServiceTest` 31). master 직접 확인: `NoticeRepositoryCustom/Impl.searchPublishedByTitle`, `PublicNoticeService.MAX_KEYWORD_LENGTH = 100`·검색 분기, `list.html` 검색 폼(`maxlength="100"`). 로컬 검증: 와일드카드 테스트가 이스케이프 없는 `like` 변형에서 실패(판별력), dev Docker 스택 비로그인 Playwright 실기(검색·2페이지 검색어 유지·비노출·삭제 제외·`%`/`_` 문자 그대로·결과 없음·101자·반사 XSS 2종·기존 목록·상세·관리자 검색 회귀)와 1만·5만 행 비용 실측(한 요청 목록+COUNT 약 7~9ms / 32~39ms, 검색어 유무 차이 수 ms) 후 원복. 스키마·`SecurityConfig`·레이트리밋·의존성 변경 없음. **후속 기준**: 전체 `notice` 행수 5만 초과 또는 운영 검색 응답 100ms 초과 시 FULLTEXT(ngram) 재평가. **범위 밖**: 버스트 동시 부하·동시 검색 수 제한(기존 공개 목록과 같은 위험), 본문 검색, 상세 → 목록 복귀 시 검색어 유지. 같은 PR에 29차 갱신 문서가 포함돼 머지됐다.
+> 이전 갱신: 2026-10-07(29차) — `/updateRoadmap` 사실확인: **첨부 확장자 소문자화 `Locale.ROOT` 고정 완료 반영.** 27차 갱신의 "범위 밖 후속(계획 §8)"에 남아 있던 인자 없는 `toLowerCase()` 2곳이다. `/suggestRoadmap`에서 3개 후보(`Locale.ROOT` 고정·공개 공지 목록 검색·Mockito `-javaagent` 명시 로드) 중 사용자가 선택 → `/feature` 8단계(정찰: jshell로 로케일별 결과 재현 — tr/az에서 `"GIF"` → `"gıf"`) → 계획 `plan/PLAN-extension-locale-root.md`(`/plan-review-loop` 2라운드 ship, 수용 2 — 영향 확장자가 `gif`뿐 아니라 `zip`도 있음, tr/az에서 지금 통과하던 `GİF`·`ZİP`(U+0130)이 거부로 바뀌는 변화 명시) → 구현 → `/code-review-loop`(1라운드 approve, 지적 0) → `/commitPR`(커밋 4개, 28차 로드맵 반영 문서 포함). PR #109(`c01ff79`) `gh pr view` state=MERGED(mergedAt=2026-10-07T07:26:17Z), `gh pr checks 109` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37587314984) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1374건 실패·건너뜀 0, 신규 6케이스(GIF·ZIP 허용, GİF·ZİP 거부, 저장 키 `.gif`·`.zip`) 전부 success. master 직접 확인: 두 호출이 `toLowerCase(Locale.ROOT)`, `src/main/java`의 인자 없는 `toLowerCase()`·`toUpperCase()` 0곳, CLAUDE.md 코딩 컨벤션 "대소문자 변환은 `Locale.ROOT`". 로컬 검증: 신규 6케이스는 수정 전 코드에서 전부 실패(판별력), dev Docker 스택 실기 — en_US 회귀(업로드·다운로드 바이트 일치, `.exe`·`GİF` 400, 비인증 401)와 `user.language=tr` 재기동 상태의 대문자 GIF·ZIP 업로드 201(저장 키 ASCII). 현재 런타임(운영 en_US·로컬 ko_KR) 동작 변화 없음, 스키마·인가 정책·의존성 변경 없음. 같은 PR에 28차 갱신 문서가 포함돼 머지됐다. 27차 "범위 밖 후속"에 남은 것: 가상 스레드 도입 검토, 다음 JDK 메이저 때 Mockito `-javaagent` 명시 로드.
 > 이전 갱신: 2026-10-07(28차) — `/updateRoadmap` 사실확인: **`LocalDiskFileStorage` 심볼릭 링크 탈출 차단 완료 반영.** "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록"에 "새로 알게 된 한계"로 남아 있던 항목이다(`load()`는 최종 파일 링크를 따라감). `/suggestRoadmap`에서 3개 후보(`load()` 링크 차단·`toLowerCase()` `Locale.ROOT` 고정·공개 공지 목록 검색) 중 사용자가 선택 → `/feature` 8단계 → 계획 `plan/PLAN-storage-load-nofollow.md`(`/plan-review-loop` 3라운드 ship, 수용 3·기각 2 — 1라운드에서 **네임스페이스 루트(`root/profile`) 자체가 외부 링크이면 검증 기준이 루트 밖으로 옮겨가 store·load·delete가 모두 루트 밖을 다루는** 구멍을 발견해 사용자 결정으로 범위에 포함, 2라운드에서 기준 실경로를 정규화 전 원본 설정값으로 구하도록 정정) → 구현 → `/code-review-loop`(1라운드 approve, 지적 0) → `/commitPR`(커밋 3개). PR #108(`626764b`) `gh pr view` state=MERGED(mergedAt=2026-10-07T06:07:44Z), `gh pr checks 108` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37579845176) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1368건 실패 0·**건너뜀 0**, `LocalDiskFileStorageTest` 30건 중 링크 테스트 11건 전부 success(로컬 Windows는 링크를 만들 수 없어 11건 건너뜀). master 직접 확인: `loadUnder`가 `openChannel()`(`NOFOLLOW_LINKS`)로 열고, `verifyWithinRoot` 기준이 `configuredRoot.toRealPath()` + 네임스페이스 상대 경로이며, `FileStorage.load()` Javadoc에 링크 거부 계약이 있다. 로컬 검증: 수정 전 코드에서 신규 테스트 6건 실패(판별력), dev Docker 스택(Linux) + Playwright 실기 — 정상 왕복(첨부·프로필 바이트 일치), `/etc/passwd` 링크 → 관리자·공개 다운로드 500·내용 미노출, `profile` 디렉터리 링크 → 조회 500·삭제 시 외부 파일 보존, 원복. 스키마·인가 정책·의존성 변경 없음. **운영 주의**: 배포 전 `find "$APP_FILE_STORAGE_ROOT" -type l`이 비어 있어야 한다(링크가 있으면 해당 요청 500, 대상 없는 최종 링크도 404 → 500). **잔여(수용)**: 하드 링크, 검증과 열기 사이의 부모 디렉터리 교체 경합, 네임스페이스 링크 상황에서 루트 밖 빈 날짜 디렉터리 생성 — 모두 저장 볼륨 쓰기 권한 전제.
 > 이전 갱신: 2026-10-07(27차) — `/updateRoadmap` 사실확인: **Java 17 → 21 전환 완료 반영.** 26차에 "남은 작업"으로 기록한 항목이다. `/suggestRoadmap`에서 3개 후보(`LocalDiskFileStorage.load()` 심볼릭 링크 차단·Java 21·공개 공지 목록 검색) 중 사용자가 선택 → `/feature` 8단계(정찰: JDK 버전 참조 전수 검색, 로컬 toolchain, temurin 17/21 이미지 OS·인코딩 비교, JEP 400·CLDR·Unicode 영향 검색) → 계획 `plan/PLAN-java-21.md`(`/plan-review-loop` 3라운드 ship, 수용 8·기각 2 — Unicode 13→15 대소문자 매핑 변화로 `EmailNormalizer` 결과가 바뀜을 실측해 쟁점으로 추가) → 구현 → `/code-review-loop`(1라운드 approve, 지적 0) → `/commitPR`(커밋 3개). PR #106(`b143f5a`) `gh pr view` state=MERGED(mergedAt=2026-10-06T18:19:06Z), `gh pr checks 106` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37510374036) `test`·`prod-smoke` success. master 직접 확인: `build.gradle` `JavaLanguageVersion.of(21)`, `Dockerfile` FROM `eclipse-temurin:21-jdk@sha256:3e3c176f…`·`21-jre@sha256:cff19e62…`, `ci.yml` `java-version: '21'`, README 배지 Java 21, `check-image-refs.sh` 통과. 로컬 검증: 전체 테스트 1360건(UTC 포함) 실패 0·스킵 3, 로컬 prod-smoke 통과(이미지 JVM Temurin 21.0.12.1), Trivy 0.74.0 HIGH/CRITICAL 0건, toolchain 21 `bootRun` + Playwright 실기(공지·첨부·공개 다운로드 왕복, MANAGER 403, 비인증 401). PR에서 미검증으로 남긴 IntelliJ 직접 실행 경로는 머지 후 사용자의 IntelliJ 실행(`corretto-21.0.9`, `/admin/login` 200)으로 확인됐다. **운영 주의로 남는 것**: 실배포 직전과 17로 롤백하기 직전에 비ASCII 이메일 점검(`SELECT id, email FROM member WHERE email REGEXP '[^ -~]';`) — Java 21에서 BMP의 Unicode 14·15 신규 문자(예: U+A7C0 → U+A7C1)는 소문자화 결과가 17과 다르다. **범위 밖 후속**(계획 §8): 가상 스레드 도입 검토, 다음 JDK 메이저 때 Mockito `-javaagent` 명시 로드, 인자 없는 `toLowerCase()` 2곳(`NoticeAttachmentService`·`LocalDiskFileStorage`)의 `Locale.ROOT` 고정(→ **해소됨** `c01ff79` #109, 2026-10-07 — 29차 갱신 참조). 이로써 "공백 5(버전 부채)"와 "선정에서 탈락한 후보"의 Java 21 항목이 닫혔다.
 > 이전 갱신: 2026-10-07(26차) — `/updateRoadmap` 사실확인: **감사 L-02(문서-코드 불일치) 완료 반영.** `/suggestRoadmap`에서 3개 후보(L-02·Java 21·공개 공지 목록 검색) 중 사용자가 선택 → `/feature` 8단계(정찰: `./gradlew dependencies`·마이그레이션 디렉터리·`ClientIpResolver`·`git log` 접두사 분포·`gh pr view 56`으로 불일치 11건·누락 3건 확인) → 계획 `plan/PLAN-doc-consistency-l02.md`(`/plan-review-loop` codex 7라운드, 사용자 결정 U1 실행 절차 누락 포함·U2 주요 기능 보강·U3 `.env.dev` 형식 규칙을 문자 집합 제한 한 줄로 축소) → 구현 → `/code-review-loop`(2라운드, 1라운드 지적 2건 수용 — 문자 제한 적용 대상·빈 `DB_USER`) → `/commitPR`(커밋 4개). PR #104(`70d6f43`) `gh pr view` state=MERGED(mergedAt=2026-10-06T15:54:18Z), `gh pr checks 104` `test`·`prod-smoke` pass, 머지 후 master CI success. master 직접 확인: README 배지 Boot 4.0·Security 7·Hibernate 7과 Quick Start `.env.dev` 작성 단계, `migration-guide.md` 표 V1~V22(V20·V21 행), `deployment.md`에 #44 이전 IP 소스 서술 0건. 검증: 전체 `./gradlew cleanTest test` 1360건 실패·오류 0(스킵 3), README 안내대로 폐기용 MariaDB에 `bootRun`(마이그레이션 22개 적용·dev 계정 로그인·Swagger 302 흐름). L-02 원문의 "prod Swagger 404 설명"은 #26(2026-08-06)으로 이미 정합이었고, 배지는 그사이 Boot 4.0.8 전환으로 대상 버전이 바뀌어 4.0으로 맞췄다. 함께 처리한 PR(로드맵 본문 항목 없음): #103(`bc421ed`, 문서 PR #102 CI에서 드러난 `PublicAttachmentStreamingServerTest` 간헐 실패 — 정상 전송 뒤 스트림 닫힘 단언을 제한 시간 대기로 전환, `docs/troubleshooting.md` 기록, MERGED·master CI success). **범위 밖으로 남는 것**: dev compose healthcheck가 `MYSQL_ROOT_PASSWORD`를 따옴표 없이 셸에 넣는 코드(문서의 문자 제한으로 회피, 개선은 별도 판단). **남은 작업**: Java 21(지속 항목).
@@ -209,7 +210,7 @@
 - ~~**메뉴 3단계**~~ ✅ **완료 (2026-10-01 · #71·#73·#74·#75)** — 사이드바 3단 렌더링, 생성·구조 반영의 깊이 상한(3), 서브트리 이동, 드래그 초안 + [반영] 일괄 반영 API(`PUT /admin/api/menus/structure`). 상세는 `plan/PLAN-menu-structure-apply.md`.
 - **accessRole 인가 연동 / QueryDSL 포크(OpenFeign) 전환 / Java 21 + Boot 4.x**: 기존 "지속 항목" 판단 유지 — 콘텐츠 도메인 확장·Boot 4.x 이행 시점에 재평가. (`accessRole`은 여전히 사이드바 노출 제어일 뿐 인가에는 반영되지 않는다.) → 2026-10-06 기준: accessRole은 권한관리 PR ①~④에서 해소(21차), **Boot 4.x는 해소**(#97 `1505c43`, Boot 4.0.8), QueryDSL 포크는 Boot 4 재평가 결과 보류(5.1.0 동작 확인, "지속 항목" 참조), **Java 21만 남음**. → 2026-10-07: **Java 21 해소**(`b143f5a` #106) — 이 묶음의 항목은 QueryDSL 포크 보류(재평가 조건부)를 빼면 모두 끝났다.
 - **docs/migration/ 레거시 수동 SQL 3개 정리**: Flyway 이관 완료로 역할 종료 — 이력 가치가 있어 보존, 별도 작업 불필요 판단.
-- **공개 공지 목록 검색**: `PLAN-public-notice.md`에서 의도적으로 범위 제외(목록+페이징+상세만). 관리 화면 대비 사용 빈도가 낮을 것으로 추정되는 공개 화면 기능이라 이번 갱신에서는 후순위 — 다음 갱신 때 재평가.
+- ~~**공개 공지 목록 검색**: `PLAN-public-notice.md`에서 의도적으로 범위 제외(목록+페이징+상세만). 관리 화면 대비 사용 빈도가 낮을 것으로 추정되는 공개 화면 기능이라 이번 갱신에서는 후순위 — 다음 갱신 때 재평가.~~ → **해소됨** (`c762fe4` #110, 2026-10-07): `/notices?keyword=`로 **제목** 검색(관리자·통합 검색과 같은 범위). 공개 전용 QueryDSL `searchPublishedByTitle`이 노출·미삭제 조건을 고정하고 목록·COUNT가 같은 조건을 쓴다. LIKE 와일드카드는 문자 그대로 검색되고, 키워드는 100 코드 유닛 상한이다. 스키마·인가 정책·레이트리밋은 바꾸지 않았다. 인덱스 없이 전체 행을 스캔하므로 **전체 행수 5만 초과 또는 운영 검색 응답 100ms 초과 시 FULLTEXT 재평가**(실측 5만 행 약 32~39ms, `plan/PLAN-public-notice-search.md`).
 
 ## 실행 로드맵 — Top 3 (2026-07-29 선정)
 
@@ -410,6 +411,241 @@
 
 - **M-06(시간대 진입점 누락 주장) — 철회**: 1차 감사(`docs/CMS-technical-audit-2026-09-22.md`)가 `main()` 진입점을 놓치고 "JVM UTC 시 시각이 9시간 어긋날 수 있다"고 지적했으나, 독립 검증이 실제 `main()`이 JVM 기본 시간대를 KST로 고정함을 `-Duser.timezone=UTC` 조건에서도 실행 확인해 철회했다. 코드 변경 불필요. (참고: 기존 Top 5(2026-09-05)의 "우선순위에서 밀린 감사 항목" 표의 M-05는 이것과 발견 코드는 다르지만 같은 주제 — `AppConfig` KST `Clock` 밖의 `LocalDateTime.now()` 직접 호출 지점들 — 를 다룬다는 점은 참고할 것. **→ 해당 M-05는 2026-09-30 `2e10d24` #64로 완료됐다** — 다만 운영 경로는 이 M-06 철회와 같은 이유(`main()`의 기본 시간대 고정)로 원래 영향이 없었고, 완료 효과는 테스트 JVM 방어·컨벤션 강제다.)
 
+## 실행 로드맵 — Top 8 (2026-10-07 선정, 콘텐츠·공개 사이트 확장)
+
+> 감사 기반 항목(Top 5 2026-09-05·Remediation Plan)과 Boot 4·Java 21 전환이 모두 끝나 미완료 항목이 실배포 대기 건만 남은 시점에, "현재 상태 진단 > 공백 1(콘텐츠 도메인 부재)"을 다시 기준으로 삼아 선정했다. 공지사항 하나로 증명한 패턴(위임 권한·첨부·공개 노출 불변식·감사 로그·레이트리밋)을 다른 도메인으로 재사용하는 것이 레버리지가 가장 크다. ①~③이 1차 추천이고, ④~⑧은 같은 날 사용자 요청으로 정식 항목에 추가했다. 이어서 착수 전 결정 사항을 사용자와 확정했고(2026-10-07, 각 항목의 "확정 결정"), 그 결과 HTML 편집기 도입이 공통 선행 조건이 되어 ⓪으로 추가됐다.
+>
+> **권장 순서와 의존**: ⓪ 편집기 → ①-1 게시판 → ①-2 공지 흡수 → ② 공개 메인·배너 → ③ 세션 관리 → ④ 예약 게시 → ⑤ 정적 페이지 → ⑥ FAQ → ⑦ 팝업 → ⑧ 미디어 라이브러리. 강한 의존은 다음과 같다.
+> - ⓪ → ①·⑤·⑥·⑦(HTML 본문을 쓰는 모든 항목)
+> - ①-1 → ①-2 → ④(예약 게시는 공지를 흡수한 게시글에 적용)
+> - ② → ⑦(팝업은 공개 메인에만 뜬다)
+> - ⓪·②·⑦ → ⑧(배너·팝업·본문 이미지를 라이브러리로 옮긴다)
+>
+> **공통 주의**: ③·④를 뺀 전부가 `SecurityConfig` 경로 규칙을 추가하므로 **인가 정책 사전 협의 대상**이다(CLAUDE.md 보안 규칙). ⓪은 **새 라이브러리(HTML 편집기·sanitizer) 사전 제안 대상**이다. 마이그레이션 번호는 착수 순서대로 V23부터 부여하고, 메뉴 시드는 V9처럼 DDL과 분리된 멱등 DML 마이그레이션으로 둔다.
+
+### ⓪ HTML 편집기 + sanitizer + 본문 이미지 업로드 (공통 기반)
+
+- **유형**: 기능 추가(공통 인프라) + 보안
+- **선정 이유**: 사용자가 게시판·공지·정적 페이지·FAQ·팝업의 본문을 HTML 편집기로 쓰기로 확정했다(2026-10-07). 다섯 도메인이 같은 편집기·같은 허용 태그 정책·같은 이미지 업로드를 써야 하므로 공통 기반으로 먼저 만든다. 지금 본문은 전부 `th:text` 평문 렌더링이라, HTML을 받아들이는 순간 **저장형 XSS**가 가장 큰 위험이 된다(Remediation C-01 이력 참고).
+- **목표**: 관리자 화면에서 WYSIWYG 편집기로 본문(제목·목록·굵게·링크·표·이미지)을 작성하고, 서버는 허용 목록 기반 sanitizer를 통과한 HTML만 저장·출력한다. 본문 이미지는 편집기에서 바로 업로드한다. 첫 적용 대상은 **기존 공지 본문**이며, 기존 평문 본문은 HTML로 변환한다(이스케이프 + 줄바꿈 보존).
+- **확정 결정(2026-10-07)**:
+  - 서식: HTML 편집기 + 서버 측 sanitizer(평문·Markdown 안 기각)
+  - 본문 이미지: 편집기 도입 때 업로드까지 포함한다(⑧ 미디어 라이브러리 일부를 앞당김). ⑧에서 본문 이미지를 라이브러리로 옮긴다.
+  - 공개 접근: 본문 이미지는 **공개 상태 콘텐츠가 참조하는 이미지만** 공개한다(⑧과 같은 원칙). 미사용·비공개 콘텐츠의 이미지는 404.
+  - 허용 형식·용량: 이미지(png·jpeg·gif, `ProfileImageValidator.ALLOWED_CONTENT_TYPES`와 같은 매직 바이트 검사), 파일당 5MB, 전체 저장 용량 상한 있음(⑧과 같은 정책).
+- **계획 단계에서 정할 것**: 편집기·sanitizer 라이브러리 선정(새 의존성 제안), 허용 태그·속성 목록(`style`·`on*`·`javascript:` URL 차단), sanitize 시점(권장: 저장 시 + 출력 시 둘 다), 기존 공지 본문 변환 방식(Flyway SQL vs 일회성 러너), 사용하지 않게 된 본문 이미지 정리 방식, 전체 용량 상한 값.
+- **수정해야 할 파일**:
+  - 신규: 공통 sanitizer 컴포넌트(`src/main/java/com/cms/common/` 하위), 본문 이미지 업로드 API·저장 엔티티·공개 다운로드 핸들러, 본문 이미지 메타 테이블 마이그레이션 `V2x__create_content_image.sql`
+  - 신규: 편집기 초기화 스크립트(`src/main/resources/static/js/admin/` 하위), 편집기 정적 리소스(`/vendor/**` 또는 CDN — 계획 단계에서 결정)
+  - 수정: `build.gradle`(sanitizer 의존성), `src/main/resources/templates/admin/notice/manage.html`(편집기 적용), `src/main/resources/templates/public/notice/detail.html`(`th:text` → sanitize된 HTML 출력), `src/main/java/com/cms/admin/notice/service/NoticeService.java`(저장 시 sanitize), `src/main/java/com/cms/publicweb/notice/service/PublicNoticeService.java`(출력 경로), `src/main/java/com/cms/config/SecurityConfig.java`(본문 이미지 공개 경로 GET·HEAD), `src/main/resources/application.yml`(본문 이미지 레이트리밋 규칙), `src/main/java/com/cms/publicweb/notice/CLAUDE.md`
+  - 신규: 기존 공지 본문 평문→HTML 변환 마이그레이션(방식은 계획 단계 결정)
+- **단계별 작업 순서**:
+  1. `PLAN-html-editor.md` 작성 + 라이브러리 제안·승인 + 허용 태그 정책 확정 → `/plan-review-loop`
+  2. sanitizer 컴포넌트 + XSS 회귀 테스트 세트(OWASP XSS 치트시트 벡터) 먼저 작성
+  3. 본문 이미지 테이블 마이그레이션 → 업로드 API(검증·`FileStorage` 별도 네임스페이스·롤백 시 파일 정리) → 공개 다운로드(참조 콘텐츠 공개 여부 재검증)
+  4. 공지에 편집기 적용 → 저장·출력 sanitize → 기존 본문 변환 마이그레이션
+  5. 보안·레이트리밋 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, CI 통과
+  - [ ] XSS 벡터 세트(`<script>`, `onerror=`, `javascript:` 링크, `<svg>`·`<iframe>`, `style` 속성 등)가 저장·출력 양쪽에서 제거됨을 단위 테스트로 검증
+  - [ ] 기존 공지 본문이 변환 후 공개 화면에서 같은 텍스트·줄바꿈으로 보이고, 원래 본문에 있던 `<`·`&` 같은 문자가 마크업으로 해석되지 않음(Testcontainers)
+  - [ ] 본문 이미지: 허용 외 형식·5MB 초과·전체 용량 초과 400, 비공개 공지만 참조하는 이미지 공개 다운로드 404
+  - [ ] Playwright: 편집기로 서식·이미지 포함 공지 작성 → 공개 화면에 서식·이미지 표시 → `<img src=x onerror=alert(1)>` 붙여넣기가 실행되지 않음
+
+### ① 범용 게시판(Board/Post) + 공지 흡수 — 두 개의 PR로 나눈다
+
+- **유형**: 기능 추가
+- **선정 이유**: CMS 정체성(공백 1)을 가장 크게 넓힌다. 사용자 결정으로 기존 공지도 게시판으로 흡수해 콘텐츠 도메인을 하나로 모은다.
+- **확정 결정(2026-10-07)**:
+  - 첨부: 게시글 전용 **새 테이블**(`NoticeAttachment` 범용화 안 함)
+  - 권한 위임: **게시판별 위임**(자료실은 A, 보도자료는 B처럼). 현재 `member_permission`의 키는 `(member_id, feature, action)`(`MemberPermission`·`MemberPermissionId`)이라 **게시판 식별자를 담을 수 있게 권한 구조를 확장**해야 한다.
+  - 본문 서식: ⓪의 HTML 편집기 적용
+  - 공지 흡수: **게시판 완성 후 별도 PR(①-2)**. 흡수 후에도 공개 URL **`/notices`는 유지**한다(공지 게시판만 이 경로를 쓰고 내부는 게시판 코드).
+
+#### ①-1 게시판 구축
+
+- **목표**: ADMIN이 게시판(이름·공개 여부·첨부 허용 여부)을 정의하고, 그 게시판의 권한을 위임받은 MANAGER가 게시글을 작성·수정·삭제한다. 공개 게시판의 게시글은 `/boards/{boardId}`에서 목록·검색·상세·첨부 다운로드로 노출된다.
+- **계획 단계에서 정할 것**: 권한 구조 확장 방식(`member_permission`에 리소스 식별자 컬럼 추가 + 기본키 변경 vs 별도 `member_board_permission` 테이블), 게시판별 판정을 URL 게이트(`AdminFeature.gatePatterns`)가 아닌 메서드 레벨(`@RequirePermission` 확장 또는 서비스 판정)로 거는 방식, 권한관리 화면에서 게시판별 권한을 표시·편집하는 방식, 게시판 삭제 시 권한 행 정리.
+- **수정해야 할 파일**:
+  - 신규: `src/main/java/com/cms/admin/board/`(`domain/Board.java`·`Post.java`·`PostAttachment.java`, `repository/*RepositoryCustom`·`*RepositoryImpl`(QueryDSL), `service/`, `controller/`(API + `@AdminPage` 페이지), `dto/request`·`dto/response`)
+  - 신규: `src/main/java/com/cms/publicweb/board/`(`controller`·`service`·`dto` — `publicweb/notice`와 같은 공개 노출 불변식 격리 구조)
+  - 신규: `V2x__create_board_post.sql`, `V2x__extend_member_permission_scope.sql`(권한 구조 확장), `V2x__seed_board_menu.sql`
+  - 신규: `src/main/resources/templates/admin/board/`, `templates/public/board/`, `static/css/public/`(게시판 스타일)
+  - 수정(권한): `src/main/java/com/cms/admin/permission/`의 `AdminFeature.java`·`MemberPermission.java`·`MemberPermissionId.java`·`MemberPermissionRepository.java`·`AdminPermissionEvaluator.java`·`PermissionCache.java`·`PermissionSnapshot.java`·`RequirePermission.java`·`service/MemberPermissionService.java`·`controller/MemberPermissionController.java`·`dto/`, `src/main/resources/templates/admin/permission/`, `src/main/java/com/cms/admin/permission/CLAUDE.md`
+  - 수정: `src/main/java/com/cms/admin/menu/`(사이드바 노출 계산 — 게시판별 권한 반영 여부는 계획 단계 판정), `src/main/java/com/cms/config/SecurityConfig.java`(`/boards/**` GET·HEAD 공개 + 그 외 `denyAll`), `src/main/resources/application.yml`(`/boards/**`·첨부 레이트리밋), `src/main/java/com/cms/admin/log/constant/AdminActionTypes.java`, `src/main/java/com/cms/admin/search/service/AdminSearchService.java`(게시글 결과 — 게시판별 판정기 필터)
+- **단계별 작업 순서**:
+  1. `PLAN-board.md` 작성 + 권한 구조 확장 방식 결정 → `/plan-review-loop`
+  2. 권한 구조 확장(마이그레이션 → 엔티티 → 판정기·캐시 → 권한관리 API·화면) — 기존 공지 권한 동작 회귀 테스트 먼저
+  3. 게시판·게시글 마이그레이션 → 엔티티(`useYn`/`deleted` 분리·`now` 파라미터) → Repository(QueryDSL 검색, id 보조 정렬)
+  4. 서비스(비관적 락·첨부 상한·`FileStorage` 네임스페이스 분리·⓪ sanitizer·`@AdminActionLogged`) → 관리자 API·화면(편집기) → 메뉴 시드
+  5. 공개 서비스·컨트롤러·템플릿(비공개 게시판·미노출·삭제 글은 404 흡수) → `SecurityConfig`·레이트리밋 → 통합 검색 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, CI 통과
+  - [ ] 게시판별 위임: 게시판 A 권한만 있는 MANAGER가 게시판 B 글 작성·수정·삭제·관리 화면 조회에서 403, A에서는 허용(보안 슬라이스 + 서비스 테스트)
+  - [ ] 기존 공지 권한(`NOTICE`) 동작이 권한 구조 확장 후에도 그대로임(회귀 테스트)
+  - [ ] 공개 측: 비공개 게시판·미노출·삭제 게시글이 목록·COUNT·상세·첨부 모두에서 404임을 Testcontainers 테스트로 검증, `/boards/**` 비-GET/HEAD 거부·레이트리밋 적용
+  - [ ] Playwright: 게시판 생성 → MANAGER에게 그 게시판만 위임 → 편집기로 게시글+첨부 작성 → 공개 화면 노출·다운로드 → 다른 게시판 접근 차단
+
+#### ①-2 공지사항 게시판 흡수 (별도 PR)
+
+- **목표**: 기존 `notice`·`notice_attachment` 데이터와 MANAGER 공지 권한을 "공지" 게시판으로 옮기고, 관리자 공지 화면·공개 `/notices`가 게시판 코드로 동작한다. 공개 URL(`/notices`, `/notices/{id}`, `/notices/{id}/attachments/{attachmentId}`)과 공개 노출·404 계약은 바뀌지 않는다.
+- **계획 단계에서 정할 것**: 게시글 ID 재사용 여부(공개 URL의 `{id}` 유지를 위해 기존 공지 ID를 보존하는 방법), 관리자 URL(`/admin/notice/**`) 유지 또는 리다이렉트, 기존 `NOTICE` 권한 행 → 게시판별 권한 행 변환, 구 테이블 DROP 시점(권한관리 V22처럼 롤백 창을 둔 뒤 후속 PR에서 DROP 권장), 공지 메뉴 시드(V9)와의 관계.
+- **수정해야 할 파일**: 신규 데이터 이관 마이그레이션(공지·첨부·권한 행), 수정 `src/main/java/com/cms/publicweb/notice/`(게시판 서비스 위임 — 공개 불변식·404 흡수·스트리밍 다운로드 계약 유지), `src/main/java/com/cms/admin/notice/`(제거 또는 게시판으로 위임), `src/main/java/com/cms/admin/permission/AdminFeature.java`(`NOTICE` 정리), `src/main/java/com/cms/admin/search/service/AdminSearchService.java`, `src/main/java/com/cms/admin/notice/CLAUDE.md`·`src/main/java/com/cms/publicweb/notice/CLAUDE.md`, 기존 공지 테스트(`src/test/java/com/cms/admin/notice/`·`src/test/java/com/cms/publicweb/notice/`)
+- **단계별 작업 순서**: `PLAN-notice-to-board.md` → `/plan-review-loop` → 이관 마이그레이션(+Testcontainers 이관 테스트) → 공개 `/notices` 경로를 게시판 서비스로 전환 → 관리자 공지 화면 전환 → 기존 공지 테스트를 같은 계약으로 유지·이전 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, 기존 공개 공지 테스트(`PublicAttachmentStreamingServerTest` 포함)가 같은 계약으로 통과
+  - [ ] 이관 전후 공지 건수·첨부 파일 바이트·공개/비공개 상태·MANAGER 권한이 일치함을 Testcontainers 이관 테스트로 검증
+  - [ ] 기존 공개 URL(`/notices/{id}`·첨부 다운로드)이 같은 ID로 200, 비공개·삭제는 404
+  - [ ] Playwright: 이관 후 공개 `/notices` 목록·검색·상세·첨부 다운로드, 관리자 공지 수정
+
+### ② 공개 메인 페이지(`/`) + 배너 관리
+
+- **유형**: 기능 추가
+- **선정 이유**: 지금 공개 진입점은 `/notices`뿐이고 `/`는 `anyRequest().denyAll()`에 걸린다. 공개 사이트가 "사이트"로 보이게 하는 최소 단위이며 `FileStorage`·KST `Clock` 재사용 비용이 낮다.
+- **목표**: 비로그인 방문자가 `/`에서 노출 기간 안의 배너(이미지·링크·순서)와 최신 공지·게시글을 본다. ADMIN 또는 위임받은 MANAGER가 배너를 등록·정렬·노출 기간 설정·비노출 처리한다.
+- **확정 결정(2026-10-07)**:
+  - 권한: **MANAGER 위임 가능**(`AdminFeature` DELEGABLE, 게시판과 달리 기능 단위)
+  - 링크: `http`/`https` 절대 URL + 사이트 내부 상대 경로만 허용, 그 외 스킴(`javascript:` 등) 400
+  - 이미지 공개 경로: 도메인별 **`/banners/{id}/image`**(팝업은 `/popups/{id}/image`) — 노출 여부 재검증은 각 도메인 서비스가 맡는다
+- **수정해야 할 파일**:
+  - 신규: `src/main/java/com/cms/admin/banner/`(`domain/Banner.java`, `repository`, `service`, `controller`, `dto`), 배너·팝업 공용 노출 기간 판정·링크 검증 컴포넌트(⑦에서 재사용)
+  - 신규: `src/main/java/com/cms/publicweb/home/`(메인 컨트롤러·서비스 — 노출 기간 판정은 주입된 `Clock`), `src/main/java/com/cms/publicweb/banner/`(이미지 공개 다운로드)
+  - 신규: `V2x__create_banner.sql`, `V2x__seed_banner_menu.sql`
+  - 신규: `src/main/resources/templates/public/home.html`, `templates/admin/banner/manage.html`, `static/css/public/`(메인 스타일)
+  - 수정: `src/main/java/com/cms/config/SecurityConfig.java`(`/`·`/banners/*/image` GET·HEAD 공개), `src/main/resources/application.yml`(레이트리밋 규칙), `src/main/java/com/cms/admin/permission/AdminFeature.java`, `src/main/java/com/cms/admin/log/constant/AdminActionTypes.java`, `src/main/java/com/cms/publicweb/support/PublicWebExceptionAdvice.java`(적용 범위 확인)
+- **단계별 작업 순서**:
+  1. `PLAN-public-home-banner.md` 작성 + `/` 공개 인가 정책 협의 → `/plan-review-loop`
+  2. 마이그레이션 → `Banner` 엔티티(노출 기간·순서·`useYn`) → Repository(노출 대상 조회: 기간·노출 여부 고정 조건)
+  3. 관리자 서비스(이미지 매직 바이트 검증, `FileStorage` 별도 네임스페이스) → API·화면(정렬은 메뉴 드래그 패턴 참고) → 메뉴 시드
+  4. 공개 메인·배너 이미지 다운로드 → `SecurityConfig`·레이트리밋 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, CI 통과
+  - [ ] 노출 기간 경계(시작 직전·종료 직후)를 고정 `Clock`으로 검증, 비노출·기간 외 배너의 `/banners/{id}/image`가 404
+  - [ ] 링크 검증: 허용 외 스킴 400, 내부 상대 경로·http/https 허용
+  - [ ] MANAGER 위임 전 403·위임 후 허용(보안 슬라이스)
+  - [ ] `/` 비로그인 GET 200, 비-GET/HEAD 거부, 기존 `/admin/**` 규칙 회귀 없음(`SecurityConfigTest`)
+  - [ ] Playwright: 배너 등록 → `/`에 노출 → 기간 만료(또는 비노출) 후 사라짐
+
+### ③ 세션 관리 화면 (접속 중 관리자·강제 로그아웃) — 문의하기는 후속
+
+- **유형**: 기능 추가(운영·보안)
+- **확정 결정(2026-10-07)**: ③의 두 후보 중 **세션 관리 화면을 먼저** 한다(스키마 변경·공개 POST 개방 없음). 문의하기는 아래 "③ 후속 — 문의하기"로 남긴다. ADMIN은 **본인의 다른 세션은 강제 만료할 수 있고, 지금 쓰는 세션은 목록에서 막는다.**
+- **목표**: ADMIN이 현재 세션을 가진 관리자 목록(회원·마지막 요청 시각·세션 수)을 보고, 특정 회원 또는 특정 세션을 강제 만료할 수 있다. 지금은 상태·권한 변경 시 자동 만료(`AdminSessionRevokeEvent`)만 있고 수동 수단이 없다.
+- **수정해야 할 파일**: 수정 `src/main/java/com/cms/config/auth/AdminSessionService.java`(조회 메서드 추가 — 기존 `expireSessionsFor(Long)` 재사용, 단일 세션 만료 추가), 신규 세션 관리 컨트롤러(API + `@AdminPage`)·DTO·`templates/admin/`(화면), 수정 `src/main/java/com/cms/admin/permission/AdminFeature.java`(ADMIN_ONLY 항목), `src/main/java/com/cms/admin/log/constant/AdminActionTypes.java`, 신규 메뉴 시드 마이그레이션. **테이블 스키마 변경 없음**.
+- **단계별 작업 순서**: 계획(세션 식별자를 응답에 원문으로 내보내지 않는 방식 결정) → 서비스 조회·단일 만료 메서드 → API·화면 → 메뉴 시드 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, MANAGER 접근 403 보안 테스트
+  - [ ] 강제 만료 후 대상 세션의 다음 요청이 API는 JSON 401, 페이지는 로그인 리다이렉트(`AdminSessionExpiredStrategy` 계약)
+  - [ ] 요청자의 현재 세션 만료 요청은 거부되고, 본인의 다른 세션은 만료됨
+  - [ ] 응답에 세션 ID 원문이 포함되지 않음, 강제 만료가 감사 로그에 남음
+  - [ ] Playwright: 브라우저 2개로 로그인 → 한쪽에서 다른 쪽 강제 로그아웃 → 다른 쪽 로그인 화면으로 이동
+
+#### ③ 후속 — 문의하기 (공개 폼 → 관리자 문의함)
+
+- **상태**: 세션 관리 이후 후보(2026-10-07 사용자 결정으로 순서가 밀림). 착수 시 아래 내용으로 계획을 시작한다.
+- **목표**: 비로그인 방문자가 공개 폼으로 문의를 남기고, 관리자는 문의함에서 확인·답변 상태를 관리한다(답변 메일 발송은 계획 단계에서 범위 결정). 새 문의는 상단바 알림으로 알린다.
+- **수정해야 할 파일**: 신규 `src/main/java/com/cms/admin/inquiry/`(도메인·리포지토리·서비스·컨트롤러·DTO), 신규 `src/main/java/com/cms/publicweb/inquiry/`, 신규 `V2x__create_inquiry.sql`·메뉴 시드, 신규 템플릿(`templates/public/inquiry/`·`templates/admin/inquiry/`), 수정 `src/main/java/com/cms/config/SecurityConfig.java`(**무인증 POST 공개 — 현재 공개 POST는 비밀번호 재설정 2종뿐이라 정책 협의 필수**), `src/main/resources/application.yml`(엄격한 레이트리밋 규칙), `src/main/java/com/cms/admin/notification/domain/NotificationType.java`(새 유형) 및 알림 생성 경로, `src/main/java/com/cms/admin/permission/AdminFeature.java`
+- **착수 시 정할 것**: 개인정보 수집 항목·보존 기간·스팸 대책·답변 메일 여부
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, 공개 POST의 CSRF 누락 403·검증 실패 400·레이트리밋 429 테스트
+  - [ ] 알림 생성 실패가 문의 저장을 롤백하지 않음(알림 최선 노력 계약) 테스트
+  - [ ] 관리자 문의함 권한 403/허용 보안 테스트, 문의 본문이 관리자 화면에서 이스케이프되어 렌더링됨
+  - [ ] Playwright: 공개 폼 제출 → 관리자 상단바 알림 → 문의함에서 확인·상태 변경
+
+### ④ 게시글 예약 게시 (노출 시작·종료 시각)
+
+- **유형**: 기능 추가(기존 도메인 확장)
+- **선정 이유**: 컬럼 2개를 더하는 작은 작업이지만, 공개 노출 조건이 목록·검색·COUNT·상세·첨부 여러 경로에 걸쳐 있어 **한 곳이라도 빠지면 예약 글이 미리 새는** 정합성 위험이 있다. 범위를 좁혀 단독으로 처리할 가치가 있다.
+- **확정 결정(2026-10-07)**:
+  - 적용 대상: **게시판 게시글(Post)**. 공지는 ①-2에서 게시판으로 흡수되므로 공지에 따로 넣지 않는다(이관 중복 방지). 따라서 **①-2 완료가 선행 조건**이다.
+  - `useYn`과의 관계: **둘 다 만족해야 노출**(`useYn=true` AND 기간 안). 기간이 비어 있으면 기존처럼 `useYn`만 본다. 시각 단위는 분. 관리자 화면은 예약 글도 모두 보이고 "예약됨/노출 중/만료" 상태를 표시한다.
+- **목표**: 게시글에 노출 시작·종료 시각을 선택적으로 지정하면, 공개 목록·검색·상세·첨부 다운로드(흡수된 `/notices` 포함)와 공개 메인의 최신 글이 그 기간 안에서만 글을 보여준다. 스케줄러 없이 조회 조건으로 판정한다(판정 시각은 주입된 KST `Clock`).
+- **수정해야 할 파일**: 신규 `V2x__add_post_publish_period.sql`(NULL 허용 컬럼 2개 — 기존 행은 "기간 제한 없음"), 수정 ①-1에서 만든 `src/main/java/com/cms/admin/board/`의 `Post` 엔티티·요청/응답 DTO·서비스, 공개 노출 조건을 가진 게시판 Repository 메서드 전부와 `src/main/java/com/cms/publicweb/board/`(및 ①-2에서 게시판으로 위임한 `src/main/java/com/cms/publicweb/notice/`)의 서비스, ②의 공개 메인 최신 글 조회, `templates/admin/board/`(입력·상태 표시)
+- **단계별 작업 순서**: (①-2 완료 확인) → `PLAN-post-publish-period.md` → 마이그레이션 → 엔티티·DTO 검증(시작<종료) → 공개 노출 조건을 시각 인자를 받는 메서드로 교체(기존 메서드는 제거해 우회 경로 차단) → 공개 서비스·공개 메인 → 관리자 화면 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과
+  - [ ] 고정 `Clock`으로 시작 직전·시작 시각·종료 직전·종료 시각 경계를 목록·검색·COUNT·상세·첨부 다운로드·공개 메인 **모든 공개 경로**에서 검증(Testcontainers)
+  - [ ] 기간 NULL 게시글의 공개 동작이 그대로임(회귀), 시작≥종료 입력 400
+  - [ ] Playwright: 미래 시작 게시글 작성 → 공개 화면 미노출·관리자 화면 "예약됨" 표시
+
+### ⑤ 정적 페이지 (약관·개인정보처리방침·소개 등)
+
+- **유형**: 기능 추가
+- **선정 이유**: 실배포 시 개인정보처리방침·이용약관 같은 고정 페이지가 사실상 필수다. 슬러그 하나로 조회하는 단순 구조라 공개 측 비용이 낮다.
+- **확정 결정(2026-10-07)**:
+  - 본문: ⓪ HTML 편집기(⓪ 선행)
+  - 슬러그: 소문자·숫자·하이픈, 길이 상한, 예약어 차단(예: `/pages/privacy-policy`)
+  - **개정 이력 보존**: 저장할 때마다 버전을 남기고, 공개 화면에서 이전 버전을 볼 수 있다
+- **목표**: ADMIN 또는 위임받은 MANAGER가 슬러그·제목·본문·노출 여부로 페이지를 관리하고, 방문자는 `/pages/{slug}`로 현재 버전을, 개정 이력 화면에서 이전 버전을 본다. 공개 레이아웃 푸터에 지정한 페이지 링크가 노출된다.
+- **계획 단계에서 정할 것**: 버전 저장 단위(저장마다 vs "개정 게시" 버튼), 이전 버전 URL 형식(예: `/pages/{slug}/revisions/{no}`), 시행일 표시 여부, 버전 삭제 허용 여부.
+- **수정해야 할 파일**: 신규 `src/main/java/com/cms/admin/page/`(도메인(페이지·개정 버전)·리포지토리·서비스·컨트롤러·DTO), 신규 `src/main/java/com/cms/publicweb/page/`, 신규 `V2x__create_site_page.sql`(페이지 + 개정 테이블)·메뉴 시드, 신규 `templates/admin/page/manage.html`·`templates/public/page/`(현재 버전·이력), 수정 `src/main/java/com/cms/config/SecurityConfig.java`(`/pages/**` GET·HEAD 공개 + 그 외 `denyAll`), `src/main/resources/application.yml`(레이트리밋 규칙), `src/main/java/com/cms/admin/permission/AdminFeature.java`, `src/main/java/com/cms/admin/log/constant/AdminActionTypes.java`
+- **단계별 작업 순서**: (⓪ 완료 확인) → 계획 → 마이그레이션(슬러그 유니크, 개정 테이블) → 엔티티·서비스(슬러그 정규화·중복 409·저장 시 개정 생성·sanitize) → 관리자 API·화면 → 공개 컨트롤러(미노출·삭제·없는 슬러그·없는 버전 모두 같은 404) → 보안·레이트리밋 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, 슬러그 형식 위반 400·중복 409 테스트
+  - [ ] 수정할 때마다 개정이 쌓이고 이전 버전 본문이 그대로 보존됨, 동시 수정 시 개정 번호가 중복되지 않음
+  - [ ] 미노출·없는 슬러그·없는 버전 404 동일 응답, `/pages/**` 비-GET/HEAD 거부
+  - [ ] Playwright: 페이지 작성 → `/pages/{slug}` 노출 → 수정 → 이력에서 이전 버전 열람 → 비노출 전환 시 404
+
+### ⑥ FAQ 관리
+
+- **유형**: 기능 추가
+- **선정 이유**: 카테고리·수동 정렬·아코디언 표시라는 고유 요구가 있어 게시판보다 전용 도메인이 단순하다. 메뉴의 드래그 정렬 + [반영] 패턴을 재사용한다.
+- **확정 결정(2026-10-07)**:
+  - 답변 본문: ⓪ HTML 편집기(⓪ 선행)
+  - 카테고리: **별도 테이블**(화면에서 추가·정렬·비노출)
+  - 공개 검색: 서버 검색 없이 **화면 내 즉시 필터(JS)**
+- **목표**: 관리자가 FAQ 카테고리와 질문/답변을 등록하고 드래그로 순서를 바꾼다. 방문자는 `/faq`에서 카테고리별 아코디언으로 보고, 입력한 단어로 목록을 바로 걸러 본다.
+- **수정해야 할 파일**: 신규 `src/main/java/com/cms/admin/faq/`(도메인(카테고리·FAQ)·리포지토리·서비스·컨트롤러·DTO), 신규 `src/main/java/com/cms/publicweb/faq/`, 신규 `V2x__create_faq.sql`·메뉴 시드, 신규 `templates/admin/faq/manage.html`·`templates/public/faq/list.html`, 신규 공개 필터 스크립트(`static/js/` 하위), 수정 `src/main/java/com/cms/config/SecurityConfig.java`(`/faq` GET·HEAD 공개), `src/main/resources/application.yml`, `src/main/java/com/cms/admin/permission/AdminFeature.java`, `src/main/java/com/cms/admin/log/constant/AdminActionTypes.java`. 정렬 일괄 반영은 `src/main/java/com/cms/admin/menu/`의 구조 반영 API(`PUT /admin/api/menus/structure`) 구현을 참고(코드 공유는 하지 않음).
+- **단계별 작업 순서**: (⓪ 완료 확인) → 계획 → 마이그레이션 → 엔티티(순서·노출 여부)·서비스(정렬 일괄 반영은 비관적 락 + 버전 검사로 동시 편집 409, 답변 sanitize) → 관리자 API·화면 → 공개 화면·필터 → 보안·레이트리밋 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, 정렬 반영의 동시 편집 충돌 409 테스트
+  - [ ] 미노출 FAQ·미노출 카테고리가 공개 화면에 나오지 않음(Testcontainers)
+  - [ ] Playwright: FAQ 등록 → 드래그로 순서 변경 → [반영] → `/faq`에 같은 순서로 노출 → 필터 입력 시 일치 항목만 표시
+
+### ⑦ 팝업 관리
+
+- **유형**: 기능 추가
+- **선정 이유**: ② 배너와 같은 "기간 노출 + 이미지" 구조라 ②의 판정·검증 코드를 재사용한다.
+- **확정 결정(2026-10-07)**:
+  - 노출 화면: **공개 메인(`/`)만**(② 선행)
+  - 내용: **이미지 또는 HTML 본문**(HTML은 ⓪ 편집기 — ⓪ 선행)
+  - 배너와의 관계: **엔티티·테이블·권한·화면은 분리**하고, 노출 기간 판정과 이미지·링크 검증만 ②에서 만든 공용 코드를 쓴다
+  - 이미지 공개 경로: `/popups/{id}/image`
+- **목표**: 관리자가 노출 기간·위치·크기·내용을 지정한 팝업을 등록하면, 방문자가 공개 메인에서 레이어 팝업으로 본다. "오늘 하루 보지 않기"는 브라우저 측(쿠키/`localStorage`)에서만 처리한다.
+- **수정해야 할 파일**: 신규 `src/main/java/com/cms/admin/popup/`(도메인·리포지토리·서비스·컨트롤러·DTO), 신규 `src/main/java/com/cms/publicweb/popup/`(이미지 공개 다운로드), 신규 `V2x__create_popup.sql`·메뉴 시드, 신규 `templates/admin/popup/manage.html`, 수정 ②에서 만든 공개 메인 컨트롤러·`templates/public/home.html`(팝업 모델·레이어), 신규 공개 정적 스크립트(`static/js/` 하위 — "하루 보지 않기"), 수정 `src/main/java/com/cms/config/SecurityConfig.java`(`/popups/*/image` GET·HEAD 공개), `src/main/resources/application.yml`, `src/main/java/com/cms/admin/permission/AdminFeature.java`, `src/main/java/com/cms/admin/log/constant/AdminActionTypes.java`
+- **단계별 작업 순서**: (②·⓪ 완료 확인) → 계획 → 마이그레이션 → 엔티티·서비스(이미지 검증·`FileStorage` 네임스페이스·HTML sanitize) → 관리자 API·화면 → 공개 메인 연동 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과, 노출 기간 경계 고정 `Clock` 테스트, 링크 스킴 검증 400(②와 같은 규칙), HTML 본문 XSS 벡터 제거
+  - [ ] 기간 외·비노출 팝업의 `/popups/{id}/image` 404
+  - [ ] Playwright: 팝업 등록 → `/` 진입 시 표시 → "오늘 하루 보지 않기" 후 새로고침 시 미표시 → 기간 만료 후 미표시
+
+### ⑧ 미디어 라이브러리
+
+- **유형**: 기능 추가(공통 인프라)
+- **선정 이유**: ⓪·②·⑦이 끝나면 이미지를 올리는 곳이 여러 곳으로 늘어 "무엇이 저장소에 있고 어디서 쓰이는지"를 볼 수단이 필요해진다. 앞 항목들의 저장 구조를 옮겨 오므로 **마지막**에 둔다.
+- **확정 결정(2026-10-07)**:
+  - 이관 범위: **배너·팝업·본문(⓪) 이미지만** 라이브러리로 옮긴다. 공지·게시글 첨부와 프로필 이미지는 기존 도메인에 남긴다(공개 첨부 TOCTOU·프로필 이관 계약을 다시 열지 않기 위해).
+  - 사용처 추적: **참조 테이블**(배너·팝업·본문이 저장될 때 사용처 행 갱신)
+  - 공개 접근: **공개 상태 콘텐츠가 참조하는 파일만** 공개, 미사용·비공개 콘텐츠만 참조하는 파일은 404
+  - 형식·용량: 이미지만(png·jpeg·gif, 매직 바이트 검사), 파일당 5MB, **라이브러리 전체 용량 상한** 초과 시 업로드 거부(값은 계획 단계에서 결정)
+- **목표**: 관리자가 업로드한 이미지를 한 화면에서 목록·검색·미리보기하고, 배너·팝업·편집기 본문에서 이미 올린 이미지를 다시 고를 수 있다. 사용 중인 파일은 삭제를 차단하고 사용처를 보여준다.
+- **계획 단계에서 정할 것**: 기존 배너·팝업·본문 이미지 이관 방식(데이터 마이그레이션 + 파일 이동 여부), 기존 공개 이미지 URL(`/banners/{id}/image` 등) 유지 여부, 전체 용량 상한 값, `FileStorage` 인터페이스 변경 필요 여부.
+- **수정해야 할 파일**: 신규 `src/main/java/com/cms/admin/media/`(도메인·사용처 참조·리포지토리·서비스·컨트롤러·DTO), 신규 `V2x__create_media.sql`(+사용처 참조 테이블)·이관 마이그레이션·메뉴 시드, 신규 `templates/admin/media/manage.html` 및 선택 모달 프래그먼트(`templates/admin/fragments/` 하위), 수정 `src/main/java/com/cms/common/storage/`(필요 시), ⓪의 본문 이미지 업로드·공개 다운로드, ②의 `admin/banner`·⑦의 `admin/popup` 이미지 저장·선택 경로, `src/main/java/com/cms/config/SecurityConfig.java`(공개 경로가 바뀌는 경우), `src/main/java/com/cms/admin/permission/AdminFeature.java`, `src/main/java/com/cms/admin/log/constant/AdminActionTypes.java`
+- **단계별 작업 순서**: `PLAN-media-library.md` → `/plan-review-loop` → 마이그레이션 → 엔티티·사용처 참조 → 서비스(업로드 검증·전체 용량 검사·삭제 차단·롤백 시 파일 정리는 `FileStorageTransactionSupport` 패턴) → 관리자 API·화면·선택 모달 → 배너·팝업·편집기 연동 + 기존 이미지 이관 → 테스트 → Playwright
+- **완료 기준**:
+  - [ ] `./gradlew test` 통과
+  - [ ] 사용 중 파일 삭제 시 409와 사용처 목록, 미사용 파일 삭제 시 저장소 파일까지 제거(Testcontainers + 실제 `LocalDiskFileStorage`)
+  - [ ] 업로드 롤백 시 저장 파일이 남지 않음, 허용 외 형식·5MB 초과·전체 용량 초과 400
+  - [ ] 공개 콘텐츠가 참조하지 않는 파일의 공개 다운로드 404
+  - [ ] 이관 전후 배너·팝업·본문 이미지 바이트·공개 표시가 같음, 공지·게시글 첨부와 프로필 이미지 동작 회귀 없음
+  - [ ] Playwright: 라이브러리 업로드 → 배너 등록 화면·편집기에서 선택 → 사용 중 삭제 차단 확인
+
+### 이번 선정에서 탈락한 후보 (다음 갱신 때 재평가)
+
+- **휴지통(삭제 공지 복원)·조회수/다운로드 카운트 + 대시보드 고도화**: 가치는 있으나 기존 도메인 다듬기라 새 도메인보다 후순위.
+- **사이트 설정 메뉴·감사 로그 CSV 내보내기·관리자 초대 메일 가입·비밀번호 이력 재사용 금지**: 운영 편의 항목 — 실배포 이후 운영 요구에 따라 재평가.
+- **2단계 인증(TOTP)·관리자 경로 IP 허용 목록**: 새 라이브러리 도입·인가 정책 변경이 필요해 별도 제안·협의 후 착수.
+
 ## 후속 과제 — ① prod 프로파일 완료 시 발견 (2026-07-30 기록)
 
 > ①(prod 프로파일 부활, `a51d29d` #23) 완료 검증 중 발견해 **이번 PR 범위 밖으로 확정**한 항목. 전부 이번 PR이 새로 만든 문제가 아니라 기존에 있던 결함이거나 애초에 별도 범위로 분리돼 있던 사안이다. 다음 로드맵 갱신 때 별도 작업으로 재평가.
@@ -464,3 +700,7 @@
 **2026-10-07: "후속 과제 — ②"에 남아 있던 `LocalDiskFileStorage.load()`의 최종 파일 링크 한계가 해소됐다(`626764b` #108).** `load()`가 `open()`과 같은 열기 지점(`NOFOLLOW_LINKS`)을 쓰게 되어 두 읽기 경로의 검증 강도가 같아졌다. 계획 리뷰에서 발견한 네임스페이스 루트 링크 구멍(프로필 이미지의 store·load·delete가 루트 밖을 다룰 수 있었음)도 함께 막았다. 애플리케이션 계약 변화는 이상 데이터(링크)에서 500을 내는 것뿐이고 스키마·인가 정책은 바꾸지 않았다. 배포 전 저장 볼륨의 링크 점검(`find "$APP_FILE_STORAGE_ROOT" -type l`)을 운영 주의로 남긴다.
 
 **2026-10-07: Java 21 전환의 범위 밖 후속 중 인자 없는 `toLowerCase()` 2곳의 `Locale.ROOT` 고정이 완료됐다(`c01ff79` #109).** JVM 기본 로케일이 tr/az이면 대문자 `.GIF`·`.ZIP` 첨부가 거부되던 잠재 결함이다. 현재 런타임(en_US·ko_KR)에서는 동작 변화가 없고, `src/main/java`의 대소문자 변환은 모두 `Locale.ROOT`를 쓴다(CLAUDE.md 코딩 컨벤션에 명시, 자동 검사 없음). Java 21 후속으로 남은 것은 가상 스레드 도입 검토와 다음 JDK 메이저 때의 Mockito `-javaagent` 명시 로드다.
+
+**2026-10-07: 선정에서 탈락했던 공개 공지 목록 검색이 완료됐다(`c762fe4` #110).** 공개 공지 목록에서 제목으로 검색할 수 있고, 페이지를 넘겨도 검색어가 유지된다. 공개 전용 검색 메서드가 노출·미삭제 조건을 고정하고 목록·COUNT가 같은 조건을 써서, 비공개 공지가 결과·페이지 수로 새지 않는다. 스키마·인가 정책·레이트리밋은 그대로이고, 인덱스 없는 전체 행 스캔이라 행수 5만 초과 또는 응답 100ms 초과 시 FULLTEXT를 재평가한다. 이로써 "선정에서 탈락한 후보"의 기능 항목은 모두 닫혔다(QueryDSL 포크는 조건부 보류, `docs/migration/` 레거시 SQL은 보존 판단 유지).
+
+**2026-10-07: 콘텐츠·공개 사이트 확장 Top 8 선정.** 감사·버전 전환 항목이 모두 끝나 실배포 대기 건만 남은 상태에서, 공백 1(콘텐츠 도메인 부재)을 다시 기준으로 **① 범용 게시판(Board/Post) → ② 공개 메인(`/`) + 배너 관리 → ③ 세션 관리 화면 또는 문의하기(착수 시 택1)** 순으로 1차 선정하고, 같은 날 **④ 예약 게시 → ⑤ 정적 페이지 → ⑥ FAQ → ⑦ 팝업 → ⑧ 미디어 라이브러리**를 정식 항목으로 추가했다. 이어 착수 전 결정 사항을 사용자와 확정했다: 본문은 전부 HTML 편집기 + sanitizer(→ **⓪ 편집기 공통 기반을 맨 앞에 신설**, 새 라이브러리 제안 대상), 게시판은 **게시판별 권한 위임**(권한 구조 확장)과 **공지 흡수(별도 PR ①-2, `/notices` 유지)**, ③은 세션 관리 먼저(문의하기는 후속), 예약 게시는 흡수 후 게시글에 적용, 정적 페이지는 개정 이력 보존, 미디어 라이브러리는 배너·팝업·본문 이미지만 이관. ③·④를 뺀 전부가 `SecurityConfig` 경로 규칙을 추가하므로 착수 전 인가 정책 협의가 필요하다 — 상세는 "실행 로드맵 — Top 8 (2026-10-07 선정, 콘텐츠·공개 사이트 확장)" 참조.

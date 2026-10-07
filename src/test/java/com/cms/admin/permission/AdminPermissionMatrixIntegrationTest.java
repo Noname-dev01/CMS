@@ -192,7 +192,7 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
                         f -> get("/admin/api/notices/{id}/attachments/{aid}/content", f.noticeId(), f.attachmentId()), e -> { }),
                 new HandlerCase("공지 생성", PermissionAction.CREATE, false, 201,
                         f -> post("/admin/api/notices").contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"title\":\"matrix-created-" + System.nanoTime() + "\",\"content\":\"본문\",\"useYn\":true}"),
+                                .content("{\"title\":\"matrix-created-" + System.nanoTime() + "\",\"content\":\"<p>본문</p>\",\"contentFormat\":\"HTML\",\"useYn\":true}"),
                         e -> assertThat(noticeCountByPrefix("matrix-created-") - e.createdBefore()).as("공지 생성 저장 여부").isEqualTo(e.applied() ? 1L : 0L)),
                 new HandlerCase("공지 수정", PermissionAction.UPDATE, false, 200,
                         f -> patch("/admin/api/notices/{id}", f.noticeId()).contentType(MediaType.APPLICATION_JSON)

@@ -1,6 +1,7 @@
 package com.cms.admin.member.service;
 
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.image.ImageFileValidatorTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -115,5 +116,19 @@ class ProfileImageValidatorTest {
     void unparsableBytes_rejected() {
         assertThrows(InvalidRequestException.class,
                 () -> ProfileImageValidator.validate("not an image".getBytes(), "image/png"));
+    }
+
+    @Test
+    @DisplayName("APNG는 애니메이션으로 거부된다(공용 검증기 위임 후 보정된 구멍 — PLAN-html-editor.md R1-6)")
+    void apng_rejected() throws IOException {
+        byte[] apng = ImageFileValidatorTest.apng(pngBytes(10, 10));
+        assertThrows(InvalidRequestException.class, () -> ProfileImageValidator.validate(apng, "image/png"));
+    }
+
+    @Test
+    @DisplayName("GIF 논리 화면이 프로필 상한(2000px)을 넘으면 프레임이 작아도 거부된다(R3-3)")
+    void largeGifLogicalScreen_rejected() throws IOException {
+        byte[] bomb = ImageFileValidatorTest.withLogicalScreen(singleFrameGifBytes(), 3000, 3000);
+        assertThrows(InvalidRequestException.class, () -> ProfileImageValidator.validate(bomb, "image/gif"));
     }
 }

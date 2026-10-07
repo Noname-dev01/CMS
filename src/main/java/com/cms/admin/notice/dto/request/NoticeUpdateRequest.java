@@ -1,5 +1,6 @@
 package com.cms.admin.notice.dto.request;
 
+import com.cms.admin.member.dto.request.validation.MaxUtf8Bytes;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
@@ -25,9 +26,12 @@ public class NoticeUpdateRequest {
     @Schema(description = "제목 (null이면 기존값 유지)", example = "시스템 점검 안내(변경)")
     private String title;
 
-    @Size(max = 10000)
-    @Schema(description = "본문 (null이면 기존값 유지)")
+    @MaxUtf8Bytes(value = 200_000, message = "본문이 너무 깁니다.")
+    @Schema(description = "본문 HTML (null이면 기존값 유지)")
     private String content;
+
+    @Schema(description = "본문 형식 표식. content가 있으면 \"HTML\" 필수", example = "HTML")
+    private String contentFormat;
 
     @Schema(description = "노출 여부 (null이면 기존값 유지)", example = "false")
     private Boolean useYn;

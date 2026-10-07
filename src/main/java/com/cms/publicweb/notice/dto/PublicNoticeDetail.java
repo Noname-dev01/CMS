@@ -1,5 +1,6 @@
 package com.cms.publicweb.notice.dto;
 
+import com.cms.common.html.HtmlContentSanitizer;
 import com.cms.admin.notice.domain.Notice;
 import com.cms.admin.notice.domain.NoticeAttachment;
 import lombok.AllArgsConstructor;
@@ -12,7 +13,8 @@ import java.util.List;
 
 /**
  * 공개 상세. admin {@code NoticeResponse}를 재사용하지 않는다 — 재사용하면 {@code authorId}·
- * {@code useYn}이 딸려 들어온다(PLAN-public-notice.md 결정 4).
+ * {@code useYn}이 딸려 들어온다(PLAN-public-notice.md 결정 4). {@code content}는 sanitize된 HTML이다 — 템플릿이
+ * {@code th:utext}로 출력하므로 반드시 {@link HtmlContentSanitizer}를 거친 값만 담는다(PLAN-html-editor.md 쟁점 4·12).
  */
 @Getter
 @Builder
@@ -33,7 +35,7 @@ public class PublicNoticeDetail {
         return PublicNoticeDetail.builder()
                 .id(notice.getId())
                 .title(notice.getTitle())
-                .content(notice.getContent())
+                .content(HtmlContentSanitizer.sanitize(notice.getContent()).html())
                 .createDate(notice.getCreateDate())
                 .updateDate(notice.getUpdateDate())
                 .attachments(attachments.stream().map(PublicNoticeAttachment::from).toList())

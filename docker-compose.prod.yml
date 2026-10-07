@@ -47,6 +47,10 @@ services:
       APP_BASE_URL: ${APP_BASE_URL:?필수 환경변수입니다}
       # 컨테이너 내부 절대경로 — named volume 마운트 지점과 동일해야 한다(dev compose와 동일 패턴).
       APP_FILE_STORAGE_ROOT: /app/data/attachments
+      # 편집기 본문 이미지 전체 상한은 선택 입력이다 — 빈 값을 그대로 넘기면 application.yml 기본값이 아니라
+      # 빈 문자열이 바인딩돼 기동이 실패하므로 같은 기본값(1GB·10,000개)으로 대체한다.
+      CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES: ${CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES:-1073741824}
+      CMS_CONTENT_IMAGE_MAX_COUNT: ${CMS_CONTENT_IMAGE_MAX_COUNT:-10000}
       # 부트스트랩 3변수는 선택 입력이다 — ROLE_ADMIN + ACTIVE/LOCKED/PASSWORD_EXPIRED 중
       # 하나인 계정이 이미 있는 정상 운영 환경에서는(D-01 대안 A, 잠금·만료 중이어도 포함)
       # 이 값들이 없어도 기동돼야 하므로 Compose가 무조건 요구하지 않는다(결정 4·7).

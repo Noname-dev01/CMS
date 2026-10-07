@@ -1,5 +1,6 @@
 package com.cms.admin.notice.service;
 
+import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.notice.domain.Notice;
 import com.cms.admin.notice.dto.request.NoticeCreateRequest;
 import com.cms.admin.notice.dto.request.NoticeSearchRequest;
@@ -15,6 +16,9 @@ import com.cms.config.auth.AdminSecurityService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -53,6 +57,9 @@ class NoticeServiceTest {
     @Mock
     AdminSecurityService adminSecurityService;
 
+    @Mock
+    ContentImageService contentImageService;
+
     /** UTC 2026-09-29 15:00 = KST 2026-09-30 00:00 — 시스템 시각·기본 시간대와 무관하게 저장 시각을 단언한다. */
     static final ZoneId KST = ZoneId.of("Asia/Seoul");
     static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 9, 30, 0, 0);
@@ -68,7 +75,7 @@ class NoticeServiceTest {
         return Notice.builder()
                 .id(1L)
                 .title("기존 제목")
-                .content("기존 본문")
+                .content("<p>기존 본문</p>")
                 .useYn(true)
                 .deleted(false)
                 .authorId("admin01")
@@ -99,7 +106,7 @@ class NoticeServiceTest {
 
         NoticeCreateRequest request = NoticeCreateRequest.builder()
                 .title("공지 제목")
-                .content("공지 본문")
+                .content("<p>공지 본문</p>").contentFormat("HTML")
                 .build();
 
         NoticeResponse response = noticeService.createNotice(request);
@@ -115,6 +122,138 @@ class NoticeServiceTest {
         assertEquals(FIXED_NOW, captor.getValue().getUpdateDate());
     }
 
+    // ===================== 본문 HTML 계약 (PLAN-html-editor.md) =====================
+
+    private void givenSaveEchoesWithId() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        given(noticeRepository.save(any(Notice.class))).willAnswer(invocation -> {
+            Notice n = invocation.getArgument(0);
+            return Notice.builder().id(7L).title(n.getTitle()).content(n.getContent()).useYn(n.getUseYn())
+                    .deleted(n.getDeleted()).authorId(n.getAuthorId()).createDate(n.getCreateDate())
+                    .updateDate(n.getUpdateDate()).build();
+        });
+    }
+
+    @Test
+    @DisplayName("생성 시 본문은 sanitize되어 저장되고 이미지 참조가 공지 ID로 교체된다")
+    void createNotice_sanitizesAndReplacesRefs() {
+        givenSaveEchoesWithId();
+        NoticeCreateRequest request = NoticeCreateRequest.builder()
+                .title("제목")
+                .content("<p onclick=\"x\">안녕<script>alert(1)</script><img src=\"/content-images/3\"><img src=\"https://evil.test/a.png\"></p>")
+                .contentFormat("HTML")
+                .build();
+
+        noticeService.createNotice(request);
+
+        ArgumentCaptor<Notice> captor = ArgumentCaptor.forClass(Notice.class);
+        verify(noticeRepository).save(captor.capture());
+        assertEquals("<p>안녕<img src=\"/content-images/3\"></p>", captor.getValue().getContent());
+        verify(contentImageService).replaceRefs("NOTICE", 7L, java.util.Set.of(3L));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "TEXT", "html"})
+    @DisplayName("형식 표식이 HTML이 아니면 400(배포 전 평문 편집 화면 차단, R2-2)")
+    void createNotice_missingFormat_invalidRequest(String format) {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        NoticeCreateRequest request = NoticeCreateRequest.builder()
+                .title("제목").content("<h2>안내</h2>").contentFormat(format).build();
+
+        InvalidRequestException e = assertThrows(InvalidRequestException.class, () -> noticeService.createNotice(request));
+        assertTrue(e.getMessage().contains("새로고침"));
+        verify(noticeRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"<p><br></p>", "<p>&nbsp;</p>", "<script>x</script>", "<p><img src=\"https://evil.test/a.png\"></p>"})
+    @DisplayName("보이는 텍스트도 이미지도 없는 본문은 400")
+    void createNotice_blankHtml_invalidRequest(String content) {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        NoticeCreateRequest request = NoticeCreateRequest.builder()
+                .title("제목").content(content).contentFormat("HTML").build();
+
+        assertThrows(InvalidRequestException.class, () -> noticeService.createNotice(request));
+    }
+
+    @Test
+    @DisplayName("이미지만 있는 본문은 허용된다")
+    void createNotice_imageOnly_allowed() {
+        givenSaveEchoesWithId();
+        NoticeCreateRequest request = NoticeCreateRequest.builder()
+                .title("제목").content("<p><img src=\"/content-images/1\"></p>").contentFormat("HTML").build();
+
+        noticeService.createNotice(request);
+
+        verify(noticeRepository).save(any(Notice.class));
+    }
+
+    @Test
+    @DisplayName("보이는 텍스트 10,001자는 허용, 10,002자는 400(공백도 정규화 없이 센다)")
+    void createNotice_textLengthBoundary() {
+        givenSaveEchoesWithId();
+        // "<p>" + 10,000자 + "</p>" = 10,000 + 블록 종료 1 = 10,001
+        NoticeCreateRequest atLimit = NoticeCreateRequest.builder()
+                .title("제목").content("<p>" + "가".repeat(10_000) + "</p>").contentFormat("HTML").build();
+        noticeService.createNotice(atLimit);
+
+        NoticeCreateRequest overBySpaces = NoticeCreateRequest.builder()
+                .title("제목").content("<p>A" + " ".repeat(9_999) + "B</p>").contentFormat("HTML").build();
+        assertThrows(InvalidRequestException.class, () -> noticeService.createNotice(overBySpaces));
+    }
+
+    @Test
+    @DisplayName("정리된 HTML이 200,000바이트를 넘으면 400")
+    void createNotice_tooManyBytes_invalidRequest() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        // 글자 수는 상한 안(1,000개 링크 × 1자)이지만 링크 마크업으로 바이트가 넘친다
+        String links = "<a href=\"https://example.com/" + "x".repeat(150) + "\">a</a>";
+        NoticeCreateRequest request = NoticeCreateRequest.builder()
+                .title("제목").content("<p>" + links.repeat(1_000) + "</p>").contentFormat("HTML").build();
+
+        InvalidRequestException e = assertThrows(InvalidRequestException.class, () -> noticeService.createNotice(request));
+        assertTrue(e.getMessage().contains("서식"));
+    }
+
+    @Test
+    @DisplayName("useYn만 바꾸는 PATCH는 형식 표식 없이 허용되고 참조를 건드리지 않는다")
+    void updateNotice_useYnOnly_noFormatNeeded() {
+        Notice target = existingNotice();
+        given(noticeRepository.findByIdAndDeletedFalseForUpdate(1L)).willReturn(Optional.of(target));
+
+        noticeService.updateNotice(1L, NoticeUpdateRequest.builder().useYn(false).build());
+
+        assertFalse(target.getUseYn());
+        verify(contentImageService, never()).replaceRefs(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("본문 수정은 형식 표식이 필요하고, 성공 시 참조를 교체한다")
+    void updateNotice_content_requiresFormatAndReplacesRefs() {
+        Notice target = existingNotice();
+        given(noticeRepository.findByIdAndDeletedFalseForUpdate(1L)).willReturn(Optional.of(target));
+
+        assertThrows(InvalidRequestException.class,
+                () -> noticeService.updateNotice(1L, NoticeUpdateRequest.builder().content("<p>새 본문</p>").build()));
+
+        noticeService.updateNotice(1L, NoticeUpdateRequest.builder()
+                .content("<p>새 본문<img src=\"/content-images/9\"></p>").contentFormat("HTML").build());
+
+        assertEquals("<p>새 본문<img src=\"/content-images/9\"></p>", target.getContent());
+        verify(contentImageService).replaceRefs("NOTICE", 1L, java.util.Set.of(9L));
+    }
+
+    @Test
+    @DisplayName("응답 본문은 출력 시에도 sanitize된다(저장 경로 밖 데이터 방어)")
+    void response_sanitizesStoredContent() {
+        Notice tainted = Notice.builder().id(1L).title("t").content("<p>x<img src=x onerror=alert(1)></p><script>y</script>")
+                .useYn(true).deleted(false).authorId("a").build();
+        given(noticeRepository.findByIdAndDeletedFalse(1L)).willReturn(Optional.of(tainted));
+
+        assertEquals("<p>x</p>", noticeService.getNotice(1L).getContent());
+    }
+
     @Test
     @DisplayName("author를 확인할 수 없으면 AccessDeniedException")
     void createNotice_authorNull_accessDenied() {
@@ -122,7 +261,7 @@ class NoticeServiceTest {
 
         NoticeCreateRequest request = NoticeCreateRequest.builder()
                 .title("공지 제목")
-                .content("공지 본문")
+                .content("<p>공지 본문</p>").contentFormat("HTML")
                 .build();
 
         assertThrows(AccessDeniedException.class, () -> noticeService.createNotice(request));
@@ -142,7 +281,7 @@ class NoticeServiceTest {
         NoticeResponse response = noticeService.updateNotice(1L, request);
 
         assertEquals("변경된 제목", response.getTitle());
-        assertEquals("기존 본문", response.getContent());
+        assertEquals("<p>기존 본문</p>", response.getContent());
         assertEquals(FIXED_NOW, target.getUpdateDate()); // 수정 시각은 주입된 KST Clock
         verify(noticeRepository).findByIdAndDeletedFalseForUpdate(1L);
     }
@@ -229,7 +368,7 @@ class NoticeServiceTest {
 
         NoticeResponse response = noticeService.getNotice(1L);
 
-        assertEquals("기존 본문", response.getContent());
+        assertEquals("<p>기존 본문</p>", response.getContent());
     }
 
     // ===================== getNotices =====================

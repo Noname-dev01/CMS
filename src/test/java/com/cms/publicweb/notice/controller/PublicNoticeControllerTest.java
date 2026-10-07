@@ -354,18 +354,25 @@ class PublicNoticeControllerTest {
     }
 
     @Test
-    @DisplayName("본문에 스크립트·이벤트 속성 payload가 있어도 상세에서 이스케이프되어 실행되지 않는다")
+    @DisplayName("본문의 스크립트·이벤트 속성 payload는 PublicNoticeDetail.from의 sanitize로 제거되고 허용 서식만 HTML로 출력된다")
     @WithMockUser
-    void detail_xssPayloadContent_isEscaped() throws Exception {
-        String payload = "<script>alert('xss')</script><img src=x onerror=\"alert('xss')\">";
+    void detail_xssPayloadContent_isSanitized() throws Exception {
+        // 본문은 HTML이다(PLAN-html-editor.md) — 상세는 th:utext로 출력하므로 방어선은 DTO 생성 시 sanitize다.
+        // 그래서 빌더가 아니라 실제 생성 경로(from)로 DTO를 만든다.
+        String payload = "<p><strong>굵게</strong><script>alert('xss')</script><img src=x onerror=\"alert('xss')\">"
+                + "<a href=\"javascript:alert(1)\">링크</a></p>";
+        com.cms.admin.notice.domain.Notice notice = com.cms.admin.notice.domain.Notice.builder()
+                .id(1L).title("제목").content(payload).useYn(true).deleted(false).authorId("admin01").build();
         given(publicNoticeService.findPublishedNotice(1L))
-                .willReturn(Optional.of(detail(1L, "제목", payload)));
+                .willReturn(Optional.of(PublicNoticeDetail.from(notice, java.util.List.of())));
 
         mockMvc.perform(get("/notices/1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("<script>alert('xss')</script>"))))
+                .andExpect(content().string(not(containsString("onerror"))))
+                .andExpect(content().string(not(containsString("javascript:"))))
                 .andExpect(content().string(not(containsString("<img"))))
-                .andExpect(content().string(containsString("&lt;img")));
+                .andExpect(content().string(containsString("<strong>굵게</strong>")));
     }
 
     // ===================== 예외 처리 (범위 한정 advice 우선순위) =====================

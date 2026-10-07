@@ -26,18 +26,30 @@ public final class FileStorageTransactionSupport {
      * 예외를 가리지 않도록 {@link Throwable#addSuppressed}로 붙인 뒤 원 예외를 던진다.
      */
     public static void deleteOnRollback(FileStorage storage, String storageKey, String namespace, String logContext) {
+        deleteOnRollback(() -> storage.delete(storageKey, namespace));
+    }
+
+    /**
+     * 네임스페이스 없는 루트 영역 파일용 {@link #deleteOnRollback(FileStorage, String, String, String)}
+     * (본문 이미지 — PLAN-html-editor.md 쟁점 7).
+     */
+    public static void deleteOnRollback(FileStorage storage, String storageKey) {
+        deleteOnRollback(() -> storage.delete(storageKey));
+    }
+
+    private static void deleteOnRollback(Runnable delete) {
         try {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCompletion(int status) {
                     if (status != TransactionSynchronization.STATUS_COMMITTED) {
-                        storage.delete(storageKey, namespace);
+                        delete.run();
                     }
                 }
             });
         } catch (RuntimeException registrationFailure) {
             try {
-                storage.delete(storageKey, namespace);
+                delete.run();
             } catch (RuntimeException cleanupFailure) {
                 registrationFailure.addSuppressed(cleanupFailure);
             }

@@ -104,6 +104,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/notices", "/notices/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/notices", "/notices/**").permitAll()
                         .requestMatchers("/notices", "/notices/**").denyAll()
+                        // 편집기 본문 이미지: GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-07 승인, PLAN-html-editor.md).
+                        // 공개 여부(공개 공지가 참조하거나 NOTICE 조회 권한자)는 PublicContentImageService가 판정한다.
+                        .requestMatchers(HttpMethod.GET, "/content-images/*").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/content-images/*").permitAll()
+                        .requestMatchers("/content-images", "/content-images/**").denyAll()
                         // actuator: health만 무인증 공개(로드밸런서 헬스체크용), 나머지는 명시 차단.
                         // management.endpoints.web.exposure.include(설정 레벨 제한)에 더해
                         // Security 레이어에서 이중으로 막아, 노출 설정이 실수로 넓어져도

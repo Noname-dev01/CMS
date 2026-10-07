@@ -129,10 +129,48 @@ body {
     border-bottom: 1px solid #edf0f3;
 }
 
+/* 본문은 서버가 정리한 HTML(허용 태그: p br strong em u s h2 h3 ol ul li blockquote a img).
+   표시 규칙은 관리 화면 편집기(Quill .ql-editor)와 같게 맞춘다 — pre-wrap(연속 공백·빈 줄 보존) + 문단 여백 0
+   (PLAN-html-editor.md 쟁점 12). */
 .notice-detail-content {
     white-space: pre-wrap;
     word-break: break-word;
     line-height: 1.7;
+}
+
+.notice-detail-content p,
+.notice-detail-content h2,
+.notice-detail-content h3,
+.notice-detail-content ol,
+.notice-detail-content ul,
+.notice-detail-content blockquote {
+    margin: 0;
+}
+
+.notice-detail-content h2 {
+    font-size: 1.3rem;
+    font-weight: 700;
+}
+
+.notice-detail-content h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.notice-detail-content ol,
+.notice-detail-content ul {
+    padding-left: 1.5em;
+}
+
+.notice-detail-content blockquote {
+    border-left: 4px solid #d5dbe1;
+    padding-left: 1em;
+    color: #5d6d7e;
+}
+
+.notice-detail-content img {
+    max-width: 100%;
+    height: auto;
 }
 
 .notice-attachments {
