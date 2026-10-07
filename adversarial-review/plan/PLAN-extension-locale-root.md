@@ -1,6 +1,6 @@
 # PLAN — 첨부 확장자 소문자화의 `Locale.ROOT` 고정
 
-> 상태: ✅ 구현·검증 완료 (2026-10-07, 커밋·PR 전) — v2 승인(적대적 리뷰 2라운드 ship) → 구현 → 테스트(판별력 확인 포함) → dev Docker 스택 실기(en_US·tr_TR). 결과는 문서 끝 "구현·검증 결과" 참조
+> 상태: ✅ 완료 (2026-10-07 · #109 `c01ff79`, PR·master CI `test`·`prod-smoke` success — Linux CI 신규 6케이스 success) — v2 승인(적대적 리뷰 2라운드 ship) → 구현 → 테스트(판별력 확인 포함) → dev Docker 스택 실기(en_US·tr_TR). 결과는 문서 끝 "구현·검증 결과" 참조
 > 출처: `PLAN-java-21.md` §8 "후속"(로드맵 27차 갱신의 범위 밖 후속) — `/suggestRoadmap` 2026-10-07 선택
 > 유형: fix(로케일 독립성) · 브랜치 `fix/extension-locale-root` · **스키마 변경 없음 · 인가 정책 변경 없음 · 신규 의존성 없음**
 
