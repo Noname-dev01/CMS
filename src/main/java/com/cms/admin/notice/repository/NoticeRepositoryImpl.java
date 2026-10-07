@@ -63,6 +63,34 @@ public class NoticeRepositoryImpl implements NoticeRepositoryCustom {
         return new PageImpl<>(content, pageable, total == null ? 0 : total);
     }
 
+    @Override
+    public Page<Notice> searchPublishedByTitle(String keyword, Pageable pageable) {
+        QNotice notice = QNotice.notice;
+
+        // 목록과 COUNT가 같은 조건 객체를 쓴다 — COUNT에서 공개 조건이 빠지면 비공개 일치 공지의
+        // 존재가 총건수·페이지 수로 드러난다(PLAN-public-notice-search.md 쟁점 2).
+        BooleanBuilder condition = new BooleanBuilder()
+                .and(notice.deleted.isFalse())
+                .and(notice.useYn.isTrue())
+                .and(notice.title.contains(keyword));
+
+        List<Notice> content = queryFactory
+                .selectFrom(notice)
+                .where(condition)
+                .orderBy(toOrderSpecifiers(pageable.getSort()))
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
+
+        Long total = queryFactory
+                .select(notice.count())
+                .from(notice)
+                .where(condition)
+                .fetchOne();
+
+        return new PageImpl<>(content, pageable, total == null ? 0 : total);
+    }
+
     /**
      * Pageable의 Sort를 QueryDSL OrderSpecifier 배열로 변환한다.
      * 화이트리스트에 없는 속성은 무시하며, 유효한 정렬이 있든 없든 마지막에

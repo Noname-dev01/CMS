@@ -211,6 +211,95 @@ class NoticeRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(firstIndex).isGreaterThan(secondIndex);
     }
 
+    // ===================== searchPublishedByTitle (공개 목록 제목 검색 — PLAN-public-notice-search.md 쟁점 2·3·7) =====================
+    // 컨테이너 DB는 JVM 단위로 공유되므로, 총건수 단언은 고유 마커가 든 키워드로 다른 테스트 데이터와 분리한다.
+
+    private static final PageRequest PUBLIC_PAGE = PageRequest.of(0, 10, Sort.by(Sort.Order.desc("createDate"), Sort.Order.desc("id")));
+
+    @Test
+    @DisplayName("searchPublishedByTitle은 목록·COUNT 모두 노출·미삭제 공지만 센다 — 비공개 일치 공지가 총건수·페이지 수로 새지 않는다")
+    void searchPublishedByTitle_countAndPagesExcludeHiddenAndDeleted() {
+        String marker = "공개검색카운트" + System.nanoTime();
+        for (int i = 0; i < 11; i++) {
+            saveNotice(marker + "-공개" + i, "본문", true, false);
+        }
+        saveNotice(marker + "-비노출", "본문", false, false);
+        saveNotice(marker + "-삭제", "본문", true, true);
+        saveNotice("불일치" + System.nanoTime(), "본문", true, false);
+
+        Page<Notice> result = noticeRepository.searchPublishedByTitle(marker, PUBLIC_PAGE);
+
+        assertThat(result.getTotalElements()).isEqualTo(11);
+        assertThat(result.getTotalPages()).isEqualTo(2);
+        assertThat(result.hasNext()).isTrue();
+        assertThat(result.getContent()).hasSize(10)
+                .extracting(Notice::getTitle)
+                .allMatch(title -> title.startsWith(marker + "-공개"));
+    }
+
+    @Test
+    @DisplayName("searchPublishedByTitle은 비노출·삭제 공지만 일치하면 총건수 0·페이지 0이다")
+    void searchPublishedByTitle_onlyPrivateMatches_isEmpty() {
+        String marker = "공개검색비공개만" + System.nanoTime();
+        saveNotice(marker + "-비노출", "본문", false, false);
+        saveNotice(marker + "-삭제", "본문", true, true);
+
+        Page<Notice> result = noticeRepository.searchPublishedByTitle(marker, PUBLIC_PAGE);
+
+        assertThat(result.getContent()).isEmpty();
+        assertThat(result.getTotalElements()).isZero();
+        assertThat(result.getTotalPages()).isZero();
+    }
+
+    @Test
+    @DisplayName("searchPublishedByTitle에서 %·_·! 는 와일드카드가 아니라 문자 그대로 매칭된다")
+    void searchPublishedByTitle_likeSpecialCharactersAreLiteral() {
+        String marker = "와일드카드" + System.nanoTime();
+        Notice percent = saveNotice(marker + "-a%b", "본문", true, false);
+        saveNotice(marker + "-aXYb", "본문", true, false);
+        Notice underscore = saveNotice(marker + "-c_d", "본문", true, false);
+        saveNotice(marker + "-cZd", "본문", true, false);
+        Notice bang = saveNotice(marker + "-e!f", "본문", true, false);
+
+        assertThat(noticeRepository.searchPublishedByTitle(marker + "-a%b", PUBLIC_PAGE).getContent())
+                .extracting(Notice::getId).containsExactly(percent.getId());
+        assertThat(noticeRepository.searchPublishedByTitle(marker + "-c_d", PUBLIC_PAGE).getContent())
+                .extracting(Notice::getId).containsExactly(underscore.getId());
+        assertThat(noticeRepository.searchPublishedByTitle(marker + "-e!f", PUBLIC_PAGE).getContent())
+                .extracting(Notice::getId).containsExactly(bang.getId());
+        assertThat(noticeRepository.searchPublishedByTitle(marker + "-%", PUBLIC_PAGE).getContent()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("searchPublishedByTitle은 콜레이션(utf8mb4_general_ci)에 따라 대소문자를 구분하지 않는다")
+    void searchPublishedByTitle_caseInsensitiveByCollation() {
+        String marker = "대소문자" + System.nanoTime();
+        Notice upper = saveNotice(marker + "-NOTICE", "본문", true, false);
+
+        assertThat(noticeRepository.searchPublishedByTitle(marker + "-notice", PUBLIC_PAGE).getContent())
+                .extracting(Notice::getId).containsExactly(upper.getId());
+    }
+
+    @Test
+    @DisplayName("searchPublishedByTitle은 createDate desc, 동률이면 id desc로 정렬한다")
+    void searchPublishedByTitle_sortedByCreateDateThenIdDesc() {
+        String marker = "검색정렬" + System.nanoTime();
+        LocalDateTime base = LocalDateTime.now();
+        Notice older = noticeRepository.save(Notice.builder()
+                .title(marker + "-older").content("본문").useYn(true).deleted(false)
+                .authorId("admin01").createDate(base.minusDays(1)).updateDate(base).build());
+        Notice tieFirst = noticeRepository.save(Notice.builder()
+                .title(marker + "-tie1").content("본문").useYn(true).deleted(false)
+                .authorId("admin01").createDate(base).updateDate(base).build());
+        Notice tieSecond = noticeRepository.save(Notice.builder()
+                .title(marker + "-tie2").content("본문").useYn(true).deleted(false)
+                .authorId("admin01").createDate(base).updateDate(base).build());
+
+        assertThat(noticeRepository.searchPublishedByTitle(marker, PUBLIC_PAGE).getContent())
+                .extracting(Notice::getId)
+                .containsExactly(tieSecond.getId(), tieFirst.getId(), older.getId());
+    }
+
     private int indexOfId(Page<Notice> page, Long id) {
         return page.getContent().stream().map(Notice::getId).toList().indexOf(id);
     }

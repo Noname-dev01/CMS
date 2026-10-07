@@ -10,10 +10,14 @@ import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
+import com.cms.publicweb.notice.dto.PublicNoticeListResult;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -29,12 +33,15 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -78,7 +85,7 @@ class PublicNoticeServiceTest {
         given(noticeRepository.findByDeletedFalseAndUseYnTrue(any()))
                 .willReturn(new PageImpl<>(List.of(notice(1L))));
 
-        Page<PublicNoticeSummary> result = publicNoticeService.getPublishedNotices(0);
+        Page<PublicNoticeSummary> result = publicNoticeService.getPublishedNotices(0, null).page();
 
         assertEquals(1, result.getContent().size());
         assertEquals(1L, result.getContent().get(0).getId());
@@ -152,7 +159,7 @@ class PublicNoticeServiceTest {
         setUp();
         given(noticeRepository.findByDeletedFalseAndUseYnTrue(any())).willReturn(new PageImpl<>(List.of()));
 
-        publicNoticeService.getPublishedNotices(-5);
+        publicNoticeService.getPublishedNotices(-5, null);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(noticeRepository).findByDeletedFalseAndUseYnTrue(captor.capture());
@@ -165,7 +172,7 @@ class PublicNoticeServiceTest {
         setUp();
         given(noticeRepository.findByDeletedFalseAndUseYnTrue(any())).willReturn(new PageImpl<>(List.of()));
 
-        publicNoticeService.getPublishedNotices(Integer.MAX_VALUE);
+        publicNoticeService.getPublishedNotices(Integer.MAX_VALUE, null);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(noticeRepository).findByDeletedFalseAndUseYnTrue(captor.capture());
@@ -178,7 +185,7 @@ class PublicNoticeServiceTest {
         setUp();
         given(noticeRepository.findByDeletedFalseAndUseYnTrue(any())).willReturn(new PageImpl<>(List.of()));
 
-        publicNoticeService.getPublishedNotices(0);
+        publicNoticeService.getPublishedNotices(0, null);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(noticeRepository).findByDeletedFalseAndUseYnTrue(captor.capture());
@@ -191,13 +198,93 @@ class PublicNoticeServiceTest {
         setUp();
         given(noticeRepository.findByDeletedFalseAndUseYnTrue(any())).willReturn(new PageImpl<>(List.of()));
 
-        publicNoticeService.getPublishedNotices(0);
+        publicNoticeService.getPublishedNotices(0, null);
 
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
         verify(noticeRepository).findByDeletedFalseAndUseYnTrue(captor.capture());
         Sort sort = captor.getValue().getSort();
         assertEquals(Sort.Direction.DESC, sort.getOrderFor("createDate").getDirection());
         assertEquals(Sort.Direction.DESC, sort.getOrderFor("id").getDirection());
+    }
+
+    // ===================== getPublishedNotices: 제목 검색 (PLAN-public-notice-search.md 쟁점 3·7) =====================
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "   ", "\t　"})
+    @DisplayName("키워드가 없거나 공백뿐이면 기존 목록 경로를 쓰고 검색 메서드는 호출하지 않는다")
+    void getPublishedNotices_blankKeyword_usesDefaultList(String keyword) {
+        setUp();
+        given(noticeRepository.findByDeletedFalseAndUseYnTrue(any())).willReturn(new PageImpl<>(List.of()));
+
+        PublicNoticeListResult result = publicNoticeService.getPublishedNotices(0, keyword);
+
+        assertNull(result.keyword());
+        verify(noticeRepository).findByDeletedFalseAndUseYnTrue(any());
+        verify(noticeRepository, never()).searchPublishedByTitle(any(), any());
+    }
+
+    @Test
+    @DisplayName("키워드는 앞뒤 공백을 제거해 검색 메서드로 전달하고, 정규화한 값을 결과에 담는다")
+    void getPublishedNotices_keyword_strippedAndSearched() {
+        setUp();
+        given(noticeRepository.searchPublishedByTitle(eq("점검"), any())).willReturn(new PageImpl<>(List.of(notice(1L))));
+
+        PublicNoticeListResult result = publicNoticeService.getPublishedNotices(0, "  점검\t");
+
+        assertEquals("점검", result.keyword());
+        assertEquals(1L, result.page().getContent().get(0).getId());
+        verify(noticeRepository, never()).findByDeletedFalseAndUseYnTrue(any());
+    }
+
+    @Test
+    @DisplayName("검색할 때도 page 보정·크기 10·정렬(createDate desc, id desc)이 같다")
+    void getPublishedNotices_keyword_sameRulesAsList() {
+        setUp();
+        given(noticeRepository.searchPublishedByTitle(eq("점검"), any())).willReturn(new PageImpl<>(List.of()));
+
+        publicNoticeService.getPublishedNotices(Integer.MAX_VALUE, "점검");
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(noticeRepository).searchPublishedByTitle(eq("점검"), captor.capture());
+        Pageable pageable = captor.getValue();
+        assertEquals(0, pageable.getPageNumber());
+        assertEquals(10, pageable.getPageSize());
+        assertEquals(Sort.Direction.DESC, pageable.getSort().getOrderFor("createDate").getDirection());
+        assertEquals(Sort.Direction.DESC, pageable.getSort().getOrderFor("id").getDirection());
+    }
+
+    @Test
+    @DisplayName("100 코드 유닛 키워드는 검색하고, 101 코드 유닛은 DB를 조회하지 않고 빈 페이지를 돌려준다")
+    void getPublishedNotices_keywordLengthBoundary() {
+        setUp();
+        String max = "가".repeat(100);
+        given(noticeRepository.searchPublishedByTitle(eq(max), any())).willReturn(new PageImpl<>(List.of()));
+
+        publicNoticeService.getPublishedNotices(0, max);
+        verify(noticeRepository).searchPublishedByTitle(eq(max), any());
+
+        PublicNoticeListResult tooLong = publicNoticeService.getPublishedNotices(0, max + "가");
+        assertTrue(tooLong.page().isEmpty());
+        assertEquals(0, tooLong.page().getTotalElements());
+        assertEquals(max + "가", tooLong.keyword());
+        verify(noticeRepository, never()).searchPublishedByTitle(eq(max + "가"), any());
+    }
+
+    @Test
+    @DisplayName("길이는 UTF-16 코드 유닛 기준이다 — 이모지 50개(100유닛)는 검색, 51개(102유닛)는 미조회 (HTML maxlength와 같은 단위)")
+    void getPublishedNotices_keywordLengthCountsUtf16Units() {
+        setUp();
+        String emoji = "😀"; // 😀 — 코드포인트 1개, 코드 유닛 2개
+        String fifty = emoji.repeat(50);
+        String fiftyOne = emoji.repeat(51);
+        given(noticeRepository.searchPublishedByTitle(eq(fifty), any())).willReturn(new PageImpl<>(List.of()));
+
+        publicNoticeService.getPublishedNotices(0, fifty);
+        publicNoticeService.getPublishedNotices(0, fiftyOne);
+
+        verify(noticeRepository).searchPublishedByTitle(eq(fifty), any());
+        verify(noticeRepository, never()).searchPublishedByTitle(eq(fiftyOne), any());
     }
 
     // ===================== findPublishedAttachment / openAttachment =====================
