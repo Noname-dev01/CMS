@@ -1,6 +1,6 @@
 # PLAN — `LocalDiskFileStorage` 읽기·네임스페이스 경로의 심볼릭 링크 탈출 차단
 
-> 상태: ✅ 구현·검증 완료 (2026-10-07, 커밋·PR 전) — v3 승인(적대적 리뷰 3라운드 ship) → 구현 → 테스트(Windows 전체 + Linux 컨테이너 링크 테스트) → dev Docker 스택 실기 검증. 결과는 문서 끝 "구현·검증 결과" 참조
+> 상태: ✅ 완료 (2026-10-07 · #108 `626764b`, PR·master CI `test`·`prod-smoke` success — Linux CI 링크 테스트 11건 실행·통과) — v3 승인(적대적 리뷰 3라운드 ship) → 구현 → 테스트(Windows 전체 + Linux 컨테이너 링크 테스트) → dev Docker 스택 실기 검증. 결과는 문서 끝 "구현·검증 결과" 참조
 > 출처: 로드맵 "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록"의 잔여 한계(`PLAN-public-notice-attachment.md` v6 리뷰 4 → 후속 "기존 `load()`에도 최종 링크 거부를 적용할지 검토"). `/suggestRoadmap` 2026-10-07 선택.
 > 유형: security(심층 방어) · 브랜치 `security/storage-load-nofollow` · **스키마 변경 없음 · 인가 정책 변경 없음 · 신규 의존성 없음**
 
