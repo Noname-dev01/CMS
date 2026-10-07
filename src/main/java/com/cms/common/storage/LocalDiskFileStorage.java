@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.SeekableByteChannel;
@@ -25,8 +26,9 @@ import java.util.regex.Pattern;
  * (adversarial-review/plan/PLAN-notice-attachment.md 쟁점 2·12 참조, v6 — 적대적 리뷰 5라운드 ship).
  *
  * <p><b>경로 탈출 방지</b>: {@code storageKey}는 항상 이 클래스가 직접 생성하므로 사용자 입력이
- * 경로에 직접 반영되지 않지만, 방어적으로 최종 경로가 스토리지 루트 하위인지
- * {@link Path#toRealPath}(심볼릭 링크까지 실제 해석)로 검증한다.
+ * 경로에 직접 반영되지 않지만, 방어적으로 최종 파일의 부모 디렉터리가 스토리지 루트 하위인지
+ * {@link Path#toRealPath}(심볼릭 링크까지 실제 해석)로 검증하고, 읽기(load·open)는 최종 파일 자체가
+ * 링크이면 {@link LinkOption#NOFOLLOW_LINKS}로 거부한다(PLAN-storage-load-nofollow.md).
  *
  * <p><b>쓰기 알고리즘</b>: 최종 경로에 직접 {@link StandardOpenOption#CREATE_NEW}로 쓴다 —
  * 대상이 이미 존재하면 항상 실패하는 것을 Java API가 크로스플랫폼으로 보장하므로 무덮어쓰기가
@@ -131,9 +133,15 @@ public class LocalDiskFileStorage implements FileStorage {
         return loadUnder(resolveNamespaceRoot(namespace, false), storageKey);
     }
 
+    /**
+     * {@link #openUnder}와 같은 {@link #openChannel}로 연다 — 최종 파일 자체가 링크이면
+     * {@link LinkOption#NOFOLLOW_LINKS}로 거부해 load·open의 검증 강도를 같게 유지한다
+     * (adversarial-review/plan/PLAN-storage-load-nofollow.md 쟁점 1·2).
+     */
     private byte[] loadUnder(Path effectiveRoot, String storageKey) {
-        try {
-            return Files.readAllBytes(resolveVerifiedTarget(effectiveRoot, storageKey));
+        try (SeekableByteChannel channel = openChannel(resolveVerifiedTarget(effectiveRoot, storageKey));
+             InputStream in = Channels.newInputStream(channel)) {
+            return in.readAllBytes();
         } catch (NoSuchFileException e) {
             throw new StorageFileNotFoundException("첨부파일을 찾을 수 없습니다: " + storageKey, e);
         } catch (IOException e) {
@@ -153,8 +161,9 @@ public class LocalDiskFileStorage implements FileStorage {
     /**
      * {@link #loadUnder}와 같은 사전 검증({@link #resolveVerifiedTarget})을 거친 뒤 채널을 연다.
      * 사전 검증은 <b>부모 디렉터리</b>의 실제 경로만 확인하므로, 최종 파일 자체가 외부를 가리키는
-     * 링크인 경우는 {@link LinkOption#NOFOLLOW_LINKS}로 채널을 열 때 거부한다(파일은 항상
+     * 링크인 경우는 {@link #openChannel}이 {@link LinkOption#NOFOLLOW_LINKS}로 거부한다(파일은 항상
      * {@code CREATE_NEW}로 만든 일반 파일이라 정상 경로에는 영향이 없다 — 계획서 v6 리뷰 4).
+     * {@link #loadUnder}도 같은 {@link #openChannel}을 쓴다.
      * 채널 open 이후 크기 조회 등이 실패하면 채널을 닫고 예외를 던진다(핸들 누수 방지).
      */
     private StoredFileStream openUnder(Path effectiveRoot, String storageKey) {
@@ -175,7 +184,10 @@ public class LocalDiskFileStorage implements FileStorage {
         }
     }
 
-    /** 패키지 접근 — LocalDiskFileStorageTest가 채널 open 이후 실패(크기 조회 등)를 주입하는 이음새. */
+    /**
+     * load·open이 공유하는 유일한 열기 지점 — 최종 링크 거부 정책이 여기에만 있다.
+     * 패키지 접근 — LocalDiskFileStorageTest가 채널 open 이후 실패(크기 조회 등)를 주입하는 이음새.
+     */
     SeekableByteChannel openChannel(Path target) throws IOException {
         return Files.newByteChannel(target, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
     }
@@ -296,10 +308,19 @@ public class LocalDiskFileStorage implements FileStorage {
         }
     }
 
-    private void verifyWithinRoot(Path root, Path realParent) {
+    /**
+     * {@code realParent}가 {@code effectiveRoot}(설정 루트 또는 그 아래 네임스페이스 루트) 하위인지 검증한다.
+     * 기준은 <b>설정 루트만</b> 실경로로 해석하고 네임스페이스 이름은 문자 그대로 붙인 경로다 —
+     * {@code root/profile} 자체가 외부 링크여도 기준이 따라 나가지 않는다. 실경로는 정규화 전 원본
+     * 설정값으로 구하고 {@code normalize()}는 상대 경로 계산에만 쓴다(링크 뒤 ".."를 어휘적으로
+     * 지우면 경계가 바뀐다). adversarial-review/plan/PLAN-storage-load-nofollow.md 쟁점 6 참조.
+     */
+    private void verifyWithinRoot(Path effectiveRoot, Path realParent) {
+        Path configuredRoot = Paths.get(properties.getRoot());
         Path realRoot;
         try {
-            realRoot = root.toRealPath();
+            realRoot = configuredRoot.toRealPath()
+                    .resolve(configuredRoot.normalize().relativize(effectiveRoot.normalize()));
         } catch (IOException e) {
             throw new IllegalStateException("첨부파일 저장 루트 경로 확인에 실패했습니다.", e);
         }

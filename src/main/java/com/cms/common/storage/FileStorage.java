@@ -24,7 +24,8 @@ public interface FileStorage {
     String store(byte[] content, String originalFilename);
 
     /**
-     * storageKey에 해당하는 파일 내용을 읽어 반환한다.
+     * storageKey에 해당하는 파일 내용을 읽어 반환한다. {@link #open(String)}과 같은 사전 검증을 적용하며,
+     * 구현체는 최종 파일 자체가 링크인 경우도 거부해야 한다({@code IllegalStateException}).
      *
      * @throws StorageFileNotFoundException 파일이 존재하지 않는 경우(IllegalStateException의 서브타입)
      * @throws IllegalStateException        그 외 읽기에 실패한 경우
