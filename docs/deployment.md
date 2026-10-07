@@ -31,6 +31,7 @@
 | `MAIL_SMTP_CONNECTION_TIMEOUT_MS`·`_READ_TIMEOUT_MS`·`_WRITE_TIMEOUT_MS` | **선택** | 아래 "SMTP timeout" 참조. 기본값 10000/30000/30000(ms) |
 | `APP_BASE_URL` | 필수 | 비밀번호 재설정 메일 링크 생성에 사용. 실제 접속 가능한 URL이어야 한다 |
 | `ADMIN_BOOTSTRAP_USER_ID`·`_PASSWORD`·`_EMAIL` | **선택** | 아래 "초기 관리자 계정" 참조 |
+| `CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES`·`CMS_CONTENT_IMAGE_MAX_COUNT` | **선택** | 편집기 본문 이미지 전체 상한(DB 등록 이미지 기준). 기본 1GB·10,000개. 아래 "편집기 본문 이미지" 참조 |
 
 ## SMTP timeout (감사 M-02, remediation-plan.md PR 5)
 
@@ -369,6 +370,83 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **V17·V18 실패 복구**: `docs/migration-guide.md` "V17~V19 실패 복구".
 - **역할 변경과 권한**: ADMIN이 MANAGER의 역할을 바꾸면(승격 등) 그 회원의 개별 권한은 삭제되고 다시 MANAGER로 강등해도 되살아나지 않는다 — 강등 후 권한은 권한관리에서 다시 부여한다.
 - **직접 SQL 주의**: `member_permission`을 수동으로 바꿔도 캐시는 무효화되지 않는다(앱 재시작이 곧 폐기). 수동 삽입된 대소문자·공백 변형 행(`read`, `'READ '`, `notice`)은 판정기가 무시하고 권한관리 저장이 409로 거부한다 — 확인 뒤 수동 SQL로 정리한다.
+
+## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
+
+공지 편집기에서 올린 이미지는 첨부파일과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 공지가 참조하는지)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 공지가 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
+
+- **배포 시**: V25가 기존 공지 본문을 HTML로 일괄 변환한다 — 배포 전 `make prod-backup`. 구버전으로 롤백하면 **공지 쓰기를 동결**해야 한다(`docs/migration-guide.md` "V25 이후 구버전 롤백").
+- **상한 도달(업로드 409)**: 저장하지 않은 편집 중 이미지·본문에서 지운 이미지·삭제된 공지의 이미지는 자동으로 정리되지 않는다(자동 정리는 로드맵 ⑧ 미디어 라이브러리). 상한에 도달하면 아래 수동 회수를 한다.
+
+### 수동 회수 절차 (dev에서 2026-10-07 실제 수행 검증)
+
+**반드시 앱을 정지한 유지보수 구간에서 한다** — 앱이 떠 있으면 대상을 조회한 직후 관리자가 그 이미지를 본문에 다시 넣어 저장할 수 있어 사용 중인 파일을 지우게 된다. 아래는 prod 이름(`cms-db-prod`·`cms_notice_attachments_prod`) 기준이다(dev는 `cms-db-dev`·`cms_notice_attachments_dev`). Git Bash에서는 `MSYS_NO_PATHCONV=1`을 붙인다.
+
+```bash
+# DB 자격 증명은 DB 컨테이너 내부 환경변수로만 참조한다 — .env.prod는 compose 보간용이라 호스트 셸에는 없다.
+# SQL은 stdin으로 넘기며, 접속·인증·쿼리 실패는 0이 아닌 종료 코드가 된다.
+db() { docker exec -i cms-db-prod sh -c 'exec mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -N'; }
+# 삭제 단계 직전 가드: ① 백업 완료 표지가 있고 앱이 정지 상태일 때만 통과한다
+ready() {
+  [ -f reclaim-backup.ok ] && [ "$(docker inspect -f '{{.State.Running}}' cms-app-prod)" = false ] ||
+  { echo "중단: ① 백업 미완료이거나 앱이 실행 중이다"; return 1; }
+}
+# 이 블록의 삭제 단계는 모두 && 체인이다 — 서브셸 + set -e로 바꾸지 않는다(`( set -e; … ) || …`처럼
+# || 목록 안에서는 bash가 set -e를 무시해 실패 뒤에도 다음 명령이 실행된다)
+
+# ① 앱 정지 + 백업 — 둘 다 성공해야 표지 파일이 생긴다
+rm -f reclaim-backup.ok
+docker stop cms-app-prod && make prod-backup && touch reclaim-backup.ok
+
+# ② 회수 대상 확정: 참조가 없거나, 모든 참조가 삭제된 공지(deleted=1)인 이미지 — 살아 있는 공지가 하나라도 참조하면 제외
+db > reclaim-targets.tsv <<'SQL'
+SELECT i.id, i.storage_key FROM content_image i
+WHERE NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN notice n ON r.owner_type = 'NOTICE' AND n.id = r.owner_id
+                  WHERE r.image_id = i.id AND n.deleted = 0)
+ORDER BY i.id;
+SQL
+IDS=$(cut -f1 reclaim-targets.tsv | paste -sd, -)   # 비어 있으면(조회 실패 포함) ③의 SQL이 실패해 ④까지 건너뛴다
+
+# ③ 한 트랜잭션: 참조 → 이미지 행 삭제 → 카운터 재계산
+# ④ DB 커밋이 성공한 뒤에만 파일 삭제(②의 목록 — 경로 탈출 형태는 건너뜀). 롤백됐는데 파일을 지우면 행만 남는다
+ready &&
+db <<SQL &&
+START TRANSACTION;
+DELETE FROM content_image_ref WHERE image_id IN ($IDS);
+DELETE FROM content_image WHERE id IN ($IDS);
+UPDATE content_image_usage SET total_bytes = (SELECT COALESCE(SUM(file_size), 0) FROM content_image),
+       total_count = (SELECT COUNT(*) FROM content_image) WHERE id = 1;
+COMMIT;
+SQL
+cut -f2 reclaim-targets.tsv > reclaim-keys.txt &&
+docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
+  while IFS= read -r k; do case "$k" in ""|/*|*..*) echo "skip: $k";; *) rm -f -- "/data/$k";; esac; done < /work/reclaim-keys.txt' ||
+echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일을 지우지 않았다"
+
+# ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
+#    보존 대상 = content_image + notice_attachment의 storage_key, profile/ 네임스페이스는 제외
+#    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
+#    orphan-files.txt가 만들어지지 않고, 아래 삭제는 그 파일이 없으면 아무것도 지우지 않는다.
+rm -f keep-keys.txt disk-keys.txt orphan-files.txt
+ready &&
+db > keep-keys.txt <<'SQL' &&
+SELECT storage_key FROM content_image UNION SELECT storage_key FROM notice_attachment;
+SQL
+sort -o keep-keys.txt keep-keys.txt &&
+docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
+  cd /data && find . -type f -not -path "./profile/*" -not -path "./.restore-staging/*" | sed "s|^\./||" | sort' > disk-keys.txt &&
+comm -23 disk-keys.txt keep-keys.txt > orphan-files.txt ||
+echo "⑤ 중단: 보존 목록 또는 디스크 목록 수집 실패 — 아래 삭제를 실행하지 않는다"
+cat orphan-files.txt    # 먼저 눈으로 확인한다(파일이 없다는 오류가 나오면 위 단계가 실패한 것)
+ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
+  test -f /work/orphan-files.txt || { echo "orphan-files.txt 없음 — 삭제 중단"; exit 1; }
+  while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/$k";; esac; done < /work/orphan-files.txt'
+
+# ⑥ 앱 기동
+docker start cms-app-prod
+```
+
+파일을 DB보다 나중에 지우므로 중간에 실패해도 남는 것은 "행 없는 파일"뿐이고, 다음 회수의 ⑤가 정리한다. ⑤는 공지 첨부의 잔존 파일(같은 원인)도 함께 회수한다. 삭제된 공지는 API로 복원할 수 없으므로 그 이미지를 회수해도 사용자 기능 손실은 없다.
 
 ## 알려진 제약
 

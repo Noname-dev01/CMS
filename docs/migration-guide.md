@@ -27,6 +27,9 @@
 | V20 | `V20__create_notification.sql` | 상단바 알림 테이블 `notification`(DDL 1문) |
 | V21 | `V21__create_admin_message.sql` | 쪽지 테이블 `admin_message`·`admin_message_sender_state`·`admin_message_send_log`(DDL 3문 — 실패 복구는 아래 "V21 실패 복구") |
 | V22 | `V22__drop_role_permission_tables.sql` | 역할 단위 권한 테이블 `role_permission`·`permission_role` 제거(`DROP TABLE IF EXISTS`, 자식 먼저, **되돌릴 수 없음 — 아래 백업 필수**) |
+| V23 | `V23__expand_notice_content.sql` | `notice.content` TEXT → MEDIUMTEXT(DDL 1문, 넓히는 방향이라 구버전 앱 호환) |
+| V24 | `V24__create_content_image.sql` | 편집기 본문 이미지 테이블 `content_image`·`content_image_ref`·`content_image_usage`(DDL 3문 — 실패 복구는 아래 "V23·V24 실패 복구") |
+| V25 | `V25__convert_notice_content_to_html.sql` | 본문 이미지 카운터 행 시드 + **기존 공지 본문 평문 → HTML 일괄 변환**(DML — 롤백 주의는 아래 "V25 이후 구버전 롤백") |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -47,6 +50,12 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **V22 이전 상태로 되돌려야 할 때(백업 복원)**: `scripts/prod-restore.sh`는 복구 뒤 **그 시점의 앱 컨테이너를 기동**한다. 앱 컨테이너가 V22를 가진 이미지인 채로 V21 백업을 복원하면, 복원된 이력에 V22가 없어 **기동하면서 V22가 다시 실행돼 테이블이 또 지워진다**(health는 정상 — 2026-10-06 실기에서 재현). 순서: ① 앱 정지 ② **V22 파일이 없는 버전의 이미지로 앱 컨테이너를 재생성하되 기동하지 않는다** ③ `prod-restore.sh` ④ `SHOW TABLES LIKE '%permission%';`(세 테이블)와 `SELECT MAX(version+0) FROM flyway_schema_history;`(21)로 확인. 백업 시점 이후의 데이터는 사라지므로 **roll-forward가 기본**이다.
 - **`IF EXISTS`의 의미**: 첫 DROP이 커밋된 뒤 이력 기록 전에 중단돼도(MariaDB DDL은 문마다 암묵 커밋) 다음 기동의 `migrate`가 같은 SQL을 그대로 다시 실행해 성공한다. 지우는 마이그레이션이라 잔여 상태가 무엇이든 목표 상태(둘 다 없음)가 같아 **수동 DROP 분기가 필요 없다**(V13·V17~V19와 다른 점).
 - **V22 실패 복구(`success=0`이 남은 경우)**: 잠금 대기 초과나 두 테이블을 참조하는 외부 FK 등으로 실패하면 다음 기동이 SQL 실행 전에 "failed migration to version 22"로 중단된다. ① 앱 정지·원인 제거(긴 트랜잭션·잠금 해소, 수동으로 만든 참조 FK 제거) ② 상태 확인 — `SHOW TABLES LIKE '%permission%';`, `SELECT version, success FROM flyway_schema_history WHERE version = '22';` ③ 같은 마이그레이션 구성으로 `flyway repair` ④ 재기동. 남은 테이블이 하나든 둘이든 그대로 두면 된다. `RolePermissionDropMigrationTest`가 부분 적용 재실행·FK로 인한 실패 → repair 복구·롤백 호환을 고정한다.
+
+## V23~V25 — HTML 편집기 (2026-10-07, `adversarial-review/plan/PLAN-html-editor.md`)
+
+- **배포 전 백업 권장**: V25는 모든 공지 본문(삭제 공지 포함)을 평문에서 HTML로 바꾼다(`&`·`<`·`>`·`"` 이스케이프, 줄마다 `<p>`, 빈 줄 `<p><br></p>`). 변환은 결정적이고 원문 텍스트를 잃지 않지만, 되돌리는 마이그레이션은 없다. `make prod-backup`으로 직전 상태를 남긴다. 변환 결과는 MEDIUMTEXT(V23) 덕분에 컬럼 상한을 넘을 수 없다(기존 10,000자 평문의 최악값 ≈ 110KB — `NoticeContentHtmlMigrationTest`가 반례로 고정).
+- **V23·V24 실패 복구**: V23은 DDL 1문, V24는 DDL 3문이다(문마다 암묵 커밋). ① 앱 정지 ② 상태 확인 — `SELECT version, success FROM flyway_schema_history WHERE version IN ('23','24','25');`, `SHOW COLUMNS FROM notice LIKE 'content';`(V23 적용 시 `mediumtext`), `SHOW TABLES LIKE 'content_image%';` ③ 분기: (a) `success=1`인 버전의 객체는 건드리지 않는다 (b) V23이 `success=0`·이력 없음인데 컬럼이 이미 `mediumtext`면 그대로 둔다(되돌릴 필요 없음 — 넓히는 변경) (c) V24가 `success=0`·이력 없음이면 남은 `content_image*` 테이블이 **비어 있는지 확인한 뒤**(V25 이전이라 업로드가 있을 수 없다) `DROP TABLE IF EXISTS content_image_ref; DROP TABLE IF EXISTS content_image_usage; DROP TABLE IF EXISTS content_image;` ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. V25는 DML만이라 실패하면 전체가 롤백된다(`repair` 후 재기동).
+- **V25 이후 구버전 롤백**: 구버전 앱(V23~V25 파일 없음)은 기동되지만(이력의 미래 버전을 무시), 본문 HTML을 평문으로 보여 주고(태그가 글자로 보임) 새로 쓰는 본문을 평문으로 저장하며 이미지 참조를 갱신하지 않는다. 신버전을 다시 배포해도 V25는 재실행되지 않으므로, 롤백 중 쓰인 평문은 HTML로 해석된다(예: 본문의 `<h2>` 글자가 제목이 됨 — sanitizer는 XSS만 막는다). **롤백하는 동안 공지 생성·수정을 동결**하고, 동결이 깨졌다면 재배포 전에 `SELECT id, title, update_date FROM notice WHERE update_date > '<롤백 시각>';`로 찾은 행을 V25와 같은 규칙으로 다시 변환한다(PLAN-html-editor.md 쟁점 15).
 
 ## 환경별 동작
 

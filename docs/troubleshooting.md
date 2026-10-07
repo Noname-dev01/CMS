@@ -747,6 +747,31 @@ Link expressions cannot contain inlined JavaScript code. (template: "admin/fragm
 
 주의: 외부 http(s) 메뉴는 `AdminFeature.forMenuUrl`(문자열 완전 일치)에 걸리지 않아 MANAGER에게는 항상 숨겨지고(ADMIN 전용), 통합 검색 결과에서도 제외된다(같은 출처 경로만 이동 대상).
 
+### Quill 2 편집기 왕복에서 공백·빈 줄·끝 문단이 사라지거나 공개 화면이 줄바꿈되지 않는다 (2026-10-07, PLAN-html-editor.md 스파이크·실기 검증)
+
+#### 증상
+
+- 연속 공백·문단 앞 공백·탭이 들어간 본문을 편집기로 다시 열면 공백이 1칸으로 접히고, 그대로 저장하면 영구 유실된다.
+- 편집기 출력(`getSemanticHTML()`)을 그대로 저장하면 공개 화면에서 긴 문장이 **단어 사이에서 줄바꿈되지 않는다**(`&nbsp;`만 있음).
+- 빈 줄이 공개 화면에서 사라진다(`<p></p>`는 높이 0).
+- 본문 끝의 빈 문단이 열고 저장할 때마다 하나씩 줄어든다.
+
+#### 원인 (Quill 2.0.3 실측)
+
+1. `clipboard.convert({html})`(HTML → Delta)은 일반 공백 연속을 하나로 접고, 블록 앞뒤 공백을 지우며, 탭을 공백으로 바꾼다. **U+00A0(`&nbsp;`)은 접지 않는다.**
+2. `getSemanticHTML()`(Delta → HTML)은 **모든** 공백을 `&nbsp;`로 내보내고, 빈 줄을 `<p></p>`로 내보낸다.
+3. `clipboard.convert()`는 서식 없는 마지막 개행 하나를 버린다 — `setContents()`가 이를 복원하지 않아 끝 빈 문단이 하나씩 줄어든다(Quill 자신의 초기 로딩은 `<p><br></p>`를 덧붙여 변환해 이를 피한다).
+4. 덤: 붙여넣은 `<script>`·`<style>`의 **내용**은 기본 매처가 일반 텍스트로 넣는다(실행되지는 않음).
+5. 테스트 함정: jsoup `Element.wholeText()`는 `<br>`을 `"\n"`으로 돌려줘 빈 문단을 두 줄로 센다 — 텍스트 비교에는 텍스트 노드만 모은다.
+
+#### 해결 방법
+
+- 저장 형식을 서버가 단일 원본으로 정한다: `HtmlContentSanitizer`가 블록마다 "연속 공백의 첫 칸만 일반 공백, 나머지와 블록 앞뒤는 `&nbsp;`, 탭·개행 문자는 공백 1칸"으로 정규화하고(멱등), 빈 블록에는 `<br>`을 보충한다. 이 형식은 Quill이 다시 읽어도 공백이 보존되고 브라우저가 단어 사이에서 줄바꿈할 수 있다.
+- 편집기 로딩은 `quill.setContents(quill.clipboard.convert({ html: html + '<p><br></p>', text: '\n' }), 'silent')`.
+- 붙여넣기 매처로 `SCRIPT`·`STYLE`을 빈 Delta로 만든다.
+- 표시 CSS는 편집기(`.ql-editor`)와 같게 `white-space: pre-wrap` + 문단 여백 0.
+- 실측 스파이크 절차와 결과는 `adversarial-review/plan/PLAN-html-editor.md` "구현·검증 결과" 참조.
+
 ### 비관리자(공개) Thymeleaf 페이지 컨트롤러의 예외가 HTML이 아니라 JSON으로 응답됨
 
 #### 오류 메시지
