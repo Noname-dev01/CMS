@@ -209,4 +209,4 @@ v3 계획(3라운드 ship) 승인 후 구현했다. 계획과 달라진 결정�
 
 - 가상 스레드 도입 검토(쟁점 4) — 동시성 계약 재검증과 함께.
 - Mockito `-javaagent` 명시 로드(쟁점 5 C) — 다음 JDK 메이저(25) 이행 시.
-- 인자 없는 `toLowerCase()` 2곳(`NoticeAttachmentService:208`·`LocalDiskFileStorage:324`)을 `Locale.ROOT`로 — JDK와 무관한 기존 로케일 의존(v2 정찰 정정). 무관한 수정이라 이번 PR에 넣지 않는다.
+- 인자 없는 `toLowerCase()` 2곳(`NoticeAttachmentService:208`·`LocalDiskFileStorage:324`)을 `Locale.ROOT`로 — JDK와 무관한 기존 로케일 의존(v2 정찰 정정). 무관한 수정이라 이번 PR에 넣지 않는다. → 해소(2026-10-07): `PLAN-extension-locale-root.md`(영향 확장자는 `gif`·`zip`).
