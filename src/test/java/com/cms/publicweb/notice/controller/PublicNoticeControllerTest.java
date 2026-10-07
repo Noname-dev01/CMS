@@ -6,6 +6,7 @@ import com.cms.config.auth.AdminSecurityService;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
+import com.cms.publicweb.notice.dto.PublicNoticeListResult;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import com.cms.publicweb.notice.service.PublicNoticeService;
 import com.cms.publicweb.support.PublicWebExceptionAdvice;
@@ -18,6 +19,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.MediaType;
@@ -134,12 +136,17 @@ class PublicNoticeControllerTest {
 
     // ===================== list =====================
 
+    /** 검색하지 않은 목록 결과(keyword=null). */
+    private static PublicNoticeListResult listOf(Page<PublicNoticeSummary> page) {
+        return new PublicNoticeListResult(page, null);
+    }
+
     @Test
     @DisplayName("목록 조회 성공 시 public/notice/list 뷰와 notices 모델을 반환한다")
     @WithMockUser
     void list_success_returnsViewAndModel() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0))
-                .willReturn(new PageImpl<>(List.of(summary(1L, "공지 제목")), PageRequest.of(0, 10), 1));
+        given(publicNoticeService.getPublishedNotices(0, null))
+                .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "공지 제목")), PageRequest.of(0, 10), 1)));
 
         mockMvc.perform(get("/notices"))
                 .andExpect(status().isOk())
@@ -152,43 +159,44 @@ class PublicNoticeControllerTest {
     @DisplayName("공지가 없으면 빈 상태 문구가 렌더링된다")
     @WithMockUser
     void list_empty_showsEmptyState() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0))
-                .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+        given(publicNoticeService.getPublishedNotices(0, null))
+                .willReturn(listOf(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0)));
 
         mockMvc.perform(get("/notices"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("등록된 공지사항이 없습니다")));
+                .andExpect(content().string(containsString("등록된 공지사항이 없습니다")))
+                .andExpect(content().string(not(containsString("전체 보기"))));
     }
 
     @Test
     @DisplayName("page=abc(비숫자)는 파싱 실패로 0으로 흡수되어 200을 반환한다")
     @WithMockUser
     void list_pageNonNumeric_zeroedAndOk() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0)).willReturn(new PageImpl<>(List.of()));
+        given(publicNoticeService.getPublishedNotices(0, null)).willReturn(listOf(new PageImpl<>(List.of())));
 
         mockMvc.perform(get("/notices").param("page", "abc"))
                 .andExpect(status().isOk());
 
-        verify(publicNoticeService).getPublishedNotices(0);
+        verify(publicNoticeService).getPublishedNotices(0, null);
     }
 
     @Test
     @DisplayName("page가 정수 범위를 초과하는 문자열이면 파싱 실패로 0으로 흡수되어 200을 반환한다")
     @WithMockUser
     void list_pageIntegerOverflow_zeroedAndOk() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0)).willReturn(new PageImpl<>(List.of()));
+        given(publicNoticeService.getPublishedNotices(0, null)).willReturn(listOf(new PageImpl<>(List.of())));
 
         mockMvc.perform(get("/notices").param("page", "99999999999999"))
                 .andExpect(status().isOk());
 
-        verify(publicNoticeService).getPublishedNotices(0);
+        verify(publicNoticeService).getPublishedNotices(0, null);
     }
 
     @Test
     @DisplayName("size 쿼리 파라미터가 있어도 무시된다 — 컨트롤러 시그니처에 바인딩 대상이 없음")
     @WithMockUser
     void list_sizeParamIgnored() throws Exception {
-        given(publicNoticeService.getPublishedNotices(anyInt())).willReturn(new PageImpl<>(List.of()));
+        given(publicNoticeService.getPublishedNotices(anyInt(), any())).willReturn(listOf(new PageImpl<>(List.of())));
 
         mockMvc.perform(get("/notices").param("size", "999"))
                 .andExpect(status().isOk());
@@ -198,13 +206,98 @@ class PublicNoticeControllerTest {
     @DisplayName("제목에 스크립트 태그가 있어도 목록에서 이스케이프되어 실행되지 않는다")
     @WithMockUser
     void list_xssPayloadTitle_isEscaped() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0))
-                .willReturn(new PageImpl<>(List.of(summary(1L, "<script>alert(1)</script>"))));
+        given(publicNoticeService.getPublishedNotices(0, null))
+                .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "<script>alert(1)</script>")))));
 
         mockMvc.perform(get("/notices"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("<script>alert(1)</script>"))))
                 .andExpect(content().string(containsString("&lt;script&gt;")));
+    }
+
+    // ===================== list: 제목 검색 (PLAN-public-notice-search.md 쟁점 3~5·7) =====================
+
+    @Test
+    @DisplayName("keyword 원문을 그대로 서비스에 넘기고, 서비스가 정규화한 검색어를 모델·입력란 값으로 쓴다")
+    @WithMockUser
+    void list_keyword_passedRawAndNormalizedEchoed() throws Exception {
+        given(publicNoticeService.getPublishedNotices(0, "  점검 "))
+                .willReturn(new PublicNoticeListResult(
+                        new PageImpl<>(List.of(summary(1L, "서버 점검 안내")), PageRequest.of(0, 10), 1), "점검"));
+
+        mockMvc.perform(get("/notices").param("keyword", "  점검 "))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("keyword", "점검"))
+                .andExpect(content().string(containsString("value=\"점검\"")))
+                .andExpect(content().string(containsString("서버 점검 안내")))
+                .andExpect(content().string(containsString("전체 보기")));
+
+        verify(publicNoticeService).getPublishedNotices(0, "  점검 ");
+    }
+
+    @Test
+    @DisplayName("검색 결과가 없으면 '검색 결과가 없습니다' 문구를 보인다")
+    @WithMockUser
+    void list_keywordNoResult_showsSearchEmptyState() throws Exception {
+        given(publicNoticeService.getPublishedNotices(0, "없는말"))
+                .willReturn(new PublicNoticeListResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), "없는말"));
+
+        mockMvc.perform(get("/notices").param("keyword", "없는말"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("검색 결과가 없습니다")))
+                .andExpect(content().string(not(containsString("등록된 공지사항이 없습니다"))));
+    }
+
+    @Test
+    @DisplayName("검색 중 페이지 링크에는 URL 인코딩된 keyword가 붙는다")
+    @WithMockUser
+    void list_keywordPagination_keepsEncodedKeyword() throws Exception {
+        given(publicNoticeService.getPublishedNotices(1, "점검 & 공지"))
+                .willReturn(new PublicNoticeListResult(
+                        new PageImpl<>(List.of(summary(1L, "점검 & 공지 1")), PageRequest.of(1, 10), 25), "점검 & 공지"));
+
+        String html = mockMvc.perform(get("/notices").param("page", "1").param("keyword", "점검 & 공지"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        String encoded = "keyword=%EC%A0%90%EA%B2%80%20%26%20%EA%B3%B5%EC%A7%80";
+        assertTrue(html.contains("/notices?page=0&amp;" + encoded), "이전 링크에 keyword가 없습니다:\n" + html);
+        assertTrue(html.contains("/notices?page=2&amp;" + encoded), "다음 링크에 keyword가 없습니다:\n" + html);
+    }
+
+    @Test
+    @DisplayName("검색하지 않은 목록의 페이지 링크에는 keyword가 붙지 않는다")
+    @WithMockUser
+    void list_noKeywordPagination_hasNoKeywordParam() throws Exception {
+        given(publicNoticeService.getPublishedNotices(1, null))
+                .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "공지")), PageRequest.of(1, 10), 25)));
+
+        String html = mockMvc.perform(get("/notices").param("page", "1"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertTrue(html.contains("href=\"/notices?page=0\""), html);
+        assertTrue(html.contains("href=\"/notices?page=2\""), html);
+        assertFalse(html.contains("keyword="), "검색하지 않았는데 keyword 파라미터가 있습니다:\n" + html);
+    }
+
+    @Test
+    @DisplayName("검색어의 스크립트·속성 탈출 페이로드는 입력란 value와 링크에서 이스케이프된다")
+    @WithMockUser
+    void list_keywordXssPayloads_areEscaped() throws Exception {
+        String scriptPayload = "<script>alert(1)</script>";
+        String attrPayload = "\" autofocus onfocus=\"alert(1)";
+        for (String payload : List.of(scriptPayload, attrPayload)) {
+            given(publicNoticeService.getPublishedNotices(eq(0), eq(payload)))
+                    .willReturn(new PublicNoticeListResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), payload));
+
+            String html = mockMvc.perform(get("/notices").param("keyword", payload))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+
+            assertFalse(html.contains(payload), "페이로드가 이스케이프되지 않았습니다: " + payload);
+            assertFalse(html.contains("onfocus=\"alert(1)"), "속성 탈출이 성공했습니다:\n" + html);
+        }
     }
 
     // ===================== detail =====================
@@ -293,7 +386,7 @@ class PublicNoticeControllerTest {
     @DisplayName("목록 조회 중 예외가 발생해도 JSON이 아니라 HTML 500으로 응답한다")
     @WithMockUser
     void list_serviceThrows_returnsHtml500NotJson() throws Exception {
-        given(publicNoticeService.getPublishedNotices(eq(0))).willThrow(new RuntimeException("DB 장애 시뮬레이션"));
+        given(publicNoticeService.getPublishedNotices(eq(0), any())).willThrow(new RuntimeException("DB 장애 시뮬레이션"));
 
         mockMvc.perform(get("/notices"))
                 .andExpect(status().isInternalServerError())

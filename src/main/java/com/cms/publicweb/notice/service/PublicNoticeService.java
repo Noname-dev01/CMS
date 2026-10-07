@@ -10,6 +10,7 @@ import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
+import com.cms.publicweb.notice.dto.PublicNoticeListResult;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -47,15 +48,34 @@ public class PublicNoticeService {
      */
     private static final int MAX_PAGE = 1000;
 
+    /** 검색어 상한 — {@code String.length()}(UTF-16 코드 유닛) 기준으로 목록 화면 입력란의 {@code maxlength}와 같다. */
+    static final int MAX_KEYWORD_LENGTH = 100;
+
     private final NoticeRepository noticeRepository;
     private final NoticeAttachmentRepository noticeAttachmentRepository;
     private final FileStorage fileStorage;
 
+    /**
+     * 공개 목록. {@code rawKeyword}가 비어 있으면(공백만 포함) 기존 목록 경로를 그대로 쓰고, 있으면 제목 검색
+     * 경로를 쓴다. 키워드는 앞뒤 공백을 제거하며, {@link #MAX_KEYWORD_LENGTH}(UTF-16 코드 유닛 — HTML
+     * {@code maxlength}와 같은 단위)를 넘으면 DB를 조회하지 않고 빈 페이지를 돌려준다(이상 입력 흡수 —
+     * adversarial-review/plan/PLAN-public-notice-search.md 쟁점 3).
+     */
     @Transactional(readOnly = true)
-    public Page<PublicNoticeSummary> getPublishedNotices(int page) {
+    public PublicNoticeListResult getPublishedNotices(int page, String rawKeyword) {
         int safePage = normalizePage(page);
         Pageable pageable = PageRequest.of(safePage, PAGE_SIZE, Sort.by(Sort.Order.desc("createDate"), Sort.Order.desc("id")));
-        return noticeRepository.findByDeletedFalseAndUseYnTrue(pageable).map(PublicNoticeSummary::from);
+        String keyword = rawKeyword == null ? "" : rawKeyword.strip();
+
+        if (keyword.isEmpty()) {
+            return new PublicNoticeListResult(
+                    noticeRepository.findByDeletedFalseAndUseYnTrue(pageable).map(PublicNoticeSummary::from), null);
+        }
+        if (keyword.length() > MAX_KEYWORD_LENGTH) {
+            return new PublicNoticeListResult(Page.empty(pageable), keyword);
+        }
+        return new PublicNoticeListResult(
+                noticeRepository.searchPublishedByTitle(keyword, pageable).map(PublicNoticeSummary::from), keyword);
     }
 
     @Transactional(readOnly = true)

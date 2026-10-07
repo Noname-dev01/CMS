@@ -3,6 +3,7 @@ package com.cms.publicweb.notice.controller;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
 import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
 import com.cms.publicweb.notice.dto.PublicNoticeDetail;
+import com.cms.publicweb.notice.dto.PublicNoticeListResult;
 import com.cms.publicweb.notice.dto.PublicNoticeSummary;
 import com.cms.publicweb.notice.service.PublicNoticeService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -57,9 +58,17 @@ public class PublicNoticeController {
 
     private final PublicNoticeService publicNoticeService;
 
+    /**
+     * {@code keyword}는 문자열 그대로 받아 서비스에 넘긴다 — 문자열 바인딩은 실패하지 않으므로 전역 JSON
+     * 핸들러로 샐 경로가 없고, 정규화(공백 제거·길이 상한)는 서비스 책임이다(PLAN-public-notice-search.md 쟁점 3·4).
+     */
     @GetMapping
-    public String list(@RequestParam(defaultValue = "0") String page, Model model) {
-        Page<PublicNoticeSummary> result = publicNoticeService.getPublishedNotices(parsePageOrZero(page));
+    public String list(@RequestParam(defaultValue = "0") String page,
+                       @RequestParam(required = false) String keyword,
+                       Model model) {
+        PublicNoticeListResult listResult = publicNoticeService.getPublishedNotices(parsePageOrZero(page), keyword);
+        Page<PublicNoticeSummary> result = listResult.page();
+        model.addAttribute("keyword", listResult.keyword());
         model.addAttribute("notices", result.getContent());
         model.addAttribute("page", result.getNumber());
         model.addAttribute("totalPages", result.getTotalPages());

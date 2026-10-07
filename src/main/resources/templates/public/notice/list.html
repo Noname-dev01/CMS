@@ -12,6 +12,13 @@
         <h1><a th:href="@{/notices}">공지사항</a></h1>
     </div>
 
+    <form class="notice-search" method="get" th:action="@{/notices}" role="search">
+        <input type="search" name="keyword" maxlength="100" placeholder="제목으로 검색"
+               aria-label="공지 제목 검색" th:value="${keyword}">
+        <button type="submit">검색</button>
+        <a class="notice-search-reset" th:if="${keyword != null}" th:href="@{/notices}">전체 보기</a>
+    </form>
+
     <ul class="notice-list" th:if="${not #lists.isEmpty(notices)}">
         <li class="notice-list-item" th:each="notice : ${notices}">
             <a th:href="@{/notices/{id}(id=${notice.id})}">
@@ -21,15 +28,23 @@
         </li>
     </ul>
 
-    <div class="notice-empty" th:if="${#lists.isEmpty(notices)}">
+    <div class="notice-empty" th:if="${#lists.isEmpty(notices)}"
+         th:text="${keyword != null} ? '검색 결과가 없습니다.' : '등록된 공지사항이 없습니다.'">
         등록된 공지사항이 없습니다.
     </div>
 
+    <!-- 검색 중일 때만 keyword를 붙인다 — null 파라미터 렌더링에 기대지 않고 링크를 명시적으로 나눈다(PLAN-public-notice-search.md 쟁점 5) -->
     <div class="notice-pagination" th:if="${totalPages > 1}">
-        <a th:if="${hasPrevious}" th:href="@{/notices(page=${page - 1})}">이전</a>
+        <th:block th:if="${hasPrevious}">
+            <a th:if="${keyword == null}" th:href="@{/notices(page=${page - 1})}">이전</a>
+            <a th:if="${keyword != null}" th:href="@{/notices(page=${page - 1}, keyword=${keyword})}">이전</a>
+        </th:block>
         <span th:unless="${hasPrevious}" class="disabled">이전</span>
         <span th:text="${(page + 1) + ' / ' + totalPages}"></span>
-        <a th:if="${hasNext}" th:href="@{/notices(page=${page + 1})}">다음</a>
+        <th:block th:if="${hasNext}">
+            <a th:if="${keyword == null}" th:href="@{/notices(page=${page + 1})}">다음</a>
+            <a th:if="${keyword != null}" th:href="@{/notices(page=${page + 1}, keyword=${keyword})}">다음</a>
+        </th:block>
         <span th:unless="${hasNext}" class="disabled">다음</span>
     </div>
 </div>
