@@ -74,7 +74,8 @@ public class NoticeService {
                         .updateDate(now)
                         .build()
         );
-        contentImageService.replaceRefs(ContentImageService.OWNER_NOTICE, saved.getId(), content.imageIds());
+        contentImageService.replaceRefs(ContentImageService.OWNER_NOTICE, saved.getId(),
+                ContentImageService.SCOPE_NOTICE, null, content.imageIds());
 
         return NoticeResponse.from(saved);
     }
@@ -99,7 +100,8 @@ public class NoticeService {
         target.update(title, content != null ? content.html() : null, request.getUseYn(), LocalDateTime.now(clock));
         if (content != null) {
             // 공지 행 잠금(findByIdAndDeletedFalseForUpdate) 안에서 본문과 참조를 함께 바꾼다 — 같은 공지의 동시 저장이 직렬화된다
-            contentImageService.replaceRefs(ContentImageService.OWNER_NOTICE, target.getId(), content.imageIds());
+            contentImageService.replaceRefs(ContentImageService.OWNER_NOTICE, target.getId(),
+                    ContentImageService.SCOPE_NOTICE, null, content.imageIds());
         }
 
         return NoticeResponse.from(target);

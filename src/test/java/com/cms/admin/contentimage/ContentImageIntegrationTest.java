@@ -317,6 +317,46 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("게시판 출처 이미지(PLAN-board.md 쟁점 9): NOTICE 조회 권한자에게도 404, 공지 본문에 넣으면 400이고 기존 참조·공개 상태가 그대로다")
+    void boardScopedImage_notViewableByNoticeReaders_andNotReferencableByNotice() throws Exception {
+        long noticeImage = uploadOk(TestMembers.asMember(admin));
+        long boardImage = uploadOk(TestMembers.asMember(admin));
+        assertThat(jdbc.queryForObject("SELECT scope_type FROM content_image WHERE id = ?", String.class, noticeImage))
+                .as("공지 편집기 업로드는 NOTICE 출처").isEqualTo("NOTICE");
+        // 게시판 업로드 경로는 PR B — 여기서는 출처 컬럼을 직접 바꿔 게시판 이미지를 모사한다
+        jdbc.update("UPDATE content_image SET scope_type = 'BOARD', scope_id = 77 WHERE id = ?", boardImage);
+        long noticeId = createNotice("<p><img src=\"/content-images/" + noticeImage + "\"></p>", true);
+
+        grant(PermissionAction.READ);
+        mockMvc.perform(get("/content-images/{id}", boardImage).with(TestMembers.asMember(manager))).andExpect(status().isNotFound());
+        mockMvc.perform(head("/content-images/{id}", boardImage).with(TestMembers.asMember(manager))).andExpect(status().isNotFound());
+        mockMvc.perform(get("/content-images/{id}", noticeImage).with(TestMembers.asMember(manager))).andExpect(status().isOk());
+
+        String patch = objectMapper.writeValueAsString(java.util.Map.of(
+                "content", "<p><img src=\"/content-images/" + boardImage + "\"></p>", "contentFormat", "HTML"));
+        mockMvc.perform(patch("/admin/api/notices/{id}", noticeId).with(TestMembers.asMember(admin)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(patch))
+                .andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForList("SELECT image_id FROM content_image_ref WHERE owner_type = 'NOTICE' AND owner_id = ?",
+                Long.class, noticeId)).as("거부되면 기존 참조가 남는다").containsExactly(noticeImage);
+        mockMvc.perform(get("/content-images/{id}", boardImage)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/content-images/{id}", noticeImage)).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("출처가 다른 참조 행(롤백 중 출처 검증 없이 생긴 참조 모사)이 있어도 공개 공지 경로로 익명 공개되지 않는다(리뷰 R2-1)")
+    void mismatchedScopeReference_isNotPublic() throws Exception {
+        long imageId = uploadOk(TestMembers.asMember(admin));
+        createNotice("<p><img src=\"/content-images/" + imageId + "\"></p>", true);
+        mockMvc.perform(get("/content-images/{id}", imageId)).andExpect(status().isOk());
+
+        jdbc.update("UPDATE content_image SET scope_type = 'BOARD', scope_id = 77 WHERE id = ?", imageId);
+
+        mockMvc.perform(get("/content-images/{id}", imageId)).andExpect(status().isNotFound());
+        mockMvc.perform(head("/content-images/{id}", imageId)).andExpect(status().isNotFound());
+    }
+
+    @Test
     @DisplayName("본문에서 이미지를 빼고 저장하면 참조가 사라져 더 이상 공개되지 않는다")
     void removingImageFromContent_dropsRef() throws Exception {
         long imageId = uploadOk(TestMembers.asMember(admin));
