@@ -1,0 +1,64 @@
+package com.cms.admin.board.domain;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+/**
+ * 게시판 정의(PLAN-board.md 쟁점 6). ADMIN만 만들고 고친다. {@code publicYn}은 공개 사이트 노출 여부,
+ * {@code attachmentYn}은 새 첨부 업로드 허용 여부(끄더라도 기존 첨부는 그대로 노출·관리된다 — PR B).
+ * {@code deleted}는 소프트 삭제이며 삭제 API는 게시글 검사와 함께 PR B에서 추가한다.
+ */
+@Entity
+@Getter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Board {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 100)
+    private String name;
+
+    @Column(name = "public_yn", nullable = false)
+    private Boolean publicYn;
+
+    @Column(name = "attachment_yn", nullable = false)
+    private Boolean attachmentYn;
+
+    @Column(nullable = false)
+    private Boolean deleted;
+
+    private LocalDateTime createDate;
+
+    private LocalDateTime updateDate;
+
+    /**
+     * 부분 수정. 각 파라미터가 null이 아닐 때만 반영한다(null=기존값 유지). 공백 거부·전체 null 거부는 서비스 책임이다.
+     *
+     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
+     */
+    public void update(String name, Boolean publicYn, Boolean attachmentYn, LocalDateTime now) {
+        if (name != null) {
+            this.name = name;
+        }
+        if (publicYn != null) {
+            this.publicYn = publicYn;
+        }
+        if (attachmentYn != null) {
+            this.attachmentYn = attachmentYn;
+        }
+        this.updateDate = now;
+    }
+}

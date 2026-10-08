@@ -143,7 +143,7 @@ class PermissionMenuMigrationTest extends MariaDbContainerSupport {
             st.execute("UPDATE menu SET ord = 2147483647 WHERE menu_url = '/admin/notice/manage'");
         }
 
-        flyway(schema, null).migrate();
+        flyway(schema, "15").migrate();   // V15까지만 — 이후 메뉴 시드(V28 등)가 맨 끝 메뉴를 바꾸므로 대상 버전으로 고정한다
 
         try (Connection conn = connect(schema); Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT menu_url FROM menu WHERE up_menu_no IS NULL ORDER BY ord ASC, menu_no ASC")) {

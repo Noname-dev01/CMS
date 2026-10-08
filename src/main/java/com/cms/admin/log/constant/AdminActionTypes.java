@@ -36,12 +36,16 @@ public final class AdminActionTypes {
     public static final String MESSAGE_SEND = "MESSAGE_SEND";
     /** 편집기 본문 이미지 업로드 — targetType = CONTENT_IMAGE, targetId = 이미지 ID */
     public static final String CONTENT_IMAGE_UPLOAD = "CONTENT_IMAGE_UPLOAD";
+    /** 게시판 생성·수정 — targetType = BOARD, targetId = 게시판 ID. 이름은 사용자 입력이라 targetLabel을 두지 않는다 */
+    public static final String BOARD_CREATE = "BOARD_CREATE";
+    public static final String BOARD_UPDATE = "BOARD_UPDATE";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
             ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_DELETE, MENU_REORDER, MENU_MOVE, MENU_STRUCTURE_APPLY,
             ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE,
-            NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE, PERMISSION_UPDATE, MESSAGE_SEND, CONTENT_IMAGE_UPLOAD
+            NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE, PERMISSION_UPDATE, MESSAGE_SEND, CONTENT_IMAGE_UPLOAD,
+            BOARD_CREATE, BOARD_UPDATE
     );
 
     private AdminActionTypes() {}
