@@ -32,6 +32,7 @@ import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -46,6 +47,9 @@ public class ContentImageService {
 
     /** 공지 본문의 참조 owner_type. 공개 판정 쿼리({@code existsPublishedNoticeRef})의 리터럴과 같아야 한다. */
     public static final String OWNER_NOTICE = "NOTICE";
+
+    /** 공지 편집기 업로드 출처(V27 기본값과 같다). 공개 판정 쿼리의 리터럴과 같아야 한다. */
+    public static final String SCOPE_NOTICE = "NOTICE";
 
     static final long MAX_FILE_SIZE = 5L * 1024 * 1024;
 
@@ -106,6 +110,8 @@ public class ContentImageService {
                 .contentType(contentType)
                 .fileSize((long) content.length)
                 .uploaderId(uploaderId)
+                .scopeType(SCOPE_NOTICE)
+                .scopeId(null)
                 .createDate(LocalDateTime.now(clock))
                 .build());
         return ContentImageUploadResponse.from(saved);
@@ -116,12 +122,19 @@ public class ContentImageService {
      * 남지만 무해). 호출자(콘텐츠 저장)의 트랜잭션·행 잠금 안에서 실행되어야 한다.
      */
     @Transactional
-    public void replaceRefs(String ownerType, Long ownerId, Collection<Long> imageIds) {
-        refRepository.deleteByOwner(ownerType, ownerId);
-        if (imageIds.isEmpty()) {
-            return;
+    public void replaceRefs(String ownerType, Long ownerId, String scopeType, Long scopeId, Collection<Long> imageIds) {
+        Set<Long> existing = new HashSet<>();
+        if (!imageIds.isEmpty()) {
+            // 참조 자격(PLAN-board.md 쟁점 9): 콘텐츠 출처와 다른 출처의 이미지는 참조할 수 없다 — 다른 게시판·공지의 비공개 이미지를
+            // 자기 공개 글에 넣어 익명 공개하는 경로를 막는다. 삭제·쓰기보다 먼저 검사해 거부 시 기존 참조가 그대로 남는다.
+            for (ContentImage image : imageRepository.findAllById(imageIds)) {
+                if (!scopeType.equals(image.getScopeType()) || !Objects.equals(scopeId, image.getScopeId())) {
+                    throw new InvalidRequestException("다른 게시판·공지에서 올린 이미지는 사용할 수 없습니다. 이미지를 다시 올려 주세요.");
+                }
+                existing.add(image.getId());
+            }
         }
-        Set<Long> existing = new HashSet<>(imageRepository.findExistingIds(imageIds));
+        refRepository.deleteByOwner(ownerType, ownerId);
         List<ContentImageRef> refs = imageIds.stream()
                 .filter(existing::contains)
                 .map(imageId -> new ContentImageRef(ownerType, ownerId, imageId))

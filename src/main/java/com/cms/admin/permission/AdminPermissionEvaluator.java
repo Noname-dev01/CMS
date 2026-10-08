@@ -83,8 +83,72 @@ public class AdminPermissionEvaluator {
         return switch (feature.getKind()) {
             case ALWAYS -> feature.supports(action);
             case DELEGABLE -> memberId != null && grantedBy(snapshot.get(), memberId, feature, action);
+            // 기능 단위("어느 게시판이든") — URL 게이트·사이드바용. 게시판별 판정은 allowsBoard가 한다(PLAN-board.md 쟁점 2).
+            case BOARD_SCOPED -> memberId != null && feature.supports(action)
+                    && !snapshot.get().boardIds(memberId, action).isEmpty();
             case ADMIN_ONLY -> false;
         };
+    }
+
+    /**
+     * 게시판 단위 판정(PLAN-board.md 쟁점 2·3) — 게시글·첨부·본문 이미지 핸들러가 {@link RequireBoardPermission}으로 부른다.
+     * ADMIN은 항상 true(DB 미조회), MANAGER는 그 회원의 (게시판, 동작) 행이 있고 쓰기 동작이면 같은 게시판의 READ도 있어야 true.
+     * 게시판 존재·삭제 여부는 보지 않는다 — 대상 확인(404)은 서비스 몫이다(권한과 대상의 분리, 공지와 같음).
+     */
+    public boolean allowsBoard(Authentication authentication, Long boardId, PermissionAction action) {
+        return decideBoard(cache::snapshot, authentication, boardId, action);
+    }
+
+    /** 이미 받아 둔 스냅샷으로 게시판 단위 판정을 한다(한 요청에서 여러 게시판을 판정할 때). */
+    public boolean allowsBoard(PermissionSnapshot snapshot, Authentication authentication, Long boardId, PermissionAction action) {
+        return decideBoard(() -> snapshot, authentication, boardId, action);
+    }
+
+    private boolean decideBoard(Supplier<PermissionSnapshot> snapshot, Authentication authentication,
+                                Long boardId, PermissionAction action) {
+        if (!isAuthenticated(authentication) || boardId == null || action == null
+                || !AdminFeature.BOARD.supports(action)) {
+            return false;
+        }
+        if (hasAuthority(authentication, ROLE_ADMIN)) {
+            return true;
+        }
+        Long memberId = memberIdOf(authentication);
+        if (!hasAuthority(authentication, ROLE_MANAGER) || memberId == null) {
+            return false;
+        }
+        PermissionSnapshot once = snapshot.get();
+        return once.hasBoard(memberId, boardId, action)
+                && (action == PermissionAction.READ || once.hasBoard(memberId, boardId, PermissionAction.READ));
+    }
+
+    /**
+     * {@link RequireBoardPermission}의 메타 {@code @PreAuthorize}가 부르는 SpEL 진입점. 게시판 ID가 null(경로 변수 이름 불일치로
+     * 파라미터를 못 읽은 경우 포함)이거나 동작 이름을 파싱하지 못하면 false(fail-closed).
+     */
+    public boolean checkBoard(Long boardId, String action) {
+        PermissionAction parsedAction;
+        try {
+            parsedAction = PermissionAction.valueOf(action);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            log.warn("알 수 없는 게시판 권한 동작 — 거부한다: boardId={}, action={}", boardId, action);
+            return false;
+        }
+        return allowsBoard(SecurityContextHolder.getContext().getAuthentication(), boardId, parsedAction);
+    }
+
+    /**
+     * 현재 사용자가 게시판에서 가진 유효 동작(화면 버튼·게시판 선택용 — 서버 판정을 대신하지 않는다). ADMIN은 게시판 기능의 전 동작,
+     * MANAGER는 의존 규칙을 적용한 허용 동작, 그 밖은 빈 집합. 스냅샷은 MANAGER일 때만 조회한다.
+     */
+    public Set<PermissionAction> boardActions(Supplier<PermissionSnapshot> snapshot, Authentication authentication, Long boardId) {
+        Set<PermissionAction> actions = new LinkedHashSet<>();
+        for (PermissionAction action : PermissionAction.values()) {
+            if (AdminFeature.BOARD.supports(action) && decideBoard(snapshot, authentication, boardId, action)) {
+                actions.add(action);
+            }
+        }
+        return actions;
     }
 
     /**

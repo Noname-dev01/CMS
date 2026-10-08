@@ -149,15 +149,15 @@ class NotificationGenerationIntegrationTest extends MariaDbContainerSupport {
         long version = memberRepository.findById(target.getId()).orElseThrow().getPermissionVersion();
         var grant = new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, PermissionAction.READ);
 
-        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(version, List.of(grant)));
+        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(version, List.of(grant), List.of()));
         assertThat(notificationsOf(target)).hasSize(1);
         assertThat(notificationsOf(target).get(0).getMessage()).contains("+공지사항 조회");
 
         long next = memberRepository.findById(target.getId()).orElseThrow().getPermissionVersion();
-        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(next, List.of(grant)));   // 같은 집합 — 변경 없음
+        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(next, List.of(grant), List.of()));   // 같은 집합 — 변경 없음
         assertThat(notificationsOf(target)).hasSize(1);
 
-        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(next, List.of()));
+        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(next, List.of(), List.of()));
         List<Notification> all = notificationsOf(target);
         assertThat(all).hasSize(2);
         assertThat(all.get(0).getMessage()).contains("-공지사항 조회");
@@ -192,7 +192,7 @@ class NotificationGenerationIntegrationTest extends MariaDbContainerSupport {
         Member manager = create("gen-mgr2", Role.ROLE_MANAGER, MemberStatus.ACTIVE);
         long version = memberRepository.findById(manager.getId()).orElseThrow().getPermissionVersion();
         memberPermissionService.replace(manager.getId(), new MemberPermissionUpdateRequest(version,
-                List.of(new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, PermissionAction.READ))));
+                List.of(new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, PermissionAction.READ)), List.of()));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_permission WHERE member_id = ?", Long.class, manager.getId()))
                 .isEqualTo(1L);
 

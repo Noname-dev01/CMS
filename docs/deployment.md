@@ -361,6 +361,7 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
      ```sql
      START TRANSACTION;
      DELETE FROM member_permission;
+     DELETE FROM member_board_permission;   -- V26 이후(게시판별 권한, 2026-10-08) — 구버전은 이 테이블을 몰라 역할 변경 때 지우지 못한다
      UPDATE member SET permission_version = permission_version + 1;
      COMMIT;
      ```
@@ -369,13 +370,15 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
   V19 재실행은 회수한 권한을 되살리므로 쓰지 않는다.
 - **V17·V18 실패 복구**: `docs/migration-guide.md` "V17~V19 실패 복구".
 - **역할 변경과 권한**: ADMIN이 MANAGER의 역할을 바꾸면(승격 등) 그 회원의 개별 권한은 삭제되고 다시 MANAGER로 강등해도 되살아나지 않는다 — 강등 후 권한은 권한관리에서 다시 부여한다.
-- **직접 SQL 주의**: `member_permission`을 수동으로 바꿔도 캐시는 무효화되지 않는다(앱 재시작이 곧 폐기). 수동 삽입된 대소문자·공백 변형 행(`read`, `'READ '`, `notice`)은 판정기가 무시하고 권한관리 저장이 409로 거부한다 — 확인 뒤 수동 SQL로 정리한다.
+- **게시판별 권한(V26, 2026-10-08, adversarial-review/plan/PLAN-board.md)**: MANAGER의 게시판 권한은 별도 테이블 `member_board_permission`에 있고 권한관리 화면의 "게시판별 권한" 표에서 준다. 역할을 바꾸면 이 행도 함께 지워진다. 위 재배포 정리 SQL에 이 테이블이 포함돼 있다.
+- **직접 SQL 주의**: `member_permission`·`member_board_permission`을 수동으로 바꿔도 캐시는 무효화되지 않는다(앱 재시작이 곧 폐기). 수동 삽입된 대소문자·공백 변형 행(`read`, `'READ '`, `notice`)은 판정기가 무시하고 권한관리 저장이 409로 거부한다 — 확인 뒤 수동 SQL로 정리한다.
 
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
 공지 편집기에서 올린 이미지는 첨부파일과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 공지가 참조하는지)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 공지가 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
 
 - **배포 시**: V25가 기존 공지 본문을 HTML로 일괄 변환한다 — 배포 전 `make prod-backup`. 구버전으로 롤백하면 **공지 쓰기를 동결**해야 한다(`docs/migration-guide.md` "V25 이후 구버전 롤백").
+- **업로드 출처(V27, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = `NOTICE` 또는 게시판 `BOARD` + `scope_id`)이 기록된다. 공지 본문에는 공지 출처 이미지만 넣을 수 있고(다른 출처면 저장 400), NOTICE 조회 권한 미리보기는 공지 출처 이미지에만 적용된다. **롤백 하한**: 게시판 이미지(`scope_type='BOARD'`)가 하나라도 생긴 뒤에는 V27 이전 앱(출처 판정 없음)으로 되돌리지 않는다 — 되돌리면 NOTICE 조회 권한자가 비공개 게시판 이미지를 볼 수 있다. roll-forward만 한다(`docs/migration-guide.md` "V26~V28").
 - **상한 도달(업로드 409)**: 저장하지 않은 편집 중 이미지·본문에서 지운 이미지·삭제된 공지의 이미지는 자동으로 정리되지 않는다(자동 정리는 로드맵 ⑧ 미디어 라이브러리). 상한에 도달하면 아래 수동 회수를 한다.
 
 ### 수동 회수 절차 (dev에서 2026-10-07 실제 수행 검증)
@@ -386,10 +389,14 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 # DB 자격 증명은 DB 컨테이너 내부 환경변수로만 참조한다 — .env.prod는 compose 보간용이라 호스트 셸에는 없다.
 # SQL은 stdin으로 넘기며, 접속·인증·쿼리 실패는 0이 아닌 종료 코드가 된다.
 db() { docker exec -i cms-db-prod sh -c 'exec mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -N'; }
-# 삭제 단계 직전 가드: ① 백업 완료 표지가 있고 앱이 정지 상태일 때만 통과한다
+# 삭제 단계 직전 가드: ① 백업 완료 표지가 있고 앱이 정지 상태이며, 게시글 테이블이 없을 때만 통과한다.
+# 게시글 테이블(post·post_attachment, 게시판 PR B 이후)이 있는 DB에서는 이 절차가 게시글 본문 이미지 참조와 게시글 첨부를
+# 보존하지 못한다 — 게시판 PR B 이후 문서의 절차를 쓴다(adversarial-review/plan/PLAN-board.md 리뷰 R4-1, PR B → PR A 롤백 대비).
 ready() {
   [ -f reclaim-backup.ok ] && [ "$(docker inspect -f '{{.State.Running}}' cms-app-prod)" = false ] ||
   { echo "중단: ① 백업 미완료이거나 앱이 실행 중이다"; return 1; }
+  [ "$(db <<< "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('post', 'post_attachment')")" = 0 ] ||
+  { echo "중단: 게시글 테이블이 있는 DB — 이 절차는 게시글 참조·첨부를 보존하지 못한다. 최신 문서의 절차를 쓴다"; return 1; }
 }
 # 이 블록의 삭제 단계는 모두 && 체인이다 — 서브셸 + set -e로 바꾸지 않는다(`( set -e; … ) || …`처럼
 # || 목록 안에서는 bash가 set -e를 무시해 실패 뒤에도 다음 명령이 실행된다)

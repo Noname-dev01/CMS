@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>게시판 관리</title>
+</head>
+<body id="page-top">
+<!-- 페이지 전용 CSS는 body 시작 지점에 둔다(menu/manage.html 컨벤션 — th:replace가 head를 통째로 치환한다). -->
+<style>
+    .board-card {
+        background: white;
+        border-radius: 0.35rem;
+        box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+        border: 1px solid #4e73df;
+    }
+    .board-row { cursor: pointer; }
+    .board-row.table-active td { font-weight: bold; }
+</style>
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">게시판 관리</h1>
+                </div>
+
+                <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
+
+                <p class="text-muted small">
+                    게시판을 만들고 공개 여부·첨부 허용 여부를 정합니다. 매니저에게 게시판별 권한을 주려면 권한 관리 화면을 쓰세요.
+                    첨부 허용을 끄면 새 첨부 업로드만 막히고 기존 첨부는 그대로 남습니다.
+                </p>
+
+                <div class="row">
+                    <div class="col-lg-7 mb-4">
+                        <div class="board-card">
+                            <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                                <h6 class="m-0 font-weight-bold text-primary">게시판 목록</h6>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table class="table table-bordered table-hover mb-0">
+                                        <thead class="thead-light">
+                                        <tr><th>#</th><th>이름</th><th>공개</th><th>첨부</th><th>수정일</th></tr>
+                                        </thead>
+                                        <tbody id="boardList">
+                                        <tr><td colspan="5" class="text-muted">불러오는 중...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-5 mb-4">
+                        <div class="board-card">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary" id="formTitle">새 게시판</h6>
+                            </div>
+                            <div class="card-body">
+                                <form id="boardForm">
+                                    <div class="form-group">
+                                        <label for="boardName">이름</label>
+                                        <input type="text" class="form-control" id="boardName" maxlength="100" required>
+                                    </div>
+                                    <div class="form-group form-check">
+                                        <input type="checkbox" class="form-check-input" id="boardPublic" checked>
+                                        <label class="form-check-label" for="boardPublic">공개 게시판(공개 사이트에 노출)</label>
+                                    </div>
+                                    <div class="form-group form-check">
+                                        <input type="checkbox" class="form-check-input" id="boardAttachment" checked>
+                                        <label class="form-check-label" for="boardAttachment">첨부 허용</label>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary" id="btnSave">생성</button>
+                                    <button type="button" class="btn btn-outline-secondary d-none" id="btnNew">새 게시판 작성</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+
+<script>
+    const BOARDS_URL = "/admin/api/boards";
+
+    const boardList = document.getElementById("boardList");
+    const boardForm = document.getElementById("boardForm");
+    const formTitle = document.getElementById("formTitle");
+    const boardName = document.getElementById("boardName");
+    const boardPublic = document.getElementById("boardPublic");
+    const boardAttachment = document.getElementById("boardAttachment");
+    const btnSave = document.getElementById("btnSave");
+    const btnNew = document.getElementById("btnNew");
+    const btnReload = document.getElementById("btnReload");
+    const pageAlert = document.getElementById("pageAlert");
+    const pageSuccess = document.getElementById("pageSuccess");
+
+    // 편집 대상: 목록에서 고른 게시판의 서버 응답 스냅샷(null이면 새 게시판 작성)
+    let editing = null;
+    let saving = false;
+    // 목록 요청 세대: 늦게 도착한 이전 요청 응답이 최신 목록을 덮어쓰지 않게 한다
+    let listRequestSeq = 0;
+
+    function getCsrfHeaders() {
+        const token = document.querySelector('meta[name="_csrf"]');
+        const header = document.querySelector('meta[name="_csrf_header"]');
+        const headers = { "Content-Type": "application/json" };
+        if (token && header) {
+            headers[header.content || "X-CSRF-TOKEN"] = token.content;
+        }
+        return headers;
+    }
+
+    async function extractErrorMessage(response, fallbackMessage) {
+        try {
+            const body = await response.json();
+            return body.message || fallbackMessage;
+        } catch (e) {
+            return fallbackMessage;
+        }
+    }
+
+    function showError(message) {
+        pageSuccess.classList.add("d-none");
+        pageAlert.textContent = message;
+        pageAlert.classList.remove("d-none");
+    }
+
+    function showSuccess(message) {
+        pageAlert.classList.add("d-none");
+        pageSuccess.textContent = message;
+        pageSuccess.classList.remove("d-none");
+    }
+
+    function td(text) {
+        const cell = document.createElement("td");
+        cell.textContent = text;                       // 게시판 이름은 사용자 입력 — textContent만 쓴다
+        return cell;
+    }
+
+    function formatDate(value) {
+        return value ? String(value).replace("T", " ").substring(0, 16) : "-";
+    }
+
+    function renderList(boards) {
+        boardList.replaceChildren();
+        if (boards.length === 0) {
+            const tr = document.createElement("tr");
+            const cell = td("게시판이 없습니다.");
+            cell.colSpan = 5;
+            cell.className = "text-muted";
+            tr.appendChild(cell);
+            boardList.appendChild(tr);
+            return;
+        }
+        boards.forEach(function (board) {
+            const tr = document.createElement("tr");
+            tr.className = "board-row" + (editing && editing.id === board.id ? " table-active" : "");
+            tr.appendChild(td(String(board.id)));
+            tr.appendChild(td(board.name));
+            tr.appendChild(td(board.publicYn ? "공개" : "비공개"));
+            tr.appendChild(td(board.attachmentYn ? "허용" : "금지"));
+            tr.appendChild(td(formatDate(board.updateDate)));
+            tr.addEventListener("click", function () { startEdit(board); });
+            boardList.appendChild(tr);
+        });
+    }
+
+    async function loadList() {
+        const seq = ++listRequestSeq;
+        try {
+            const response = await fetch(BOARDS_URL, { headers: { "Accept": "application/json" } });
+            if (seq !== listRequestSeq) {
+                return;
+            }
+            if (!response.ok) {
+                showError(await extractErrorMessage(response, "게시판 목록을 불러오지 못했습니다."));
+                return;
+            }
+            const boards = await response.json();
+            if (seq !== listRequestSeq) {
+                return;
+            }
+            renderList(boards);
+        } catch (e) {
+            if (seq === listRequestSeq) {
+                showError("게시판 목록을 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+            }
+        }
+    }
+
+    function startEdit(board) {
+        if (saving) {
+            return;
+        }
+        editing = board;
+        formTitle.textContent = "게시판 수정 #" + board.id;
+        boardName.value = board.name;
+        boardPublic.checked = !!board.publicYn;
+        boardAttachment.checked = !!board.attachmentYn;
+        btnSave.textContent = "저장";
+        btnNew.classList.remove("d-none");
+        loadList();
+    }
+
+    function startCreate() {
+        if (saving) {
+            return;
+        }
+        editing = null;
+        formTitle.textContent = "새 게시판";
+        boardForm.reset();
+        boardPublic.checked = true;
+        boardAttachment.checked = true;
+        btnSave.textContent = "생성";
+        btnNew.classList.add("d-none");
+        loadList();
+    }
+
+    // 저장 중에는 입력·작성 대상 전환을 잠가 응답 반영 시 초안이 덮어써지지 않게 한다
+    function setSaving(value) {
+        saving = value;
+        [boardName, boardPublic, boardAttachment, btnSave, btnNew].forEach(function (el) { el.disabled = value; });
+    }
+
+    boardForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        if (saving) {
+            return;
+        }
+        const name = boardName.value.trim();
+        if (!name) {
+            showError("게시판 이름을 입력하세요.");
+            return;
+        }
+        const target = editing;                        // 요청 시작 시점의 대상을 고정한다
+        const payload = { name: name, publicYn: boardPublic.checked, attachmentYn: boardAttachment.checked };
+        setSaving(true);
+        try {
+            const response = await fetch(target ? BOARDS_URL + "/" + encodeURIComponent(target.id) : BOARDS_URL, {
+                method: target ? "PATCH" : "POST",
+                headers: getCsrfHeaders(),
+                body: JSON.stringify(payload)
+            });
+            if (response.ok) {
+                const data = await response.json();
+                showSuccess((target ? "게시판을 저장했습니다: #" : "게시판을 만들었습니다: #") + data.id);
+                setSaving(false);
+                startEdit(data);
+            } else if (response.status === 404) {
+                showError(await extractErrorMessage(response, "게시판을 찾을 수 없습니다."));
+                setSaving(false);
+                startCreate();
+            } else {
+                showError(await extractErrorMessage(response, "저장에 실패했습니다."));
+            }
+        } catch (e) {
+            showError("저장에 실패했습니다. 네트워크 상태를 확인해 주세요.");
+        } finally {
+            setSaving(false);
+        }
+    });
+
+    btnNew.addEventListener("click", startCreate);
+    btnReload.addEventListener("click", loadList);
+    loadList();
+</script>
+</body>
+</html>

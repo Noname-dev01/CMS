@@ -334,7 +334,7 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
         // 시드 상태 MANAGER가 유효한 CSRF·본문으로 PUT해도 403이고 권한은 그대로다(스스로 승격할 수 없다)
         MvcResult put = mockMvc.perform(put("/admin/api/members/" + manager.getId() + "/permissions").with(asManager()).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"version\":0,\"grants\":[]}")).andReturn();
+                .content("{\"boardGrants\":[],\"version\":0,\"grants\":[]}")).andReturn();
         assertThat(put.getResponse().getStatus()).isEqualTo(403);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_permission WHERE member_id = ?", Integer.class, manager.getId())).isEqualTo(4);
     }

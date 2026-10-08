@@ -116,6 +116,35 @@ class MemberRoleChangePermissionIntegrationTest extends MariaDbContainerSupport 
     }
 
     @Test
+    @DisplayName("게시판별 권한도 역할 변경 때 함께 삭제되고(게시판 권한만 있어도 캐시 무효화) 재강등해도 부활하지 않는다(PLAN-board.md 쟁점 5)")
+    void roleChange_deletesBoardPermissionsToo() {
+        jdbc.update("INSERT INTO board (name, public_yn, attachment_yn, deleted) VALUES ('rolechg-board', 1, 1, 0)");
+        long boardId = jdbc.queryForObject("SELECT MAX(id) FROM board", Long.class);
+        try {
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, 'READ')", target.getId(), boardId);
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, 'UPDATE')", target.getId(), boardId);
+            cache.invalidate();
+            clearInvocations(cache);
+            long before = version(target.getId());
+
+            changeRole(target.getId(), Role.ROLE_ADMIN);
+            changeRole(target.getId(), Role.ROLE_MANAGER);
+
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_board_permission WHERE member_id = ?", Long.class, target.getId()))
+                    .isZero();
+            assertThat(version(target.getId())).isEqualTo(before + 2);
+            verify(cache, org.mockito.Mockito.atLeastOnce()).invalidate();
+            Member fresh = memberRepository.findById(target.getId()).orElseThrow();
+            CustomUserDetails details = new CustomUserDetails(fresh);
+            assertThat(evaluator.allowsBoard(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities()),
+                    boardId, PermissionAction.READ)).isFalse();
+        } finally {
+            jdbc.update("DELETE FROM member_board_permission WHERE board_id = ?", boardId);
+            jdbc.update("DELETE FROM board WHERE id = ?", boardId);
+        }
+    }
+
+    @Test
     @DisplayName("MANAGER → ADMIN: 개별 허용 행이 전부 삭제되고 버전이 +1, 캐시가 무효화되며 다시 MANAGER로 강등하면 공지 권한이 부활하지 않는다")
     void promotion_deletesRows_andDemotionDoesNotRestore() throws Exception {
         grantAllNotice(target.getId());
@@ -150,7 +179,7 @@ class MemberRoleChangePermissionIntegrationTest extends MariaDbContainerSupport 
         assertThat(version(target.getId())).isEqualTo(before + 2);
         verify(cache, never()).invalidate(); // 지워진 행이 없어 캐시 무효화는 필요 없다
 
-        MemberPermissionUpdateRequest stale = MemberPermissionUpdateRequest.builder().version(before)
+        MemberPermissionUpdateRequest stale = MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of()).version(before)
                 .grants(List.of(new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, PermissionAction.READ))).build();
         assertThatThrownBy(() -> permissionService.replace(target.getId(), stale)).isInstanceOf(ConflictException.class);
         assertThat(actions(target.getId())).as("오래된 화면의 저장이 권한을 부여하지 못했다").isEmpty();

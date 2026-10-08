@@ -80,7 +80,7 @@ class MenuAccessRoleDropMigrationTest extends MariaDbContainerSupport {
             snapshotBefore = menuSnapshot(st);
         }
 
-        flyway(null).migrate();
+        flyway("16").migrate();   // V16까지만 — 이후 메뉴 시드(V28 등)가 행 수를 바꾸므로 대상 버전으로 고정한다
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(accessRoleColumnExists(st)).as("V16 이후 컬럼이 없다").isFalse();

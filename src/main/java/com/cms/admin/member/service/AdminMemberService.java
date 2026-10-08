@@ -20,6 +20,7 @@ import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.notification.NotificationMessages;
 import com.cms.admin.notification.domain.NotificationType;
 import com.cms.admin.notification.event.NotificationRequestedEvent;
+import com.cms.admin.permission.MemberBoardPermissionRepository;
 import com.cms.admin.permission.MemberPermissionRepository;
 import com.cms.admin.permission.PermissionChangedEvent;
 import com.cms.common.exception.ConflictException;
@@ -66,6 +67,7 @@ public class AdminMemberService {
 
     private final MemberRepository memberRepository;
     private final MemberPermissionRepository memberPermissionRepository;
+    private final MemberBoardPermissionRepository memberBoardPermissionRepository;
     private final PasswordEncoder passwordEncoder;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
@@ -246,7 +248,9 @@ public class AdminMemberService {
             // 역할이 바뀌면 그 회원의 개별 권한 행을 같은 트랜잭션에서 전부 지운다(방향 무관 — 재강등 때 예전 권한이 되살아나지 않게).
             // 버전은 삭제 건수와 무관하게 올린다: 권한 0개 회원이 MANAGER→ADMIN→MANAGER로 왕복해도 역할 변경 이전 화면의 PUT은 409다.
             // 캐시 무효화는 행이 실제로 지워졌을 때만 필요하다(대상 행 잠금 아래라 같은 회원의 동시 권한 PUT과 직렬화된다).
-            int deletedPermissions = memberPermissionRepository.deleteByMemberId(target.getId());
+            // 게시판별 권한(member_board_permission)도 같은 규칙으로 지운다(PLAN-board.md 쟁점 5).
+            int deletedPermissions = memberPermissionRepository.deleteByMemberId(target.getId())
+                    + memberBoardPermissionRepository.deleteByMemberId(target.getId());
             target.increasePermissionVersion();
             if (deletedPermissions > 0) {
                 eventPublisher.publishEvent(new PermissionChangedEvent(target.getId()));

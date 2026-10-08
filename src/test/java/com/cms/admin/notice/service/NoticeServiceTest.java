@@ -149,7 +149,7 @@ class NoticeServiceTest {
         ArgumentCaptor<Notice> captor = ArgumentCaptor.forClass(Notice.class);
         verify(noticeRepository).save(captor.capture());
         assertEquals("<p>안녕<img src=\"/content-images/3\"></p>", captor.getValue().getContent());
-        verify(contentImageService).replaceRefs("NOTICE", 7L, java.util.Set.of(3L));
+        verify(contentImageService).replaceRefs("NOTICE", 7L, "NOTICE", null, java.util.Set.of(3L));
     }
 
     @ParameterizedTest
@@ -225,7 +225,7 @@ class NoticeServiceTest {
         noticeService.updateNotice(1L, NoticeUpdateRequest.builder().useYn(false).build());
 
         assertFalse(target.getUseYn());
-        verify(contentImageService, never()).replaceRefs(any(), any(), any());
+        verify(contentImageService, never()).replaceRefs(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -241,7 +241,7 @@ class NoticeServiceTest {
                 .content("<p>새 본문<img src=\"/content-images/9\"></p>").contentFormat("HTML").build());
 
         assertEquals("<p>새 본문<img src=\"/content-images/9\"></p>", target.getContent());
-        verify(contentImageService).replaceRefs("NOTICE", 1L, java.util.Set.of(9L));
+        verify(contentImageService).replaceRefs("NOTICE", 1L, "NOTICE", null, java.util.Set.of(9L));
     }
 
     @Test

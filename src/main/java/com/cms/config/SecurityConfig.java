@@ -94,6 +94,12 @@ public class SecurityConfig {
                         auth.requestMatchers(feature.getGatePatterns().toArray(String[]::new))
                                 .access(featureReadGate(permissionEvaluator, feature));
                     }
+                    // 게시판 단위 기능(게시글): 게이트는 "ADMIN 또는 어느 게시판이든 READ가 있는 MANAGER"(기능 단위) — 게시판별 판정은
+                    // 핸들러의 @RequireBoardPermission이 한다(2026-10-08 승인, PLAN-board.md 쟁점 2·3).
+                    for (AdminFeature feature : AdminFeature.ofKind(FeatureKind.BOARD_SCOPED)) {
+                        auth.requestMatchers(feature.getGatePatterns().toArray(String[]::new))
+                                .access(featureReadGate(permissionEvaluator, feature));
+                    }
 
                     auth
                         // 그 외 admin 전부 ADMIN 전용 (카탈로그에 없는 /admin/** 포함 — 기본 거부 유지)

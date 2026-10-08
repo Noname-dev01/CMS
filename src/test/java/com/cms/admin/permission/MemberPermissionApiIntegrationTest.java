@@ -19,6 +19,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -77,6 +80,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(classes = CmsTestApplication.class)
 @AutoConfigureMockMvc
+@ExtendWith(OutputCaptureExtension.class)
 @Import(MemberPermissionApiIntegrationTest.CommitFailureConfig.class)
 class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
 
@@ -236,7 +240,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         String grants = Arrays.stream(noticeActions)
                 .map(a -> "{\"feature\":\"NOTICE\",\"action\":\"" + a.name() + "\"}")
                 .reduce((x, y) -> x + "," + y).orElse("");
-        return "{\"version\":" + version + ",\"grants\":[" + grants + "]}";
+        return "{\"boardGrants\":[],\"version\":" + version + ",\"grants\":[" + grants + "]}";
     }
 
     private void putAsAdmin(long version, int expectedStatus, PermissionAction... actions) throws Exception {
@@ -251,7 +255,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
     }
 
     private static MemberPermissionUpdateRequest request(long version, PermissionAction... actions) {
-        return MemberPermissionUpdateRequest.builder().version(version)
+        return MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of()).version(version)
                 .grants(Arrays.stream(actions).map(a -> new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, a)).toList())
                 .build();
     }
@@ -270,7 +274,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
 
     @Test
     @DisplayName("ADMIN PUT: 행·버전이 바뀌고 SUCCESS 감사 1건(target_type=MEMBER_PERMISSION, target_id=대상 회원 ID, 정확한 라벨)")
-    void put_changesRowsVersionAndAudit() throws Exception {
+    void put_changesRowsVersionAndAudit(CapturedOutput output) throws Exception {
         long before = version();
 
         putAsAdmin(before, 200, PermissionAction.READ);
@@ -284,7 +288,9 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(audit.getTargetType()).isEqualTo("MEMBER_PERMISSION");
         assertThat(audit.getTargetId()).as("감사 targetId는 반환 객체의 getMemberId()에서 추출된다").isEqualTo(manager.getId());
         assertThat(audit.getTargetLabel())
-                .isEqualTo("v" + before + "→v" + (before + 1) + ": -공지사항.생성, -공지사항.수정, -공지사항.삭제");
+                .isEqualTo("v" + before + "→v" + (before + 1) + ": 추가 0·회수 3 | -공지사항.생성, -공지사항.수정, -공지사항.삭제");
+        // 전체 diff 로그는 트랜잭션 완료 후 실제 결과와 함께 남는다(PLAN-board.md 리뷰 R2-2·R3-2) — 실행자는 숫자 회원 ID
+        assertThat(output.getOut()).contains("권한 변경 COMMITTED: actorMemberId=1, memberId=" + manager.getId());
         verify(cache, org.mockito.Mockito.atLeastOnce()).invalidate(); // 커밋 성공 경로는 AFTER_COMMIT(앞선 무효화)+AFTER_COMPLETION(백스톱) 두 번 폐기한다 — 무효화는 멱등이다
     }
 
@@ -327,7 +333,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         long before = version();
 
         mockMvc.perform(put(url()).with(asAdmin()).with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"version\":" + before + ",\"grants\":[{\"feature\":\"MENU\",\"action\":\"READ\"}]}"))
+                        .content("{\"boardGrants\":[],\"version\":" + before + ",\"grants\":[{\"feature\":\"MENU\",\"action\":\"READ\"}]}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         putAsAdmin(before, 400, PermissionAction.CREATE);
 
@@ -429,7 +435,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
 
     @Test
     @DisplayName("실제 최상위 replace()의 커밋 직전 실패: 행·버전 롤백, SUCCESS 감사 0건·FAIL 1건(캐시는 보수적으로 폐기)")
-    void topLevelCommitFailure_rollsBackAndRecordsFail() {
+    void topLevelCommitFailure_rollsBackAndRecordsFail(CapturedOutput output) {
         long before = version();
         probe.fail = true;
 
@@ -441,11 +447,13 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         verify(cache, times(1)).invalidate(); // 롤백이어도 완료 직후 폐기한다 — 값은 DB가 정하므로 안전
         assertThat(permissionAudits()).singleElement().satisfies(audit ->
                 assertThat(audit.getActionResult()).isEqualTo(AdminActionResult.FAIL));
+        assertThat(output.getOut()).contains("권한 변경 ROLLED_BACK: actorMemberId=null, memberId=" + manager.getId())
+                .doesNotContain("권한 변경 COMMITTED");
     }
 
     @Test
     @DisplayName("DB 커밋은 성공했는데 호출자가 커밋 예외를 받아도(응답 유실, 트랜잭션 상태 UNKNOWN) 회수한 권한이 캐시에 남지 않는다 — 다음 판정이 회수된 상태다")
-    void commitResultLost_cacheStillInvalidated() {
+    void commitResultLost_cacheStillInvalidated(CapturedOutput output) {
         long before = version();
         cache.snapshot(); // 캐시를 시드 상태(READ·CREATE·UPDATE·DELETE)로 채워 둔다
         assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.CREATE)).isTrue();
@@ -462,6 +470,8 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         verify(cache, times(1)).invalidate();
         assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.CREATE)).isFalse();
         assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.READ)).isTrue();
+        assertThat(output.getOut()).as("커밋 결과를 알 수 없으면 확정 변경으로 쓰지 않는다")
+                .contains("권한 변경 UNKNOWN(적용 여부 DB 확인 필요)").doesNotContain("권한 변경 COMMITTED");
     }
 
     // ── ⑦ 감사 저장 실패 격리 ───────────────────────────────

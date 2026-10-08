@@ -8,6 +8,7 @@ import java.util.Set;
 
 import static com.cms.admin.permission.FeatureKind.ADMIN_ONLY;
 import static com.cms.admin.permission.FeatureKind.ALWAYS;
+import static com.cms.admin.permission.FeatureKind.BOARD_SCOPED;
 import static com.cms.admin.permission.FeatureKind.DELEGABLE;
 import static com.cms.admin.permission.PermissionAction.CREATE;
 import static com.cms.admin.permission.PermissionAction.DELETE;
@@ -44,6 +45,16 @@ public enum AdminFeature {
             List.of("/admin/notice/manage"),
             List.of("/admin/notice/**", "/admin/api/notices", "/admin/api/notices/**")),
 
+    /**
+     * 게시글 관리(게시판별 위임, PLAN-board.md 쟁점 2). 게이트는 기능 단위 READ("어느 게시판이든 조회 권한") — 게시판별 판정은
+     * 핸들러의 {@link RequireBoardPermission}이 한다. 게시판 정의({@code /admin/board/manage}·{@code /admin/api/boards}·
+     * {@code /admin/api/boards/{id}})는 이 게이트 밖이라 ADMIN 캐치올이 막는다.
+     */
+    BOARD(BOARD_SCOPED, "게시판", EnumSet.of(READ, CREATE, UPDATE, DELETE),
+            List.of("/admin/board/posts"),
+            List.of("/admin/board/posts", "/admin/api/boards/*/posts", "/admin/api/boards/*/posts/**",
+                    "/admin/api/boards/*/content-images")),
+
     MEMBER(ADMIN_ONLY, "회원 관리", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/member/manage", "/admin/member/new"), List.of()),
 
@@ -52,6 +63,10 @@ public enum AdminFeature {
 
     ACTION_LOG(ADMIN_ONLY, "활동 로그", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/log/manage"), List.of()),
+
+    /** 게시판 정의 관리 — 위임 불가. 권한관리 매트릭스에 "위임 불가"로 보이게 하려고 카탈로그에 둔다(판정은 캐치올과 같다). */
+    BOARD_ADMIN(ADMIN_ONLY, "게시판 관리", EnumSet.noneOf(PermissionAction.class),
+            List.of("/admin/board/manage"), List.of()),
 
     /** 권한관리 자체는 영구 ADMIN 전용 — 생성자 가드가 DELEGABLE 변경을 클래스 로딩 시점에 막는다(자기 승격 차단). */
     PERMISSION(ADMIN_ONLY, "권한관리", EnumSet.noneOf(PermissionAction.class),
@@ -68,7 +83,7 @@ public enum AdminFeature {
         if (name().equals("PERMISSION") && kind != ADMIN_ONLY) {
             throw new IllegalStateException("권한관리는 위임 가능 기능으로 만들 수 없다(자기 승격 차단).");
         }
-        if (kind == DELEGABLE && !actions.contains(READ)) {
+        if ((kind == DELEGABLE || kind == BOARD_SCOPED) && !actions.contains(READ)) {
             throw new IllegalStateException("위임 가능 기능은 READ 동작을 지원해야 한다: " + name());
         }
         this.kind = kind;

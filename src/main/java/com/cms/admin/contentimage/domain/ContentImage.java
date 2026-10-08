@@ -42,5 +42,15 @@ public class ContentImage {
     @Column(name = "uploader_id", nullable = false, length = 100)
     private String uploaderId;
 
+    /**
+     * 업로드 출처(V27, PLAN-board.md 쟁점 9) — {@code NOTICE}(공지 편집기) 또는 {@code BOARD}(게시판 편집기, {@link #scopeId} = 게시판 ID).
+     * 참조 저장은 콘텐츠 출처와 같은 출처의 이미지만 허용하고, 공개 판정·미리보기도 출처로 판정한다.
+     */
+    @Column(name = "scope_type", nullable = false, length = 30)
+    private String scopeType;
+
+    @Column(name = "scope_id")
+    private Long scopeId;
+
     private LocalDateTime createDate;
 }

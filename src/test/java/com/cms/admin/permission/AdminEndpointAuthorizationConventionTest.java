@@ -37,7 +37,14 @@ class AdminEndpointAuthorizationConventionTest {
     /** 한 핸들러가 가진 인가 선언을 분류한 결과. */
     record Handler(String className, String methodName, Set<RequestMethod> httpMethods, String path,
                    boolean requirePermission, AdminFeature feature, PermissionAction action,
-                   boolean adminOnly, boolean adminOrManager) {
+                   boolean adminOnly, boolean adminOrManager, boolean boardPermission) {
+
+        /** 게시판 단위 선언이 없는 핸들러(기존 시험의 반례 구성용). */
+        Handler(String className, String methodName, Set<RequestMethod> httpMethods, String path,
+                boolean requirePermission, AdminFeature feature, PermissionAction action,
+                boolean adminOnly, boolean adminOrManager) {
+            this(className, methodName, httpMethods, path, requirePermission, feature, action, adminOnly, adminOrManager, false);
+        }
 
         String key() {
             return httpMethods.isEmpty() ? "ANY " + path : httpMethods.iterator().next() + " " + path;
@@ -49,7 +56,7 @@ class AdminEndpointAuthorizationConventionTest {
         }
 
         boolean declared() {
-            return requirePermission || adminOnly || adminOrManager;
+            return requirePermission || adminOnly || adminOrManager || boardPermission;
         }
 
         boolean isApi() {
@@ -129,7 +136,7 @@ class AdminEndpointAuthorizationConventionTest {
             if (handler.isApi() || !handler.readOnlyGetOrHead()) {
                 continue;
             }
-            for (AdminFeature feature : AdminFeature.ofKind(FeatureKind.DELEGABLE)) {
+            for (AdminFeature feature : delegatedFeatures()) {
                 if (matchesAny(handler.path(), feature.getGatePatterns()) && !feature.getMenuUrls().contains(handler.path())) {
                     violations.add(handler.describe() + " — " + feature + " menuUrls에 없음");
                 }
@@ -160,7 +167,61 @@ class AdminEndpointAuthorizationConventionTest {
         assertThat(violations(List.of(undeclaredApi))).hasSize(1);
     }
 
+    @Test
+    @DisplayName("게시판 게이트 안의 API는 @RequireBoardPermission과 경로의 {boardId}를 갖고, @RequireBoardPermission은 게시판 게이트 밖에 쓰지 않는다")
+    void boardGatedApisUseRequireBoardPermission() {
+        assertThat(boardViolations(scanHandlers())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("반례: 게시판 게이트 안의 API가 선언이 없거나 경로에 {boardId}가 없거나, 게시판 선언이 게이트 밖이면 위반")
+    void boardRulesCatchViolations() {
+        Handler ok = new Handler("Fake", "list", Set.of(RequestMethod.GET), "/admin/api/boards/{boardId}/posts",
+                false, null, null, false, false, true);
+        Handler undeclared = new Handler("Fake", "list", Set.of(RequestMethod.GET), "/admin/api/boards/{boardId}/posts",
+                false, null, null, false, false, false);
+        Handler wrongVariable = new Handler("Fake", "list", Set.of(RequestMethod.GET), "/admin/api/boards/{id}/posts",
+                false, null, null, false, false, true);
+        Handler adminOnlyInsideGate = new Handler("Fake", "list", Set.of(RequestMethod.GET), "/admin/api/boards/{boardId}/posts",
+                false, null, null, true, false, false);
+        Handler outsideGate = new Handler("Fake", "get", Set.of(RequestMethod.GET), "/admin/api/boards/{boardId}",
+                false, null, null, false, false, true);
+
+        assertThat(boardViolations(List.of(ok))).isEmpty();
+        assertThat(boardViolations(List.of(undeclared))).hasSize(1);
+        assertThat(boardViolations(List.of(wrongVariable))).hasSize(1);
+        assertThat(boardViolations(List.of(adminOnlyInsideGate))).as("게이트가 MANAGER에게 열리므로 게시판별 판정이 필요하다").hasSize(1);
+        assertThat(boardViolations(List.of(outsideGate))).hasSize(1);
+    }
+
     // ── 구현 ───────────────────────────────────────────────────────────
+
+    /** 기능 단위로 MANAGER에게 위임되는 기능(기능 단위 위임 + 게시판 단위 위임). */
+    private static List<AdminFeature> delegatedFeatures() {
+        List<AdminFeature> features = new ArrayList<>(AdminFeature.ofKind(FeatureKind.DELEGABLE));
+        features.addAll(AdminFeature.ofKind(FeatureKind.BOARD_SCOPED));
+        return features;
+    }
+
+    /**
+     * 게시판 단위 규칙(PLAN-board.md 쟁점 3): 게시판 게이트는 "어느 게시판이든 READ"라 MANAGER에게 넓게 열리므로, 그 안의 API는 게시판별
+     * 판정({@code @RequireBoardPermission})을 해야 하고 판정에 쓸 {@code {boardId}} 경로 변수가 있어야 한다. 반대로 게이트 밖에서는
+     * URL 게이트가 READ를 강제하지 못하므로 {@code @RequireBoardPermission}을 쓰지 않는다.
+     */
+    private static List<String> boardViolations(List<Handler> handlers) {
+        List<String> violations = new ArrayList<>();
+        for (Handler handler : handlers) {
+            boolean insideBoardGate = insideGates(handler.path(), FeatureKind.BOARD_SCOPED);
+            if (handler.isApi() && insideBoardGate
+                    && !(handler.boardPermission() && handler.path().contains("{boardId}"))) {
+                violations.add(handler.describe() + " — 게시판 게이트 안 API는 @RequireBoardPermission + {boardId} 필요");
+            }
+            if (handler.boardPermission() && !insideBoardGate) {
+                violations.add(handler.describe() + " — @RequireBoardPermission이 게시판 게이트 밖");
+            }
+        }
+        return violations;
+    }
 
     private static List<String> violations(List<Handler> handlers) {
         List<String> violations = new ArrayList<>();
@@ -227,7 +288,8 @@ class AdminEndpointAuthorizationConventionTest {
                         requirePermission == null ? null : requirePermission.feature(),
                         requirePermission == null ? null : requirePermission.action(),
                         expression.equals("hasRole('ADMIN')"),
-                        expression.equals("hasAnyRole('ADMIN', 'MANAGER')")));
+                        expression.equals("hasAnyRole('ADMIN', 'MANAGER')"),
+                        AnnotatedElementUtils.findMergedAnnotation(method, RequireBoardPermission.class) != null));
             }
         }
         return handlers;

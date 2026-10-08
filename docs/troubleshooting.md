@@ -406,6 +406,28 @@ Spring Security 필터, AOP 로깅, 트랜잭션 경계, JPA/QueryDSL 동작 등
 
 `@Order`는 **어느 위치에 붙었는지**(클래스 vs 메서드)와 **어느 단계의 콜백인지**(`AFTER_COMMIT` vs `AFTER_COMPLETION`)를 함께 봐야 의미가 있다. 순서 계약은 설정을 믿지 말고 호출 순서를 직접 단언하는 시험으로 고정한다.
 
+### 커밋 응답이 유실돼도 `afterCompletion` 상태는 `STATUS_UNKNOWN`이 아니라 `STATUS_ROLLED_BACK`이다 — DB는 커밋됐는데 "롤백"으로 보고된다 (2026-10-08, PLAN-board.md PR A 구현 중 시험으로 발견)
+
+#### 증상
+
+권한 변경 전체 diff 로그를 트랜잭션 완료 후 `TransactionSynchronization.afterCompletion(int status)`에서 `COMMITTED`·`ROLLED_BACK`·`UNKNOWN`으로 나눠 남기도록 구현했다. 커밋 응답 유실을 주입한 시험(`MemberPermissionApiIntegrationTest.commitResultLost_cacheStillInvalidated` — DataSource 프록시가 **실제 커밋을 수행한 뒤** `SQLException`을 던진다)에서 DB에는 변경이 커밋돼 있는데 로그는 `권한 변경 ROLLED_BACK`이었다. 계획(적대적 리뷰 v3·v6)은 이 경우를 `STATUS_UNKNOWN`으로 구분한다고 가정했다.
+
+#### 원인
+
+`AbstractPlatformTransactionManager.processCommit`은 `doCommit`에서 `RuntimeException`이 나면 `doRollbackOnCommitException`으로 롤백을 시도하고 `afterCompletion`에 `STATUS_ROLLED_BACK`을 넘긴다(롤백 시도 자체가 실패할 때만 `STATUS_UNKNOWN`). 커넥션이 이미 커밋을 마친 뒤의 롤백 시도는 아무것도 되돌리지 못하지만 상태 코드는 "롤백"이다. 즉 **상태 코드만으로는 "커밋 시도 전 실제 롤백"과 "커밋은 됐지만 응답이 유실된 경우"를 구분할 수 없다.**
+
+#### 해결 방법
+
+동기화에 `beforeCommit(boolean)` 호출 여부를 함께 기록한다. `beforeCommit`은 `doCommit` 직전에 불리므로, `afterCompletion`에서 상태가 `COMMITTED`가 아니면서 `beforeCommit`이 **불리지 않았으면** 커밋 시도 전에 끝난 확정 롤백이고, **불렸으면** 적용 여부를 모르는 `UNKNOWN`으로 본다(`MemberPermissionService.logAfterCompletion`). 다른 동기화의 `beforeCommit`(예: `BEFORE_COMMIT` 이벤트 리스너)이 먼저 예외를 던지면 이 동기화의 `beforeCommit`은 불리지 않아 확정 롤백으로 분류된다 — 실제로도 커밋이 시도되지 않았으므로 맞다.
+
+#### 검증
+
+`MemberPermissionApiIntegrationTest`가 정상 커밋 → `COMMITTED`, `BEFORE_COMMIT` 리스너 예외 → `ROLLED_BACK`, 커밋 응답 유실 → `UNKNOWN(적용 여부 DB 확인 필요)`을 출력 캡처로 단언한다.
+
+#### 교훈
+
+"롤백이면 정리, 아니면 보존"처럼 **`afterCompletion` 상태 코드에 기대는 보상 처리**(업로드 파일 삭제 등)는 커밋 응답 유실 시 커밋된 데이터의 짝을 지울 수 있다. 같은 판정이 필요한 곳(`FileStorageTransactionSupport.deleteOnRollback` — PLAN-board.md PR B)도 `beforeCommit` 표시로 확정 롤백만 골라야 한다.
+
 ### 최후 활성 ADMIN 계정이 로그인 실패 자동 잠금(LOCKED)으로 잠긴 경우 복구
 
 #### 오류 메시지

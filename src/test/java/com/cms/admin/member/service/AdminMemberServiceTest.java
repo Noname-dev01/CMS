@@ -68,6 +68,9 @@ class AdminMemberServiceTest {
     com.cms.admin.permission.MemberPermissionRepository memberPermissionRepository;
 
     @Mock
+    com.cms.admin.permission.MemberBoardPermissionRepository memberBoardPermissionRepository;
+
+    @Mock
     PasswordEncoder passwordEncoder;
 
     @Mock

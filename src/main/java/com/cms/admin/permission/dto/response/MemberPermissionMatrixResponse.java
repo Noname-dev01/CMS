@@ -23,6 +23,21 @@ public class MemberPermissionMatrixResponse {
     private final List<ActionColumn> actions;
     private final List<FeatureRow> features;
 
+    /** 삭제되지 않은 게시판 전체(id 순) — 권한이 없는 게시판도 부여할 수 있도록 행으로 보인다(PLAN-board.md 쟁점 5). */
+    private final List<BoardRow> boards;
+
+    /** grantedActions는 판정기와 같은 의미의 유효 허용값(DB 행 ∩ 지원 동작 ∩ 같은 게시판 READ 의존)이다. 게시판 이름은 사용자 입력이라 화면은 textContent로만 넣는다. */
+    @Getter
+    @AllArgsConstructor
+    public static class BoardRow {
+        private final Long boardId;
+        private final String name;
+        private final Boolean publicYn;
+        private final Boolean attachmentYn;
+        private final List<PermissionAction> supportedActions;
+        private final List<PermissionAction> grantedActions;
+    }
+
     @Getter
     @AllArgsConstructor
     public static class ActionColumn {

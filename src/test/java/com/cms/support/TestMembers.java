@@ -68,6 +68,7 @@ public final class TestMembers {
             jdbc.update("DELETE FROM admin_message_send_log WHERE sender_id = ?", id);
             jdbc.update("DELETE FROM admin_message_sender_state WHERE member_id = ?", id);
             jdbc.update("DELETE FROM member_permission WHERE member_id = ?", id);
+            jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", id);
             jdbc.update("DELETE FROM member WHERE id = ?", id);
         }
     }
