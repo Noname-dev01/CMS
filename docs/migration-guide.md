@@ -30,6 +30,9 @@
 | V23 | `V23__expand_notice_content.sql` | `notice.content` TEXT → MEDIUMTEXT(DDL 1문, 넓히는 방향이라 구버전 앱 호환) |
 | V24 | `V24__create_content_image.sql` | 편집기 본문 이미지 테이블 `content_image`·`content_image_ref`·`content_image_usage`(DDL 3문 — 실패 복구는 아래 "V23·V24 실패 복구") |
 | V25 | `V25__convert_notice_content_to_html.sql` | 본문 이미지 카운터 행 시드 + **기존 공지 본문 평문 → HTML 일괄 변환**(DML — 롤백 주의는 아래 "V25 이후 구버전 롤백") |
+| V26 | `V26__create_board.sql` | 게시판 `board`·게시판별 권한 `member_board_permission`(DDL 2문 — 실패 복구는 아래 "V26~V28") |
+| V27 | `V27__add_content_image_scope.sql` | `content_image`에 업로드 출처 `scope_type`(기본 `NOTICE`)·`scope_id` 추가(DDL 1문, 기본값이라 구버전 INSERT 호환) |
+| V28 | `V28__seed_board_admin_menu.sql` | 게시판 관리 메뉴 시드(멱등 DML) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -56,6 +59,17 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **배포 전 백업 권장**: V25는 모든 공지 본문(삭제 공지 포함)을 평문에서 HTML로 바꾼다(`&`·`<`·`>`·`"` 이스케이프, 줄마다 `<p>`, 빈 줄 `<p><br></p>`). 변환은 결정적이고 원문 텍스트를 잃지 않지만, 되돌리는 마이그레이션은 없다. `make prod-backup`으로 직전 상태를 남긴다. 변환 결과는 MEDIUMTEXT(V23) 덕분에 컬럼 상한을 넘을 수 없다(기존 10,000자 평문의 최악값 ≈ 110KB — `NoticeContentHtmlMigrationTest`가 반례로 고정).
 - **V23·V24 실패 복구**: V23은 DDL 1문, V24는 DDL 3문이다(문마다 암묵 커밋). ① 앱 정지 ② 상태 확인 — `SELECT version, success FROM flyway_schema_history WHERE version IN ('23','24','25');`, `SHOW COLUMNS FROM notice LIKE 'content';`(V23 적용 시 `mediumtext`), `SHOW TABLES LIKE 'content_image%';` ③ 분기: (a) `success=1`인 버전의 객체는 건드리지 않는다 (b) V23이 `success=0`·이력 없음인데 컬럼이 이미 `mediumtext`면 그대로 둔다(되돌릴 필요 없음 — 넓히는 변경) (c) V24가 `success=0`·이력 없음이면 남은 `content_image*` 테이블이 **비어 있는지 확인한 뒤**(V25 이전이라 업로드가 있을 수 없다) `DROP TABLE IF EXISTS content_image_ref; DROP TABLE IF EXISTS content_image_usage; DROP TABLE IF EXISTS content_image;` ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. V25는 DML만이라 실패하면 전체가 롤백된다(`repair` 후 재기동).
 - **V25 이후 구버전 롤백**: 구버전 앱(V23~V25 파일 없음)은 기동되지만(이력의 미래 버전을 무시), 본문 HTML을 평문으로 보여 주고(태그가 글자로 보임) 새로 쓰는 본문을 평문으로 저장하며 이미지 참조를 갱신하지 않는다. 신버전을 다시 배포해도 V25는 재실행되지 않으므로, 롤백 중 쓰인 평문은 HTML로 해석된다(예: 본문의 `<h2>` 글자가 제목이 됨 — sanitizer는 XSS만 막는다). **롤백하는 동안 공지 생성·수정을 동결**하고, 동결이 깨졌다면 재배포 전에 `SELECT id, title, update_date FROM notice WHERE update_date > '<롤백 시각>';`로 찾은 행을 V25와 같은 규칙으로 다시 변환한다(PLAN-html-editor.md 쟁점 15).
+
+## V26~V28 — 게시판 정의·게시판별 권한·본문 이미지 출처 (2026-10-08, `adversarial-review/plan/PLAN-board.md` PR A)
+
+- **실패 복구**: V26은 DDL 2문(`board` → `member_board_permission`, 문마다 암묵 커밋), V27은 DDL 1문이다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version IN ('26','27','28');` ③ **`success=1`인 버전의 객체는 건드리지 않고** 실패·이력 없는 버전의 잔여 객체만 정리한다 — V26 실패면 `DROP TABLE IF EXISTS member_board_permission; DROP TABLE IF EXISTS board;`(자식 먼저), V27 실패면 `scope_type`·`scope_id` 중 생긴 컬럼만 `ALTER TABLE content_image DROP COLUMN …` ④ `flyway repair` ⑤ 앱 기동. V28은 멱등 DML이라 재실행해도 메뉴가 늘지 않는다.
+- **롤백 하한(V27)**: 게시판 이미지(`content_image.scope_type='BOARD'`)가 하나라도 생긴 뒤에는 **V27 이전 앱으로 되돌리지 않는다** — 구버전은 출처를 모르고 "NOTICE 조회 권한이면 모든 이미지 200"이라 비공개 게시판 이미지가 노출된다(쓰기 동결로 막을 수 없는 조회 경로). roll-forward만 한다. 게시판 이미지가 아직 없으면(PR A만 배포된 상태 포함) 구버전 앱은 새 테이블·컬럼을 무시하고 기동한다(`BoardMigrationTest`). 금지를 어기고 되돌렸다면 재배포 전에 출처가 다른 참조를 찾는다:
+  ```sql
+  SELECT r.owner_type, r.owner_id, r.image_id, i.scope_type, i.scope_id FROM content_image_ref r JOIN content_image i ON i.id = r.image_id
+  WHERE r.owner_type = 'NOTICE' AND i.scope_type <> 'NOTICE';
+  ```
+  재배포 후 공개 판정이 출처 일치를 요구하므로 이 참조로는 익명 공개되지 않지만, 해당 공지를 편집 화면에서 저장하면 400이 나므로 운영자가 본문에서 그 이미지를 빼거나 다시 올린다.
+- **롤백했다가 다시 배포할 때**: 구버전 운영 중 역할 변경은 `member_board_permission`을 지우지 못한다 — `docs/deployment.md` "롤백했다가 신버전을 다시 배포할 때"의 정리 SQL(이 테이블 포함)을 실행한다.
 
 ## 환경별 동작
 
