@@ -1,5 +1,7 @@
 package com.cms.admin.search.service;
 
+import com.cms.admin.board.repository.PostRepository;
+import com.cms.admin.board.repository.PostSearchRow;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
@@ -49,6 +51,7 @@ class AdminSearchServiceTest {
 
     private MenuService menuService;
     private NoticeRepository noticeRepository;
+    private PostRepository postRepository;
     private MemberRepository memberRepository;
     private PermissionCache cache;
     private AdminSearchService service;
@@ -57,13 +60,15 @@ class AdminSearchServiceTest {
     void setUp() {
         menuService = mock(MenuService.class);
         noticeRepository = mock(NoticeRepository.class);
+        postRepository = mock(PostRepository.class);
         memberRepository = mock(MemberRepository.class);
         cache = mock(PermissionCache.class);
-        service = new AdminSearchService(menuService, noticeRepository, memberRepository, new AdminPermissionEvaluator(cache));
+        service = new AdminSearchService(menuService, noticeRepository, postRepository, memberRepository, new AdminPermissionEvaluator(cache));
 
         when(menuService.getSidebarMenus(any())).thenReturn(List.of());
         when(noticeRepository.searchNotices(any(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
         when(memberRepository.searchByKeyword(anyString(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
+        when(postRepository.searchForAdminSearch(any(), anyString(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
     }
 
     private static Authentication auth(Role role) {
@@ -252,5 +257,71 @@ class AdminSearchServiceTest {
         assertThat(AdminSearchResponse.MemberItem.class.getDeclaredFields())
                 .extracting(java.lang.reflect.Field::getName)
                 .containsExactlyInAnyOrder("id", "userId", "userName", "userType", "status");
+    }
+
+    private static PostSearchRow postRow(long id, long boardId, String boardName, String title) {
+        return new PostSearchRow(id, boardId, boardName, title, true, LocalDateTime.of(2026, 10, 8, 9, 0));
+    }
+
+    private void managerReadsBoards(long... boardIds) {
+        Set<PermissionSnapshot.BoardGrant> grants = new java.util.LinkedHashSet<>();
+        for (long boardId : boardIds) {
+            grants.add(new PermissionSnapshot.BoardGrant(MANAGER_ID, boardId, PermissionAction.READ));
+        }
+        when(cache.snapshot()).thenReturn(new PermissionSnapshot(Set.of(), grants));
+    }
+
+    @Test
+    @DisplayName("[게시글] ADMIN은 게시글 섹션을 받고 게시판 집합 제한 없이(null) 조회하며 캐시를 조회하지 않는다")
+    void admin_getsPostsSection_unrestricted() {
+        when(postRepository.searchForAdminSearch(any(), anyString(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(postRow(5, 2, "자료실", "보고서")), Pageable.ofSize(5), 8));
+
+        AdminSearchResponse result = service.search("보고", auth(Role.ROLE_ADMIN));
+
+        assertThat(result.getPosts().getTotal()).isEqualTo(8);
+        assertThat(result.getPosts().getItems()).extracting(AdminSearchResponse.PostItem::getBoardName).containsExactly("자료실");
+        verify(postRepository).searchForAdminSearch(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq("보고"), any(Pageable.class));
+        verifyNoInteractions(cache);
+    }
+
+    @Test
+    @DisplayName("[게시글] MANAGER는 READ가 유효한 게시판으로 한정해 조회한다 — 쓰기만 있는 게시판은 제외(의존 규칙)")
+    void manager_postsRestrictedToReadableBoards() {
+        Set<PermissionSnapshot.BoardGrant> grants = Set.of(
+                new PermissionSnapshot.BoardGrant(MANAGER_ID, 3L, PermissionAction.READ),
+                new PermissionSnapshot.BoardGrant(MANAGER_ID, 3L, PermissionAction.CREATE),
+                new PermissionSnapshot.BoardGrant(MANAGER_ID, 4L, PermissionAction.CREATE));     // 4번은 READ 없음 → 유효하지 않다
+        when(cache.snapshot()).thenReturn(new PermissionSnapshot(Set.of(), grants));
+        when(postRepository.searchForAdminSearch(any(), anyString(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(postRow(5, 3, "A", "보고서")), Pageable.ofSize(5), 1));
+
+        AdminSearchResponse result = service.search("보고", auth(Role.ROLE_MANAGER));
+
+        assertThat(result.getPosts().getItems()).hasSize(1);
+        org.mockito.ArgumentCaptor<java.util.Collection<Long>> captor = org.mockito.ArgumentCaptor.forClass(java.util.Collection.class);
+        verify(postRepository).searchForAdminSearch(captor.capture(), org.mockito.ArgumentMatchers.eq("보고"), any(Pageable.class));
+        assertThat(captor.getValue()).containsExactly(3L);
+    }
+
+    @Test
+    @DisplayName("[게시글] 읽을 수 있는 게시판이 없는 MANAGER는 게시글 섹션이 응답에서 빠지고 게시글 조회도 하지 않는다 — 공지 READ만으로는 게시글을 못 본다")
+    void manager_withoutReadableBoards_postsSectionOmitted() {
+        managerHasNoticeRead(true);
+
+        AdminSearchResponse result = service.search("보고", auth(Role.ROLE_MANAGER));
+
+        assertThat(result.getNotices()).isNotNull();
+        assertThat(result.getPosts()).isNull();
+        verify(postRepository, never()).searchForAdminSearch(any(), anyString(), any(Pageable.class));
+    }
+
+    @Test
+    @DisplayName("[게시글] 최소 길이 미만 검색어는 게시글도 조회하지 않는다")
+    void shortKeyword_noPostQuery() {
+        AdminSearchResponse result = service.search("a", auth(Role.ROLE_ADMIN));
+
+        assertThat(result.getPosts()).isNull();
+        verify(postRepository, never()).searchForAdminSearch(any(), anyString(), any(Pageable.class));
     }
 }

@@ -1,5 +1,7 @@
 package com.cms.admin.search.service;
 
+import com.cms.admin.board.repository.PostRepository;
+import com.cms.admin.board.repository.PostSearchRow;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
@@ -16,6 +18,7 @@ import com.cms.admin.search.dto.AdminSearchResponse;
 import com.cms.admin.search.dto.AdminSearchResponse.MemberItem;
 import com.cms.admin.search.dto.AdminSearchResponse.MenuItem;
 import com.cms.admin.search.dto.AdminSearchResponse.NoticeItem;
+import com.cms.admin.search.dto.AdminSearchResponse.PostItem;
 import com.cms.admin.search.dto.AdminSearchResponse.Section;
 import com.cms.common.web.SafeUrls;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -51,6 +55,7 @@ public class AdminSearchService {
 
     private final MenuService menuService;
     private final NoticeRepository noticeRepository;
+    private final PostRepository postRepository;
     private final MemberRepository memberRepository;
     private final AdminPermissionEvaluator permissionEvaluator;
 
@@ -73,6 +78,7 @@ public class AdminSearchService {
                 .keyword(keyword)
                 .menus(menus)
                 .notices(noticeReadable ? searchNotices(keyword) : null)
+                .posts(searchPostsFor(keyword, admin, snapshotOnce, authentication))
                 .members(admin ? searchMembers(keyword) : null)
                 .build();
     }
@@ -115,6 +121,26 @@ public class AdminSearchService {
                 PageRequest.of(0, SECTION_LIMIT, Sort.by(Sort.Direction.DESC, "createDate")));
         List<NoticeItem> items = page.getContent().stream()
                 .map(n -> new NoticeItem(n.getId(), n.getTitle(), n.getUseYn(), n.getCreateDate()))
+                .toList();
+        return new Section<>(page.getTotalElements(), items);
+    }
+
+    /**
+     * 게시글 섹션(PLAN-board.md 쟁점 12): ADMIN은 삭제되지 않은 게시판의 게시글 전체, MANAGER는 <b>READ가 유효한 게시판</b>의 게시글만이고 그런 게시판이
+     * 하나도 없으면 섹션 키를 생략한다(null). 검색이 게시판별 권한의 우회 경로가 되지 않도록 쿼리가 게시판 집합으로 한정된다.
+     */
+    private Section<PostItem> searchPostsFor(String keyword, boolean admin, Supplier<PermissionSnapshot> snapshotOnce,
+                                             Authentication authentication) {
+        Set<Long> boardIds = null;
+        if (!admin) {
+            boardIds = permissionEvaluator.readableBoardIds(snapshotOnce, authentication);
+            if (boardIds.isEmpty()) {
+                return null;
+            }
+        }
+        Page<PostSearchRow> page = postRepository.searchForAdminSearch(boardIds, keyword, PageRequest.of(0, SECTION_LIMIT));
+        List<PostItem> items = page.getContent().stream()
+                .map(r -> new PostItem(r.id(), r.boardId(), r.boardName(), r.title(), r.useYn(), r.createDate()))
                 .toList();
         return new Section<>(page.getTotalElements(), items);
     }

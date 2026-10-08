@@ -50,15 +50,29 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
     /** 권한 판정 키가 회원 ID라 실제 MANAGER 회원 행이 필요하다(member_permission FK). 시험마다 만들고 지운다. */
     private Member manager;
 
+    /** 게시판 단위 위임 메뉴(BOARD_SCOPED)는 member_permission이 아니라 member_board_permission으로 노출을 정한다 — 어느 게시판이든 READ가 있으면 보인다. */
+    private Long boardId;
+
     @BeforeEach
     void createManager() {
         manager = TestMembers.save(memberRepository, "exposure-manager", Role.ROLE_MANAGER);
+        jdbc.update("INSERT INTO board (name, public_yn, attachment_yn, deleted, create_date, update_date) VALUES ('exposure-board', 1, 1, 0, NOW(6), NOW(6))");
+        boardId = jdbc.queryForObject("SELECT MAX(id) FROM board WHERE name = 'exposure-board'", Long.class);
         setNoticeGrants("READ", "CREATE", "UPDATE", "DELETE");
     }
 
     @AfterEach
     void deleteManager() {
         TestMembers.delete(jdbc, List.of(manager.getId()));
+        jdbc.update("DELETE FROM board WHERE id = ?", boardId);
+        cache.invalidate();
+    }
+
+    private void setBoardRead(boolean granted) {
+        jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
+        if (granted) {
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, 'READ')", manager.getId(), boardId);
+        }
         cache.invalidate();
     }
 
@@ -137,6 +151,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
             } else {
                 setNoticeGrants();
             }
+            setBoardRead(granted);   // PERMISSION:NOTICE는 공지 READ, PERMISSION:BOARD는 어느 게시판이든 READ — 둘 다 같은 granted로 움직인다
             String html = dashboardHtml(Role.ROLE_MANAGER);
 
             int checkedLeaves = 0;
