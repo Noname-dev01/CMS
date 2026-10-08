@@ -33,6 +33,8 @@
 | V26 | `V26__create_board.sql` | 게시판 `board`·게시판별 권한 `member_board_permission`(DDL 2문 — 실패 복구는 아래 "V26~V28") |
 | V27 | `V27__add_content_image_scope.sql` | `content_image`에 업로드 출처 `scope_type`(기본 `NOTICE`)·`scope_id` 추가(DDL 1문, 기본값이라 구버전 INSERT 호환) |
 | V28 | `V28__seed_board_admin_menu.sql` | 게시판 관리 메뉴 시드(멱등 DML) |
+| V29 | `V29__create_post.sql` | 게시글 `post`·게시글 첨부 `post_attachment`(DDL 2문 — 실패 복구는 아래 "V29~V30") |
+| V30 | `V30__seed_board_post_menu.sql` | 게시글 관리 메뉴 시드(멱등 DML) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -71,8 +73,23 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
   재배포 후 공개 판정이 출처 일치를 요구하므로 이 참조로는 익명 공개되지 않지만, 해당 공지를 편집 화면에서 저장하면 400이 나므로 운영자가 본문에서 그 이미지를 빼거나 다시 올린다.
 - **롤백했다가 다시 배포할 때**: 구버전 운영 중 역할 변경은 `member_board_permission`을 지우지 못한다 — `docs/deployment.md` "롤백했다가 신버전을 다시 배포할 때"의 정리 SQL(이 테이블 포함)을 실행한다.
 
-## 환경별 동작
+## V29~V30 — 게시글·게시글 첨부 (2026-10-08, `adversarial-review/plan/PLAN-board.md` PR B)
 
+- **실패 복구**: V29는 DDL 2문(`post` → `post_attachment`, 문마다 암묵 커밋)이다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version IN ('29','30');` ③ **`success=1`인 버전의 객체는 건드리지 않고** 실패·이력 없는 버전의 잔여 객체만 정리한다 — **정리 전에 데이터가 비어 있는지 확인한다**: `SELECT (SELECT COUNT(*) FROM post) + (SELECT COUNT(*) FROM post_attachment);` (존재하는 테이블만 질의). 게시글이 든 테이블은 DROP하지 않고 백업 후 원인(복원 시점 불일치 등)을 확인한다. 비어 있고 V29가 `success=1`이 아니면 `DROP TABLE IF EXISTS post_attachment; DROP TABLE IF EXISTS post;`(자식 먼저) ④ `flyway repair` ⑤ 앱 기동. V30은 멱등 DML이라 재실행해도 메뉴가 늘지 않는다.
+- **롤백 하한(PR B → PR A)**: PR A 앱(V28 이하 파일만)은 `post`·`post_attachment`를 몰라도 기동한다(Flyway는 적용된 미래 버전을 무시하고 Hibernate `validate`는 매핑된 엔티티만 본다 — `BoardMigrationTest`). 이 롤백은 **허용**된다 — PR A 앱이 본문 이미지 출처 판정(V27)을 갖고 있어 게시판 출처 이미지가 NOTICE 조회 권한자에게 404이고 공지 본문에 넣으면 400이기 때문이다. 반면 **PR A 이전 앱으로는 게시판 이미지가 생긴 뒤 되돌리지 않는다**(위 "V26~V28"의 롤백 하한).
+- **PR A 앱으로 롤백한 동안**: PR A 앱은 게시글을 모르므로 게시글 관리 화면·API·게시판 삭제 API·공개 `/boards`가 없다(게시글 데이터는 DB에 그대로 남는다). 본문 이미지 수동 회수는 `docs/deployment.md`의 **현재 판**(살아 있는 게시글 참조 제외 + `post_attachment` 보존 포함)만 쓴다 — PR A 시점의 이전 판은 `post`·`post_attachment` 테이블이 있으면 스스로 중단하는 가드를 가졌고, 게시글이 있는 DB에서 가드 없는 더 오래된 판을 쓰면 게시글 참조 이미지와 첨부가 지워진다.
+- **재배포 전 점검(출처가 다른 참조)**: 금지를 어기고 PR A 이전 앱으로 되돌렸다가 다시 배포하는 경우, 게시글 참조까지 포함해 출처가 다른 참조를 찾는다:
+  ```sql
+  SELECT r.owner_type, r.owner_id, r.image_id, i.scope_type, i.scope_id
+  FROM content_image_ref r JOIN content_image i ON i.id = r.image_id
+  WHERE (r.owner_type = 'NOTICE' AND i.scope_type <> 'NOTICE')
+     OR (r.owner_type = 'POST' AND NOT EXISTS (SELECT 1 FROM post p
+                                               WHERE p.id = r.owner_id AND i.scope_type = 'BOARD' AND i.scope_id = p.board_id));
+  ```
+  재배포 후 공개 판정이 출처 일치를 요구하므로 이 참조로는 익명 공개되지 않지만, 해당 공지·게시글을 편집 화면에서 저장하면 400이 나므로 운영자가 본문에서 그 이미지를 빼거나 다시 올린다.
+- **게시글 데이터와 삭제**: 게시글은 소프트 삭제(`deleted`)이고 첨부가 남은 게시글은 삭제할 수 없다(409). 게시판 삭제는 **살아 있는 게시글이 없을 때만** 가능하며 그 게시판의 MANAGER 권한 행도 함께 지운다. 삭제된 게시판·게시글의 행은 테이블에 남는다(복원 API는 없다).
+
+## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.
 - **기존 DB (Flyway 도입 전부터 데이터가 있는 환경)**: 아래 전환 절차를 따라 **일회성 baseline**을 수행한다. baseline 후 V1은 건너뛰고 V2부터 적용된다.
 

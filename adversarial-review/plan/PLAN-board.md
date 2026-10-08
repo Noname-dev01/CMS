@@ -1,7 +1,7 @@
 # PLAN — 범용 게시판(Board/Post) 구축 + 게시판별 권한 위임
 
 > 로드맵: `project-direction-roadmap.md` "실행 로드맵 — Top 8 (2026-10-07 선정)" ①-1 (①-2 공지 흡수는 별도 계획 `PLAN-notice-to-board.md`)
-> 상태: v8 — 적대적 리뷰 7라운드 ship(2026-10-08) → **PR A 구현·검증 완료(커밋·PR 전)**, PR B 미착수. 결과는 문서 끝 "구현·검증 결과 — PR A"
+> 상태: v10 — 적대적 리뷰 7라운드 ship(v8) + PR B 보정 2라운드 ship(v10) → PR A 머지(#112 `23547ba`) → **PR B 구현·검증 완료(2026-10-08, 커밋·PR 전)**. 결과는 문서 끝 "구현·검증 결과 — PR B"
 > 유형: feat · 브랜치 `feat/board` · **스키마 변경(V26~V30) · 인가 정책 변경(`/boards/**` 공개, 게시판 기능 게이트) · 신규 의존성 없음**
 
 ## Context
@@ -230,7 +230,7 @@ v1은 "공개 판정에 조건을 추가만" 했지만 리뷰가 세 가지 경�
 - 게시판: `admin/board/`(domain `Board`·`Post`·`PostAttachment`, repository + QueryDSL, service `BoardService`·`PostService`·`PostAttachmentService`, controller API·페이지, dto), `templates/admin/board/manage.html`·`posts.html`.
 - 공용 추출: `common/attachment/AttachmentFilePolicy`, `common/html/ContentBodyPolicy`(공지 서비스가 위임).
 - 본문 이미지: `ContentImageService`(owner POST·게시판 업로드 진입점), `ContentImageRefRepository.existsPublishedPostRef`, `PublicContentImageService`, `notice-editor.js`(`uploadUrl` 옵션).
-- 공개: `publicweb/board/`(controller·service·dto), `templates/public/board/list.html`·`detail.html`·`error.html`, `static/css/public/board.css`.
+- 공개: `publicweb/board/`(controller·service·dto), `templates/public/board/list.html`·`detail.html`(오류 뷰는 공유 `public/notice/error` — v9), `static/css/public/board.css`.
 - 검색: `AdminSearchService`·`AdminSearchResponse`·`topbar-search.js`.
 - 설정: `SecurityConfig`, `application.yml`(레이트리밋), `AdminActionTypes`·`templates/admin/log/manage.html`(라벨).
 - 문서: `docs/deployment.md`(회수 ⑤ 보존 목록), CLAUDE.md(루트 지침 지도, `admin/permission`, 신규 `admin/board`·`publicweb/board`, `config` 경로 표, `contentimage`).
@@ -306,6 +306,41 @@ v1은 "공개 판정에 조건을 추가만" 했지만 리뷰가 세 가지 경�
 - v7 (2026-10-08) 변경 — 적대적 리뷰 6라운드(no-ship, P2 1) 수용:
   - R6-1 UNKNOWN에서 보존한 프로필 파일을 회수 ⑤(profile/ 제외)로 정리할 수 없음: `docs/deployment.md`에 ⑤-2 프로필 파일 대조(UPLOADED 행 키 vs `profile/` 파일) 추가, WARN에 네임스페이스 기록, dev 실기 확인
 - v8 (2026-10-08) 구현 중 정정 — PR A 실측 결과: Spring은 커밋 단계 예외(커밋 응답 유실 포함)에서 `afterCompletion(STATUS_ROLLED_BACK)`을 넘긴다. v3·v6의 "`STATUS_UNKNOWN`으로 불명을 구분" 가정이 틀렸으므로, 권한 diff 로그(PR A)와 파일 정리 헬퍼(PR B)는 **동기화의 `beforeCommit` 호출 여부**로 판정한다 — 커밋 시도 전 롤백만 확정 `ROLLED_BACK`(파일 삭제), 커밋 시도 이후 비커밋은 `UNKNOWN`(파일 보존). 시험: 커밋 직전 실패 → ROLLED_BACK, 커밋 응답 유실 → UNKNOWN
+- v9 (2026-10-08) PR B 착수 전 정찰 보정 — 쟁점 0~12 결정은 그대로, 구현 수준 결정 D-1~D-12 추가("PR B 정찰 보정과 구현 결정"): 헬퍼 호환 확인·`beforeCommit` 표시 방식 상세, 공개 오류 뷰 공유(`public/board/error.html` 계획 삭제), 게시판 삭제 이벤트 `memberId=null`, 이미지 공개 판정 평가 순서, 검색·화면·공개 구조
+- v10 (2026-10-08) 변경 — v9 적대적 리뷰 1라운드(no-ship, P1 1·P2 1) 전부 수용:
+  - R1-1(P1) D-6 `existsPublishedPostRef`에 `r.imageId = :imageId` 누락: 쿼리 조건에 명시, 시험 고정 — **공개 게시글이 참조하는 이미지 I1이 있는 같은 데이터셋에서 비공개 게시판·미참조 이미지 I2는 익명 GET·HEAD 모두 404**(공지 쪽 `existsPublishedNoticeRef`도 같은 데이터셋 시험을 보강)
+  - R1-2(P2) D-1이 롤백 자체 실패(`STATUS_UNKNOWN` + `beforeCommit` 미호출)를 확정 롤백으로 분류: 삭제 조건을 `STATUS_ROLLED_BACK ∧ !beforeCommit`으로 좁히고 `UNKNOWN`은 항상 보존. 헬퍼 단위 시험에 상태×표시 조합 추가(`UNKNOWN`×미호출 → 보존, `UNKNOWN`×호출 → 보존, `ROLLED_BACK`×미호출 → 삭제, `ROLLED_BACK`×호출 → 보존, `COMMITTED` → 무변경)
+  - 2라운드(v10 대상): **ship** — 새 지적 없음(D-1 삭제 조건·D-4/D-5 잠금 순서·D-6 쿼리 조건·D-7/D-9/D-10/D-11 모두 쟁점 0~12와 충돌 없음 확인)
+
+## PR B 정찰 보정과 구현 결정 (v9, 2026-10-08)
+
+PR A 머지(#112 `23547ba`) 뒤 PR B 착수 전에 코드를 다시 읽어 위 쟁점 0~12가 지금 코드와 맞는지 확인하고, 계획이 구현 수준에서 비워 둔 곳을 정했다. 쟁점 0~12의 결정은 바뀌지 않는다.
+
+### 확인한 사실 (PR B가 기대는 현재 코드)
+
+- **파일 정리 헬퍼 호환**: `NoticeAttachmentServiceTest`는 `afterCompletion(STATUS_ROLLED_BACK)`을 `beforeCommit` 없이 직접 호출해 파일 삭제를 단언한다. `beforeCommit` 표시 방식에서 "`beforeCommit`이 불리지 않은 롤백 = 확정 롤백 = 삭제"이므로 이 시험은 수정 없이 통과한다. `NoticeAttachmentTransactionIntegrationTest`는 `setRollbackOnly()`(커밋 시도 없음)라 역시 삭제 경로다. 헬퍼 소비자는 `ContentImageService`(루트)·`AdminMemberService`·`ProfileImageMigrationRunner`(프로필 네임스페이스) 셋이고 `deleteAfterCommit`은 `AdminMemberService`만 쓴다.
+- **본문 상수는 공지 서비스 안에서만 쓰인다**: `NoticeService`의 `CONTENT_FORMAT_HTML`·`MAX_CONTENT_TEXT_LENGTH`·`MAX_CONTENT_BYTES`를 서비스 밖(시험 포함)에서 참조하는 곳이 없어 `ContentBodyPolicy`로 옮겨도 호출부가 늘지 않는다.
+- **본문 이미지 업로드 로직은 `uploadForNotice` 한 메서드**: 권한 재판정 → 업로더 확인 → 파일 검증 → 카운터 행 잠금 → 저장 → 롤백 정리 → 행 저장이 한 덩어리다. 게시판 진입점은 앞의 권한 판정만 다르므로 뒷부분을 `store(file, scopeType, scopeId)`로 나눠 공유한다.
+- **`PublicContentImageService.findViewable`**: 지금은 `findById` → `existsPublishedNoticeRef ∨ (NOTICE 출처 ∧ NOTICE READ)`. 3·4번(쟁점 9)은 같은 `filter` 식에 항을 더하는 형태다. 익명 요청은 `allowsBoard`가 DB를 보지 않고 거부한다(인증 없음 → false).
+- **`PermissionChangedEvent(Long memberId)`의 값은 무효화에 쓰이지 않는다**: 리스너는 `cache.invalidate()`(전역 generation 증가)만 부른다. 게시판 삭제는 여러 회원의 행을 지우므로 `new PermissionChangedEvent(null)`을 낸다(삭제된 행이 있을 때만).
+- **공개 500 뷰는 공유한다**: `PublicWebExceptionAdvice`가 `public/notice/error`를 고정 반환한다. 게시판 공개 화면도 같은 advice(`basePackages = com.cms.publicweb`)가 덮으므로 별도 오류 뷰를 만들지 않는다(쟁점 10의 `public/board/error.html` 계획을 **삭제**). 404는 컨테이너 에러 디스패치(`sendError`)·`error/404`를 쓴다.
+- **컨벤션 테스트·URL 게이트는 PR A에서 이미 게시판 게이트를 알고 있다**: `AdminFeature.BOARD`의 게이트 패턴(`/admin/board/posts`, `/admin/api/boards/*/posts`, `…/posts/**`, `…/content-images`)과 컨벤션 테스트의 "게이트 안 API는 `@RequireBoardPermission` + `{boardId}`" 규칙이 이미 있다. PR B 컨트롤러는 선언만 맞추면 된다. 게시판 삭제는 게이트 밖(`/admin/api/boards/{boardId}`)이라 `hasRole('ADMIN')` 하나만 둔다.
+- **레이트리밋·보안 시험 위치**: `SecurityConfigTest`·`RateLimitPropertiesValidationTest`가 공지 규칙을 다룬다. 게시판 규칙도 같은 곳에 단언을 더한다.
+
+### 구현 결정 (쟁점 0~12를 구현 수준으로 구체화)
+
+- **D-1 파일 정리 헬퍼**(쟁점 7·R5-1·v8): `deleteOnRollback`의 동기화가 `beforeCommit`이 불렸는지를 기록한다. `afterCompletion`에서 **삭제하는 경우는 `status == STATUS_ROLLED_BACK` ∧ `beforeCommit` 미호출(확정 롤백) 하나뿐**이다. `COMMITTED`는 아무것도 안 하고, 그 밖 — `beforeCommit`이 불린 비커밋(커밋 시도 이후, 결과 불명)과 **`STATUS_UNKNOWN`(롤백 자체가 실패한 경우 — Spring은 `doRollback` 예외 때 이 상태를 넘긴다, 이때 `beforeCommit` 표시는 false일 수 있다)** — 는 모두 **보존 + WARN**(`storageKey`·네임스페이스만, 사용자 입력 없음). 등록 실패 시 즉시 정리 후 재던지는 기존 동작은 그대로. `deleteAfterCommit`은 **네임스페이스 없는 루트 오버로드**를 추가한다(게시글 첨부 삭제용). 공지 첨부의 `registerCleanupOnRollback` 복제 구현은 이 헬퍼 호출로 교체하고, `registerFileDeleteAfterCommit`은 **건드리지 않는다**(결함이 아니며 이번 범위 밖 — 무관한 리팩터링 금지).
+- **D-2 공용 추출**(쟁점 7): `common/attachment/AttachmentFilePolicy`는 상태 없는 final 유틸로 `MAX_FILE_SIZE`·`MAX_COUNT`·`sanitizeFilename`·`requireAllowedExtension`·`validateContentType`·`normalizeContentType`을 가진다(메시지·동작은 현재와 글자 단위로 같다). `common/html/ContentBodyPolicy.sanitize(raw, format)`는 지금 `NoticeService.sanitizeContent`와 같다. 공지 서비스는 위임만 한다. 추출 커밋은 **동작 불변**이라 기존 공지 시험만으로 검증하고, 정책 유틸 자체의 단위 시험(경계값)을 더한다.
+- **D-3 스키마 V29**: `post(id, board_id, title 200, content MEDIUMTEXT, use_yn, deleted, author_id 100, create_date, update_date)` + 인덱스 `(board_id, deleted, use_yn, create_date)`, `board_id` FK → `board`(RESTRICT). `post_attachment`는 `notice_attachment`와 같은 모양 + `post_id` FK(RESTRICT). `post.board_id` 인덱스는 위 복합 인덱스가 FK를 겸한다. DDL 2문(실패 복구는 `docs/migration-guide.md` "V29~V30"). **V30**은 메뉴 시드(멱등 DML, V28과 같은 형태).
+- **D-4 게시글 서비스 잠금**(쟁점 7): 생성은 게시판 행 `FOR SHARE`(`BoardRepository`에 단건 공유 잠금 조회 추가 — 삭제된 게시판은 404), 수정·삭제·첨부는 게시글 행 `FOR UPDATE` 후 게시판 미삭제 확인(없으면 404). IDOR는 `(postId, boardId)`·`(attachmentId, postId)` 조합 조회로 막는다 — 다른 게시판의 글 ID를 경로에 넣으면 같은 404다.
+- **D-5 게시판 삭제**(쟁점 6): 게시판 행 `FOR UPDATE` → 미삭제 게시글 존재(`existsByBoardIdAndDeletedFalse`)면 409 → `softDelete(now)` + `MemberBoardPermissionRepository.deleteByBoardId`(JPQL 벌크) → 삭제 건수가 0보다 크면 `PermissionChangedEvent(null)`. 잠금 순서 게시판 → 권한 행은 권한 PUT의 회원 → 게시판 `FOR SHARE`와 순환이 없다. 감사 `BOARD_DELETE`.
+- **D-6 본문 이미지**(쟁점 9): `ContentImageService.uploadForBoard(boardId, file)` — 게시판 CREATE∨UPDATE를 `allowsBoard`로 재판정(403) → 게시판 미삭제 확인(404) → 공유 `store(file, "BOARD", boardId)`. 감사 `CONTENT_IMAGE_UPLOAD`(기존 타입 재사용 — 출처는 감사 대상이 아니다). 게시글 저장은 `replaceRefs("POST", postId, "BOARD", boardId, imageIds)`. `ContentImageRefRepository.existsPublishedPostRef(imageId)`는 `ContentImageRef r, Post p, Board b, ContentImage i` 세타 조인으로 **`r.imageId = :imageId`(요청 이미지와의 연결 — 빠지면 다른 공개 글의 참조가 아무 이미지나 공개한다)**, `r.ownerType='POST'`, `p.id=r.ownerId`, 게시글 `useYn ∧ ¬deleted`, 게시판 `publicYn ∧ ¬deleted ∧ b.id=p.boardId`, `i.id=r.imageId ∧ i.scopeType='BOARD' ∧ i.scopeId=p.boardId`. `findViewable`은 값싼 판정부터 `existsPublishedNoticeRef → existsPublishedPostRef → (NOTICE 출처 ∧ NOTICE READ) → (BOARD 출처 ∧ 그 게시판 READ)` 순이다(익명은 앞의 둘만 DB를 본다).
+- **D-7 편집기**(쟁점 9·R3-4): `notice-editor.js`의 `options.uploadUrl`(기본 = 공지 URL)과 `setUploadUrl(url)`(진행 중 업로드 무효화 후 URL만 교체)을 추가한다. 기존 공지 화면은 옵션 없이 쓰므로 변경이 없다. 게시판 화면은 인스턴스를 하나만 만든다.
+- **D-8 관리 API**(쟁점 8): 경로·선언은 쟁점 8 표 그대로. 목록은 `keyword`(제목)·`useYn`·페이지 크기 100 clamp·정렬 화이트리스트(`id`·`title`·`useYn`·`createDate`·`updateDate`) + `id` 보조 정렬을 QueryDSL(`PostRepositoryImpl`)로. 게시판 소속 조건이 항상 붙는다(경로의 `boardId`).
+- **D-9 관리 화면**(쟁점 8·설계 제약): `posts.html`은 공지 화면의 구조·비동기 보호(세대 토큰·`AbortController`·저장 토큰)를 옮기되, 상단에 "내 게시판" 선택(`GET /admin/api/members/me/boards`)을 둔다. 게시판별 허용 동작(`actions`)으로 버튼을 표시하며 서버 판정이 최종이다. `?boardId=&id=` 진입을 지원하고, 게시판이 하나도 없으면 안내 문구를 보인다. 게시판 이름은 `textContent`로만 쓴다. 게시판 관리 화면(`manage.html`)에는 [삭제] 버튼과 409 안내를 추가한다.
+- **D-10 공개 측**(쟁점 10): `publicweb/board/{controller,service,dto}`. 게시판 조회는 `findByIdAndDeletedFalseAndPublicYnTrue`, 게시글 조회는 `(postId, boardId)` + `useYn ∧ ¬deleted`로 같은 서비스에 격리한다. 목록은 `PublicBoardService`가 QueryDSL(`PostRepositoryImpl.searchPublishedByTitle(boardId, keyword, pageable)`)로 SELECT·COUNT에 같은 조건 객체를 쓴다(키워드 없음도 같은 메서드 — 조건이 한 곳). CSS는 `board.css`(공지 CSS를 복사해 접두어만 바꾼 독립 파일 — 게시판과 공지는 ①-2에서 합쳐지므로 공통화는 그때 판단). 페이지는 `PublicWebExceptionAdvice`가 덮는다.
+- **D-11 통합 검색**(쟁점 12): `AdminSearchResponse.posts: Section<PostItem(id, boardId, boardName, title, useYn, createDate)>`. ADMIN은 미삭제 게시판의 미삭제 게시글, MANAGER는 `snapshot.boardIds(memberId, READ)`에 속한 것만. 집합이 비면 키를 생략한다. 쿼리는 `PostRepositoryImpl.searchForAdmin(boardIds | null, keyword, pageable)`(게시판 이름 조인 포함).
+- **D-12 구현 체크포인트**: 규모가 크므로(예상 신규 약 45 파일) 계층별로 컴파일·해당 시험을 돌리며 진행한다 — ① 헬퍼·공용 추출(+공지 시험) ② V29·V30·엔티티·리포지토리 ③ 서비스(게시글·첨부·게시판 삭제·이미지) ④ 관리 API·권한 시험 ⑤ 편집기·관리 화면 ⑥ 공개 서비스·컨트롤러·템플릿·보안·레이트리밋 ⑦ 검색 ⑧ 문서·전체 시험·실기.
 
 ## 구현·검증 결과 — PR A (2026-10-08)
 
@@ -354,3 +389,48 @@ v1은 "공개 판정에 조건을 추가만" 했지만 리뷰가 세 가지 경�
 - 게시글·첨부·게시판 삭제(살아 있는 게시글 409 + 권한 행 정리)·게시판 이미지 업로드(`BOARD:X` 출처)·공개 판정 3·4·편집기 `setUploadUrl`·게시글 관리 화면·공개 `/boards/**`·레이트리밋·통합 검색·회수 절차 ②⑤⑤-2 갱신.
 - `FileStorageTransactionSupport.deleteOnRollback`을 `beforeCommit` 표시 기반 확정 롤백 삭제로 바꾸고 공지 첨부 복제 구현을 교체(v8).
 - 게시판 삭제와 회수 PUT의 래치 동시성 시험(ON·OFF 두 설정, R3-3·R4-2).
+
+## 구현·검증 결과 — PR B (2026-10-08)
+
+### Context
+
+계획 v10(PR B 보정 2라운드 ship) 승인 범위 중 **PR B(게시글·첨부·본문 이미지 게시판 출처 업로드·게시판 삭제·공개 `/boards`·통합 검색·파일 정리 헬퍼 수정·수동 회수 절차 갱신)**를 구현했다. 브랜치 `feat/board-posts`(PR A #112 머지 직후 master에서 분기). 스키마 V29·V30, 인가 정책(`/boards/**` 공개)은 사전 승인(2026-10-08).
+
+### 핵심 확정 사항 (구현 중 계획과 달라진 점 포함)
+
+- **리뷰가 잡은 결함 2건을 구현에 반영**(v10): 공개 게시글 이미지 쿼리의 `r.imageId = :imageId` 연결 조건(빠지면 다른 공개 글의 참조가 아무 이미지나 공개 — 변이 실험으로 시험 검출 확인), 파일 정리 헬퍼의 삭제 조건을 `ROLLED_BACK ∧ beforeCommit 미호출`로 한정(롤백 자체 실패 `UNKNOWN` 보존; 상태×표시 5조합 단위 시험).
+- 공개 오류 뷰는 공지의 `public/notice/error`를 공유한다(계획 쟁점 10의 `public/board/error.html` 삭제, v9). `PermissionChangedEvent`의 회원 ID는 무효화에 쓰이지 않아 게시판 삭제는 `null`을 낸다.
+- 공개 첨부 스트리밍 코드는 공지 컨트롤러의 **복제**다(추출은 별도 리팩터링으로 미룸). 대신 실서버 스트리밍 시험을 게시판용으로 복제해 한쪽만 고쳐지는 표류를 시험이 잡게 했다.
+- 시험 환경: `build.gradle`이 테스트에서 레이트리밋을 전역으로 끈다(`CMS_RATE_LIMIT_ENABLED=false`) — 새 `board-*` 규칙은 자동 시험이 아니라 **실기에서 검증**했다(아래).
+- 계획과 달라진 점 없음(결정 D-1~D-12 그대로). 구현 중 시험 결함 1건: `MenuExposureSidebarIntegrationTest`가 `PERMISSION:*` 노출을 NOTICE 허용 하나로만 예측해 새 `BOARD` 메뉴(어느 게시판이든 READ)와 어긋남 → 시험이 게시판 READ도 함께 부여하도록 수정(제품 동작은 맞았다).
+
+### 구현 파일
+
+- 스키마: `V29__create_post.sql`(`post`·`post_attachment`, FK RESTRICT, 인덱스 `(board_id, deleted, use_yn, create_date)`), `V30__seed_board_post_menu.sql`(멱등 시드)
+- 게시글: `admin/board/`(`domain/Post·PostAttachment`, `repository/Post*Repository·PostRepositoryImpl(QueryDSL)·PostSearchRow`, `service/PostService·PostAttachmentService`, `controller/PostController·PostAttachmentController`, dto 9종), `BoardService.deleteBoard`·`Board.softDelete`·`BoardController` DELETE, `BoardRepository`(`FOR SHARE`·공개 조회), `MemberBoardPermissionRepository.deleteByBoardId`, 화면 `posts.html`·`manage.html`(삭제 버튼)
+- 공용 추출·헬퍼: `common/attachment/AttachmentFilePolicy`, `common/html/ContentBodyPolicy`(공지 서비스가 위임), `FileStorageTransactionSupport`(`beforeCommit` 표시 기반 삭제 + 루트 `deleteAfterCommit` 오버로드), `NoticeAttachmentService`(복제 구현을 헬퍼로 교체)
+- 본문 이미지: `ContentImageService`(`uploadForBoard`·공유 `store`·`OWNER_POST`/`SCOPE_BOARD`), `BoardContentImageController`, `ContentImageRefRepository.existsPublishedPostRef`, `PublicContentImageService`(판정 ②④ 추가), `notice-editor.js`(`uploadUrl` 옵션·`setUploadUrl`)
+- 공개: `publicweb/board/`(`PublicBoardController·PublicBoardService`, dto 6종), `templates/public/board/{list,detail}.html`, `static/css/public/board.css`, `SecurityConfig`(`/boards/**` GET·HEAD 공개 + `denyAll`), `application.yml`(`board-attachment`·`public-board` 규칙)
+- 검색: `AdminSearchService`·`AdminSearchResponse.PostItem`·`AdminPermissionEvaluator.readableBoardIds`·`topbar-search.js`
+- 감사 라벨: `AdminActionTypes`(`BOARD_DELETE`·`POST_*` 5종)·`templates/admin/log/manage.html`
+- 문서: `docs/deployment.md`(회수 ② 게시글 참조 제외·⑤ `post_attachment` 보존·⑤-2 프로필 파일 대조·PR A 중단 가드 대체), `docs/migration-guide.md`(V29~V30), CLAUDE.md(루트·`admin/board`·신규 `publicweb/board`·`config`·`contentimage`·`admin/permission`)
+- 시험(신규): `PostApiIntegrationTest`(11), `AbstractBoardDeleteRaceTest` + OFF/ON 서브클래스(각 3), `PublicBoardIntegrationTest`(12), `PublicBoardAttachmentStreamingServerTest`(5), `PublicBoardTemplateConventionTest`(2), `FileStorageTransactionSupportTest`·`AttachmentFilePolicyTest`·`ContentBodyPolicyTest` / (보강) `BoardMigrationTest`(V29·V30·FK·롤백 하한 V25·V28), `SecurityConfigTest`(`/boards`), `AdminSearchServiceTest`, `MenuExposureSidebarIntegrationTest`
+
+### 검증 결과
+
+- **전체 `./gradlew cleanTest test`**: 1597건 실패 0(건너뜀 11 — 로컬 Windows 전용, PR A와 같음), BUILD SUCCESSFUL.
+- **변이 실험**(시험의 검출력): ① 공개 게시글 이미지 쿼리에서 `r.imageId = :imageId` 무력화 → `unreferencedImageStaysHiddenEvenWhenAnotherImageIsPublished` 실패(기대 404, 실제 200) ② 게시글 생성의 게시판 `FOR SHARE` 제거 → `boardDeleteWaitsForPostCreateAndThenConflicts` 실패(삭제가 기다리지 않음). 둘 다 원복.
+- **동시성**(OFF·ON 두 설정, 실제 MariaDB): 회수 PUT이 행을 읽은 뒤 게시판 삭제가 커밋되면 **OFF = 200·ON = 409(버전 불변)**, 어느 쪽이든 재조회 후 재저장 성공(R3-3·R4-2 계약 실측). 생성이 공유 잠금을 쥔 동안 삭제는 `INNODB_LOCK_WAITS`로 관측되는 대기 후 409, 고아 게시글 없음.
+- **실기(dev Docker, Playwright + curl, 스크린샷 `.playwright-mcp/board-posts/` — git 무시 경로)**: dev DB 백업 후 재빌드 → `now at version v30`. ① ADMIN이 공개 게시판 `PB자료실<img onerror>`(이름에 태그)·비공개 게시판 생성 — 이름은 텍스트로만 표시(삽입 `img` 0), 사이드바에 "게시판 관리"·"게시글 관리" ② MANAGER(게시판 A 전 동작만): 사이드바에 "게시글 관리"만, 선택 가능한 게시판은 A뿐, 타 게시판 목록 403·게시판 정의 API 403·게시판 삭제 403·게시판 관리 화면 403 ③ MANAGER가 UI로 게시글 작성(편집기 이미지 업로드 → `BOARD:A` 출처·참조 행 생성, 첨부 업로드, 감사 `POST_CREATE·POST_ATTACHMENT_UPLOAD`) ④ 공개: 목록·상세 200, 첨부 GET(`octet-stream`·`attachment`·`nosniff`·`no-store`)·HEAD 200, 이미지 200, 제목의 `<script>`는 이스케이프, 비공개 게시판·없는 ID·비숫자·CSRF 없는 POST는 404/404/404/403 ⑤ **노출 끄기→복원 왕복**: 숨김 시 상세·목록·첨부·이미지 익명 404(작성자 READ 권한자는 이미지 200), 복원 시 200 ⑥ **편집기 A→B→A 전환**: 업로드가 각각 `/boards/5`·`/boards/6`·`/boards/5/content-images`로 나가고 DB 출처가 일치, **업로드 중(응답 2초 지연) 모달을 닫으면** 늦은 응답이 버려져 다음 모달 편집기는 이미지 0·busy 해제 ⑦ 상단바 검색: MANAGER·ADMIN 모두 "게시글" 섹션, 결과 링크 `?boardId=&id=`가 상세 모달을 자동으로 열고 쿼리 정리, **권한 없는 게시판 글은 MANAGER 검색에 나오지 않음** ⑧ 삭제 UI: 게시글이 남은 게시판 삭제 → 409 안내, 첨부가 남은 게시글 삭제 → 409 안내, 첨부 삭제 → 게시글 삭제 → 게시판 삭제 성공(감사 `FAIL`/`SUCCESS` 구분), 권한 행 0건, MANAGER 사이드바에서 "게시글 관리" 사라지고 화면 403, 첨부 파일 볼륨에서 제거 ⑨ **공지 회귀**: 공지 편집기 업로드는 기본 URL `/admin/api/notices/content-images`, 공개 공지·이미지 200 ⑩ **레이트리밋**(dev 스택): 첨부 경로 21번째부터 429, `/boards/**` 병렬 버스트에서 429, `/notices` 버킷은 분리 ⑪ 앱 로그 예외 0건.
+- **수동 회수 절차(dev, 읽기 전용 확인)**: ② 대상에서 살아 있는 게시글이 참조하는 이미지가 빠지고(이전 SQL은 그 이미지를 대상에 넣었을 것), ⑤ 고아 목록에 게시글 첨부 파일이 없음(이전 보존 목록이면 그 PDF가 고아로 분류됨). 삭제 단계는 실행하지 않았다. 검증 데이터는 검증 뒤 직접 삭제했다(이미지·파일·게시글·게시판·검증용 MANAGER; 백업은 세션 scratchpad `dev-cms-before-v29.sql`).
+
+### 이슈
+
+- 권한 없는 MANAGER가 **잘못된 본문/Content-Type**을 보내면 403이 아니라 400/415가 나온다(메서드 보안 `@PreAuthorize`가 인자 바인딩 이후라서 — 공지 API와 같은 기존 패턴). 유효한 요청의 403은 통합 시험이 고정한다. 정보 노출은 라우트 존재 여부에 한정된다.
+- 자동 시험은 레이트리밋이 꺼진 환경이라 `board-*` 규칙은 실기로만 확인됐다(규칙을 바꾸면 dev 스택에서 429 동작을 다시 본다).
+- 로컬 시험 중 MCP 브라우저 도구의 파일 선택기는 메인 페이지에서 가로채인다(별도 컨텍스트에서 실행해 해결) — 제품 문제 아님.
+
+### 후속
+
+- ①-2 공지 흡수(`PLAN-notice-to-board.md`): 공지 화면·게시글 화면 JS 두 벌과 공개 첨부 스트리밍 코드 복제의 공통화를 그때 판단한다.
+- 게시판 색인 페이지(`/boards`)는 범위 밖(핸들러 없음 → HTML 404).

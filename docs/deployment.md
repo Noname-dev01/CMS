@@ -375,10 +375,11 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
-공지 편집기에서 올린 이미지는 첨부파일과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 공지가 참조하는지)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 공지가 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
+공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 공지·게시글이 참조하는지 — `owner_type` = `NOTICE`·`POST`)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 공지 또는 공개 게시판의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
 
 - **배포 시**: V25가 기존 공지 본문을 HTML로 일괄 변환한다 — 배포 전 `make prod-backup`. 구버전으로 롤백하면 **공지 쓰기를 동결**해야 한다(`docs/migration-guide.md` "V25 이후 구버전 롤백").
 - **업로드 출처(V27, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = `NOTICE` 또는 게시판 `BOARD` + `scope_id`)이 기록된다. 공지 본문에는 공지 출처 이미지만 넣을 수 있고(다른 출처면 저장 400), NOTICE 조회 권한 미리보기는 공지 출처 이미지에만 적용된다. **롤백 하한**: 게시판 이미지(`scope_type='BOARD'`)가 하나라도 생긴 뒤에는 V27 이전 앱(출처 판정 없음)으로 되돌리지 않는다 — 되돌리면 NOTICE 조회 권한자가 비공개 게시판 이미지를 볼 수 있다. roll-forward만 한다(`docs/migration-guide.md` "V26~V28").
+- **게시글 첨부·참조(V29, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 7)**: 게시글 첨부(`post_attachment`)도 공지 첨부와 같은 **스토리지 루트**에 저장된다(네임스페이스가 아님). 그래서 아래 회수 절차의 ② 대상 확정은 **살아 있는 게시글(`post.deleted=0`)이 참조하는 이미지를 제외**하고, ⑤ 행 없는 파일 정리는 **`post_attachment`의 키를 보존 목록에 포함**한다 — 이 두 조건이 빠진 절차를 쓰면 게시글 본문 이미지·첨부 파일이 지워진다. PR A 시점의 절차는 게시글 테이블이 있으면 중단하는 가드를 가졌고(이 문서의 이전 판), 지금 절차가 그 가드를 대체한다. PR B → PR A 앱 롤백은 허용되지만(`docs/migration-guide.md` "V29~V30"), 롤백한 상태에서는 **이 문서의 절차를 쓰지 않는다**(PR A 앱은 게시글을 모른다) — roll-forward 뒤에 실행한다.
 - **상한 도달(업로드 409)**: 저장하지 않은 편집 중 이미지·본문에서 지운 이미지·삭제된 공지의 이미지는 자동으로 정리되지 않는다(자동 정리는 로드맵 ⑧ 미디어 라이브러리). 상한에 도달하면 아래 수동 회수를 한다.
 
 ### 수동 회수 절차 (dev에서 2026-10-07 실제 수행 검증)
@@ -389,14 +390,12 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 # DB 자격 증명은 DB 컨테이너 내부 환경변수로만 참조한다 — .env.prod는 compose 보간용이라 호스트 셸에는 없다.
 # SQL은 stdin으로 넘기며, 접속·인증·쿼리 실패는 0이 아닌 종료 코드가 된다.
 db() { docker exec -i cms-db-prod sh -c 'exec mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -N'; }
-# 삭제 단계 직전 가드: ① 백업 완료 표지가 있고 앱이 정지 상태이며, 게시글 테이블이 없을 때만 통과한다.
-# 게시글 테이블(post·post_attachment, 게시판 PR B 이후)이 있는 DB에서는 이 절차가 게시글 본문 이미지 참조와 게시글 첨부를
-# 보존하지 못한다 — 게시판 PR B 이후 문서의 절차를 쓴다(adversarial-review/plan/PLAN-board.md 리뷰 R4-1, PR B → PR A 롤백 대비).
+# 삭제 단계 직전 가드: ① 백업 완료 표지가 있고 앱이 정지 상태일 때만 통과한다.
+# (게시글 테이블이 있는 DB에서도 아래 ②·⑤가 게시글 참조·첨부를 보존하므로 통과한다 — PR A 시점의 "게시글 테이블이 있으면 중단" 가드는
+#  PR B에서 이 보존 조건으로 대체됐다, adversarial-review/plan/PLAN-board.md 리뷰 R4-1)
 ready() {
   [ -f reclaim-backup.ok ] && [ "$(docker inspect -f '{{.State.Running}}' cms-app-prod)" = false ] ||
   { echo "중단: ① 백업 미완료이거나 앱이 실행 중이다"; return 1; }
-  [ "$(db <<< "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('post', 'post_attachment')")" = 0 ] ||
-  { echo "중단: 게시글 테이블이 있는 DB — 이 절차는 게시글 참조·첨부를 보존하지 못한다. 최신 문서의 절차를 쓴다"; return 1; }
 }
 # 이 블록의 삭제 단계는 모두 && 체인이다 — 서브셸 + set -e로 바꾸지 않는다(`( set -e; … ) || …`처럼
 # || 목록 안에서는 bash가 set -e를 무시해 실패 뒤에도 다음 명령이 실행된다)
@@ -405,11 +404,15 @@ ready() {
 rm -f reclaim-backup.ok
 docker stop cms-app-prod && make prod-backup && touch reclaim-backup.ok
 
-# ② 회수 대상 확정: 참조가 없거나, 모든 참조가 삭제된 공지(deleted=1)인 이미지 — 살아 있는 공지가 하나라도 참조하면 제외
+# ② 회수 대상 확정: 참조가 없거나, 모든 참조가 삭제된 공지(deleted=1)·삭제된 게시글(deleted=1)인 이미지 —
+#    살아 있는 공지 또는 살아 있는 게시글이 하나라도 참조하면 제외한다(게시글은 노출 여부·게시판 공개 여부와 무관 —
+#    비노출·비공개 게시판 글의 이미지도 운영자가 다시 켜면 쓰이므로 회수하지 않는다)
 db > reclaim-targets.tsv <<'SQL'
 SELECT i.id, i.storage_key FROM content_image i
 WHERE NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN notice n ON r.owner_type = 'NOTICE' AND n.id = r.owner_id
                   WHERE r.image_id = i.id AND n.deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN post p ON r.owner_type = 'POST' AND p.id = r.owner_id
+                  WHERE r.image_id = i.id AND p.deleted = 0)
 ORDER BY i.id;
 SQL
 IDS=$(cut -f1 reclaim-targets.tsv | paste -sd, -)   # 비어 있으면(조회 실패 포함) ③의 SQL이 실패해 ④까지 건너뛴다
@@ -431,13 +434,13 @@ docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20
 echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일을 지우지 않았다"
 
 # ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
-#    보존 대상 = content_image + notice_attachment의 storage_key, profile/ 네임스페이스는 제외
+#    보존 대상 = content_image + notice_attachment + post_attachment의 storage_key, profile/ 네임스페이스는 제외(⑤-2가 따로 다룬다)
 #    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
 #    orphan-files.txt가 만들어지지 않고, 아래 삭제는 그 파일이 없으면 아무것도 지우지 않는다.
 rm -f keep-keys.txt disk-keys.txt orphan-files.txt
 ready &&
 db > keep-keys.txt <<'SQL' &&
-SELECT storage_key FROM content_image UNION SELECT storage_key FROM notice_attachment;
+SELECT storage_key FROM content_image UNION SELECT storage_key FROM notice_attachment UNION SELECT storage_key FROM post_attachment;
 SQL
 sort -o keep-keys.txt keep-keys.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
@@ -449,11 +452,30 @@ ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work al
   test -f /work/orphan-files.txt || { echo "orphan-files.txt 없음 — 삭제 중단"; exit 1; }
   while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/$k";; esac; done < /work/orphan-files.txt'
 
+# ⑤-2 프로필 파일 대조(2026-10-08, PLAN-board.md R6-1): 트랜잭션 결과를 알 수 없을 때(커밋 응답 유실 등) 업로드 정리는 파일을 지우지 않고 남긴다.
+#      프로필 이미지는 profile/ 네임스페이스에 저장되어 위 ⑤가 제외하므로, 여기서 따로 대조한다.
+#      보존 대상 = member의 profile_image_kind='UPLOADED' 행의 profile_image_url(네임스페이스 로컬 키), 디스크 = profile/ 아래 파일(접두어 제거).
+#      차이만 고아 목록이 된다. 앞 단계와 같은 ready 가드 + && 체인 — 조회가 실패하면 목록이 만들어지지 않고 아래 삭제는 아무것도 지우지 않는다.
+rm -f profile-keep.txt profile-disk.txt profile-orphans.txt
+ready &&
+db > profile-keep.txt <<'SQL' &&
+SELECT profile_image_url FROM member WHERE profile_image_kind = 'UPLOADED' AND profile_image_url IS NOT NULL;
+SQL
+sort -o profile-keep.txt profile-keep.txt &&
+docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
+  if [ -d /data/profile ]; then cd /data/profile && find . -type f | sed "s|^\./||" | sort; fi' > profile-disk.txt &&
+comm -23 profile-disk.txt profile-keep.txt > profile-orphans.txt ||
+echo "⑤-2 중단: 보존 목록 또는 디스크 목록 수집 실패 — 아래 삭제를 실행하지 않는다"
+cat profile-orphans.txt    # 먼저 눈으로 확인한다(파일이 없다는 오류가 나오면 위 단계가 실패한 것)
+ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
+  test -f /work/profile-orphans.txt || { echo "profile-orphans.txt 없음 — 삭제 중단"; exit 1; }
+  while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/profile/$k";; esac; done < /work/profile-orphans.txt'
+
 # ⑥ 앱 기동
 docker start cms-app-prod
 ```
 
-파일을 DB보다 나중에 지우므로 중간에 실패해도 남는 것은 "행 없는 파일"뿐이고, 다음 회수의 ⑤가 정리한다. ⑤는 공지 첨부의 잔존 파일(같은 원인)도 함께 회수한다. 삭제된 공지는 API로 복원할 수 없으므로 그 이미지를 회수해도 사용자 기능 손실은 없다.
+파일을 DB보다 나중에 지우므로 중간에 실패해도 남는 것은 "행 없는 파일"뿐이고, 다음 회수의 ⑤가 정리한다. ⑤는 공지 첨부·게시글 첨부의 잔존 파일(같은 원인)도 함께 회수하고, ⑤-2는 프로필 파일의 잔존분을 회수한다. 삭제된 공지는 API로 복원할 수 없으므로 그 이미지를 회수해도 사용자 기능 손실은 없다.
 
 ## 알려진 제약
 
