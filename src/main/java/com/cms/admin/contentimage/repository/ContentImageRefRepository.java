@@ -31,4 +31,17 @@ public interface ContentImageRefRepository extends JpaRepository<ContentImageRef
             // 출처 일치(PLAN-board.md 리뷰 R2-1): 공지 출처 이미지만 공지 참조로 공개된다 — 롤백 중 출처 검증 없이 생긴 참조로는 공개되지 않는다
             + " and i.id = r.imageId and i.scopeType = 'NOTICE'")
     boolean existsPublishedNoticeRef(@Param("imageId") Long imageId);
+
+    /**
+     * 공개 게시글이 이 이미지를 참조하는지(PLAN-board.md 쟁점 9·D-6). 공개 조건은 {@code PublicBoardService}의 공개 불변식과 같아야 한다 —
+     * 게시판 {@code publicYn ∧ ¬deleted}, 게시글 {@code useYn ∧ ¬deleted}, 게시글이 그 게시판 소속. 이미지 출처는 {@code BOARD}이고 참조한
+     * 게시글의 게시판과 같아야 한다(롤백 중 출처 검증 없이 생긴 참조로는 공개되지 않는다). {@code r.imageId = :imageId}가 빠지면 다른 공개 글의
+     * 참조가 아무 이미지나 공개하므로 반드시 요청 이미지와 연결한다.
+     */
+    @Query("select count(r) > 0 from ContentImageRef r, Post p, Board b, ContentImage i"
+            + " where r.imageId = :imageId and r.ownerType = 'POST' and p.id = r.ownerId"
+            + " and p.useYn = true and p.deleted = false"
+            + " and b.id = p.boardId and b.publicYn = true and b.deleted = false"
+            + " and i.id = r.imageId and i.scopeType = 'BOARD' and i.scopeId = p.boardId")
+    boolean existsPublishedPostRef(@Param("imageId") Long imageId);
 }

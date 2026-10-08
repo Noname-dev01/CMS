@@ -1,5 +1,6 @@
 package com.cms.admin.contentimage.service;
 
+import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.contentimage.config.ContentImageProperties;
 import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.domain.ContentImageRef;
@@ -14,6 +15,7 @@ import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.common.image.ImageFileValidator;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.FileStorageTransactionSupport;
@@ -51,6 +53,12 @@ public class ContentImageService {
     /** 공지 편집기 업로드 출처(V27 기본값과 같다). 공개 판정 쿼리의 리터럴과 같아야 한다. */
     public static final String SCOPE_NOTICE = "NOTICE";
 
+    /** 게시글 본문의 참조 owner_type. 공개 판정 쿼리({@code existsPublishedPostRef})의 리터럴과 같아야 한다. */
+    public static final String OWNER_POST = "POST";
+
+    /** 게시판 편집기 업로드 출처(scope_id = 게시판 ID). 공개 판정 쿼리의 리터럴과 같아야 한다. */
+    public static final String SCOPE_BOARD = "BOARD";
+
     static final long MAX_FILE_SIZE = 5L * 1024 * 1024;
 
     /** 본문 이미지 상한: 한 변 4096px·총 4096² 픽셀, 헤더 검사만(전체 디코드는 힙 ~64MB라 하지 않음 — 쟁점 8). */
@@ -59,6 +67,7 @@ public class ContentImageService {
     private final ContentImageRepository imageRepository;
     private final ContentImageRefRepository refRepository;
     private final ContentImageUsageRepository usageRepository;
+    private final BoardRepository boardRepository;
     private final ContentImageProperties properties;
     private final FileStorage fileStorage;
     private final AdminSecurityService adminSecurityService;
@@ -78,6 +87,29 @@ public class ContentImageService {
                 && !permissionEvaluator.allows(authentication, AdminFeature.NOTICE, PermissionAction.UPDATE)) {
             throw new AccessDeniedException("공지 작성 또는 수정 권한이 필요합니다.");
         }
+        return store(file, SCOPE_NOTICE, null);
+    }
+
+    /**
+     * 게시판 편집기의 이미지 업로드(PLAN-board.md 쟁점 9). URL 게이트·핸들러 선언은 그 게시판의 READ이고, 여기서 같은 게시판의 CREATE 또는 UPDATE를
+     * 다시 판정한다(403) — 공지와 같은 이유다. 이미지는 BOARD 출처(scope_id = 게시판 ID)로 저장돼 그 게시판의 게시글에만 넣을 수 있고, 그 게시판의 현재
+     * READ 권한자(ADMIN 포함)만 미참조 상태로 미리 볼 수 있다. 삭제된 게시판이면 404.
+     */
+    @Transactional
+    @AdminActionLogged(actionType = AdminActionTypes.CONTENT_IMAGE_UPLOAD, targetType = "CONTENT_IMAGE", targetIdExpression = "id")
+    public ContentImageUploadResponse uploadForBoard(Long boardId, MultipartFile file) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (!permissionEvaluator.allowsBoard(authentication, boardId, PermissionAction.CREATE)
+                && !permissionEvaluator.allowsBoard(authentication, boardId, PermissionAction.UPDATE)) {
+            throw new AccessDeniedException("게시글 작성 또는 수정 권한이 필요합니다.");
+        }
+        boardRepository.findByIdAndDeletedFalse(boardId)
+                .orElseThrow(() -> new ResourceNotFoundException("게시판을 찾을 수 없습니다."));
+        return store(file, SCOPE_BOARD, boardId);
+    }
+
+    /** 권한 판정을 마친 업로드의 공통 처리 — 검증·카운터 잠금·저장·행 기록. 출처만 진입점이 정한다. */
+    private ContentImageUploadResponse store(MultipartFile file, String scopeType, Long scopeId) {
         String uploaderId = adminSecurityService.getCurrentAdminUserId();
         if (uploaderId == null) {
             throw new AccessDeniedException("인증 정보를 확인할 수 없습니다.");
@@ -110,8 +142,8 @@ public class ContentImageService {
                 .contentType(contentType)
                 .fileSize((long) content.length)
                 .uploaderId(uploaderId)
-                .scopeType(SCOPE_NOTICE)
-                .scopeId(null)
+                .scopeType(scopeType)
+                .scopeId(scopeId)
                 .createDate(LocalDateTime.now(clock))
                 .build());
         return ContentImageUploadResponse.from(saved);

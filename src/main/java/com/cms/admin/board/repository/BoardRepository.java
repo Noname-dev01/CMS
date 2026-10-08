@@ -31,4 +31,15 @@ public interface BoardRepository extends JpaRepository<Board, Long> {
     @Lock(LockModeType.PESSIMISTIC_READ)
     @Query("select b from Board b where b.id in :ids order by b.id")
     List<Board> findAllByIdInForShare(@Param("ids") Collection<Long> ids);
+
+    /**
+     * 게시글 생성 전용 — 게시판 행을 공유 잠금으로 읽어 게시판 삭제(`FOR UPDATE`)와 직렬화한다(PLAN-board.md 쟁점 7). 삭제 검사 직후에 게시글이
+     * 생겨 고아가 되는 것을 막는다. 삭제된 게시판은 비어 있다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select b from Board b where b.id = :id and b.deleted = false")
+    Optional<Board> findByIdAndDeletedFalseForShare(@Param("id") Long id);
+
+    /** 공개 화면 전용 — 공개 게시판(publicYn)이면서 삭제되지 않은 게시판만. 조건이 메서드명으로 고정돼 공개 불변식이 실수로 깨지지 않는다. */
+    Optional<Board> findByIdAndDeletedFalseAndPublicYnTrue(Long id);
 }

@@ -152,6 +152,18 @@ public class AdminPermissionEvaluator {
     }
 
     /**
+     * MANAGER가 READ를 유효하게 가진 게시판 ID 집합 — 통합 검색이 결과를 그 게시판으로 한정할 때 쓴다(PLAN-board.md 쟁점 12). ADMIN은 게시판 전체라
+     * 호출자가 따로 다루므로 여기서는 빈 집합이고, MANAGER가 아니거나 회원을 식별할 수 없으면 빈 집합이다(fail-closed). 스냅샷은 MANAGER일 때만 조회한다.
+     */
+    public Set<Long> readableBoardIds(Supplier<PermissionSnapshot> snapshot, Authentication authentication) {
+        if (!isAuthenticated(authentication) || hasAuthority(authentication, ROLE_ADMIN) || !hasAuthority(authentication, ROLE_MANAGER)) {
+            return Set.of();
+        }
+        Long memberId = memberIdOf(authentication);
+        return memberId == null ? Set.of() : snapshot.get().boardIds(memberId, PermissionAction.READ);
+    }
+
+    /**
      * 사이드바가 메뉴 URL의 노출 여부를 정하는 판정(PLAN §7). ADMIN은 URL이 null이든 미분류든 항상 true,
      * MANAGER는 URL이 어떤 기능의 {@code menuUrls}와 완전 일치할 때만 그 기능의 READ 허용 여부를 <b>그 회원 본인의 허용 행으로</b> 따르고
      * 그 밖(미분류·null)은 false다. 그 외 역할·익명은 모두 false. 스냅샷은 회원을 식별할 수 있는 MANAGER일 때만 조회하므로 ADMIN 화면은

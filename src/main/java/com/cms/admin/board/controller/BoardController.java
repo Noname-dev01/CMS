@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -72,5 +73,16 @@ public class BoardController {
     public ResponseEntity<BoardResponse> updateBoard(@PathVariable Long boardId,
                                                      @Valid @RequestBody BoardUpdateRequest request) {
         return ResponseEntity.ok(boardService.updateBoard(boardId, request));
+    }
+
+    @Operation(summary = "게시판 삭제(소프트)", description = "살아 있는 게시글이 없을 때만 삭제된다. 그 게시판의 MANAGER 권한 행도 함께 지운다")
+    @ApiResponse(responseCode = "204", description = "삭제 성공")
+    @ApiResponse(responseCode = "404", description = "게시판 없음(삭제 포함)")
+    @ApiResponse(responseCode = "409", description = "게시글이 남아 있음")
+    @DeleteMapping("/{boardId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteBoard(@PathVariable Long boardId) {
+        boardService.deleteBoard(boardId);
+        return ResponseEntity.noContent().build();
     }
 }

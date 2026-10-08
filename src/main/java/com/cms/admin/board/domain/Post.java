@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -13,32 +14,38 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 게시판 정의(PLAN-board.md 쟁점 6). ADMIN만 만들고 고친다. {@code publicYn}은 공개 사이트 노출 여부,
- * {@code attachmentYn}은 새 첨부 업로드 허용 여부(끄더라도 기존 첨부는 그대로 노출·관리된다 — PR B).
- * {@code deleted}는 소프트 삭제이며 살아 있는 게시글이 없을 때만 삭제할 수 있다.
+ * 게시글(PLAN-board.md 쟁점 7). 공지({@code Notice})와 같은 구조 — {@code useYn}(노출)과 {@code deleted}(소프트 삭제)는 별도 상태이고,
+ * 본문은 정리된 HTML이다. {@code boardId}는 연관관계 매핑 없이 plain {@code Long}으로 두고 DB FK만 건다(공지 첨부와 같은 이유).
  */
 @Entity
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Board {
+public class Post {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 100)
-    private String name;
+    @Column(name = "board_id", nullable = false)
+    private Long boardId;
 
-    @Column(name = "public_yn", nullable = false)
-    private Boolean publicYn;
+    @Column(nullable = false, length = 200)
+    private String title;
 
-    @Column(name = "attachment_yn", nullable = false)
-    private Boolean attachmentYn;
+    @Lob
+    @Column(nullable = false, columnDefinition = "MEDIUMTEXT")
+    private String content;
+
+    @Column(name = "use_yn", nullable = false)
+    private Boolean useYn;
 
     @Column(nullable = false)
     private Boolean deleted;
+
+    @Column(name = "author_id", nullable = false, length = 100)
+    private String authorId;
 
     private LocalDateTime createDate;
 
@@ -49,15 +56,15 @@ public class Board {
      *
      * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void update(String name, Boolean publicYn, Boolean attachmentYn, LocalDateTime now) {
-        if (name != null) {
-            this.name = name;
+    public void update(String title, String content, Boolean useYn, LocalDateTime now) {
+        if (title != null) {
+            this.title = title;
         }
-        if (publicYn != null) {
-            this.publicYn = publicYn;
+        if (content != null) {
+            this.content = content;
         }
-        if (attachmentYn != null) {
-            this.attachmentYn = attachmentYn;
+        if (useYn != null) {
+            this.useYn = useYn;
         }
         this.updateDate = now;
     }
