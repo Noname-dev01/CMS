@@ -115,6 +115,17 @@ cms:
         methods: [GET, HEAD]
         capacity: 120
         refill-period-seconds: 60
+      # 공개 게시판 — 첨부가 먼저(더 엄격한 한도 우선, 공지와 같은 순서). PLAN-board.md 쟁점 10
+      - id: board-attachment
+        pattern: /boards/*/posts/*/attachments/*
+        methods: [GET, HEAD]
+        capacity: 20
+        refill-period-seconds: 60
+      - id: public-board
+        pattern: /boards/**
+        methods: [GET, HEAD]
+        capacity: 120
+        refill-period-seconds: 60
       # 편집기 본문 이미지 공개 다운로드 — 공지 1건에 이미지가 여러 장이라 공지 페이지보다 넉넉하게(PLAN-html-editor.md).
       - id: content-image
         pattern: /content-images/*

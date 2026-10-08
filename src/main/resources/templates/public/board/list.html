@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${boardName}">게시판</title>
+    <link rel="stylesheet" th:href="@{/css/public/board.css}">
+</head>
+<body>
+<div class="public-board-container">
+    <div class="public-board-header">
+        <h1><a th:href="@{/boards/{id}(id=${boardId})}" th:text="${boardName}">게시판</a></h1>
+    </div>
+
+    <form class="board-search" method="get" th:action="@{/boards/{id}(id=${boardId})}" role="search">
+        <input type="search" name="keyword" maxlength="100" placeholder="제목으로 검색"
+               aria-label="게시글 제목 검색" th:value="${keyword}">
+        <button type="submit">검색</button>
+        <a class="board-search-reset" th:if="${keyword != null}" th:href="@{/boards/{id}(id=${boardId})}">전체 보기</a>
+    </form>
+
+    <ul class="board-list" th:if="${not #lists.isEmpty(posts)}">
+        <li class="board-list-item" th:each="post : ${posts}">
+            <a th:href="@{/boards/{boardId}/posts/{postId}(boardId=${boardId}, postId=${post.id})}">
+                <span class="board-title" th:text="${post.title}"></span>
+                <span class="board-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
+            </a>
+        </li>
+    </ul>
+
+    <div class="board-empty" th:if="${#lists.isEmpty(posts)}"
+         th:text="${keyword != null} ? '검색 결과가 없습니다.' : '등록된 게시글이 없습니다.'">
+        등록된 게시글이 없습니다.
+    </div>
+
+    <!-- 검색 중일 때만 keyword를 붙인다 — null 파라미터 렌더링에 기대지 않고 링크를 명시적으로 나눈다(공지 목록과 같은 방식) -->
+    <div class="board-pagination" th:if="${totalPages > 1}">
+        <th:block th:if="${hasPrevious}">
+            <a th:if="${keyword == null}" th:href="@{/boards/{id}(id=${boardId}, page=${page - 1})}">이전</a>
+            <a th:if="${keyword != null}" th:href="@{/boards/{id}(id=${boardId}, page=${page - 1}, keyword=${keyword})}">이전</a>
+        </th:block>
+        <span th:unless="${hasPrevious}" class="disabled">이전</span>
+        <span th:text="${(page + 1) + ' / ' + totalPages}"></span>
+        <th:block th:if="${hasNext}">
+            <a th:if="${keyword == null}" th:href="@{/boards/{id}(id=${boardId}, page=${page + 1})}">다음</a>
+            <a th:if="${keyword != null}" th:href="@{/boards/{id}(id=${boardId}, page=${page + 1}, keyword=${keyword})}">다음</a>
+        </th:block>
+        <span th:unless="${hasNext}" class="disabled">다음</span>
+    </div>
+</div>
+</body>
+</html>

@@ -110,6 +110,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/notices", "/notices/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/notices", "/notices/**").permitAll()
                         .requestMatchers("/notices", "/notices/**").denyAll()
+                        // 공개 게시판 페이지(목록·상세·첨부 다운로드): GET/HEAD만 공개, 그 외 메서드는 명시적으로 차단(2026-10-08 승인, PLAN-board.md 쟁점 10).
+                        // 공개 여부(공개 게시판 + 노출·미삭제 게시글)는 PublicBoardService가 판정하고 그 외는 404로 흡수한다.
+                        .requestMatchers(HttpMethod.GET, "/boards", "/boards/**").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/boards", "/boards/**").permitAll()
+                        .requestMatchers("/boards", "/boards/**").denyAll()
                         // 편집기 본문 이미지: GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-07 승인, PLAN-html-editor.md).
                         // 공개 여부(공개 공지가 참조하거나 NOTICE 조회 권한자)는 PublicContentImageService가 판정한다.
                         .requestMatchers(HttpMethod.GET, "/content-images/*").permitAll()
