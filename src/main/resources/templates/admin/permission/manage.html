@@ -97,8 +97,19 @@
                                         </table>
                                     </div>
 
+                                    <h6 class="font-weight-bold text-gray-800 mt-2">게시판별 권한</h6>
+                                    <div id="boardEmpty" class="text-muted small mb-3 d-none">게시판이 없습니다. 게시판 관리에서 먼저 만드세요.</div>
+                                    <div class="table-responsive" id="boardArea">
+                                        <table class="table table-bordered perm-matrix mb-3" id="boardMatrix">
+                                            <thead class="thead-light">
+                                            <tr id="boardHead"><th>게시판</th></tr>
+                                            </thead>
+                                            <tbody id="boardBody"></tbody>
+                                        </table>
+                                    </div>
+
                                     <p class="text-muted small mb-3">
-                                        생성·수정·삭제 권한은 조회 권한과 함께 부여해야 하며, 저장하면 해당 매니저에게 <strong>다음 요청부터</strong> 즉시 반영됩니다(재로그인 불필요).
+                                        생성·수정·삭제 권한은 조회 권한과 함께 부여해야 하며(게시판은 게시판마다), 저장하면 해당 매니저에게 <strong>다음 요청부터</strong> 즉시 반영됩니다(재로그인 불필요).
                                     </p>
                                     <div class="d-flex align-items-center flex-wrap">
                                         <button type="button" class="btn btn-primary mr-2" id="btnSave" disabled>저장</button>
@@ -143,6 +154,10 @@
     const matrixArea = document.getElementById("matrixArea");
     const matrixHead = document.getElementById("matrixHead");
     const matrixBody = document.getElementById("matrixBody");
+    const boardHead = document.getElementById("boardHead");
+    const boardBody = document.getElementById("boardBody");
+    const boardArea = document.getElementById("boardArea");
+    const boardEmpty = document.getElementById("boardEmpty");
     const btnSave = document.getElementById("btnSave");
     const btnRevert = document.getElementById("btnRevert");
     const dirtyNotice = document.getElementById("dirtyNotice");
@@ -216,11 +231,19 @@
         return matrixBody.querySelector('input[data-feature="' + featureName + '"][data-action="' + actionName + '"]');
     }
 
-    // 위임 가능 기능의 현재 체크 상태: "FEATURE:ACTION" 집합 — 잠금 칸(상시 허용·관리자 전용)은 세지 않는다(저장 본문·dirty 판정에 섞이면 안 된다)
+    // 현재 체크 상태: 위임 가능 기능 "FEATURE:ACTION" + 게시판 "BOARD#id:ACTION" 집합 — 잠금 칸(상시 허용·관리자 전용)은 세지 않는다
+    // (저장 본문·dirty 판정에 섞이면 안 된다)
+    function boardKey(boardId, action) {
+        return "BOARD#" + boardId + ":" + action;
+    }
+
     function currentChecked() {
         const result = new Set();
         matrixBody.querySelectorAll('input[type="checkbox"][data-feature]:not([data-locked="true"]):checked').forEach(function (box) {
             result.add(box.dataset.feature + ":" + box.dataset.action);
+        });
+        boardBody.querySelectorAll('input[type="checkbox"][data-board]:checked').forEach(function (box) {
+            result.add(boardKey(box.dataset.board, box.dataset.action));
         });
         return result;
     }
@@ -231,6 +254,9 @@
             if (row.kind === "DELEGABLE") {
                 row.grantedActions.forEach(function (action) { result.add(row.feature + ":" + action); });
             }
+        });
+        (loaded ? loaded.boards : []).forEach(function (row) {
+            row.grantedActions.forEach(function (action) { result.add(boardKey(row.boardId, action)); });
         });
         return result;
     }
@@ -271,6 +297,9 @@
             // 잠금 칸(상시 허용·관리자 전용)은 busy가 풀려도 계속 disabled, 삭제된 계정은 읽기 전용
             box.disabled = busy || box.dataset.locked === "true" || readOnlyTarget();
         });
+        boardBody.querySelectorAll('input[type="checkbox"][data-board]').forEach(function (box) {
+            box.disabled = busy || readOnlyTarget();
+        });
         btnRefreshList.disabled = busy;
         btnSearch.disabled = busy || listBusy;
         btnMore.disabled = busy || listBusy;
@@ -296,6 +325,9 @@
 
         matrixBody.replaceChildren();
         data.features.forEach(function (row) {
+            if (row.kind === "BOARD_SCOPED") {
+                return;                                  // 게시판 기능은 아래 게시판별 표가 대신한다
+            }
             const tr = cell("tr");
             const nameCell = cell("td");
             const name = cell("div", "font-weight-bold");
@@ -335,6 +367,65 @@
             });
             matrixBody.appendChild(tr);
         });
+        renderBoards(data);
+        refreshState();
+    }
+
+    // 게시판별 권한 표 — 게시판 이름은 사용자 입력이라 textContent로만 넣는다
+    function renderBoards(data) {
+        const boards = data.boards || [];
+        boardEmpty.classList.toggle("d-none", boards.length > 0);
+        boardArea.classList.toggle("d-none", boards.length === 0);
+        boardHead.replaceChildren();
+        boardHead.appendChild(Object.assign(cell("th"), { textContent: "게시판" }));
+        data.actions.forEach(function (column) {
+            boardHead.appendChild(Object.assign(cell("th"), { textContent: column.label }));
+        });
+        boardBody.replaceChildren();
+        boards.forEach(function (row) {
+            const tr = cell("tr");
+            const nameCell = cell("td");
+            const name = cell("div", "font-weight-bold");
+            name.textContent = row.name;
+            nameCell.appendChild(name);
+            const note = cell("div", "perm-lock-note");
+            note.textContent = "#" + row.boardId + (row.publicYn ? " · 공개" : " · 비공개");
+            nameCell.appendChild(note);
+            tr.appendChild(nameCell);
+            data.actions.forEach(function (column) {
+                const td = cell("td");
+                if (row.supportedActions.indexOf(column.action) < 0) {
+                    td.appendChild(Object.assign(cell("span", "perm-na"), { textContent: "—" }));
+                } else {
+                    const box = document.createElement("input");
+                    box.type = "checkbox";
+                    box.dataset.board = String(row.boardId);
+                    box.dataset.action = column.action;
+                    box.checked = row.grantedActions.indexOf(column.action) >= 0;
+                    box.setAttribute("aria-label", row.name + " " + column.label);
+                    box.addEventListener("change", onBoardToggle);
+                    td.appendChild(box);
+                }
+                tr.appendChild(td);
+            });
+            boardBody.appendChild(tr);
+        });
+    }
+
+    // 게시판도 같은 연동: 쓰기를 켜면 그 게시판 조회가 자동 체크, 조회를 끄면 그 게시판의 나머지가 자동 해제
+    function onBoardToggle(event) {
+        const box = event.target;
+        const boardId = box.dataset.board;
+        if (box.dataset.action === "READ") {
+            if (!box.checked) {
+                boardBody.querySelectorAll('input[data-board="' + boardId + '"]').forEach(function (other) {
+                    other.checked = false;
+                });
+            }
+        } else if (box.checked) {
+            boardBody.querySelector('input[data-board="' + boardId + '"][data-action="READ"]').checked = true;
+        }
+        clearMessages();
         refreshState();
     }
 
@@ -521,9 +612,14 @@
         }
         const target = loaded;                        // 저장의 대상·버전은 반영된 응답에서만 가져온다
         const grants = [];
+        const boardGrants = [];
         currentChecked().forEach(function (key) {
             const parts = key.split(":");
-            grants.push({ feature: parts[0], action: parts[1] });
+            if (parts[0].indexOf("BOARD#") === 0) {
+                boardGrants.push({ boardId: Number(parts[0].substring("BOARD#".length)), action: parts[1] });
+            } else {
+                grants.push({ feature: parts[0], action: parts[1] });
+            }
         });
         const oldVersion = target.version;
         busy = true;
@@ -533,7 +629,7 @@
             const response = await fetch(permissionUrl(target.memberId), {
                 method: "PUT",
                 headers: getCsrfHeaders(),
-                body: JSON.stringify({ version: oldVersion, grants: grants })
+                body: JSON.stringify({ version: oldVersion, grants: grants, boardGrants: boardGrants })
             });
             if (response.ok) {
                 const data = await response.json();

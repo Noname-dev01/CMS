@@ -3,6 +3,7 @@ package com.cms.admin.menu.service;
 import com.cms.admin.menu.Menu;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.admin.permission.AdminFeature;
+import com.cms.admin.permission.FeatureKind;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,7 +44,9 @@ final class MenuVisibility {
         String label() {
             return switch (kind) {
                 case ALL_ADMINS -> "상시 표시 (ADMIN·MANAGER)";
-                case PERMISSION -> feature.getLabel() + " 조회 권한이 있을 때 MANAGER에게 표시";
+                case PERMISSION -> feature.getKind() == FeatureKind.BOARD_SCOPED
+                        ? feature.getLabel() + " 조회 권한이 하나라도 있을 때 MANAGER에게 표시"
+                        : feature.getLabel() + " 조회 권한이 있을 때 MANAGER에게 표시";
                 case VISIBLE_BY_CHILDREN -> "보이는 하위 메뉴에 따라 표시";
                 case ADMIN_ONLY -> "ADMIN 전용";
                 case NOT_SHOWN -> "사이드바에 표시되지 않음";
@@ -55,7 +58,7 @@ final class MenuVisibility {
             return AdminFeature.forMenuUrl(menuUrl)
                     .map(feature -> switch (feature.getKind()) {
                         case ALWAYS -> ALL_ADMINS;
-                        case DELEGABLE -> new Exposure(Kind.PERMISSION, feature);
+                        case DELEGABLE, BOARD_SCOPED -> new Exposure(Kind.PERMISSION, feature);
                         case ADMIN_ONLY -> ADMIN_ONLY;
                     })
                     .orElse(ADMIN_ONLY);

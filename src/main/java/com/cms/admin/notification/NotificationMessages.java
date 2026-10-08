@@ -47,12 +47,15 @@ public final class NotificationMessages {
         return fit("역할이 '" + roleLabel(before) + "'에서 '" + afterLabel + "'" + euro(afterLabel) + " 변경되었습니다.");
     }
 
-    /** E2 — 개별 권한이 바뀌었다. 항목은 "공지사항 조회"처럼 기능·동작 라벨이다. */
+    /**
+     * E2 — 개별 권한이 바뀌었다. 항목은 "공지사항 조회"·"게시판 #3 조회"처럼 기능·동작 라벨이다. 건수 → 회수(-) → 추가(+) 순서라
+     * 255자에서 잘려도 건수와 잃은 권한이 먼저 남는다(PLAN-board.md 리뷰 R1-7).
+     */
     public static String permissionChanged(Collection<String> added, Collection<String> removed) {
         String addedText = added.stream().map(label -> "+" + label).collect(Collectors.joining(", "));
         String removedText = removed.stream().map(label -> "-" + label).collect(Collectors.joining(", "));
-        String detail = java.util.stream.Stream.of(addedText, removedText).filter(s -> !s.isEmpty()).collect(Collectors.joining(", "));
-        return fit("권한이 변경되었습니다: " + detail);
+        String detail = java.util.stream.Stream.of(removedText, addedText).filter(s -> !s.isEmpty()).collect(Collectors.joining(", "));
+        return fit("권한이 변경되었습니다(추가 " + added.size() + "·회수 " + removed.size() + "): " + detail);
     }
 
     /** E3 — 비밀번호 만료 임박. "3일 후" 대신 절대 만료 시각을 넣어 나중에 읽어도 오해가 없게 한다. */

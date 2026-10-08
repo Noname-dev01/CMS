@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 파일 위치 | 담긴 내용 |
 |---|---|
+| `com.cms.admin.board` | 범용 게시판(PR A) — 게시판 정의(ADMIN 전용·소프트 삭제는 PR B)·게시판 행 잠금 규칙·내 게시판 목록 API |
 | `com.cms.admin.contentimage` | 편집기 본문 이미지 — 업로드 권한(CREATE∨UPDATE 재판정)·카운터 행 잠금 상한·참조 교체·공개 판정·수동 회수 |
 | `com.cms.admin.log` | `@AdminActionLogged` 독립 트랜잭션(REQUIRES_NEW)·예외 격리 계약 |
 | `com.cms.admin.member` | 초기 관리자 부트스트랩, 비밀번호 재설정·로그인 실패 잠금·90일 만료, 프로필 이미지 |

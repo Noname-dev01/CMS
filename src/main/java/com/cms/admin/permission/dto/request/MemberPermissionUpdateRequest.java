@@ -30,6 +30,15 @@ public class MemberPermissionUpdateRequest {
     @Schema(description = "허용할 (기능, 동작) 목록")
     private List<@NotNull @Valid Grant> grants;
 
+    /**
+     * 게시판별 허용 집합 전체(PLAN-board.md 쟁점 5). <b>필수</b>(빈 배열 허용) — 이 필드가 없던 화면(배포 전에 열어 둔 권한관리 화면)의
+     * 저장이 게시판 권한을 전부 회수하지 않도록 누락은 400이다.
+     */
+    @NotNull
+    @Valid
+    @Schema(description = "허용할 (게시판, 동작) 목록 — 필수, 빈 배열이면 게시판 권한 전부 회수")
+    private List<@NotNull @Valid BoardGrant> boardGrants;
+
     @Getter
     @Setter
     @NoArgsConstructor
@@ -40,6 +49,22 @@ public class MemberPermissionUpdateRequest {
         @NotNull
         @Schema(description = "기능", example = "NOTICE")
         private AdminFeature feature;
+
+        @NotNull
+        @Schema(description = "동작", example = "READ")
+        private PermissionAction action;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class BoardGrant {
+
+        @NotNull
+        @Schema(description = "게시판 ID", example = "3")
+        private Long boardId;
 
         @NotNull
         @Schema(description = "동작", example = "READ")

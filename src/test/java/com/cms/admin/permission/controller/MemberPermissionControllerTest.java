@@ -50,7 +50,7 @@ class MemberPermissionControllerTest {
 
     private static final long MEMBER_ID = 10L;
     private static final String URL = "/admin/api/members/10/permissions";
-    private static final String VALID_BODY = "{\"version\":3,\"grants\":[{\"feature\":\"NOTICE\",\"action\":\"READ\"}]}";
+    private static final String VALID_BODY = "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"NOTICE\",\"action\":\"READ\"}]}";
 
     @Autowired
     MockMvc mockMvc;
@@ -89,7 +89,8 @@ class MemberPermissionControllerTest {
         return new MemberPermissionMatrixResponse(MEMBER_ID, "manager10", "매니저10", MemberStatus.ACTIVE, 3L,
                 List.of(new MemberPermissionMatrixResponse.ActionColumn(PermissionAction.READ, "조회")),
                 List.of(new MemberPermissionMatrixResponse.FeatureRow(AdminFeature.NOTICE, "공지사항", FeatureKind.DELEGABLE,
-                        List.of(PermissionAction.READ), List.of(PermissionAction.READ))));
+                        List.of(PermissionAction.READ), List.of(PermissionAction.READ))),
+                List.of());
     }
 
     // ── 인가 ──────────────────────────────────────────────
@@ -174,11 +175,11 @@ class MemberPermissionControllerTest {
     @WithMockUser(roles = "ADMIN")
     void put_missingFields_validationError() throws Exception {
         List<String> bodies = List.of(
-                "{\"grants\":[]}",
-                "{\"version\":3}",
-                "{\"version\":3,\"grants\":[null]}",
-                "{\"version\":3,\"grants\":[{\"action\":\"READ\"}]}",
-                "{\"version\":3,\"grants\":[{\"feature\":\"NOTICE\"}]}");
+                "{\"boardGrants\":[],\"grants\":[]}",
+                "{\"boardGrants\":[],\"version\":3}",
+                "{\"boardGrants\":[],\"version\":3,\"grants\":[null]}",
+                "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"action\":\"READ\"}]}",
+                "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"NOTICE\"}]}");
         for (String body : bodies) {
             mockMvc.perform(put(URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isBadRequest())
@@ -192,9 +193,9 @@ class MemberPermissionControllerTest {
     @WithMockUser(roles = "ADMIN")
     void put_unknownEnumOrBrokenJson_parseError() throws Exception {
         List<String> bodies = List.of(
-                "{\"version\":3,\"grants\":[{\"feature\":\"NOPE\",\"action\":\"READ\"}]}",
-                "{\"version\":3,\"grants\":[{\"feature\":\"NOTICE\",\"action\":\"NOPE\"}]}",
-                "{\"version\":");
+                "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"NOPE\",\"action\":\"READ\"}]}",
+                "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"NOTICE\",\"action\":\"NOPE\"}]}",
+                "{\"boardGrants\":[],\"version\":");
         for (String body : bodies) {
             mockMvc.perform(put(URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isBadRequest())

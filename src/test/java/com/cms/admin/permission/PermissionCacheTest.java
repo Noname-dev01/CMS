@@ -35,6 +35,13 @@ class PermissionCacheTest {
         };
     }
 
+    /** 게시판별 권한 행이 없는 리포지토리(기능 단위 캐시 동작 시험용). */
+    private static MemberBoardPermissionRepository emptyBoardRepository() {
+        MemberBoardPermissionRepository boardRepository = mock(MemberBoardPermissionRepository.class);
+        when(boardRepository.findAllGrantRows()).thenReturn(List.of());
+        return boardRepository;
+    }
+
     private static List<Object[]> rows(Object... triples) {
         List<Object[]> rows = new ArrayList<>();
         for (int i = 0; i < triples.length; i += 3) {
@@ -52,7 +59,7 @@ class PermissionCacheTest {
             loads.incrementAndGet();
             return rows(1L, "NOTICE", "READ");
         });
-        PermissionCache cache = new PermissionCache(repository, noopTransactionManager());
+        PermissionCache cache = new PermissionCache(repository, emptyBoardRepository(), noopTransactionManager());
 
         cache.snapshot();
         cache.snapshot();
@@ -77,7 +84,7 @@ class PermissionCacheTest {
             }
             return rows(1L, "NOTICE", "READ"); // 회수 후 최신 값
         });
-        PermissionCache cache = new PermissionCache(repository, noopTransactionManager());
+        PermissionCache cache = new PermissionCache(repository, emptyBoardRepository(), noopTransactionManager());
         holder[0] = cache;
 
         PermissionSnapshot first = cache.snapshot(); // 이번 요청만 낡은 값으로 판정
@@ -100,7 +107,7 @@ class PermissionCacheTest {
             }
             return rows(1L, "NOTICE", "READ");
         });
-        PermissionCache cache = new PermissionCache(repository, noopTransactionManager());
+        PermissionCache cache = new PermissionCache(repository, emptyBoardRepository(), noopTransactionManager());
 
         PermissionSnapshot failed = cache.snapshot();
         PermissionSnapshot recovered = cache.snapshot();
@@ -124,6 +131,48 @@ class PermissionCacheTest {
     }
 
     @Test
+    @DisplayName("게시판 행: 정상 행은 적재하고 모르는 동작 행은 무시하며, member_permission의 BOARD 행은 무시한다(게시판별 테이블로만 부여)")
+    void boardRowsAndBoardFeatureRowsInMemberPermission() {
+        PermissionSnapshot snapshot = PermissionCache.toSnapshot(
+                rows(1L, "BOARD", "READ",            // 기능 단위 테이블의 게시판 행 — 무시
+                     1L, "NOTICE", "READ"),
+                rows(1L, 10L, "READ",
+                     1L, 10L, "UPDATE",
+                     1L, 20L, "ARCHIVE"));            // 모르는 동작 — 무시
+
+        assertThat(snapshot.grants()).containsExactly(
+                new PermissionSnapshot.Grant(1L, AdminFeature.NOTICE, PermissionAction.READ));
+        assertThat(snapshot.boardGrants()).containsExactlyInAnyOrder(
+                new PermissionSnapshot.BoardGrant(1L, 10L, PermissionAction.READ),
+                new PermissionSnapshot.BoardGrant(1L, 10L, PermissionAction.UPDATE));
+        assertThat(snapshot.boardIds(1L, PermissionAction.UPDATE)).containsExactly(10L);
+    }
+
+    @Test
+    @DisplayName("두 테이블을 같은 로드에서 읽고, 게시판 행 로드가 실패해도 전체가 fail-closed(빈 스냅샷)다")
+    void boardRowsLoadedTogetherAndFailClosed() {
+        MemberPermissionRepository repository = mock(MemberPermissionRepository.class);
+        when(repository.findAllGrantRows()).thenReturn(rows(1L, "NOTICE", "READ"));
+        MemberBoardPermissionRepository boardRepository = mock(MemberBoardPermissionRepository.class);
+        AtomicInteger boardLoads = new AtomicInteger();
+        when(boardRepository.findAllGrantRows()).thenAnswer(invocation -> {
+            if (boardLoads.incrementAndGet() == 1) {
+                throw new IllegalStateException("DB 장애");
+            }
+            return rows(1L, 10L, "READ");
+        });
+        PermissionCache cache = new PermissionCache(repository, boardRepository, noopTransactionManager());
+
+        PermissionSnapshot failed = cache.snapshot();
+        PermissionSnapshot recovered = cache.snapshot();
+
+        assertThat(failed.grants()).as("기능 행만 읽고 게시판 행에서 실패하면 기능 권한도 버린다").isEmpty();
+        assertThat(failed.boardGrants()).isEmpty();
+        assertThat(recovered.has(1L, AdminFeature.NOTICE, PermissionAction.READ)).isTrue();
+        assertThat(recovered.hasBoard(1L, 10L, PermissionAction.READ)).isTrue();
+    }
+
+    @Test
     @DisplayName("동시에 여러 요청이 와도 로드는 한 번만 일어난다(단일 비행)")
     void singleFlightLoad() throws Exception {
         MemberPermissionRepository repository = mock(MemberPermissionRepository.class);
@@ -134,7 +183,7 @@ class PermissionCacheTest {
             release.await(5, TimeUnit.SECONDS);
             return rows(1L, "NOTICE", "READ");
         });
-        PermissionCache cache = new PermissionCache(repository, noopTransactionManager());
+        PermissionCache cache = new PermissionCache(repository, emptyBoardRepository(), noopTransactionManager());
 
         ExecutorService executor = Executors.newFixedThreadPool(4);
         try {

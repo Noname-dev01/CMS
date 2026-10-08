@@ -215,14 +215,21 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
             long[] before = {count(st, "SELECT permission_version FROM member WHERE user_id = 'm_active'"),
                     count(st, "SELECT permission_version FROM member WHERE user_id = 'a_admin'")};
 
+            // 게시판별 권한 행도 남겨 둔다(PR A 이전 앱 운영 중 역할 변경이 지우지 못한 행 — PLAN-board.md 리뷰 R1-6)
+            st.execute("INSERT INTO board (name, public_yn, attachment_yn, deleted) VALUES ('redeploy-board', 1, 1, 0)");
+            st.execute("INSERT INTO member_board_permission (member_id, board_id, action)"
+                    + " SELECT m.id, (SELECT MAX(id) FROM board), 'READ' FROM member m WHERE m.user_id = 'm_active'");
+
             // docs/deployment.md의 정리 절차와 같은 트랜잭션
             conn.setAutoCommit(false);
             st.execute("DELETE FROM member_permission");
+            st.execute("DELETE FROM member_board_permission");
             st.execute("UPDATE member SET permission_version = permission_version + 1");
             conn.commit();
             conn.setAutoCommit(true);
 
             assertThat(count(st, "SELECT COUNT(*) FROM member_permission")).isZero();
+            assertThat(count(st, "SELECT COUNT(*) FROM member_board_permission")).isZero();
             assertThat(count(st, "SELECT permission_version FROM member WHERE user_id = 'm_active'")).isEqualTo(before[0] + 1);
             assertThat(count(st, "SELECT permission_version FROM member WHERE user_id = 'a_admin'"))
                     .as("허용 행이 0개인 회원도 버전이 올라 정리 전 화면의 PUT은 409가 된다").isEqualTo(before[1] + 1);

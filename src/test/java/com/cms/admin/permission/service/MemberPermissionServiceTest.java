@@ -7,6 +7,8 @@ import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.MemberPermission;
 import com.cms.admin.permission.MemberPermissionId;
+import com.cms.admin.board.repository.BoardRepository;
+import com.cms.admin.permission.MemberBoardPermissionRepository;
 import com.cms.admin.permission.MemberPermissionRepository;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.PermissionChangedEvent;
@@ -45,6 +47,8 @@ class MemberPermissionServiceTest {
 
     @Mock MemberRepository memberRepository;
     @Mock MemberPermissionRepository memberPermissionRepository;
+    @Mock MemberBoardPermissionRepository memberBoardPermissionRepository;
+    @Mock BoardRepository boardRepository;
     @Mock ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
@@ -64,7 +68,7 @@ class MemberPermissionServiceTest {
     }
 
     private static MemberPermissionUpdateRequest request(long version, PermissionAction... noticeActions) {
-        return MemberPermissionUpdateRequest.builder()
+        return MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of())
                 .version(version)
                 .grants(Arrays.stream(noticeActions)
                         .map(a -> new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, a)).toList())
@@ -72,7 +76,7 @@ class MemberPermissionServiceTest {
     }
 
     private static MemberPermissionUpdateRequest requestOf(long version, AdminFeature feature, PermissionAction action) {
-        return MemberPermissionUpdateRequest.builder().version(version)
+        return MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of()).version(version)
                 .grants(List.of(new MemberPermissionUpdateRequest.Grant(feature, action))).build();
     }
 
@@ -178,7 +182,7 @@ class MemberPermissionServiceTest {
     // ── 교체 ───────────────────────────────────────────────
 
     @Test
-    @DisplayName("변경이 있으면 추가·삭제 행만 저장하고 version+1·이벤트 1회, 라벨은 추가(+) 먼저이며 결과가 대상 회원 ID를 노출한다(감사 targetId)")
+    @DisplayName("변경이 있으면 추가·삭제 행만 저장하고 version+1·이벤트 1회, 라벨은 건수 → 회수(-) → 추가(+) 순서이며 결과가 대상 회원 ID를 노출한다(감사 targetId)")
     void replace_appliesDiff() {
         Member target = manager(3);
         given(memberRepository.findByIdForUpdate(MEMBER_ID)).willReturn(Optional.of(target));
@@ -189,7 +193,7 @@ class MemberPermissionServiceTest {
                 request(3, PermissionAction.READ, PermissionAction.CREATE));
 
         assertThat(result.getMemberId()).as("감사 Aspect가 getMemberId()에서 targetId를 추출한다").isEqualTo(MEMBER_ID);
-        assertThat(result.getAuditLabel()).isEqualTo("v3→v4: +공지사항.생성, -공지사항.삭제");
+        assertThat(result.getAuditLabel()).isEqualTo("v3→v4: 추가 1·회수 1 | -공지사항.삭제 | +공지사항.생성");
         assertThat(target.getPermissionVersion()).isEqualTo(4L);
 
         @SuppressWarnings("unchecked")
@@ -218,7 +222,7 @@ class MemberPermissionServiceTest {
 
         MemberPermissionUpdateResult result = service.replace(MEMBER_ID, request(0));
 
-        assertThat(result.getAuditLabel()).isEqualTo("v0→v1: -공지사항.조회, -공지사항.생성, -공지사항.수정, -공지사항.삭제");
+        assertThat(result.getAuditLabel()).isEqualTo("v0→v1: 추가 0·회수 4 | -공지사항.조회, -공지사항.생성, -공지사항.수정, -공지사항.삭제");
         verify(eventPublisher).publishEvent(new PermissionChangedEvent(MEMBER_ID));
     }
 

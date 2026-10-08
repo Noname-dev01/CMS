@@ -112,7 +112,7 @@ class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport
     }
 
     private static MemberPermissionUpdateRequest request(long version, PermissionAction... actions) {
-        return MemberPermissionUpdateRequest.builder().version(version)
+        return MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of()).version(version)
                 .grants(Arrays.stream(actions).map(a -> new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, a)).toList())
                 .build();
     }

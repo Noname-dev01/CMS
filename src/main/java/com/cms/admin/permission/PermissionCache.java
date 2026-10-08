@@ -30,13 +30,19 @@ public class PermissionCache {
 
     private record Holder(long generation, PermissionSnapshot snapshot) { }
 
+    /** 한 읽기 트랜잭션에서 함께 읽은 두 테이블의 원시 행. */
+    private record RawRows(List<Object[]> featureRows, List<Object[]> boardRows) { }
+
     private final MemberPermissionRepository repository;
+    private final MemberBoardPermissionRepository boardRepository;
     private final TransactionTemplate loadTransaction;
     private final AtomicLong generation = new AtomicLong();
     private volatile Holder holder;
 
-    public PermissionCache(MemberPermissionRepository repository, PlatformTransactionManager transactionManager) {
+    public PermissionCache(MemberPermissionRepository repository, MemberBoardPermissionRepository boardRepository,
+                           PlatformTransactionManager transactionManager) {
         this.repository = repository;
+        this.boardRepository = boardRepository;
         this.loadTransaction = new TransactionTemplate(transactionManager);
         this.loadTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.loadTransaction.setReadOnly(true);
@@ -65,8 +71,10 @@ public class PermissionCache {
         long startedAt = generation.get();
         PermissionSnapshot loaded;
         try {
-            List<Object[]> rows = loadTransaction.execute(status -> repository.findAllGrantRows());
-            loaded = toSnapshot(rows == null ? List.of() : rows);
+            // 두 테이블을 같은 읽기 트랜잭션(같은 REPEATABLE READ 스냅샷)에서 읽어 한 시점의 권한으로 묶는다(PLAN-board.md 쟁점 4)
+            RawRows rows = loadTransaction.execute(status ->
+                    new RawRows(repository.findAllGrantRows(), boardRepository.findAllGrantRows()));
+            loaded = rows == null ? PermissionSnapshot.EMPTY : toSnapshot(nullToEmpty(rows.featureRows()), nullToEmpty(rows.boardRows()));
         } catch (RuntimeException e) {
             log.error("권한 허용 행 로드 실패 — 이번 판정은 MANAGER 위임 기능 전부 거부(fail-closed)", e);
             return PermissionSnapshot.EMPTY;
@@ -77,8 +85,21 @@ public class PermissionCache {
         return loaded;
     }
 
-    /** 모르는 기능·동작 행, 위임 불가 기능 행은 WARN 후 무시한다 — 코드에서 기능을 지웠는데 행이 남아도 로딩 전체가 실패하지 않는다. */
+    private static List<Object[]> nullToEmpty(List<Object[]> rows) {
+        return rows == null ? List.of() : rows;
+    }
+
+    /** 기능 단위 행만 있는 스냅샷(게시판 행 없음). */
     static PermissionSnapshot toSnapshot(List<Object[]> rows) {
+        return toSnapshot(rows, List.of());
+    }
+
+    /**
+     * 모르는 기능·동작 행, 위임 불가 기능 행은 WARN 후 무시한다 — 코드에서 기능을 지웠는데 행이 남아도 로딩 전체가 실패하지 않는다.
+     * {@code member_permission}의 {@code BOARD} 행(게시판 단위 기능)도 무시한다 — 게시판 권한은 게시판별 테이블로만 부여된다.
+     * 게시판 행은 모르는 동작이나 게시판 기능이 지원하지 않는 동작이면 무시한다.
+     */
+    static PermissionSnapshot toSnapshot(List<Object[]> rows, List<Object[]> boardRows) {
         Set<PermissionSnapshot.Grant> grants = new HashSet<>();
         for (Object[] row : rows) {
             Long memberId = (Long) row[0];
@@ -94,7 +115,18 @@ public class PermissionCache {
             }
             grants.add(new PermissionSnapshot.Grant(memberId, feature, action));
         }
-        return new PermissionSnapshot(grants);
+        Set<PermissionSnapshot.BoardGrant> boardGrants = new HashSet<>();
+        for (Object[] row : boardRows) {
+            Long memberId = (Long) row[0];
+            Long boardId = (Long) row[1];
+            PermissionAction action = parse(PermissionAction.class, row[2]);
+            if (action == null || !AdminFeature.BOARD.supports(action)) {
+                log.warn("알 수 없는 게시판 권한 행을 무시한다: memberId={}, boardId={}, action={}", row[0], row[1], row[2]);
+                continue;
+            }
+            boardGrants.add(new PermissionSnapshot.BoardGrant(memberId, boardId, action));
+        }
+        return new PermissionSnapshot(grants, boardGrants);
     }
 
     private static <E extends Enum<E>> E parse(Class<E> type, Object value) {

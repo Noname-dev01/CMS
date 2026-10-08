@@ -46,14 +46,24 @@ class NotificationMessagesTest {
     }
 
     @Test
-    @DisplayName("개별 권한 변경 문장은 추가(+)와 회수(-) 항목을 함께, 한쪽만 있으면 그쪽만 담는다")
+    @DisplayName("개별 권한 변경 문장은 건수 → 회수(-) → 추가(+) 순서, 한쪽만 있으면 그쪽만 담는다")
     void permissionChanged() {
         assertThat(NotificationMessages.permissionChanged(List.of("공지사항 조회"), List.of("공지사항 삭제")))
-                .isEqualTo("권한이 변경되었습니다: +공지사항 조회, -공지사항 삭제");
+                .isEqualTo("권한이 변경되었습니다(추가 1·회수 1): -공지사항 삭제, +공지사항 조회");
         assertThat(NotificationMessages.permissionChanged(List.of("공지사항 조회", "공지사항 생성"), List.of()))
-                .isEqualTo("권한이 변경되었습니다: +공지사항 조회, +공지사항 생성");
+                .isEqualTo("권한이 변경되었습니다(추가 2·회수 0): +공지사항 조회, +공지사항 생성");
         assertThat(NotificationMessages.permissionChanged(List.of(), List.of("공지사항 조회")))
-                .isEqualTo("권한이 변경되었습니다: -공지사항 조회");
+                .isEqualTo("권한이 변경되었습니다(추가 0·회수 1): -공지사항 조회");
+    }
+
+    @Test
+    @DisplayName("항목이 많아 255자를 넘으면 잘리지만 건수와 회수 항목이 먼저 남는다(PLAN-board.md 리뷰 R1-7)")
+    void permissionChangedKeepsCountsAndRemovalsWhenTruncated() {
+        List<String> added = java.util.stream.IntStream.rangeClosed(1, 40).mapToObj(i -> "게시판 #" + i + " 조회").toList();
+        String message = NotificationMessages.permissionChanged(added, List.of("공지사항 삭제"));
+
+        assertThat(message).hasSize(NotificationMessages.MAX_LENGTH).endsWith("…")
+                .startsWith("권한이 변경되었습니다(추가 40·회수 1): -공지사항 삭제, +게시판 #1 조회");
     }
 
     @Test

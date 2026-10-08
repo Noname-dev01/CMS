@@ -2,6 +2,7 @@ package com.cms.admin.permission;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.util.AntPathMatcher;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -86,6 +87,23 @@ class AdminFeatureTest {
         assertThat(AdminFeature.SEARCH.getKind()).isEqualTo(FeatureKind.ALWAYS);
         assertThat(AdminFeature.SEARCH.getGatePatterns()).containsExactly("/admin/api/search-results");
         assertThat(AdminFeature.SEARCH.getMenuUrls()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("게시판(게시글)은 게시판 단위 위임 기능이고 게이트는 게시글·본문 이미지 경로뿐 — 게시판 정의 경로는 게이트 밖(ADMIN 캐치올)이다")
+    void boardFeatureGatesOnlyPostPaths() {
+        assertThat(AdminFeature.BOARD.getKind()).isEqualTo(FeatureKind.BOARD_SCOPED);
+        assertThat(AdminFeature.BOARD.supports(PermissionAction.READ)).isTrue();
+        assertThat(AdminFeature.BOARD.getMenuUrls()).containsExactly("/admin/board/posts");
+        assertThat(AdminFeature.BOARD.getGatePatterns()).containsExactly("/admin/board/posts",
+                "/admin/api/boards/*/posts", "/admin/api/boards/*/posts/**", "/admin/api/boards/*/content-images");
+        AntPathMatcher matcher = new AntPathMatcher();
+        for (String definitionPath : List.of("/admin/board/manage", "/admin/api/boards", "/admin/api/boards/3")) {
+            assertThat(AdminFeature.BOARD.getGatePatterns()).as(definitionPath)
+                    .noneMatch(pattern -> matcher.match(pattern, definitionPath));
+        }
+        assertThat(AdminFeature.BOARD_ADMIN.getKind()).isEqualTo(FeatureKind.ADMIN_ONLY);
+        assertThat(AdminFeature.BOARD_ADMIN.getMenuUrls()).containsExactly("/admin/board/manage");
     }
 
     private static List<String> concat(List<String> a, List<String> b) {
