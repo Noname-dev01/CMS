@@ -90,10 +90,14 @@ class MemberRoleChangePermissionIntegrationTest extends MariaDbContainerSupport 
 
     private void grantAllNotice(long memberId) {
         for (PermissionAction action : PermissionAction.values()) {
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)", memberId, action.name());
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, ?)", memberId, noticeBoardId(), action.name());
         }
         cache.invalidate();
         clearInvocations(cache);
+    }
+
+    private long noticeBoardId() {
+        return jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class);
     }
 
     private long version(long memberId) {
@@ -101,7 +105,7 @@ class MemberRoleChangePermissionIntegrationTest extends MariaDbContainerSupport 
     }
 
     private Set<String> actions(long memberId) {
-        return new TreeSet<>(jdbc.queryForList("SELECT action FROM member_permission WHERE member_id = ?", String.class, memberId));
+        return new TreeSet<>(jdbc.queryForList("SELECT action FROM member_board_permission WHERE member_id = ? AND board_id = ?", String.class, memberId, noticeBoardId()));
     }
 
     private void changeRole(long memberId, Role role) {
@@ -111,8 +115,8 @@ class MemberRoleChangePermissionIntegrationTest extends MariaDbContainerSupport 
     private boolean canReadNotice(Member member) throws Exception {
         Member fresh = memberRepository.findById(member.getId()).orElseThrow();
         CustomUserDetails details = new CustomUserDetails(fresh);
-        return evaluator.allows(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities()),
-                AdminFeature.NOTICE, PermissionAction.READ);
+        return evaluator.allowsBoard(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities()),
+                noticeBoardId(), PermissionAction.READ);
     }
 
     @Test
@@ -162,8 +166,8 @@ class MemberRoleChangePermissionIntegrationTest extends MariaDbContainerSupport 
         assertThat(version(target.getId())).as("강등도 역할 변경이라 버전이 오른다").isEqualTo(before + 2);
         assertThat(actions(target.getId())).as("예전 권한이 조용히 되살아나지 않는다").isEmpty();
         assertThat(canReadNotice(target)).isFalse();
-        // 실제 요청 경로도 거부: URL 게이트(공지 READ) 403
-        mockMvc.perform(get("/admin/api/notices").with(TestMembers.asMember(memberRepository.findById(target.getId()).orElseThrow())))
+        // 실제 요청 경로도 거부: URL 게이트(게시글 READ) 403
+        mockMvc.perform(get("/admin/api/boards/" + noticeBoardId() + "/posts").with(TestMembers.asMember(memberRepository.findById(target.getId()).orElseThrow())))
                 .andExpect(status().isForbidden());
     }
 
@@ -179,8 +183,8 @@ class MemberRoleChangePermissionIntegrationTest extends MariaDbContainerSupport 
         assertThat(version(target.getId())).isEqualTo(before + 2);
         verify(cache, never()).invalidate(); // 지워진 행이 없어 캐시 무효화는 필요 없다
 
-        MemberPermissionUpdateRequest stale = MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of()).version(before)
-                .grants(List.of(new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, PermissionAction.READ))).build();
+        MemberPermissionUpdateRequest stale = MemberPermissionUpdateRequest.builder().version(before)
+                .boardGrants(List.of(new MemberPermissionUpdateRequest.BoardGrant(noticeBoardId(), PermissionAction.READ))).grants(List.of()).build();
         assertThatThrownBy(() -> permissionService.replace(target.getId(), stale)).isInstanceOf(ConflictException.class);
         assertThat(actions(target.getId())).as("오래된 화면의 저장이 권한을 부여하지 못했다").isEmpty();
     }

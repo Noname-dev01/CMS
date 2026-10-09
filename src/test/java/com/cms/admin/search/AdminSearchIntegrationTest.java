@@ -3,8 +3,10 @@ package com.cms.admin.search;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
-import com.cms.admin.notice.domain.Notice;
-import com.cms.admin.notice.repository.NoticeRepository;
+import com.cms.admin.board.domain.Board;
+import com.cms.admin.board.domain.Post;
+import com.cms.admin.board.repository.BoardRepository;
+import com.cms.admin.board.repository.PostRepository;
 import com.cms.admin.permission.PermissionCache;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
@@ -43,12 +45,14 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
     @Autowired JdbcTemplate jdbc;
     @Autowired PermissionCache cache;
     @Autowired MemberRepository memberRepository;
-    @Autowired NoticeRepository noticeRepository;
+    @Autowired BoardRepository boardRepository;
+    @Autowired PostRepository postRepository;
 
     private String marker;
     private Member manager;
     private Member admin;
-    private Notice notice;
+    private Post notice;
+    private Long noticeBoardId;
 
     @BeforeEach
     void setUp() {
@@ -56,7 +60,9 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
         manager = TestMembers.save(memberRepository, marker + "mgr", Role.ROLE_MANAGER);
         admin = TestMembers.save(memberRepository, marker + "adm", Role.ROLE_ADMIN);
         LocalDateTime now = LocalDateTime.now();
-        notice = noticeRepository.save(Notice.builder()
+        noticeBoardId = boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();
+        notice = postRepository.save(Post.builder()
+                .boardId(noticeBoardId)
                 .title(marker + " 공지 제목")
                 .content("본문")
                 .useYn(true)
@@ -69,15 +75,15 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
 
     @AfterEach
     void cleanUp() {
-        noticeRepository.deleteById(notice.getId());
+        postRepository.deleteById(notice.getId());
         TestMembers.delete(jdbc, List.of(manager.getId(), admin.getId()));
         cache.invalidate();
     }
 
-    private void grantNoticeRead(boolean granted) {
-        jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+    private void grantNoticeBoardRead(boolean granted) {
+        jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
         if (granted) {
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', 'READ')", manager.getId());
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, 'READ')", manager.getId(), noticeBoardId);
         }
         cache.invalidate();
     }
@@ -88,8 +94,8 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
         mockMvc.perform(get("/admin/api/search-results").param("keyword", marker).with(TestMembers.asMember(admin)))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.notices.total").value(1))
-                .andExpect(jsonPath("$.notices.items[0].id").value(notice.getId()))
+                .andExpect(jsonPath("$.posts.total").value(1))
+                .andExpect(jsonPath("$.posts.items[0].id").value(notice.getId()))
                 .andExpect(jsonPath("$.members.total").value(2))
                 .andExpect(content().string(not(containsString("@permission-test.example"))));
     }
@@ -97,11 +103,11 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("공지 읽기 권한이 있는 MANAGER는 공지를 보지만 관리자 섹션은 키 자체가 없고 회원 정보도 새지 않는다")
     void manager_withNoticeRead_seesNotice_neverMembers() throws Exception {
-        grantNoticeRead(true);
+        grantNoticeBoardRead(true);
 
         mockMvc.perform(get("/admin/api/search-results").param("keyword", marker).with(TestMembers.asMember(manager)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.notices.total").value(1))
+                .andExpect(jsonPath("$.posts.total").value(1))
                 .andExpect(jsonPath("$.members").doesNotExist())
                 .andExpect(content().string(not(containsString(manager.getUserId()))));
     }
@@ -109,11 +115,11 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("공지 읽기 권한이 없는 MANAGER는 공지 섹션이 키 자체가 없고, 제목이 응답 어디에도 나오지 않는다")
     void manager_withoutNoticeRead_noNoticeSection() throws Exception {
-        grantNoticeRead(false);
+        grantNoticeBoardRead(false);
 
         mockMvc.perform(get("/admin/api/search-results").param("keyword", marker).with(TestMembers.asMember(manager)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.notices").doesNotExist())
+                .andExpect(jsonPath("$.posts").doesNotExist())
                 .andExpect(jsonPath("$.members").doesNotExist())
                 .andExpect(content().string(not(containsString("공지 제목"))));
     }
@@ -121,30 +127,30 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("권한을 부여·회수하면 같은 사용자의 다음 검색부터 공지 섹션이 나타나고 사라진다")
     void grantAndRevoke_takeEffectOnNextSearch() throws Exception {
-        grantNoticeRead(false);
+        grantNoticeBoardRead(false);
         mockMvc.perform(get("/admin/api/search-results").param("keyword", marker).with(TestMembers.asMember(manager)))
-                .andExpect(jsonPath("$.notices").doesNotExist());
+                .andExpect(jsonPath("$.posts").doesNotExist());
 
-        grantNoticeRead(true);
+        grantNoticeBoardRead(true);
         mockMvc.perform(get("/admin/api/search-results").param("keyword", marker).with(TestMembers.asMember(manager)))
-                .andExpect(jsonPath("$.notices.total").value(1));
+                .andExpect(jsonPath("$.posts.total").value(1));
 
-        grantNoticeRead(false);
+        grantNoticeBoardRead(false);
         mockMvc.perform(get("/admin/api/search-results").param("keyword", marker).with(TestMembers.asMember(manager)))
-                .andExpect(jsonPath("$.notices").doesNotExist());
+                .andExpect(jsonPath("$.posts").doesNotExist());
     }
 
     @Test
     @DisplayName("메뉴 결과는 사이드바와 같은 가시성을 따른다 — 공지 읽기 권한이 없는 MANAGER에게 공지사항 메뉴는 나오지 않고, 권한을 받으면 나온다")
     void menus_followSidebarVisibility() throws Exception {
-        grantNoticeRead(false);
-        mockMvc.perform(get("/admin/api/search-results").param("keyword", "공지사항").with(TestMembers.asMember(manager)))
+        grantNoticeBoardRead(false);
+        mockMvc.perform(get("/admin/api/search-results").param("keyword", "게시글 관리").with(TestMembers.asMember(manager)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/notice/manage')]", hasSize(0)));
+                .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/board/posts')]", hasSize(0)));
 
-        grantNoticeRead(true);
-        mockMvc.perform(get("/admin/api/search-results").param("keyword", "공지사항").with(TestMembers.asMember(manager)))
-                .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/notice/manage')]", hasSize(1)));
+        grantNoticeBoardRead(true);
+        mockMvc.perform(get("/admin/api/search-results").param("keyword", "게시글 관리").with(TestMembers.asMember(manager)))
+                .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/board/posts')]", hasSize(1)));
     }
 
     @Test
@@ -153,7 +159,7 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
         mockMvc.perform(get("/admin/api/search-results").param("keyword", "a").with(TestMembers.asMember(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.menus").doesNotExist())
-                .andExpect(jsonPath("$.notices").doesNotExist())
+                .andExpect(jsonPath("$.posts").doesNotExist())
                 .andExpect(jsonPath("$.members").doesNotExist());
     }
 

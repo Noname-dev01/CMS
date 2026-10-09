@@ -116,7 +116,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.HEAD, "/boards", "/boards/**").permitAll()
                         .requestMatchers("/boards", "/boards/**").denyAll()
                         // 편집기 본문 이미지: GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-07 승인, PLAN-html-editor.md).
-                        // 공개 여부(공개 공지가 참조하거나 NOTICE 조회 권한자)는 PublicContentImageService가 판정한다.
+                        // 공개 여부(공개 게시글이 참조하거나 그 게시판 조회 권한자)는 PublicContentImageService가 판정한다.
                         .requestMatchers(HttpMethod.GET, "/content-images/*").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/content-images/*").permitAll()
                         .requestMatchers("/content-images", "/content-images/**").denyAll()

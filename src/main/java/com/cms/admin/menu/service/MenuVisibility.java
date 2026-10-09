@@ -35,7 +35,7 @@ final class MenuVisibility {
         static final Exposure ALL_ADMINS = new Exposure(Kind.ALL_ADMINS, null);
         static final Exposure ADMIN_ONLY = new Exposure(Kind.ADMIN_ONLY, null);
 
-        /** 화면·테스트가 쓰는 코드: {@code PERMISSION:NOTICE}처럼 기능 이름이 붙고 그 외는 종류 이름 그대로. */
+        /** 화면·테스트가 쓰는 코드: {@code PERMISSION:BOARD}처럼 기능 이름이 붙고 그 외는 종류 이름 그대로. */
         String code() {
             return kind == Kind.PERMISSION ? "PERMISSION:" + feature.name() : kind.name();
         }

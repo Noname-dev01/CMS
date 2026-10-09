@@ -3,7 +3,7 @@ package com.cms.admin.search.controller;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.admin.search.dto.AdminSearchResponse;
 import com.cms.admin.search.dto.AdminSearchResponse.MemberItem;
-import com.cms.admin.search.dto.AdminSearchResponse.NoticeItem;
+import com.cms.admin.search.dto.AdminSearchResponse.PostItem;
 import com.cms.admin.search.dto.AdminSearchResponse.Section;
 import com.cms.admin.search.service.AdminSearchService;
 import com.cms.common.api.GlobalApiExceptionHandler;
@@ -84,7 +84,7 @@ class AdminSearchControllerTest {
     void admin_getsAllSections() throws Exception {
         AdminSearchResponse response = AdminSearchResponse.builder()
                 .keyword("공지")
-                .notices(new Section<>(1, List.of(new NoticeItem(31L, "공지 제목", true, LocalDateTime.of(2026, 10, 1, 10, 0)))))
+                .posts(new Section<>(1, List.of(new PostItem(31L, 3L, "공지사항", "공지 제목", true, LocalDateTime.of(2026, 10, 1, 10, 0)))))
                 .members(new Section<>(1, List.of(new MemberItem(9L, "mgr01", "김관리", "ROLE_MANAGER", "ACTIVE"))))
                 .build();
         given(adminSearchService.search(eq("공지"), any())).willReturn(response);
@@ -93,8 +93,8 @@ class AdminSearchControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.keyword").value("공지"))
-                .andExpect(jsonPath("$.notices.total").value(1))
-                .andExpect(jsonPath("$.notices.items[0].id").value(31))
+                .andExpect(jsonPath("$.posts.total").value(1))
+                .andExpect(jsonPath("$.posts.items[0].id").value(31))
                 .andExpect(jsonPath("$.members.items[0].userId").value("mgr01"))
                 .andExpect(jsonPath("$.members.items[0].email").doesNotExist());
     }
@@ -109,7 +109,7 @@ class AdminSearchControllerTest {
         mockMvc.perform(get("/admin/api/search-results").param("keyword", "공지"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.menus.total").value(0))
-                .andExpect(jsonPath("$.notices").doesNotExist())
+                .andExpect(jsonPath("$.posts").doesNotExist())
                 .andExpect(jsonPath("$.members").doesNotExist());
     }
 

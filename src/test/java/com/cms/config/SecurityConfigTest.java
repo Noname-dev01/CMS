@@ -287,7 +287,7 @@ class SecurityConfigTest {
     // ==================== 공지사항 인가 범위 검증 ====================
 
     @Test
-    @DisplayName("MANAGER는 공지사항 관리 페이지(/admin/notice/manage)에 접근이 가능하다")
+    @DisplayName("MANAGER는 옛 공지 화면 주소(/admin/notice/manage — 게시글 관리로 가는 리다이렉트 전용 게이트 경로)에 접근이 가능하다")
     @WithManager
     void manager_noticeManagePage_ok() throws Exception {
         mockMvc.perform(get("/admin/notice/manage"))
@@ -295,11 +295,28 @@ class SecurityConfigTest {
     }
 
     @Test
-    @DisplayName("MANAGER는 공지사항 목록 API(/admin/api/notices)에 접근이 가능하다")
+    @DisplayName("MANAGER는 게시글 목록 API(/admin/api/boards/{boardId}/posts)에 접근이 가능하다(어느 게시판이든 조회 권한 — 공지는 공지 게시판의 게시글)")
     @WithManager
-    void manager_noticesApi_ok() throws Exception {
-        mockMvc.perform(get("/admin/api/notices"))
+    void manager_boardPostsApi_ok() throws Exception {
+        mockMvc.perform(get("/admin/api/boards/1/posts"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("옛 공지 API 경로(/admin/api/notices/**)와 리다이렉트 경로의 하위 경로는 게이트가 없어 ADMIN 캐치올로 떨어진다 — 모든 권한을 가진 MANAGER도 403 (PLAN-notice-to-board.md 쟁점 9)")
+    @WithManager
+    void manager_legacyNoticePaths_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/api/notices")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/notices/1")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/notices/content-images")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/notice/manage/extra")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("어느 게시판에도 조회 권한이 없는 MANAGER는 리다이렉트 전용 경로 /admin/notice/manage도 403이다(게이트가 기능 단위 READ)")
+    @WithMockUser(roles = "MANAGER")
+    void manager_withoutBoardRead_noticeRedirectPath_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/notice/manage")).andExpect(status().isForbidden());
     }
 
     @Test
@@ -314,7 +331,7 @@ class SecurityConfigTest {
     @DisplayName("USER는 공지사항 목록 API에 접근할 수 없다(403)")
     @WithMockUser(roles = "USER")
     void user_noticesApi_forbidden() throws Exception {
-        mockMvc.perform(get("/admin/api/notices"))
+        mockMvc.perform(get("/admin/api/boards/1/posts"))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
     }
@@ -322,7 +339,7 @@ class SecurityConfigTest {
     @Test
     @DisplayName("미인증 사용자의 공지사항 목록 API 호출은 JSON 401")
     void unauthenticated_noticesApi_json401() throws Exception {
-        mockMvc.perform(get("/admin/api/notices"))
+        mockMvc.perform(get("/admin/api/boards/1/posts"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON));
     }
@@ -339,7 +356,7 @@ class SecurityConfigTest {
     @DisplayName("CSRF 토큰 없이 공지사항 생성 POST 시 403")
     @WithMockUser(roles = "ADMIN")
     void createNotice_missingCsrf_forbidden() throws Exception {
-        mockMvc.perform(post("/admin/api/notices").contentType(MediaType.APPLICATION_JSON).content("{}"))
+        mockMvc.perform(post("/admin/api/boards/1/posts").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -347,7 +364,7 @@ class SecurityConfigTest {
     @DisplayName("CSRF 토큰 포함 시 공지사항 생성 POST가 인가를 통과한다(ADMIN)")
     @WithMockUser(roles = "ADMIN")
     void createNotice_withCsrf_passesAuthorization() throws Exception {
-        mockMvc.perform(post("/admin/api/notices").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+        mockMvc.perform(post("/admin/api/boards/1/posts").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isCreated());
     }
 
@@ -695,12 +712,12 @@ class AdminNoticeStubController {
         return "notice-manage";
     }
 
-    @GetMapping("/admin/api/notices")
+    @GetMapping("/admin/api/boards/{boardId}/posts")
     String noticesList() {
         return "[]";
     }
 
-    @PostMapping("/admin/api/notices")
+    @PostMapping("/admin/api/boards/{boardId}/posts")
     ResponseEntity<String> noticesCreate() {
         return ResponseEntity.status(201).body("{}");
     }

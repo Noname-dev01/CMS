@@ -614,7 +614,7 @@ class MenuServiceTest {
 
     /** MANAGER 관점: 대시보드·내 정보·공지(READ 보유)만 보이는 판정. */
     private static final java.util.function.Predicate<String> MANAGER_WITH_NOTICE = url ->
-            "/admin".equals(url) || "/admin/member/info".equals(url) || "/admin/notice/manage".equals(url);
+            "/admin".equals(url) || "/admin/member/info".equals(url) || "/admin/board/posts".equals(url);
 
     @Test
     @DisplayName("사이드바 조회: 전부 보이는 판정(ADMIN)이면 URL이 없는 빈 그룹까지 전체 활성 메뉴를 본다")
@@ -645,7 +645,7 @@ class MenuServiceTest {
         Menu myInfo = urlMenu(5L, "내 정보", 3L, "/admin/member/info", 1);
         Menu emptyGroup = urlMenu(6L, "빈 그룹", null, null, 3);
         Menu external = urlMenu(7L, "외부", null, "https://example.com", 4);
-        Menu withQuery = urlMenu(8L, "쿼리", null, "/admin/notice/manage?x=1", 5);
+        Menu withQuery = urlMenu(8L, "쿼리", null, "/admin/board/posts?x=1", 5);
 
         given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
                 .willReturn(List.of(dashboard, menuManage, memberGroup, memberList, myInfo, emptyGroup, external, withQuery));
@@ -660,7 +660,7 @@ class MenuServiceTest {
     @DisplayName("사이드바 조회: 부모 자신의 URL이 위임 불가여도 보이는 자식(공지)이 있으면 부모는 그룹으로 노출된다")
     void getSidebarMenus_manager_parentShownByVisibleChild() {
         Menu adminParent = urlMenu(1L, "관리 그룹", null, "/admin/menu/manage", 0);
-        Menu notice = urlMenu(2L, "공지사항", 1L, "/admin/notice/manage", 0);
+        Menu notice = urlMenu(2L, "공지사항", 1L, "/admin/board/posts", 0);
 
         given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(adminParent, notice));
 
@@ -674,7 +674,7 @@ class MenuServiceTest {
     @DisplayName("사이드바 조회: 공지 권한이 회수되면(공지 URL 비노출) 공지 메뉴와 그것만 담은 그룹이 사라진다")
     void getSidebarMenus_manager_noticeRevoked() {
         Menu group = urlMenu(1L, "업무", null, null, 0);
-        Menu notice = urlMenu(2L, "공지사항", 1L, "/admin/notice/manage", 0);
+        Menu notice = urlMenu(2L, "공지사항", 1L, "/admin/board/posts", 0);
 
         given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(group, notice));
 
@@ -721,7 +721,7 @@ class MenuServiceTest {
     void getMenuTree_exposure_leafByUrlAndGroupByChildren() {
         Menu dashboard = urlMenu(1L, "대시보드", null, "/admin", 0);
         Menu noticeGroup = urlMenu(2L, "그룹", null, null, 1);
-        Menu notice = urlMenu(3L, "공지", 2L, "/admin/notice/manage", 0);
+        Menu notice = urlMenu(3L, "공지", 2L, "/admin/board/posts", 0);
         Menu menuManage = urlMenu(4L, "메뉴 관리", null, "/admin/menu/manage", 2);
         Menu emptyGroup = urlMenu(5L, "빈 그룹", null, null, 3);
         given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
@@ -732,7 +732,7 @@ class MenuServiceTest {
 
         assertEquals("ALL_ADMINS", data.get(1L).getExposure());
         assertEquals("VISIBLE_BY_CHILDREN", data.get(2L).getExposure());
-        assertEquals("PERMISSION:NOTICE", data.get(3L).getExposure());
+        assertEquals("PERMISSION:BOARD", data.get(3L).getExposure());
         assertEquals("ADMIN_ONLY", data.get(4L).getExposure());
         assertEquals("ADMIN_ONLY", data.get(5L).getExposure(), "자식 없는 URL null 그룹");
     }
@@ -778,10 +778,10 @@ class MenuServiceTest {
     }
 
     @Test
-    @DisplayName("exposure: 위임 가능 기능은 권한을 받으면 MANAGER가 볼 수 있으므로 공지만 담은 그룹은 VISIBLE_BY_CHILDREN, 공지 리프는 PERMISSION:NOTICE")
+    @DisplayName("exposure: 위임 가능 기능은 권한을 받으면 MANAGER가 볼 수 있으므로 공지만 담은 그룹은 VISIBLE_BY_CHILDREN, 공지 리프는 PERMISSION:BOARD")
     void getMenuTree_exposure_delegableLeafMakesGroupVisible() {
         Menu group = urlMenu(1L, "업무", null, null, 0);
-        Menu notice = urlMenu(2L, "공지", 1L, "/admin/notice/manage", 0);
+        Menu notice = urlMenu(2L, "공지", 1L, "/admin/board/posts", 0);
         given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(group, notice));
         // 실제 판정(카탈로그 분류)을 그대로 쓴다 — 이 판정은 캐시를 읽지 않는다
         given(adminPermissionEvaluator.anyManagerMenuUrlVisibility())
@@ -790,7 +790,7 @@ class MenuServiceTest {
         Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
 
         assertEquals("VISIBLE_BY_CHILDREN", data.get(1L).getExposure());
-        assertEquals("PERMISSION:NOTICE", data.get(2L).getExposure());
+        assertEquals("PERMISSION:BOARD", data.get(2L).getExposure());
     }
 
     @Test

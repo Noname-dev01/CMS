@@ -85,11 +85,15 @@ class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport
     }
 
     private void restoreSeed() {
-        jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+        jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
         for (PermissionAction action : PermissionAction.values()) {
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)", manager.getId(), action.name());
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, ?)", manager.getId(), noticeBoardId(), action.name());
         }
         cache.invalidate();
+    }
+
+    private long noticeBoardId() {
+        return jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class);
     }
 
     private long version() {
@@ -98,7 +102,7 @@ class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport
 
     private Set<String> noticeActions() {
         return new TreeSet<>(jdbc.queryForList(
-                "SELECT action FROM member_permission WHERE member_id = ? AND BINARY feature = 'NOTICE'", String.class, manager.getId()));
+                "SELECT action FROM member_board_permission WHERE member_id = ? AND board_id = ?", String.class, manager.getId(), noticeBoardId()));
     }
 
     private String role() {
@@ -111,9 +115,10 @@ class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport
                 .toList();
     }
 
-    private static MemberPermissionUpdateRequest request(long version, PermissionAction... actions) {
-        return MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of()).version(version)
-                .grants(Arrays.stream(actions).map(a -> new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, a)).toList())
+    private MemberPermissionUpdateRequest request(long version, PermissionAction... actions) {
+        long boardId = noticeBoardId();
+        return MemberPermissionUpdateRequest.builder().grants(java.util.List.of()).version(version)
+                .boardGrants(Arrays.stream(actions).map(a -> new MemberPermissionUpdateRequest.BoardGrant(boardId, a)).toList())
                 .build();
     }
 
@@ -208,7 +213,7 @@ class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport
                 Member locking = memberRepository.findByIdForUpdate(manager.getId()).orElseThrow();
                 holderConnection.set(((Number) entityManager.createNativeQuery("SELECT CONNECTION_ID()").getSingleResult()).longValue());
                 locking.changeRole(Role.ROLE_ADMIN, LocalDateTime.now()); // 역할 변경 트랜잭션이 잠금을 쥐고 있다
-                jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+                jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
                 locking.increasePermissionVersion();
                 locked.countDown();
                 await(release);
@@ -265,7 +270,7 @@ class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport
         assertThat(role()).isEqualTo("ROLE_ADMIN");
         assertThat(noticeActions()).as("역할 변경이 개별 권한 행을 지웠다").isEmpty();
         assertThat(version()).isEqualTo(before + 1);
-        assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.READ))
+        assertThat(cache.snapshot().hasBoard(manager.getId(), noticeBoardId(), PermissionAction.READ))
                 .as("삭제 뒤 캐시가 무효화돼 낡은 허용이 남지 않는다").isFalse();
     }
 

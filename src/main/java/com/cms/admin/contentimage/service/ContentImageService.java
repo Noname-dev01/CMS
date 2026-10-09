@@ -11,7 +11,6 @@ import com.cms.admin.contentimage.repository.ContentImageRepository;
 import com.cms.admin.contentimage.repository.ContentImageUsageRepository;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
-import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.common.exception.InvalidRequestException;
@@ -47,12 +46,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class ContentImageService {
 
-    /** 공지 본문의 참조 owner_type. 공개 판정 쿼리({@code existsPublishedNoticeRef})의 리터럴과 같아야 한다. */
-    public static final String OWNER_NOTICE = "NOTICE";
-
-    /** 공지 편집기 업로드 출처(V27 기본값과 같다). 공개 판정 쿼리의 리터럴과 같아야 한다. */
-    public static final String SCOPE_NOTICE = "NOTICE";
-
     /** 게시글 본문의 참조 owner_type. 공개 판정 쿼리({@code existsPublishedPostRef})의 리터럴과 같아야 한다. */
     public static final String OWNER_POST = "POST";
 
@@ -75,24 +68,9 @@ public class ContentImageService {
     private final Clock clock;
 
     /**
-     * 공지 편집기의 이미지 업로드. URL 게이트·핸들러 선언은 {@code NOTICE} READ이고, 여기서 CREATE 또는 UPDATE를
-     * 다시 판정한다 — 작성 중(공지 ID 없음)과 수정 중 모두 이미지를 넣어야 하는데 {@code @RequirePermission}은 동작 하나만
-     * 받기 때문이다(쟁점 10).
-     */
-    @Transactional
-    @AdminActionLogged(actionType = AdminActionTypes.CONTENT_IMAGE_UPLOAD, targetType = "CONTENT_IMAGE", targetIdExpression = "id")
-    public ContentImageUploadResponse uploadForNotice(MultipartFile file) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (!permissionEvaluator.allows(authentication, AdminFeature.NOTICE, PermissionAction.CREATE)
-                && !permissionEvaluator.allows(authentication, AdminFeature.NOTICE, PermissionAction.UPDATE)) {
-            throw new AccessDeniedException("공지 작성 또는 수정 권한이 필요합니다.");
-        }
-        return store(file, SCOPE_NOTICE, null);
-    }
-
-    /**
      * 게시판 편집기의 이미지 업로드(PLAN-board.md 쟁점 9). URL 게이트·핸들러 선언은 그 게시판의 READ이고, 여기서 같은 게시판의 CREATE 또는 UPDATE를
-     * 다시 판정한다(403) — 공지와 같은 이유다. 이미지는 BOARD 출처(scope_id = 게시판 ID)로 저장돼 그 게시판의 게시글에만 넣을 수 있고, 그 게시판의 현재
+     * 다시 판정한다(403) — 작성 중(게시글 ID 없음)과 수정 중 모두 이미지를 넣어야 하는데 {@code @RequireBoardPermission}은 동작 하나만 받기 때문이다.
+     * 공지도 공지 게시판의 게시글이라 이 경로를 쓴다(PLAN-notice-to-board.md 쟁점 7). 이미지는 BOARD 출처(scope_id = 게시판 ID)로 저장돼 그 게시판의 게시글에만 넣을 수 있고, 그 게시판의 현재
      * READ 권한자(ADMIN 포함)만 미참조 상태로 미리 볼 수 있다. 삭제된 게시판이면 404.
      */
     @Transactional

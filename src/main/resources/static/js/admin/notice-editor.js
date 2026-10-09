@@ -8,7 +8,7 @@
  *   서버가 지워 "보였는데 저장하면 사라짐"이 생긴다).
  * - 업로드 경합: 세대(generation)가 바뀌면(다른 공지 열기·닫기·취소) 늦게 온 응답을 버리고, 대기 중인 삽입 위치는 편집 Delta로
  *   계속 옮기며(transformPosition), 여러 파일은 순서대로 올려 선택 순서대로 넣는다. 업로드 중에는 busy 상태를 알려 저장을 막는다.
- * - 업로드 URL: options.uploadUrl(기본 = 공지 URL). 게시판 화면은 인스턴스를 하나만 만들고 게시판을 열 때마다 setUploadUrl(url)로 바꾼다 —
+ * - 업로드 URL: options.uploadUrl(기본 없음 — 없으면 이미지 업로드는 오류 안내만 하고 올리지 않는다). 게시판 화면은 인스턴스를 하나만 만들고 게시판을 열 때마다 setUploadUrl(url)로 바꾼다 —
  *   진행 중인 업로드를 무효화한 뒤 URL만 교체하므로 이전 게시판 출처로 늦게 올라가는 이미지가 없다(PLAN-board.md 쟁점 9·R3-4).
  * - 로딩: clipboard.convert는 서식 없는 마지막 개행을 버려 끝 빈 문단이 재편집마다 줄어든다 — Quill 자신의 초기 로딩처럼 빈 문단을
  *   하나 덧붙여 변환한다(R5-1).
@@ -16,7 +16,6 @@
 (function (global) {
     "use strict";
 
-    const DEFAULT_UPLOAD_URL = "/admin/api/notices/content-images";
     const CONTENT_IMAGE_SRC = /^\/content-images\/[1-9][0-9]{0,18}$/;
     const IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif"];
     const FORMATS = ["header", "bold", "italic", "underline", "strike", "list", "blockquote", "link", "image"];
@@ -53,7 +52,7 @@
     function create(container, options) {
         const onBusyChange = options.onBusyChange || function () {};
         const onError = options.onError || function () {};
-        let uploadUrl = options.uploadUrl || DEFAULT_UPLOAD_URL;
+        let uploadUrl = options.uploadUrl || null;
         const Delta = global.Quill.import("delta");
         // 링크 프로토콜을 서버 sanitizer(http/https/mailto)와 맞춘다 — Quill 기본값은 tel·sms도 허용해 편집기에선 링크로 보이다가 저장 후 href가 사라진다
         global.Quill.import("formats/link").PROTOCOL_WHITELIST = ["http", "https", "mailto"];
@@ -135,6 +134,10 @@
             if (!files || files.length === 0) {
                 return;
             }
+            if (!uploadUrl) {
+                onError("이미지를 올릴 게시판이 선택되지 않았습니다.");
+                return;
+            }
             const myGeneration = generation;
             // 모든 파일의 자리를 먼저 같은 위치로 잡는다 — 앞 파일이 들어가면 뒤 파일 위치가 transformPosition으로 밀려 순서가 지켜진다
             const items = Array.from(files).map(function () {
@@ -206,7 +209,7 @@
         /** 업로드 대상 URL을 바꾼다. 진행 중인 업로드(다른 게시판 출처)는 먼저 무효화한다. */
         function setUploadUrl(url) {
             invalidate();
-            uploadUrl = url || DEFAULT_UPLOAD_URL;
+            uploadUrl = url || null;
         }
 
         return {

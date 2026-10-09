@@ -26,11 +26,11 @@ class AdminPermissionEvaluatorTest {
     private static final long MEMBER_ID = 1L;
 
     private static PermissionSnapshot grants(PermissionAction... actions) {
-        Set<PermissionSnapshot.Grant> set = new java.util.HashSet<>();
+        Set<PermissionSnapshot.BoardGrant> set = new java.util.HashSet<>();
         for (PermissionAction action : actions) {
-            set.add(new PermissionSnapshot.Grant(MEMBER_ID, AdminFeature.NOTICE, action));
+            set.add(new PermissionSnapshot.BoardGrant(MEMBER_ID, 3L, action));
         }
-        return new PermissionSnapshot(set);
+        return new PermissionSnapshot(Set.of(), set);
     }
 
     private static AdminPermissionEvaluator evaluatorWith(PermissionSnapshot snapshot) {
@@ -118,21 +118,21 @@ class AdminPermissionEvaluatorTest {
     void delegableFollowsGrantsAndReadDependency() {
         AdminPermissionEvaluator all = evaluatorWith(grants(PermissionAction.values()));
         for (PermissionAction action : PermissionAction.values()) {
-            assertThat(all.allows(user("ROLE_MANAGER"), AdminFeature.NOTICE, action)).as(action.name()).isTrue();
+            assertThat(all.allows(user("ROLE_MANAGER"), AdminFeature.BOARD, action)).as(action.name()).isTrue();
         }
 
         AdminPermissionEvaluator none = evaluatorWith(grants());
         for (PermissionAction action : PermissionAction.values()) {
-            assertThat(none.allows(user("ROLE_MANAGER"), AdminFeature.NOTICE, action)).as(action.name()).isFalse();
+            assertThat(none.allows(user("ROLE_MANAGER"), AdminFeature.BOARD, action)).as(action.name()).isFalse();
         }
 
         AdminPermissionEvaluator readOnly = evaluatorWith(grants(PermissionAction.READ));
-        assertThat(readOnly.allows(user("ROLE_MANAGER"), AdminFeature.NOTICE, PermissionAction.READ)).isTrue();
-        assertThat(readOnly.allows(user("ROLE_MANAGER"), AdminFeature.NOTICE, PermissionAction.CREATE)).isFalse();
+        assertThat(readOnly.allows(user("ROLE_MANAGER"), AdminFeature.BOARD, PermissionAction.READ)).isTrue();
+        assertThat(readOnly.allows(user("ROLE_MANAGER"), AdminFeature.BOARD, PermissionAction.CREATE)).isFalse();
 
         // 의존 규칙: READ 없이 DELETE 행만 있으면 DELETE도 거부
         AdminPermissionEvaluator deleteWithoutRead = evaluatorWith(grants(PermissionAction.DELETE));
-        assertThat(deleteWithoutRead.allows(user("ROLE_MANAGER"), AdminFeature.NOTICE, PermissionAction.DELETE)).isFalse();
+        assertThat(deleteWithoutRead.allows(user("ROLE_MANAGER"), AdminFeature.BOARD, PermissionAction.DELETE)).isFalse();
     }
 
     @Test
@@ -140,7 +140,7 @@ class AdminPermissionEvaluatorTest {
     void otherRolesDenied() {
         AdminPermissionEvaluator evaluator = evaluatorWith(grants(PermissionAction.values()));
 
-        assertThat(evaluator.allows(user("ROLE_USER"), AdminFeature.NOTICE, PermissionAction.READ)).isFalse();
+        assertThat(evaluator.allows(user("ROLE_USER"), AdminFeature.BOARD, PermissionAction.READ)).isFalse();
         assertThat(evaluator.allows(user("ROLE_USER"), AdminFeature.DASHBOARD, PermissionAction.READ)).isFalse();
     }
 
@@ -151,7 +151,7 @@ class AdminPermissionEvaluatorTest {
         AdminPermissionEvaluator evaluator = new AdminPermissionEvaluator(cache);
 
         boolean allowed = evaluator.allows(grants(PermissionAction.READ), user("ROLE_MANAGER"),
-                AdminFeature.NOTICE, PermissionAction.READ);
+                AdminFeature.BOARD, PermissionAction.READ);
 
         assertThat(allowed).isTrue();
         verify(cache, never()).snapshot();
@@ -163,9 +163,9 @@ class AdminPermissionEvaluatorTest {
         AdminPermissionEvaluator evaluator = evaluatorWith(grants(PermissionAction.values()));
         SecurityContextHolder.setContext(new SecurityContextImpl(user("ROLE_MANAGER")));
         try {
-            assertThat(evaluator.check("NOTICE", "READ")).isTrue();
-            assertThat(evaluator.check("NOTICE", "READS")).isFalse();
-            assertThat(evaluator.check("NOTICES", "READ")).isFalse();
+            assertThat(evaluator.check("BOARD", "READ")).isTrue();
+            assertThat(evaluator.check("BOARD", "READS")).isFalse();
+            assertThat(evaluator.check("BOARDS", "READ")).isFalse();
             assertThat(evaluator.check(null, "READ")).isFalse();
         } finally {
             SecurityContextHolder.clearContext();
@@ -194,16 +194,16 @@ class AdminPermissionEvaluatorTest {
         var withRead = evaluator.menuUrlVisibility(() -> grants(PermissionAction.READ), user("ROLE_MANAGER"));
         assertThat(withRead.test("/admin")).isTrue();
         assertThat(withRead.test("/admin/member/info")).isTrue();
-        assertThat(withRead.test("/admin/notice/manage")).isTrue();
+        assertThat(withRead.test("/admin/board/posts")).isTrue();
         assertThat(withRead.test("/admin/menu/manage")).isFalse();
         assertThat(withRead.test("/admin/member/manage")).isFalse();
         assertThat(withRead.test("/admin/permission/manage")).isFalse();
-        assertThat(withRead.test("/admin/notice/manage?x=1")).isFalse();
-        assertThat(withRead.test("/admin/notice/manage/")).isFalse();
+        assertThat(withRead.test("/admin/board/posts?x=1")).isFalse();
+        assertThat(withRead.test("/admin/board/posts/")).isFalse();
         assertThat(withRead.test(null)).isFalse();
 
         var withoutRead = evaluator.menuUrlVisibility(() -> grants(PermissionAction.CREATE), user("ROLE_MANAGER"));
-        assertThat(withoutRead.test("/admin/notice/manage")).as("READ 없는 쓰기 권한은 의존 규칙상 무효").isFalse();
+        assertThat(withoutRead.test("/admin/board/posts")).as("READ 없는 쓰기 권한은 의존 규칙상 무효").isFalse();
         assertThat(withoutRead.test("/admin")).isTrue();
     }
 
@@ -233,40 +233,31 @@ class AdminPermissionEvaluatorTest {
 
         var manager = evaluator.menuUrlVisibility(supplier, user("ROLE_MANAGER"));
         manager.test("/admin");
-        manager.test("/admin/notice/manage");
+        manager.test("/admin/board/posts");
         assertThat(calls.get()).isEqualTo(1);
     }
 
     // ── 화면 버튼용 동작 키(myPermissions) ─────────────────────
 
     @Test
-    @DisplayName("grantedActionKeys: ADMIN은 공급자를 호출하지 않고 NOTICE 4키, MANAGER는 허용 행·READ 의존대로, 익명·USER는 빈 집합")
-    void grantedActionKeys_truthTable() {
+    @DisplayName("grantedActionKeys: 현재 카탈로그에 기능 단위 위임(DELEGABLE) 기능이 없어 모든 주체에게 빈 집합이고 공급자(캐시)도 호출하지 않는다 — 공지가 게시판 권한으로 흡수됨(PLAN-notice-to-board.md 쟁점 6)")
+    void grantedActionKeys_emptyWhileNoDelegableFeature() {
         AdminPermissionEvaluator evaluator = evaluatorWith(PermissionSnapshot.EMPTY);
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
-        java.util.function.Function<PermissionSnapshot, java.util.function.Supplier<PermissionSnapshot>> counting = snapshot -> () -> {
+        java.util.function.Supplier<PermissionSnapshot> counting = () -> {
             calls.incrementAndGet();
-            return snapshot;
+            return grants(PermissionAction.values());
         };
 
-        assertThat(evaluator.grantedActionKeys(counting.apply(PermissionSnapshot.EMPTY), user("ROLE_ADMIN")))
-                .containsExactlyInAnyOrder("NOTICE:READ", "NOTICE:CREATE", "NOTICE:UPDATE", "NOTICE:DELETE");
-        assertThat(calls.get()).as("ADMIN은 캐시 비의존").isZero();
-
-        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), user("ROLE_MANAGER")))
-                .containsExactlyInAnyOrder("NOTICE:READ", "NOTICE:CREATE", "NOTICE:UPDATE", "NOTICE:DELETE");
-        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.CREATE)), user("ROLE_MANAGER")))
-                .as("READ 없는 쓰기는 의존 규칙상 무효").isEmpty();
-        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.READ, PermissionAction.DELETE)), user("ROLE_MANAGER")))
-                .containsExactlyInAnyOrder("NOTICE:READ", "NOTICE:DELETE");
-        assertThat(evaluator.grantedActionKeys(counting.apply(PermissionSnapshot.EMPTY), user("ROLE_MANAGER"))).isEmpty();
-
-        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), user("ROLE_USER"))).isEmpty();
-        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), null)).isEmpty();
-        // 상시 허용·관리자 전용 기능의 키는 포함되지 않는다(위임 가능 기능만)
-        assertThat(evaluator.grantedActionKeys(counting.apply(grants(PermissionAction.values())), user("ROLE_MANAGER")))
-                .noneMatch(key -> key.startsWith("DASHBOARD") || key.startsWith("MY_INFO") || key.startsWith("MENU"));
+        assertThat(evaluator.grantedActionKeys(counting, user("ROLE_ADMIN"))).isEmpty();
+        assertThat(evaluator.grantedActionKeys(counting, user("ROLE_MANAGER"))).isEmpty();
+        assertThat(evaluator.grantedActionKeys(counting, user("ROLE_USER"))).isEmpty();
+        assertThat(evaluator.grantedActionKeys(counting, null)).isEmpty();
+        assertThat(calls.get()).isZero();
+        assertThat(AdminFeature.ofKind(FeatureKind.DELEGABLE))
+                .as("DELEGABLE 기능이 다시 생기면(②배너 등) 이 시험을 진리표 시험으로 되살린다").isEmpty();
     }
+
 
     // ── 사용자별 판정(PLAN-member-permission.md §5-B) ──────────
 
@@ -278,13 +269,13 @@ class AdminPermissionEvaluatorTest {
         Authentication member2 = userWithId(2L, "ROLE_MANAGER");
 
         for (PermissionAction action : PermissionAction.values()) {
-            assertThat(evaluator.allows(user("ROLE_MANAGER"), AdminFeature.NOTICE, action)).as("회원 1 " + action).isTrue();
-            assertThat(evaluator.allows(member2, AdminFeature.NOTICE, action)).as("회원 2 " + action).isFalse();
+            assertThat(evaluator.allows(user("ROLE_MANAGER"), AdminFeature.BOARD, action)).as("회원 1 " + action).isTrue();
+            assertThat(evaluator.allows(member2, AdminFeature.BOARD, action)).as("회원 2 " + action).isFalse();
         }
-        assertThat(evaluator.menuUrlVisibility(() -> onlyMember1, member2).test("/admin/notice/manage")).isFalse();
+        assertThat(evaluator.menuUrlVisibility(() -> onlyMember1, member2).test("/admin/board/posts")).isFalse();
         assertThat(evaluator.menuUrlVisibility(() -> onlyMember1, member2).test("/admin")).as("상시 허용은 그대로").isTrue();
         assertThat(evaluator.grantedActionKeys(() -> onlyMember1, member2)).isEmpty();
-        assertThat(evaluator.grantedActionKeys(() -> onlyMember1, user("ROLE_MANAGER"))).hasSize(4);
+        assertThat(evaluator.grantedActionKeys(() -> onlyMember1, user("ROLE_MANAGER"))).as("기능 단위 위임 기능이 없어 버튼 키는 비어 있다").isEmpty();
     }
 
     @Test
@@ -297,10 +288,10 @@ class AdminPermissionEvaluatorTest {
         mockUser.setAuthenticated(true);
 
         for (PermissionAction action : PermissionAction.values()) {
-            assertThat(evaluator.allows(mockUser, AdminFeature.NOTICE, action)).as(action.name()).isFalse();
+            assertThat(evaluator.allows(mockUser, AdminFeature.BOARD, action)).as(action.name()).isFalse();
         }
         assertThat(evaluator.allows(mockUser, AdminFeature.DASHBOARD, PermissionAction.READ)).isTrue();
-        assertThat(evaluator.menuUrlVisibility(() -> grants(PermissionAction.READ), mockUser).test("/admin/notice/manage")).isFalse();
+        assertThat(evaluator.menuUrlVisibility(() -> grants(PermissionAction.READ), mockUser).test("/admin/board/posts")).isFalse();
         assertThat(evaluator.grantedActionKeys(() -> grants(PermissionAction.READ), mockUser)).isEmpty();
         verify(cache, never()).snapshot();
     }
@@ -312,7 +303,7 @@ class AdminPermissionEvaluatorTest {
 
         assertThat(visible.test("/admin")).isTrue();
         assertThat(visible.test("/admin/member/info")).isTrue();
-        assertThat(visible.test("/admin/notice/manage")).isTrue();
+        assertThat(visible.test("/admin/board/posts")).isTrue();
         assertThat(visible.test("/admin/menu/manage")).isFalse();
         assertThat(visible.test("/admin/permission/manage")).isFalse();
         assertThat(visible.test("/외부")).isFalse();

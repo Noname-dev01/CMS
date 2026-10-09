@@ -128,13 +128,19 @@ class AdminEndpointAuthorizationConventionTest {
         assertThat(violations).isEmpty();
     }
 
+    /** 게이트 안에 있지만 사이드바 메뉴가 아닌 리다이렉트 전용 경로 — {@code NoticeRedirectController}(PLAN-notice-to-board.md 쟁점 9). */
+    private static final Set<String> REDIRECT_ONLY_GATE_PATHS = Set.of("/admin/notice/manage");
+
     @Test
-    @DisplayName("위임 가능 기능의 페이지 핸들러 경로는 그 기능의 사이드바 URL(menuUrls)에도 있다")
+    @DisplayName("위임 가능 기능의 페이지 핸들러 경로는 그 기능의 사이드바 URL(menuUrls)에도 있다 — 리다이렉트 전용 경로 제외")
     void delegablePageHandlersAreInMenuUrls() {
         List<String> violations = new ArrayList<>();
         for (Handler handler : scanHandlers()) {
             if (handler.isApi() || !handler.readOnlyGetOrHead()) {
                 continue;
+            }
+            if (REDIRECT_ONLY_GATE_PATHS.contains(handler.path())) {
+                continue;   // 사이드바에 나오는 페이지가 아니라 옛 주소를 새 화면으로 보내는 리다이렉트 전용 경로(AdminFeature.BOARD 주석)
             }
             for (AdminFeature feature : delegatedFeatures()) {
                 if (matchesAny(handler.path(), feature.getGatePatterns()) && !feature.getMenuUrls().contains(handler.path())) {

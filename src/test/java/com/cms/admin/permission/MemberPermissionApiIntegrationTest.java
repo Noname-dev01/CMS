@@ -212,21 +212,25 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
 
     /** 이 시험 회원에게 공지 4동작을 모두 허용한 상태로 만든다(신규 MANAGER는 권한 0개가 기본이라 시험이 명시적으로 부여한다). */
     private void restoreSeed() {
-        jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+        jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
         for (PermissionAction action : PermissionAction.values()) {
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)", manager.getId(), action.name());
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, ?)", manager.getId(), noticeBoardId(), action.name());
         }
         cache.invalidate();
+    }
+
+    private long noticeBoardId() {
+        return jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class);
     }
 
     private long version() {
         return jdbc.queryForObject("SELECT permission_version FROM member WHERE id = ?", Long.class, manager.getId());
     }
 
-    /** 정확 일치(BINARY)로 읽은 NOTICE 허용 동작 — 대소문자 변형 행은 포함하지 않는다. */
+    /** 공지 게시판의 허용 동작(공지는 게시판 권한으로 흡수됨, PLAN-notice-to-board.md). */
     private Set<String> noticeActions() {
         return new TreeSet<>(jdbc.queryForList(
-                "SELECT action FROM member_permission WHERE member_id = ? AND BINARY feature = 'NOTICE'", String.class, manager.getId()));
+                "SELECT action FROM member_board_permission WHERE member_id = ? AND board_id = ?", String.class, manager.getId(), noticeBoardId()));
     }
 
     private static RequestPostProcessor asAdmin() {
@@ -236,11 +240,11 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         return authentication(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities()));
     }
 
-    private static String body(long version, PermissionAction... noticeActions) {
+    private String body(long version, PermissionAction... noticeActions) {
         String grants = Arrays.stream(noticeActions)
-                .map(a -> "{\"feature\":\"NOTICE\",\"action\":\"" + a.name() + "\"}")
+                .map(a -> "{\"boardId\":" + noticeBoardId() + ",\"action\":\"" + a.name() + "\"}")
                 .reduce((x, y) -> x + "," + y).orElse("");
-        return "{\"boardGrants\":[],\"version\":" + version + ",\"grants\":[" + grants + "]}";
+        return "{\"boardGrants\":[" + grants + "],\"version\":" + version + ",\"grants\":[]}";
     }
 
     private void putAsAdmin(long version, int expectedStatus, PermissionAction... actions) throws Exception {
@@ -254,9 +258,9 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
                 .toList();
     }
 
-    private static MemberPermissionUpdateRequest request(long version, PermissionAction... actions) {
-        return MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of()).version(version)
-                .grants(Arrays.stream(actions).map(a -> new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, a)).toList())
+    private MemberPermissionUpdateRequest request(long version, PermissionAction... actions) {
+        return MemberPermissionUpdateRequest.builder().grants(java.util.List.of()).version(version)
+                .boardGrants(Arrays.stream(actions).map(a -> new MemberPermissionUpdateRequest.BoardGrant(noticeBoardId(), a)).toList())
                 .build();
     }
 
@@ -288,7 +292,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(audit.getTargetType()).isEqualTo("MEMBER_PERMISSION");
         assertThat(audit.getTargetId()).as("감사 targetId는 반환 객체의 getMemberId()에서 추출된다").isEqualTo(manager.getId());
         assertThat(audit.getTargetLabel())
-                .isEqualTo("v" + before + "→v" + (before + 1) + ": 추가 0·회수 3 | -공지사항.생성, -공지사항.수정, -공지사항.삭제");
+                .isEqualTo("v" + before + "→v" + (before + 1) + ": 추가 0·회수 3 | -게시판#" + noticeBoardId() + ".생성, -게시판#" + noticeBoardId() + ".수정, -게시판#" + noticeBoardId() + ".삭제");
         // 전체 diff 로그는 트랜잭션 완료 후 실제 결과와 함께 남는다(PLAN-board.md 리뷰 R2-2·R3-2) — 실행자는 숫자 회원 ID
         assertThat(output.getOut()).contains("권한 변경 COMMITTED: actorMemberId=1, memberId=" + manager.getId());
         verify(cache, org.mockito.Mockito.atLeastOnce()).invalidate(); // 커밋 성공 경로는 AFTER_COMMIT(앞선 무효화)+AFTER_COMPLETION(백스톱) 두 번 폐기한다 — 무효화는 멱등이다
@@ -358,7 +362,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
             mockMvc.perform(put(url(target.getId())).with(asAdmin()).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                             .content(body(targetVersion, PermissionAction.READ)))
                     .andExpect(status().is(expected));
-            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_permission WHERE member_id = ?", Integer.class, target.getId()))
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_board_permission WHERE member_id = ?", Integer.class, target.getId()))
                     .as(target.getUserId()).isZero();
         }
         mockMvc.perform(put(url(missingId)).with(asAdmin()).with(csrf()).contentType(MediaType.APPLICATION_JSON)
@@ -381,38 +385,38 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
                 .andExpect(jsonPath("$.userId").value(manager.getUserId()))
                 .andExpect(jsonPath("$.version").value(version()))
                 // 카탈로그에 상시 허용 기능이 추가돼도 깨지지 않도록 위치가 아니라 기능 이름으로 찾는다.
-                .andExpect(jsonPath("$.features[?(@.feature=='NOTICE')].grantedActions.length()").value(4))
+                .andExpect(jsonPath("$.boards[?(@.boardId==" + noticeBoardId() + ")].grantedActions.length()").value(4))
                 .andExpect(jsonPath("$.features[?(@.feature=='SEARCH')].kind").value("ALWAYS"));
     }
 
     // ── ④ 즉시 반영(실제 로그인 세션 재사용) ───────────────────
 
     @Test
-    @DisplayName("같은 MANAGER 로그인 세션에서 ADMIN이 권한을 회수하면 다음 요청부터 공지 API·페이지가 막히고 사이드바에서 사라진다")
+    @DisplayName("같은 MANAGER 로그인 세션에서 ADMIN이 권한을 회수하면 다음 요청부터 공지 게시판 게시글 API·페이지가 막히고 사이드바에서 사라진다")
     void revoke_takesEffectImmediatelyOnSameSession() throws Exception {
         MockHttpSession session = loginAsManager();
-        mockMvc.perform(get("/admin/api/notices").session(session)).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/boards/" + noticeBoardId() + "/posts").session(session)).andExpect(status().isOk());
         assertThat(mockMvc.perform(get("/admin").session(session)).andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString()).contains("href=\"/admin/notice/manage\"");
+                .andReturn().getResponse().getContentAsString()).contains("href=\"/admin/board/posts\"");
 
         putAsAdmin(version(), 200); // 전부 회수
 
-        mockMvc.perform(get("/admin/api/notices").session(session))
+        mockMvc.perform(get("/admin/api/boards/" + noticeBoardId() + "/posts").session(session))
                 .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESS_DENIED"));
-        mockMvc.perform(get("/admin/notice/manage").session(session)).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/board/posts").session(session)).andExpect(status().isForbidden());
         assertThat(mockMvc.perform(get("/admin").session(session)).andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString()).doesNotContain("href=\"/admin/notice/manage\"");
+                .andReturn().getResponse().getContentAsString()).doesNotContain("href=\"/admin/board/posts\"");
         // 권한 변경은 세션을 만료시키지 않는다 — 대시보드(상시 허용)는 같은 세션으로 계속 열린다.
         mockMvc.perform(get("/admin").session(session)).andExpect(status().isOk());
 
         putAsAdmin(version(), 200, PermissionAction.READ, PermissionAction.CREATE);
 
-        mockMvc.perform(get("/admin/api/notices").session(session)).andExpect(status().isOk());
-        var model = mockMvc.perform(get("/admin/notice/manage").session(session)).andExpect(status().isOk())
-                .andReturn().getModelAndView().getModel();
-        @SuppressWarnings("unchecked")
-        Set<String> mine = (Set<String>) model.get("myPermissions");
-        assertThat(mine).contains("NOTICE:CREATE").doesNotContain("NOTICE:DELETE");
+        mockMvc.perform(get("/admin/api/boards/" + noticeBoardId() + "/posts").session(session)).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/board/posts").session(session)).andExpect(status().isOk());
+        // 화면 버튼용 동작 목록은 내 게시판 API가 준다 — READ·CREATE만 허용했으므로 DELETE는 없다
+        mockMvc.perform(get("/admin/api/members/me/boards").session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.boardId==" + noticeBoardId() + ")].actions[?(@ == 'CREATE')]").isNotEmpty())
+                .andExpect(jsonPath("$[?(@.boardId==" + noticeBoardId() + ")].actions[?(@ == 'DELETE')]").isEmpty());
     }
 
     // ── ⑤ 트랜잭션 완료 직후 무효화(커밋·롤백·결과 불명 모두 — 보수적) ─────────
@@ -456,7 +460,7 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
     void commitResultLost_cacheStillInvalidated(CapturedOutput output) {
         long before = version();
         cache.snapshot(); // 캐시를 시드 상태(READ·CREATE·UPDATE·DELETE)로 채워 둔다
-        assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.CREATE)).isTrue();
+        assertThat(cache.snapshot().hasBoard(manager.getId(), noticeBoardId(), PermissionAction.CREATE)).isTrue();
         clearInvocations(cache);
         loseCommitResult = true;
 
@@ -468,8 +472,8 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(version()).isEqualTo(before + 1);
         // 상태 UNKNOWN에서는 AFTER_COMMIT 리스너가 실행되지 않지만 AFTER_COMPLETION이 캐시를 폐기해, 회수된 CREATE가 계속 허용되지 않는다
         verify(cache, times(1)).invalidate();
-        assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.CREATE)).isFalse();
-        assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.READ)).isTrue();
+        assertThat(cache.snapshot().hasBoard(manager.getId(), noticeBoardId(), PermissionAction.CREATE)).isFalse();
+        assertThat(cache.snapshot().hasBoard(manager.getId(), noticeBoardId(), PermissionAction.READ)).isTrue();
         assertThat(output.getOut()).as("커밋 결과를 알 수 없으면 확정 변경으로 쓰지 않는다")
                 .contains("권한 변경 UNKNOWN(적용 여부 DB 확인 필요)").doesNotContain("권한 변경 COMMITTED");
     }
@@ -493,16 +497,15 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
     // ── ⑧ 대소문자·공백 변형 행 ─────────────────────────────
 
     @Test
-    @DisplayName("PK가 general_ci·PAD 비교라 충돌하는 변형 행(동작 소문자·기능 소문자·동작 후행 공백)이 있으면 409, 정리 후에는 200")
+    @DisplayName("PK가 general_ci·PAD 비교라 충돌하는 변형 행(동작 소문자·동작 후행 공백)이 있으면 409, 정리 후에는 200")
     void variantRows_conflictUntilCleaned() throws Exception {
         Object[][] variants = {
-                {manager.getId(), "NOTICE", "read"},
-                {manager.getId(), "notice", "READ"},
-                {manager.getId(), "NOTICE", "READ "},
+                {manager.getId(), noticeBoardId(), "read"},
+                {manager.getId(), noticeBoardId(), "READ "},
         };
         for (Object[] variant : variants) {
-            jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, ?, ?)", variant);
+            jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, ?)", variant);
             cache.invalidate();
             clearInvocations(cache);
             long before = version();
@@ -510,11 +513,11 @@ class MemberPermissionApiIntegrationTest extends MariaDbContainerSupport {
             putAsAdmin(before, 409, PermissionAction.READ);
 
             assertThat(version()).as(Arrays.toString(variant)).isEqualTo(before);
-            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_permission WHERE member_id = ?", Integer.class, manager.getId()))
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_board_permission WHERE member_id = ?", Integer.class, manager.getId()))
                     .isEqualTo(1);
             verify(cache, never()).invalidate();
 
-            jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+            jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
             cache.invalidate();
             clearInvocations(cache);
             putAsAdmin(before, 200, PermissionAction.READ);

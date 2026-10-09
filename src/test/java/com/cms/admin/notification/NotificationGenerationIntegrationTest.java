@@ -11,7 +11,6 @@ import com.cms.admin.notification.domain.NotificationType;
 import com.cms.admin.notification.event.NotificationRequestedEvent;
 import com.cms.admin.notification.repository.NotificationRepository;
 import com.cms.admin.notification.service.NotificationRecorder;
-import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.PermissionCache;
 import com.cms.admin.permission.dto.request.MemberPermissionUpdateRequest;
@@ -147,20 +146,21 @@ class NotificationGenerationIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("E2: 개별 권한을 부여·회수하면 +/- 항목이 담긴 알림이 생기고, 변경 없는 저장은 알림이 없다")
     void permissionReplace_createsNotificationOnlyOnRealChange() {
         long version = memberRepository.findById(target.getId()).orElseThrow().getPermissionVersion();
-        var grant = new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, PermissionAction.READ);
+        long noticeBoardId = jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class);
+        var grant = new MemberPermissionUpdateRequest.BoardGrant(noticeBoardId, PermissionAction.READ);
 
-        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(version, List.of(grant), List.of()));
+        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(version, List.of(), List.of(grant)));
         assertThat(notificationsOf(target)).hasSize(1);
-        assertThat(notificationsOf(target).get(0).getMessage()).contains("+공지사항 조회");
+        assertThat(notificationsOf(target).get(0).getMessage()).contains("+게시판 #" + noticeBoardId + " 조회");
 
         long next = memberRepository.findById(target.getId()).orElseThrow().getPermissionVersion();
-        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(next, List.of(grant), List.of()));   // 같은 집합 — 변경 없음
+        memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(next, List.of(), List.of(grant)));   // 같은 집합 — 변경 없음
         assertThat(notificationsOf(target)).hasSize(1);
 
         memberPermissionService.replace(target.getId(), new MemberPermissionUpdateRequest(next, List.of(), List.of()));
         List<Notification> all = notificationsOf(target);
         assertThat(all).hasSize(2);
-        assertThat(all.get(0).getMessage()).contains("-공지사항 조회");
+        assertThat(all.get(0).getMessage()).contains("-게시판 #" + noticeBoardId + " 조회");
     }
 
     // ── 롤백·실패 격리 ─────────────────────────────────────────
@@ -192,8 +192,9 @@ class NotificationGenerationIntegrationTest extends MariaDbContainerSupport {
         Member manager = create("gen-mgr2", Role.ROLE_MANAGER, MemberStatus.ACTIVE);
         long version = memberRepository.findById(manager.getId()).orElseThrow().getPermissionVersion();
         memberPermissionService.replace(manager.getId(), new MemberPermissionUpdateRequest(version,
-                List.of(new MemberPermissionUpdateRequest.Grant(AdminFeature.NOTICE, PermissionAction.READ)), List.of()));
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_permission WHERE member_id = ?", Long.class, manager.getId()))
+                List.of(), List.of(new MemberPermissionUpdateRequest.BoardGrant(
+                        jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class), PermissionAction.READ))));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_board_permission WHERE member_id = ?", Long.class, manager.getId()))
                 .isEqualTo(1L);
 
         assertThat(notificationsOf(target)).isEmpty();
@@ -214,7 +215,7 @@ class NotificationGenerationIntegrationTest extends MariaDbContainerSupport {
                 .when(notificationRecorder).record(anyLong(), any(), anyString(), any());
 
         // 역할 변경은 세션 만료·(개별 권한 행이 있으면) 캐시 무효화·알림 이벤트를 한 트랜잭션에서 발행한다
-        jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', 'READ')", target.getId());
+        jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) SELECT ?, id, 'READ' FROM board WHERE board_key = 'NOTICE'", target.getId());
         adminMemberService.updateAdminMember(actor.getId(), target.getId(),
                 AdminMemberUpdateRequest.builder().userType(Role.ROLE_ADMIN).build());
 

@@ -104,17 +104,17 @@ class AdminPermissionEvaluatorBoardTest {
     }
 
     @Test
-    @DisplayName("기능 단위 member_permission 행(NOTICE)은 게시판 판정에 영향이 없다 — 반대도 마찬가지")
+    @DisplayName("기능 단위 member_permission 행(위임 불가 기능 MEMBER에 수동 삽입)은 게시판 판정에 영향이 없다 — 반대도 마찬가지")
     void featureAndBoardGrantsAreSeparate() {
         PermissionSnapshot onlyNotice = new PermissionSnapshot(
-                Set.of(new PermissionSnapshot.Grant(MEMBER_ID, AdminFeature.NOTICE, PermissionAction.READ)), Set.of());
+                Set.of(new PermissionSnapshot.Grant(MEMBER_ID, AdminFeature.MEMBER, PermissionAction.READ)), Set.of());
         AdminPermissionEvaluator noticeOnly = evaluatorWith(onlyNotice);
         AdminPermissionEvaluator boardOnly = evaluatorWith(boardGrants(MEMBER_ID, BOARD_A, PermissionAction.READ));
         Authentication manager = user(MEMBER_ID, Role.ROLE_MANAGER);
 
         assertThat(noticeOnly.allowsBoard(manager, BOARD_A, PermissionAction.READ)).isFalse();
         assertThat(noticeOnly.allows(manager, AdminFeature.BOARD, PermissionAction.READ)).isFalse();
-        assertThat(boardOnly.allows(manager, AdminFeature.NOTICE, PermissionAction.READ)).isFalse();
+        assertThat(boardOnly.allows(manager, AdminFeature.MEMBER, PermissionAction.READ)).isFalse();
     }
 
     @Test
