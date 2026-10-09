@@ -49,6 +49,13 @@ public class BoardService {
                 .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND_MESSAGE)));
     }
 
+    /** 공지 게시판 ID(시스템 키 {@link Board#NOTICE_KEY}). 없으면 404 — 옛 공지 화면 주소 리다이렉트가 쓴다. */
+    @Transactional(readOnly = true)
+    public Long getNoticeBoardId() {
+        return boardRepository.findIdByBoardKey(Board.NOTICE_KEY)
+                .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND_MESSAGE));
+    }
+
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.BOARD_CREATE, targetType = "BOARD", targetIdExpression = "id")
     public BoardResponse createBoard(BoardCreateRequest request) {
@@ -73,6 +80,10 @@ public class BoardService {
         }
         Board board = boardRepository.findByIdAndDeletedFalseForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND_MESSAGE));
+        // 시스템 게시판(공지)은 공개 /notices가 의존하므로 비공개로 바꿀 수 없다(이름·첨부 허용은 변경 가능)
+        if (board.isSystem() && Boolean.FALSE.equals(request.getPublicYn())) {
+            throw new InvalidRequestException("시스템 게시판은 비공개로 바꿀 수 없습니다.");
+        }
         String name = request.getName() != null ? requireNonBlank(request.getName()) : null;
         board.update(name, request.getPublicYn(), request.getAttachmentYn(), LocalDateTime.now(clock));
         return BoardResponse.from(board);
@@ -89,6 +100,9 @@ public class BoardService {
     public BoardResponse deleteBoard(Long id) {
         Board board = boardRepository.findByIdAndDeletedFalseForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND_MESSAGE));
+        if (board.isSystem()) {
+            throw new ConflictException("시스템 게시판은 삭제할 수 없습니다.");
+        }
         if (postRepository.existsByBoardIdAndDeletedFalse(id)) {
             throw new ConflictException("게시글이 남아있어 삭제할 수 없습니다. 게시글을 먼저 삭제해주세요.");
         }

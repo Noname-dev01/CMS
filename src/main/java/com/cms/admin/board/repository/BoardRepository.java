@@ -40,6 +40,10 @@ public interface BoardRepository extends JpaRepository<Board, Long> {
     @Query("select b from Board b where b.id = :id and b.deleted = false")
     Optional<Board> findByIdAndDeletedFalseForShare(@Param("id") Long id);
 
+    /** 시스템 게시판 ID(공지 게시판 등). 삭제된 게시판이거나 키가 없으면 비어 있다 — 호출자(공개 {@code /notices})는 비어 있으면 404로 닫는다. */
+    @Query("select b.id from Board b where b.boardKey = :boardKey and b.deleted = false")
+    Optional<Long> findIdByBoardKey(@Param("boardKey") String boardKey);
+
     /** 공개 화면 전용 — 공개 게시판(publicYn)이면서 삭제되지 않은 게시판만. 조건이 메서드명으로 고정돼 공개 불변식이 실수로 깨지지 않는다. */
     Optional<Board> findByIdAndDeletedFalseAndPublicYnTrue(Long id);
 }

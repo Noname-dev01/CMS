@@ -24,6 +24,9 @@ import java.time.LocalDateTime;
 @Builder
 public class Board {
 
+    /** 공지 게시판의 {@link #boardKey}. V32가 만든다. */
+    public static final String NOTICE_KEY = "NOTICE";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -39,6 +42,13 @@ public class Board {
 
     @Column(nullable = false)
     private Boolean deleted;
+
+    /**
+     * 시스템 게시판 키(V31). null이면 일반 게시판이다. 공지 게시판은 {@link #NOTICE_KEY}이며 공개 {@code /notices}가 이 게시판에 의존하므로
+     * 삭제·비공개 전환을 서비스가 막는다(PLAN-notice-to-board.md 쟁점 1·2).
+     */
+    @Column(name = "board_key", length = 30)
+    private String boardKey;
 
     private LocalDateTime createDate;
 
@@ -60,6 +70,11 @@ public class Board {
             this.attachmentYn = attachmentYn;
         }
         this.updateDate = now;
+    }
+
+    /** 시스템 게시판(키가 있는 게시판)인지. 삭제·비공개 전환이 금지된다. */
+    public boolean isSystem() {
+        return boardKey != null;
     }
 
     /** 소프트 삭제. deleted=true 처리 후 수정 시각을 갱신한다. */

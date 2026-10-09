@@ -109,7 +109,7 @@ class BoardMigrationTest extends MariaDbContainerSupport {
     void upgradeFromV25() throws Exception {
         v25DatabaseWithImage();
 
-        flyway(null).migrate();
+        flyway("30").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(string(st, "SELECT scope_type FROM content_image WHERE storage_key = '2026/10/08/old.png'")).isEqualTo("NOTICE");
@@ -213,7 +213,7 @@ class BoardMigrationTest extends MariaDbContainerSupport {
                 assertThat(count(st, "SELECT COUNT(*) FROM post")).isEqualTo(1);
                 // PR A 앱의 게시판 수정은 게시글 테이블을 모르고도 된다
                 st.execute("UPDATE board SET name = 'renamed' WHERE name = 'b'");
-                assertThat(string(st, "SELECT name FROM board")).isEqualTo("renamed");
+                assertThat(string(st, "SELECT name FROM board WHERE name = 'renamed'")).isEqualTo("renamed");
             }
         } finally {
             deleteQuietly(upToV28);
