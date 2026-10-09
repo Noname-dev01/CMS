@@ -35,6 +35,8 @@
 | V28 | `V28__seed_board_admin_menu.sql` | 게시판 관리 메뉴 시드(멱등 DML) |
 | V29 | `V29__create_post.sql` | 게시글 `post`·게시글 첨부 `post_attachment`(DDL 2문 — 실패 복구는 아래 "V29~V30") |
 | V30 | `V30__seed_board_post_menu.sql` | 게시글 관리 메뉴 시드(멱등 DML) |
+| V31 | `V31__add_board_key.sql` | `board.board_key`(시스템 게시판 키, UNIQUE, NULL=일반 게시판) — DDL 1문 |
+| V32 | `V32__absorb_notice_into_board.sql` | **공지 → 공지 게시판 이관**(공지·첨부 복사, 본문 이미지 출처·참조 이동, MANAGER 공지 권한 이동, 메뉴 정리) — 순수 DML 한 트랜잭션, **되돌릴 수 없음 — 아래 "V31~V32" 백업 필수** |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -88,6 +90,15 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
   ```
   재배포 후 공개 판정이 출처 일치를 요구하므로 이 참조로는 익명 공개되지 않지만, 해당 공지·게시글을 편집 화면에서 저장하면 400이 나므로 운영자가 본문에서 그 이미지를 빼거나 다시 올린다.
 - **게시글 데이터와 삭제**: 게시글은 소프트 삭제(`deleted`)이고 첨부가 남은 게시글은 삭제할 수 없다(409). 게시판 삭제는 **살아 있는 게시글이 없을 때만** 가능하며 그 게시판의 MANAGER 권한 행도 함께 지운다. 삭제된 게시판·게시글의 행은 테이블에 남는다(복원 API는 없다).
+
+## V31~V32 — 공지 → 공지 게시판 이관 (2026-10-09, `adversarial-review/plan/PLAN-notice-to-board.md`)
+
+- **V31**(DDL 1문 `ALTER TABLE board ADD COLUMN board_key … UNIQUE`)은 단독이다. 실패 복구: `SELECT version, success FROM flyway_schema_history WHERE version = '31';` → `success=1`이면 건드리지 않는다. 이력이 없거나 `success=0`인데 `board.board_key` 컬럼이 이미 있으면(DDL 암묵 커밋) `ALTER TABLE board DROP INDEX uk_board_board_key, DROP COLUMN board_key;`로 잔여를 지우고(`board_key`가 모두 NULL인지 먼저 확인) `flyway repair` 후 재기동한다.
+- **V32**는 **한 트랜잭션**의 순수 DML이다 — 중간 실패는 전부 롤백되어 V31 상태로 남고, `success=0` 이력이 남으면 원인을 고친 뒤 `flyway repair` → 재기동한다. 하는 일: ① 공지 게시판(`board_key='NOTICE'`, 이름 '공지사항', 공개·첨부 허용) 생성 ② `id <= MAX(notice.id)`인 기존 게시글·게시글 첨부를 `+offset`으로 재번호(`SET FOREIGN_KEY_CHECKS=0` 구간, 충돌이 없으면 무변경) ③ `notice`→`post`·`notice_attachment`→`post_attachment` **같은 ID로 복사**(`storage_key`는 같은 값, 파일은 옮기지 않음) ④ `content_image`의 `NOTICE` 출처를 `BOARD`+공지 게시판으로, `content_image_ref`의 `NOTICE` 참조를 `POST`로 **이동** ⑤ `member_permission`의 NOTICE 행(READ가 있는 활성 MANAGER)을 `member_board_permission`(공지 게시판)으로 **이동**하고 해당 회원 `permission_version`+1, NOTICE 행 전부 삭제 ⑥ '공지사항 관리' 메뉴 정리(대체 메뉴가 깨끗하면 삭제·자식 있으면 URL만 비움, 아니면 '게시글 관리' 링크로 전환).
+- **되돌릴 수 없다 — 배포 전 정지 상태 정규 백업 필수**(순서와 사전 점검 SQL은 `docs/deployment.md` "공지 → 공지 게시판 흡수 배포"). **앱만 이전 버전으로 되돌리는 롤백은 지원하지 않는다** — 이전 앱(V30 이하 파일만)은 기동은 하지만(Flyway는 적용된 미래 버전을 무시하고 `validate`는 매핑된 엔티티만 본다) NOTICE 권한 행이 없어 MANAGER가 공지에 접근하지 못하고, 공지 이미지는 출처가 바뀌어 비공개가 되며, 동결된 `notice` 테이블은 이관 전 스냅샷이다.
+- **백업 복원 순서(V22와 같은 형식)**: ① V30 이하 이미지로 컨테이너를 먼저 교체한다(V31·V32가 다시 실행되지 않도록) ② 정지 상태 백업(DB + 파일 볼륨)을 복원한다 ③ 수정한 신버전을 배포해 V31·V32를 다시 적용한다.
+- **동결 테이블**: `notice`·`notice_attachment`는 지우지 않는다(이관 시점 스냅샷, 앱이 읽지 않음). 후속 PR이 DROP한다 — 그 전에는 수동 회수 절차가 이 테이블을 보존 목록에 쓰지 않는다.
+- **시험**: `NoticeAbsorbMigrationTest`(같은 ID·플래그·날짜·첨부 바이트, 충돌 재번호와 연결 유지, AUTO_INCREMENT, 이미지·권한·메뉴 이동, 회수 가드 SQL). 과거 마이그레이션 시험(`MemberPermissionMigrationTest`·`RolePermissionDropMigrationTest`·`BoardMigrationTest`)은 NOTICE 행·공지 출처를 다루므로 **V31(또는 V30)까지만 적용**한다.
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

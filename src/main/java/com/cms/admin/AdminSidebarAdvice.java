@@ -36,7 +36,7 @@ public class AdminSidebarAdvice {
     private final AdminPermissionEvaluator adminPermissionEvaluator;
 
     /**
-     * 사이드바({@code sidebarMenus})와 현재 사용자의 위임 기능 동작 키({@code myPermissions}, 예 {@code "NOTICE:CREATE"} — 화면 버튼 표시용)를
+     * 사이드바({@code sidebarMenus})와 현재 사용자의 위임 기능 동작 키({@code myPermissions}, 예 {@code "기능:동작"} 형식 — 화면 버튼 표시용)를
      * <b>한 메서드에서</b> 계산한다. 두 속성이 같은 권한 스냅샷을 공유하도록 지연 조회 공급자를 한 번만 만들어 둘에 함께 넘긴다 —
      * MANAGER는 이 Advice 안에서 스냅샷 1개, ADMIN·상시 허용 경로는 캐시를 호출하지 않는다. 서버 판정이 최종이며 {@code myPermissions}는
      * 서버 판정을 대신하지 않는다. (URL 게이트의 {@code allows()}는 별도로 캐시를 읽으므로 "전체 요청 1회"는 보증하지 않는다.)

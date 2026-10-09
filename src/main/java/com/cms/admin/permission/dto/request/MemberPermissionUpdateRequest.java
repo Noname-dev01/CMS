@@ -47,7 +47,7 @@ public class MemberPermissionUpdateRequest {
     public static class Grant {
 
         @NotNull
-        @Schema(description = "기능", example = "NOTICE")
+        @Schema(description = "기능", example = "BOARD")
         private AdminFeature feature;
 
         @NotNull

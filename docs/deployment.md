@@ -373,12 +373,30 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **게시판별 권한(V26, 2026-10-08, adversarial-review/plan/PLAN-board.md)**: MANAGER의 게시판 권한은 별도 테이블 `member_board_permission`에 있고 권한관리 화면의 "게시판별 권한" 표에서 준다. 역할을 바꾸면 이 행도 함께 지워진다. 위 재배포 정리 SQL에 이 테이블이 포함돼 있다.
 - **직접 SQL 주의**: `member_permission`·`member_board_permission`을 수동으로 바꿔도 캐시는 무효화되지 않는다(앱 재시작이 곧 폐기). 수동 삽입된 대소문자·공백 변형 행(`read`, `'READ '`, `notice`)은 판정기가 무시하고 권한관리 저장이 409로 거부한다 — 확인 뒤 수동 SQL로 정리한다.
 
+## 공지 → 공지 게시판 흡수 배포 (V31~V32, 2026-10-09, adversarial-review/plan/PLAN-notice-to-board.md)
+
+공지(`notice`·`notice_attachment`)가 `board_key='NOTICE'`인 "공지" 게시판의 게시글(`post`·`post_attachment`)로 옮겨진다. **되돌리기 어려운 배포**이므로 다음 순서를 지킨다.
+
+1. **사전 점검(기존 게시글 URL 파손 여부)**: 공지 ID를 그대로 쓰려고 그 범위(`id <= MAX(notice.id)`)에 이미 있던 게시글·게시글 첨부는 V32가 범위 밖으로 재번호한다 — 그 글의 공개 URL(`/boards/{b}/posts/{id}`·첨부)이 바뀐다. 게시판 기능이 운영 미배포(실배포 전)면 보통 0건이다.
+   ```sql
+   SELECT (SELECT COUNT(*) FROM post WHERE id <= (SELECT COALESCE(MAX(id), 0) FROM notice)) AS conflicting_posts,
+          (SELECT COUNT(*) FROM post_attachment WHERE id <= (SELECT COALESCE(MAX(id), 0) FROM notice_attachment)) AS conflicting_attachments;
+   ```
+   0이 아니면 그 글이 외부에 공유됐는지 확인하고 파손을 허용할 때만 배포한다(감사 로그의 옛 `targetId`도 어긋난다).
+2. **앱 정지 → 정지 상태에서 정규 백업 → 신버전 기동**: `make prod-backup`은 앱을 멈추지 않고 DB 덤프 뒤 파일 볼륨을 압축하므로, 그 사이 첨부 삭제가 커밋되면 복원 시 행은 있고 파일이 없다(위 "정규 백업" 절의 이유). 앱을 먼저 멈추고 쓰기가 끝난 것을 확인한 뒤 백업을 만들고 신버전을 띄운다(V31 DDL → V32 DML 한 트랜잭션).
+3. **기동 뒤 대조**: 공지 건수(`SELECT COUNT(*) FROM post WHERE board_id = (SELECT id FROM board WHERE board_key='NOTICE')`)가 이관 전 `notice` 건수와 같은지, `/notices/{기존 ID}`·첨부 다운로드가 같은 ID로 열리는지, 공지 권한이 있던 MANAGER가 권한관리 화면에서 공지 게시판에 같은 동작을 갖는지 확인한다.
+
+- **앱만 이전 버전으로 되돌리는 롤백은 지원하지 않는다**(V22 선례): 권한(`member_permission`의 NOTICE 행은 게시판 권한으로 **이동**해 지워진다)·본문 이미지 출처(공지 이미지는 `BOARD`+공지 게시판 출처로, 참조는 `POST`로 이동)·이관 뒤 쓴 공지가 서로 얽혀 안전한 왕복 절차가 없다. 복구는 ① 수정 버전 배포(roll-forward) ② **2번에서 만든 정지 상태 백업의 복원**뿐이다 — 복원 시 V32가 다시 실행되지 않도록 V30 이하 이미지로 컨테이너를 먼저 교체한다(`docs/migration-guide.md` "V31~V32").
+- **동결 테이블**: `notice`·`notice_attachment`는 이관 시점 스냅샷으로 남는다(앱이 읽지 않는다, 대조용). DROP은 후속 PR이다. 수동 회수 절차(아래)는 이 테이블을 보존 목록에 쓰지 않는다.
+- **메뉴**: '공지사항 관리' 메뉴 행은 대체 메뉴('게시글 관리')가 정상이면 삭제(자식이 있으면 URL만 비움)되고, 정상이 아니면 '게시글 관리' 링크로 전환된다.
+- **옛 주소**: `/admin/notice/manage[?id=]`는 공지 게시판의 게시글 관리 화면으로 302한다. `/admin/api/notices/**`는 사라졌다(ADMIN 404, MANAGER 403).
+
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
-공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 공지·게시글이 참조하는지 — `owner_type` = `NOTICE`·`POST`)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 공지 또는 공개 게시판의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
+공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 게시글이 참조하는지 — `owner_type` = `POST`; 공지 흡수(V32, 2026-10-09) 이전에는 공지 참조 `NOTICE`도 있었다)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
 
 - **배포 시**: V25가 기존 공지 본문을 HTML로 일괄 변환한다 — 배포 전 `make prod-backup`. 구버전으로 롤백하면 **공지 쓰기를 동결**해야 한다(`docs/migration-guide.md` "V25 이후 구버전 롤백").
-- **업로드 출처(V27, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = `NOTICE` 또는 게시판 `BOARD` + `scope_id`)이 기록된다. 공지 본문에는 공지 출처 이미지만 넣을 수 있고(다른 출처면 저장 400), NOTICE 조회 권한 미리보기는 공지 출처 이미지에만 적용된다. **롤백 하한**: 게시판 이미지(`scope_type='BOARD'`)가 하나라도 생긴 뒤에는 V27 이전 앱(출처 판정 없음)으로 되돌리지 않는다 — 되돌리면 NOTICE 조회 권한자가 비공개 게시판 이미지를 볼 수 있다. roll-forward만 한다(`docs/migration-guide.md` "V26~V28").
+- **업로드 출처(V27, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = `NOTICE` 또는 게시판 `BOARD` + `scope_id`)이 기록된다. 게시글 본문에는 같은 게시판 출처 이미지만 넣을 수 있다(다른 출처면 저장 400). **V32(2026-10-09) 이후** 공지도 공지 게시판의 게시글이라 `scope_type='NOTICE'` 행은 모두 `BOARD`+공지 게시판으로 바뀌었고 새 `NOTICE` 출처는 생기지 않는다(DB 기본값만 구버전 호환으로 남는다). 아래 롤백 하한 설명은 V27 이전 앱에 대한 것이다. **롤백 하한**: 게시판 이미지(`scope_type='BOARD'`)가 하나라도 생긴 뒤에는 V27 이전 앱(출처 판정 없음)으로 되돌리지 않는다 — 되돌리면 NOTICE 조회 권한자가 비공개 게시판 이미지를 볼 수 있다. roll-forward만 한다(`docs/migration-guide.md` "V26~V28").
 - **게시글 첨부·참조(V29, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 7)**: 게시글 첨부(`post_attachment`)도 공지 첨부와 같은 **스토리지 루트**에 저장된다(네임스페이스가 아님). 그래서 아래 회수 절차의 ② 대상 확정은 **살아 있는 게시글(`post.deleted=0`)이 참조하는 이미지를 제외**하고, ⑤ 행 없는 파일 정리는 **`post_attachment`의 키를 보존 목록에 포함**한다 — 이 두 조건이 빠진 절차를 쓰면 게시글 본문 이미지·첨부 파일이 지워진다. PR A 시점의 절차는 게시글 테이블이 있으면 중단하는 가드를 가졌고(이 문서의 이전 판), 지금 절차가 그 가드를 대체한다. PR B → PR A 앱 롤백은 허용되지만(`docs/migration-guide.md` "V29~V30"), 롤백한 상태에서는 **이 문서의 절차를 쓰지 않는다**(PR A 앱은 게시글을 모른다) — roll-forward 뒤에 실행한다.
 - **상한 도달(업로드 409)**: 저장하지 않은 편집 중 이미지·본문에서 지운 이미지·삭제된 공지의 이미지는 자동으로 정리되지 않는다(자동 정리는 로드맵 ⑧ 미디어 라이브러리). 상한에 도달하면 아래 수동 회수를 한다.
 
@@ -396,6 +414,13 @@ db() { docker exec -i cms-db-prod sh -c 'exec mariadb -u"$MYSQL_USER" -p"$MYSQL_
 ready() {
   [ -f reclaim-backup.ok ] && [ "$(docker inspect -f '{{.State.Running}}' cms-app-prod)" = false ] ||
   { echo "중단: ① 백업 미완료이거나 앱이 실행 중이다"; return 1; }
+  # 공지 흡수(V32) 성공 확인 — 이 절차는 공지가 게시글로 이관된 DB 전용이다. 이관 전·실패 DB에서 실행하면 아래 ②가 공지 참조를, ⑤가
+  # 공지 첨부 키를 보존하지 않아 SQL 오류 없이 사용 중인 파일을 지운다(PLAN-notice-to-board.md 리뷰 R4-1). 이관 전 DB에는 이 문서의 이전 판 절차를 쓴다.
+  [ "$(db <<'SQL'
+SELECT COUNT(*) FROM flyway_schema_history WHERE version = '32' AND success = 1;
+SQL
+)" = 1 ] ||
+  { echo "중단: V32(공지 흡수) 성공 이력을 확인하지 못했다 — 조회 실패이거나 이관 전 DB"; return 1; }
 }
 # 이 블록의 삭제 단계는 모두 && 체인이다 — 서브셸 + set -e로 바꾸지 않는다(`( set -e; … ) || …`처럼
 # || 목록 안에서는 bash가 set -e를 무시해 실패 뒤에도 다음 명령이 실행된다)
@@ -404,14 +429,13 @@ ready() {
 rm -f reclaim-backup.ok
 docker stop cms-app-prod && make prod-backup && touch reclaim-backup.ok
 
-# ② 회수 대상 확정: 참조가 없거나, 모든 참조가 삭제된 공지(deleted=1)·삭제된 게시글(deleted=1)인 이미지 —
-#    살아 있는 공지 또는 살아 있는 게시글이 하나라도 참조하면 제외한다(게시글은 노출 여부·게시판 공개 여부와 무관 —
-#    비노출·비공개 게시판 글의 이미지도 운영자가 다시 켜면 쓰이므로 회수하지 않는다)
+# ② 회수 대상 확정: 참조가 없거나, 모든 참조가 삭제된 게시글(deleted=1)인 이미지 —
+#    살아 있는 게시글이 하나라도 참조하면 제외한다(게시글은 노출 여부·게시판 공개 여부와 무관 —
+#    비노출·비공개 게시판 글의 이미지도 운영자가 다시 켜면 쓰이므로 회수하지 않는다).
+#    공지는 공지 게시판의 게시글이다 — V32가 공지 참조(owner_type='NOTICE')를 게시글 참조(POST)로 옮기고 지웠으므로 NOTICE 조건이 없다.
 db > reclaim-targets.tsv <<'SQL'
 SELECT i.id, i.storage_key FROM content_image i
-WHERE NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN notice n ON r.owner_type = 'NOTICE' AND n.id = r.owner_id
-                  WHERE r.image_id = i.id AND n.deleted = 0)
-  AND NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN post p ON r.owner_type = 'POST' AND p.id = r.owner_id
+WHERE NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN post p ON r.owner_type = 'POST' AND p.id = r.owner_id
                   WHERE r.image_id = i.id AND p.deleted = 0)
 ORDER BY i.id;
 SQL
@@ -434,13 +458,15 @@ docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20
 echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일을 지우지 않았다"
 
 # ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
-#    보존 대상 = content_image + notice_attachment + post_attachment의 storage_key, profile/ 네임스페이스는 제외(⑤-2가 따로 다룬다)
+#    보존 대상 = content_image + post_attachment의 storage_key, profile/ 네임스페이스는 제외(⑤-2가 따로 다룬다).
+#    notice_attachment는 V32 이후 이관 시점의 동결 스냅샷일 뿐 앱이 읽지 않으므로 보존 목록에 넣지 않는다 — 넣으면 삭제 실패로 남은
+#    "행 없는 파일"이 동결 행 때문에 영구 보존된다(PLAN-notice-to-board.md 리뷰 R3-1). 공지 첨부는 post_attachment로 이관됐다.
 #    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
 #    orphan-files.txt가 만들어지지 않고, 아래 삭제는 그 파일이 없으면 아무것도 지우지 않는다.
 rm -f keep-keys.txt disk-keys.txt orphan-files.txt
 ready &&
 db > keep-keys.txt <<'SQL' &&
-SELECT storage_key FROM content_image UNION SELECT storage_key FROM notice_attachment UNION SELECT storage_key FROM post_attachment;
+SELECT storage_key FROM content_image UNION SELECT storage_key FROM post_attachment;
 SQL
 sort -o keep-keys.txt keep-keys.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '

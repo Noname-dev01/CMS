@@ -7,17 +7,12 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.admin.menu.service.MenuService;
-import com.cms.admin.notice.domain.Notice;
-import com.cms.admin.notice.dto.request.NoticeSearchRequest;
-import com.cms.admin.notice.repository.NoticeRepository;
-import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.PermissionSnapshot;
 import com.cms.admin.search.dto.AdminSearchResponse;
 import com.cms.admin.search.dto.AdminSearchResponse.MemberItem;
 import com.cms.admin.search.dto.AdminSearchResponse.MenuItem;
-import com.cms.admin.search.dto.AdminSearchResponse.NoticeItem;
 import com.cms.admin.search.dto.AdminSearchResponse.PostItem;
 import com.cms.admin.search.dto.AdminSearchResponse.Section;
 import com.cms.common.web.SafeUrls;
@@ -41,7 +36,7 @@ import java.util.function.Supplier;
  *
  * <ul>
  *   <li>메뉴: 사이드바와 같은 {@code getSidebarMenus(menuUrlVisibility)} 결과를 평탄화해 이름으로 거른다.</li>
- *   <li>공지: ADMIN 또는 {@code NOTICE:READ} 허용 MANAGER만(권한이 없으면 섹션 키 생략).</li>
+ *   <li>게시글: ADMIN은 전체, MANAGER는 READ가 유효한 게시판만(공지도 공지 게시판의 게시글이라 여기에 나온다).</li>
  *   <li>관리자 계정: ADMIN만.</li>
  * </ul>
  */
@@ -54,7 +49,6 @@ public class AdminSearchService {
     static final int SECTION_LIMIT = 5;
 
     private final MenuService menuService;
-    private final NoticeRepository noticeRepository;
     private final PostRepository postRepository;
     private final MemberRepository memberRepository;
     private final AdminPermissionEvaluator permissionEvaluator;
@@ -67,17 +61,14 @@ public class AdminSearchService {
         }
 
         boolean admin = isAdmin(authentication);
-        // MANAGER일 때만, 요청당 한 번 권한 스냅샷을 읽어 메뉴 가시성과 공지 판정에 같이 쓴다(ADMIN은 캐시를 호출하지 않는다).
+        // MANAGER일 때만, 요청당 한 번 권한 스냅샷을 읽어 메뉴 가시성과 게시글 판정에 같이 쓴다(ADMIN은 캐시를 호출하지 않는다).
         Supplier<PermissionSnapshot> snapshotOnce = memoize(permissionEvaluator::snapshot);
 
         Section<MenuItem> menus = searchMenus(keyword, snapshotOnce, authentication);
-        boolean noticeReadable = admin
-                || permissionEvaluator.allows(snapshotOnce.get(), authentication, AdminFeature.NOTICE, PermissionAction.READ);
 
         return AdminSearchResponse.builder()
                 .keyword(keyword)
                 .menus(menus)
-                .notices(noticeReadable ? searchNotices(keyword) : null)
                 .posts(searchPostsFor(keyword, admin, snapshotOnce, authentication))
                 .members(admin ? searchMembers(keyword) : null)
                 .build();
@@ -113,16 +104,6 @@ public class AdminSearchService {
                 && node.getMenuName().toLowerCase(Locale.ROOT).contains(needle)
                 // 같은 출처 경로만 — 외부 http(s) 메뉴는 사이드바에만 보이고 검색 결과 이동에는 쓰지 않는다
                 && SafeUrls.isSameOriginPath(node.getMenuUrl());
-    }
-
-    private Section<NoticeItem> searchNotices(String keyword) {
-        NoticeSearchRequest request = NoticeSearchRequest.builder().keyword(keyword).build();
-        Page<Notice> page = noticeRepository.searchNotices(request,
-                PageRequest.of(0, SECTION_LIMIT, Sort.by(Sort.Direction.DESC, "createDate")));
-        List<NoticeItem> items = page.getContent().stream()
-                .map(n -> new NoticeItem(n.getId(), n.getTitle(), n.getUseYn(), n.getCreateDate()))
-                .toList();
-        return new Section<>(page.getTotalElements(), items);
     }
 
     /**

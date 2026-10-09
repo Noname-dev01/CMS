@@ -37,12 +37,14 @@ class PermissionCacheIsolationIntegrationTest extends MariaDbContainerSupport {
     @Autowired MemberRepository memberRepository;
 
     private Member manager;
+    private long boardId;
 
     @BeforeEach
-    void createManagerWithAllNoticeGrants() {
+    void createManagerWithAllBoardGrants() {
+        boardId = jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class);
         manager = TestMembers.save(memberRepository, "cache-iso-manager", Role.ROLE_MANAGER);
         for (PermissionAction action : PermissionAction.values()) {
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)", manager.getId(), action.name());
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, ?)", manager.getId(), boardId, action.name());
         }
         cache.invalidate();
     }
@@ -61,27 +63,27 @@ class PermissionCacheIsolationIntegrationTest extends MariaDbContainerSupport {
         caller.setReadOnly(true);
 
         Boolean deleteAllowedInsideCaller = caller.execute(status -> {
-            // ① 호출자 트랜잭션이 permission 표를 읽어 REPEATABLE READ 스냅샷을 고정한다(사이드바가 메뉴를 먼저 조회하는 경우와 같다)
+            // ① 호출자 트랜잭션이 member_board_permission 표를 읽어 REPEATABLE READ 스냅샷을 고정한다(사이드바가 메뉴를 먼저 조회하는 경우와 같다)
             Integer rowsAtSnapshot = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM member_permission WHERE member_id = ? AND feature = 'NOTICE'", Integer.class, manager.getId());
+                    "SELECT COUNT(*) FROM member_board_permission WHERE member_id = ? AND board_id = ?", Integer.class, manager.getId(), boardId);
             assertThat(rowsAtSnapshot).isEqualTo(4);
 
             // ② 다른 트랜잭션(별도 커넥션)이 DELETE 권한을 회수하고 커밋한 뒤 무효화한다 — 호출자 스냅샷은 그대로 4행
             new TransactionTemplate(transactionManager) {{
                 setPropagationBehavior(PROPAGATION_REQUIRES_NEW);
             }}.executeWithoutResult(inner -> jdbc.update(
-                    "DELETE FROM member_permission WHERE member_id = ? AND feature = 'NOTICE' AND action = 'DELETE'", manager.getId()));
+                    "DELETE FROM member_board_permission WHERE member_id = ? AND board_id = ? AND action = 'DELETE'", manager.getId(), boardId));
             cache.invalidate();
 
             // ③ 호출자가 같은 트랜잭션 안에서 판정기를 부른다 — 호출자 스냅샷이 아니라 새 스냅샷을 읽어야 한다
             PermissionSnapshot snapshot = cache.snapshot();
-            return snapshot.has(manager.getId(), AdminFeature.NOTICE, PermissionAction.DELETE);
+            return snapshot.hasBoard(manager.getId(), boardId, PermissionAction.DELETE);
         });
 
         assertThat(deleteAllowedInsideCaller)
                 .as("로드가 호출자 트랜잭션에 참여하면 낡은 스냅샷(4행)이 '최신'으로 설치돼 회수된 DELETE가 여전히 허용된다")
                 .isFalse();
-        assertThat(cache.snapshot().has(manager.getId(), AdminFeature.NOTICE, PermissionAction.DELETE))
+        assertThat(cache.snapshot().hasBoard(manager.getId(), boardId, PermissionAction.DELETE))
                 .as("설치된 값도 회수 후 상태여야 한다").isFalse();
     }
 }

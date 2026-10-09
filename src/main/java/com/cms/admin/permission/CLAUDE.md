@@ -10,7 +10,7 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 | 기능 | 종류 | 설명 |
 |---|---|---|
 | `DASHBOARD`, `MY_INFO`, `SEARCH` | `ALWAYS` | 로그인한 ADMIN·MANAGER 전원 상시 허용(`SEARCH`=상단바 통합 검색 API 사용 자체 — 결과의 도메인별 노출은 `AdminSearchService`가 판정기로 필터한다, 아래 "통합 검색"). DB를 보지 않고 끌 수 없다(로그인 직후 `/admin`으로 이동하므로 대시보드를 끄면 403이 난다). **`MY_INFO`의 게이트에는 쪽지함 페이지 `/admin/member/messages`가 정확 경로 1개로 포함**된다(2026-10-05 승인, `com.cms.admin.message`의 `CLAUDE.md`) — ALWAYS 게이트는 HTTP 메서드를 구분하지 않아 그 경로에는 GET 핸들러만 두고 `MessagePageMethodConventionTest`가 CI에서 잠근다. 쪽지 API는 기존 `/admin/api/members/me/**` 안이다 |
-| `NOTICE` | `DELEGABLE` | ADMIN은 항상, MANAGER는 **그 회원의** (기능, 동작) 허용 행이 있을 때만. 동작 `READ·CREATE·UPDATE·DELETE` |
+| (없음) | `DELEGABLE` | **현재 카탈로그에 기능 단위 위임 기능이 없다**(2026-10-09, 공지 흡수 — `PLAN-notice-to-board.md` 쟁점 6). 옛 `NOTICE`는 제거돼 공지 권한은 공지 게시판(`board_key='NOTICE'`)의 게시판별 권한(`member_board_permission`)이다. 판정·캐시·`PUT grants`·권한관리 화면의 기능 표 코드는 남아 있다(②배너 등 다음 `DELEGABLE` 기능이 쓴다) — 그 경로의 시험은 공백이다(아래 "시험 공백"). 규칙은 이전과 같다: ADMIN은 항상, MANAGER는 **그 회원의** (기능, 동작) 허용 행이 있을 때만, 쓰기 동작은 READ 의존 |
 | `BOARD` | `BOARD_SCOPED` | 게시글(게시판별 위임, 2026-10-08 — 아래 "게시판별 권한"). ADMIN은 항상, MANAGER는 **그 회원의 (게시판, 동작) 행**(`member_board_permission`)으로 판정. `member_permission`의 `BOARD` 행으로는 부여할 수 없다(캐시가 무시, PUT은 400) |
 | `MEMBER`, `MENU`, `ACTION_LOG`, `BOARD_ADMIN`, `PERMISSION` | `ADMIN_ONLY` | 위임 불가. `PERMISSION`을 `DELEGABLE`로 바꾸면 `AdminFeature` 생성자가 **클래스 로딩 시점에 예외**를 던진다(자기 승격 차단). 권한관리 메뉴는 ADMIN만 접근한다 |
 
@@ -29,13 +29,17 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 - **URL 게이트(필터)**: 카탈로그의 `gatePatterns`를 순회해 `ALWAYS`는 `hasAnyRole('ADMIN','MANAGER')`, `DELEGABLE`은 `featureReadGate`(ADMIN 또는 해당 기능 READ 허용 MANAGER)로 등록한다. **기능 단위 READ 게이트**라 HTTP 메서드를 구분하지 않는다. 규칙 순서는 기존과 같다(공개·swagger → 카탈로그 게이트 → `/admin/**` ADMIN 캐치올 → … → `anyRequest().denyAll()`). 카탈로그에 없는 `/admin/**`는 캐치올에 걸려 ADMIN 전용이다.
 - **메서드 계층**: `@RequirePermission(feature, action)`이 메타 `@PreAuthorize("@adminPermission.check('{feature}', '{action}')")`를 감싼다(`MethodSecurityConfig`의 `AnnotationTemplateExpressionDefaults`가 자리표시자를 치환 — enum 속성 치환은 테스트로 확인됨). 위임 가능 기능의 핸들러에만 붙인다. **페이지 컨트롤러에는 붙이지 않는다** — `GlobalApiExceptionHandler`가 범위 제한 없는 `@RestControllerAdvice`라 페이지에 메서드 보안을 걸면 HTML이 아니라 JSON 403이 나가므로, 페이지 차단은 URL 게이트가 HTML 403으로 낸다.
-- 공지 핸들러 분류(U4): 목록·상세·첨부 목록·다운로드 = READ, 생성 = CREATE, 수정·**첨부 업로드·첨부 삭제 = UPDATE**, 삭제 = DELETE. 부작용: DELETE만 가진 MANAGER는 첨부가 있는 공지를 지울 수 없다(기존 409 규칙).
+- 게시글 핸들러 분류(U4, 공지 시절 규칙을 그대로 이어받음): 목록·상세·첨부 목록·다운로드 = READ, 생성 = CREATE, 수정·**첨부 업로드·첨부 삭제 = UPDATE**, 삭제 = DELETE. 부작용: DELETE만 가진 MANAGER는 첨부가 있는 게시글을 지울 수 없다(기존 409 규칙).
 
 ## 컨벤션 테스트 (CI 잠금)
 
 `AdminEndpointAuthorizationConventionTest`가 `com.cms.admin` 컨트롤러를 스캔해 `/admin` 아래 핸들러를 검사한다. **읽기 전용 GET/HEAD 페이지 핸들러만 면제**하고, 그 밖의 모든 핸들러(경로에 `/api/`가 있든 없든, 메서드 제한 없는 `@RequestMapping` 포함)와 모든 API는 정확히 하나의 인가 선언(`@RequirePermission` | `hasRole('ADMIN')` | ALWAYS 경로 한정 `hasAnyRole('ADMIN','MANAGER')`)을 가져야 한다 — URL 게이트가 HTTP 메서드를 구분하지 않아 READ 게이트만 통과하면 같은 경로의 쓰기 핸들러까지 열리기 때문이다. 새 엔드포인트를 선언 없이 추가하면 CI가 실패한다. 규칙이 실제로 위반을 잡는지는 반례 테스트로 고정돼 있다.
 
-`AdminPermissionMatrixIntegrationTest`(실제 SecurityConfig·판정기·캐시·MariaDB, 시험마다 실제 MANAGER 회원 행을 만들고 지운다)는 공지 핸들러 9개 × MANAGER 권한 조합(전부·없음·READ만·READ+CREATE·READ+UPDATE·READ+DELETE·READ 없는 쓰기)을 시험한다. 허용은 **기대 성공 상태와 실제 저장 결과**, 거부는 403(API JSON `ACCESS_DENIED`)과 **변경 없음**으로 단언하고, 경계 입력(후행 슬래시·`;`·`/./`·HEAD·OPTIONS)도 확인한다. **교차 회원 격리**(회원 A에게만 준 권한이 같은 역할의 회원 B에게 적용되지 않음)와 **신규 MANAGER(권한 0개)** 시험이 있다. 변이 실험으로 "삭제를 UPDATE로 오표시"가 이 시험에서 실패함을 확인했다.
+`AdminPermissionMatrixIntegrationTest`(실제 SecurityConfig·판정기·캐시·MariaDB, 시험마다 실제 MANAGER 회원 행을 만들고 지운다)는 **공지 게시판의 게시글 핸들러** 9개 × MANAGER 권한 조합(2026-10-09 공지 흡수로 공지 핸들러 매트릭스를 옮김; 판정 키는 (회원, 게시판, 동작))(전부·없음·READ만·READ+CREATE·READ+UPDATE·READ+DELETE·READ 없는 쓰기)을 시험한다. 허용은 **기대 성공 상태와 실제 저장 결과**, 거부는 403(API JSON `ACCESS_DENIED`)과 **변경 없음**으로 단언하고, 경계 입력(후행 슬래시·`;`·`/./`·HEAD·OPTIONS)도 확인한다. **교차 회원 격리**(회원 A에게만 준 권한이 같은 역할의 회원 B에게 적용되지 않음)와 **신규 MANAGER(권한 0개)** 시험이 있다. 변이 실험으로 "삭제를 UPDATE로 오표시"가 이 시험에서 실패함을 확인했다.
+
+## 시험 공백 (2026-10-09, 공지 흡수로 `DELEGABLE` 기능이 0개)
+
+기능 단위 위임(`member_permission`) 경로의 **실제 기능 픽스처가 없어** 다음 시험은 `BOARD_SCOPED` 판으로 옮기거나 삭제했다 — `AdminPermissionEvaluatorTest`의 `delegableFollowsGrantsAndReadDependency` 유형(기능 행 + READ 의존의 진리표는 `BOARD` 기능 단위 판정으로 대체)·`grantedActionKeys_truthTable`(DELEGABLE이 없어 빈 집합 계약으로 축소)·`PermissionCacheTest`(기능 행 로드 케이스는 게시판 행으로 대체, 알 수 없는 `NOTICE` 행 무시 케이스 추가)·`MemberPermissionServiceTest`의 `replace_*`(diff·전체 회수·변경 없음·변형 행 충돌 — 같은 규칙의 게시판 판이 `MemberPermissionServiceBoardTest`)·`MemberPermissionApiIntegrationTest`·`MemberPermissionConcurrencyIntegrationTest`·`MemberRoleChangePermissionIntegrationTest`(공지 게시판 권한으로 이식). **다음 `DELEGABLE` 기능(②배너)이 들어오면 위 기능 단위 시험을 되살린다**(`grantedActionKeys` 진리표·`PUT grants` 400/409 규칙·`featureReadGate` 게이트·`` 컨벤션).
 
 ## 캐시 (`PermissionCache`)
 
@@ -60,7 +64,7 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 ## 통합 검색 (`com.cms.admin.search`, 2026-10-05, `PLAN-admin-unified-search.md` — 적대적 리뷰 4라운드 ship)
 
-`GET /admin/api/search-results?keyword=`(ALWAYS 기능 `SEARCH`, 게이트 패턴은 **이 경로 하나**라 하위 경로는 ADMIN 캐치올) — 상단바 드롭다운이 호출한다. **검색이 권한 우회 경로가 되지 않는 것이 불변식**이라 섹션 노출을 `AdminSearchService`가 이 판정기로 결정하고, 권한 없는 섹션은 빈 배열이 아니라 **응답 키 자체를 생략**한다(`NON_NULL`): 메뉴 = 사이드바와 같은 `getSidebarMenus(menuUrlVisibility)` 결과를 평탄화(자식 있는 그룹은 건너뜀), 공지 = ADMIN 또는 그 회원의 `NOTICE:READ`, 관리자 계정 = ADMIN만(이메일 등 제외). MANAGER 스냅샷은 요청당 한 번만 읽는다(ADMIN은 캐시 미호출). **최소 검색어 2코드포인트**(미만은 쿼리 없이 빈 결과 200 — 서버 비용 제한, 레이트리밋은 두지 않았다), 최대 100자(초과 400), 섹션당 5건 + 전체 건수. **메뉴 이동 URL은 같은 출처 경로만**(`/`로 시작, `//`·`\`·공백·제어문자 없음) 결과에 넣는다 — 메뉴 URL은 저장 시 길이만 검사해 `javascript:` 등이 저장될 수 있기 때문이며(저장 검증·사이드바 `href`는 범위 밖 후속), 화면(`topbar-search.js`)도 같은 검사를 한 번 더 한다. 결과 클릭은 메뉴 → URL, 공지·관리자 → `/admin/notice/manage?id=`·`/admin/member/manage?id=`로 이동해 **관리 화면이 상세 모달을 바로 연다**(`id`는 `^[1-9]\d{0,15}$`만, 연 뒤 `replaceState`로 쿼리에서 제거). 이동 뒤 권한은 기존 게이트·상세 API가 다시 판정한다 — 링크를 연 시점에 권한이 없으면 페이지 게이트 403, 페이지를 받은 뒤 회수되면 상세 API 403이 모달에 표시된다(검색 결과와 이후 요청 사이의 권한 변경은 보장하지 않는다). 시험: `AdminSearchServiceTest`(권한 조합·URL 필터·최소 길이)·`AdminSearchControllerTest`·`AdminSearchIntegrationTest`(실제 스택에서 권한 부여·회수 효과, 메뉴가 사이드바 가시성을 따름)·`MemberKeywordSearchDataJpaTest`.
+`GET /admin/api/search-results?keyword=`(ALWAYS 기능 `SEARCH`, 게이트 패턴은 **이 경로 하나**라 하위 경로는 ADMIN 캐치올) — 상단바 드롭다운이 호출한다. **검색이 권한 우회 경로가 되지 않는 것이 불변식**이라 섹션 노출을 `AdminSearchService`가 이 판정기로 결정하고, 권한 없는 섹션은 빈 배열이 아니라 **응답 키 자체를 생략**한다(`NON_NULL`): 메뉴 = 사이드바와 같은 `getSidebarMenus(menuUrlVisibility)` 결과를 평탄화(자식 있는 그룹은 건너뜀), 게시글 = ADMIN은 전체·MANAGER는 READ가 유효한 게시판만(공지도 공지 게시판의 게시글), 관리자 계정 = ADMIN만(이메일 등 제외). MANAGER 스냅샷은 요청당 한 번만 읽는다(ADMIN은 캐시 미호출). **최소 검색어 2코드포인트**(미만은 쿼리 없이 빈 결과 200 — 서버 비용 제한, 레이트리밋은 두지 않았다), 최대 100자(초과 400), 섹션당 5건 + 전체 건수. **메뉴 이동 URL은 같은 출처 경로만**(`/`로 시작, `//`·`\`·공백·제어문자 없음) 결과에 넣는다 — 메뉴 URL은 저장 시 길이만 검사해 `javascript:` 등이 저장될 수 있기 때문이며(저장 검증·사이드바 `href`는 범위 밖 후속), 화면(`topbar-search.js`)도 같은 검사를 한 번 더 한다. 결과 클릭은 메뉴 → URL, 게시글·관리자 → `/admin/board/posts?boardId=&id=`·`/admin/member/manage?id=`로 이동해(옛 `/admin/notice/manage?id=`는 302 리다이렉트로 호환) **관리 화면이 상세 모달을 바로 연다**(`id`는 `^[1-9]\d{0,15}$`만, 연 뒤 `replaceState`로 쿼리에서 제거). 이동 뒤 권한은 기존 게이트·상세 API가 다시 판정한다 — 링크를 연 시점에 권한이 없으면 페이지 게이트 403, 페이지를 받은 뒤 회수되면 상세 API 403이 모달에 표시된다(검색 결과와 이후 요청 사이의 권한 변경은 보장하지 않는다). 시험: `AdminSearchServiceTest`(권한 조합·URL 필터·최소 길이)·`AdminSearchControllerTest`·`AdminSearchIntegrationTest`(실제 스택에서 권한 부여·회수 효과, 메뉴가 사이드바 가시성을 따름)·`MemberKeywordSearchDataJpaTest`.
 
 ## 사이드바 연동
 

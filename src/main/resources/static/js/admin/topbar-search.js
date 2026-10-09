@@ -172,17 +172,6 @@
                 return buildItem(m.url, String(m.icon || ""), m.name, m.path !== m.name ? m.path : "", "");
             });
         }
-        if (data.notices && data.notices.items.length > 0) {
-            any = true;
-            appendSection("공지사항", data.notices, function (n) {
-                var id = String(n.id);
-                if (!SAFE_ID.test(id)) {
-                    return null;
-                }
-                return buildItem("/admin/notice/manage?id=" + id, "fas fa-fw fa-bullhorn", n.title, "",
-                    n.useYn === false ? "미사용" : "");
-            });
-        }
         if (data.posts && data.posts.items.length > 0) {
             any = true;
             appendSection("게시글", data.posts, function (p) {

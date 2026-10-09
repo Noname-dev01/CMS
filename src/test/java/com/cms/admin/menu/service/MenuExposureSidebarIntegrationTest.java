@@ -39,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
 
-    private static final String NOTICE_URL = "/admin/notice/manage";
+    private static final String NOTICE_URL = "/admin/board/posts";   // 공지는 공지 게시판의 게시글이라 게시글 관리 메뉴가 공지 진입점이다
 
     @Autowired MockMvc mockMvc;
     @Autowired JdbcTemplate jdbc;
@@ -58,7 +58,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
         manager = TestMembers.save(memberRepository, "exposure-manager", Role.ROLE_MANAGER);
         jdbc.update("INSERT INTO board (name, public_yn, attachment_yn, deleted, create_date, update_date) VALUES ('exposure-board', 1, 1, 0, NOW(6), NOW(6))");
         boardId = jdbc.queryForObject("SELECT MAX(id) FROM board WHERE name = 'exposure-board'", Long.class);
-        setNoticeGrants("READ", "CREATE", "UPDATE", "DELETE");
+        setBoardRead(true);
     }
 
     @AfterEach
@@ -76,13 +76,6 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
         cache.invalidate();
     }
 
-    private void setNoticeGrants(String... actions) {
-        jdbc.update("DELETE FROM member_permission WHERE member_id = ? AND feature = 'NOTICE'", manager.getId());
-        for (String action : actions) {
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)", manager.getId(), action);
-        }
-        cache.invalidate();
-    }
 
     private RequestPostProcessor principal(Role role) {
         if (role == Role.ROLE_MANAGER) {
@@ -117,7 +110,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("공지 READ가 있는 MANAGER는 공지 메뉴를 보고, 위임 불가 메뉴는 보지 못한다. ADMIN은 전부 본다")
+    @DisplayName("게시판 READ가 있는 MANAGER는 게시글 관리 메뉴를 보고, 위임 불가 메뉴는 보지 못한다. ADMIN은 전부 본다")
     void managerSidebarFollowsPermission() throws Exception {
         String manager = dashboardHtml(Role.ROLE_MANAGER);
         assertThat(manager).contains("href=\"" + NOTICE_URL + "\"");
@@ -132,11 +125,13 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("권한을 회수하면 같은 요청 흐름의 다음 렌더링부터 공지 메뉴가 사라진다(재로그인 없이)")
-    void revokedNoticeDisappearsImmediately() throws Exception {
+    @DisplayName("권한을 회수하면 같은 요청 흐름의 다음 렌더링부터 게시글 관리 메뉴가 사라진다(재로그인 없이)")
+    void revokedBoardMenuDisappearsImmediately() throws Exception {
         assertThat(dashboardHtml(Role.ROLE_MANAGER)).contains("href=\"" + NOTICE_URL + "\"");
 
-        setNoticeGrants("CREATE"); // READ 없는 쓰기 권한은 의존 규칙상 무효
+        jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
+        jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, 'CREATE')", manager.getId(), boardId);
+        cache.invalidate(); // READ 없는 쓰기 권한은 의존 규칙상 무효
 
         assertThat(dashboardHtml(Role.ROLE_MANAGER)).doesNotContain("href=\"" + NOTICE_URL + "\"");
         assertThat(dashboardHtml(Role.ROLE_ADMIN)).contains("href=\"" + NOTICE_URL + "\"");
@@ -146,12 +141,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("트리 API의 exposure가 실제 MANAGER 사이드바와 일치한다 — 링크가 보이는 리프만 ALL_ADMINS·PERMISSION")
     void treeExposureMatchesManagerSidebar() throws Exception {
         for (boolean granted : new boolean[] {true, false}) {
-            if (granted) {
-                setNoticeGrants("READ");
-            } else {
-                setNoticeGrants();
-            }
-            setBoardRead(granted);   // PERMISSION:NOTICE는 공지 READ, PERMISSION:BOARD는 어느 게시판이든 READ — 둘 다 같은 granted로 움직인다
+            setBoardRead(granted);   // PERMISSION:BOARD는 어느 게시판이든 READ가 있을 때 보인다
             String html = dashboardHtml(Role.ROLE_MANAGER);
 
             int checkedLeaves = 0;

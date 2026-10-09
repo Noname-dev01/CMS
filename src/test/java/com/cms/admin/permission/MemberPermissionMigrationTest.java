@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * V17~V19(회원별 권한 전환)의 업그레이드·복구 경로(PLAN-member-permission.md §7-1 ①·⑫·⑬). 운영 중인 V16 DB(역할 단위 허용 행 + 여러 상태의 회원)를
  * 별도 스키마에서 만든 뒤 최신을 적용한다. 컨텍스트가 실제로 뜨는지({@code ddl-auto: validate})는 공용 Testcontainers 구성이 V1부터 최신까지 적용한
- * DB로 모든 통합 테스트를 기동하는 것으로 이미 고정돼 있다. 최신까지 올리면 V22가 역할 단위 테이블을 지우므로, {@code role_permission}을 다시 읽는
+ * DB로 모든 통합 테스트를 기동하는 것으로 이미 고정돼 있다. V31(공지 흡수 V32 직전)까지 올리면 V22가 역할 단위 테이블을 지우므로, {@code role_permission}을 다시 읽는
  * 시험(V19 재실행)은 V21까지만 적용한다 — V22 자체는 {@code RolePermissionDropMigrationTest}.
  */
 class MemberPermissionMigrationTest extends MariaDbContainerSupport {
@@ -126,11 +126,11 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
     // ── ① V16 → V19 업그레이드 ─────────────────────────────
 
     @Test
-    @DisplayName("V16 DB를 최신까지 올리면 활성·잠금·비밀번호 만료 MANAGER 전원에게 공지 4동작이 복사되고 삭제된 MANAGER·ADMIN·USER는 제외되며 버전은 0이고, 복사가 끝난 뒤 역할 단위 테이블은 지워진다")
+    @DisplayName("V16 DB를 V31(공지 흡수 직전)까지 올리면 활성·잠금·비밀번호 만료 MANAGER 전원에게 공지 4동작이 복사되고 삭제된 MANAGER·ADMIN·USER는 제외되며 버전은 0이고, 복사가 끝난 뒤 역할 단위 테이블은 지워진다")
     void upgrade_copiesRoleGrantsToActiveManagersOnly() throws Exception {
         v16Database();
 
-        flyway(null).migrate();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             for (String copied : List.of("m_active", "m_locked", "m_pwexp")) {
@@ -155,7 +155,7 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
     void upgrade_withoutReadRow_copiesNothing() throws Exception {
         v16Database(roleRow("NOTICE", "CREATE"), roleRow("NOTICE", "DELETE"));
 
-        flyway(null).migrate();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(count(st, "SELECT COUNT(*) FROM member_permission")).isZero();
@@ -168,7 +168,7 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
         v16Database(roleRow("NOTICE", "READ"), roleRow("NOTICE", "EXPORT"), roleRow("GONE_FEATURE", "READ"),
                 roleRow("MENU", "READ"), roleRow("DASHBOARD", "READ"));
 
-        flyway(null).migrate();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(copiedActions(st, "m_active")).containsExactly("NOTICE:READ");
@@ -181,7 +181,7 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
     void upgrade_skipsVariantRows() throws Exception {
         v16Database(roleRow("NOTICE", "read"));
 
-        flyway(null).migrate();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(count(st, "SELECT COUNT(*) FROM member_permission")).isZero();
@@ -207,7 +207,7 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
     @DisplayName("재배포 정리 트랜잭션: 허용 행을 모두 지우고 허용 행이 0개인 회원까지 전원의 permission_version을 올린다")
     void redeployReset_clearsRowsAndBumpsEveryVersion() throws Exception {
         v16Database();
-        flyway(null).migrate();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             // 허용 행이 0개인 회원(ADMIN·USER·삭제된 MANAGER)도 있고 버전이 서로 다른 상태를 만든다
@@ -248,19 +248,19 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
             st.execute(sqlOf("V18__create_member_permission.sql")); // DDL은 적용됐는데 이력 기록 전에 끊긴 상태를 모사
         }
 
-        assertThatThrownBy(() -> flyway(null).migrate()).as("이미 존재하는 테이블이라 V18 재실행 실패").isInstanceOf(FlywayException.class);
+        assertThatThrownBy(() -> flyway("31").migrate()).as("이미 존재하는 테이블이라 V18 재실행 실패").isInstanceOf(FlywayException.class);
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(success(st, "17", 1)).as("V17은 성공 이력").isEqualTo(1);
             assertThat(success(st, "18", 0)).as("V18은 실패 이력").isEqualTo(1);
         }
-        assertThatThrownBy(() -> flyway(null).migrate()).hasMessageContaining("failed migration to version 18");
+        assertThatThrownBy(() -> flyway("31").migrate()).hasMessageContaining("failed migration to version 18");
 
         // 절차: success=1인 V17의 객체는 건드리지 않고 V18의 잔여 객체만 DROP → repair → migrate
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             st.execute("DROP TABLE member_permission");
         }
-        flyway(null).repair();
-        flyway(null).migrate();
+        flyway("31").repair();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(columnExists(st)).as("V17의 permission_version 보존").isTrue();
@@ -280,14 +280,14 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             st.execute(sqlOf("V18__create_member_permission.sql"));
         }
-        assertThatThrownBy(() -> flyway(null).migrate()).isInstanceOf(FlywayException.class);
+        assertThatThrownBy(() -> flyway("31").migrate()).isInstanceOf(FlywayException.class);
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             st.execute("DROP TABLE member_permission");
             st.execute("ALTER TABLE member DROP COLUMN permission_version"); // 잘못된 절차: V17은 success=1이었다
         }
-        flyway(null).repair();
-        flyway(null).migrate();
+        flyway("31").repair();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(success(st, "17", 1)).as("V17은 성공 이력이라 재실행되지 않는다").isEqualTo(1);
@@ -304,13 +304,13 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
             st.execute(sqlOf("V17__add_member_permission_version.sql")); // DDL 적용 후 이력 기록 전 중단 모사
         }
 
-        assertThatThrownBy(() -> flyway(null).migrate()).as("컬럼이 이미 있어 V17 재실행 실패").isInstanceOf(FlywayException.class);
+        assertThatThrownBy(() -> flyway("31").migrate()).as("컬럼이 이미 있어 V17 재실행 실패").isInstanceOf(FlywayException.class);
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(success(st, "17", 0)).isEqualTo(1);
             st.execute("ALTER TABLE member DROP COLUMN permission_version"); // 실패한 버전의 잔여 객체(비어 있어 안전)
         }
-        flyway(null).repair();
-        flyway(null).migrate();
+        flyway("31").repair();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(columnExists(st)).isTrue();

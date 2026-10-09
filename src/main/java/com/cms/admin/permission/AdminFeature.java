@@ -41,18 +41,18 @@ public enum AdminFeature {
     SEARCH(ALWAYS, "통합 검색", EnumSet.of(READ),
             List.of(), List.of("/admin/api/search-results")),
 
-    NOTICE(DELEGABLE, "공지사항", EnumSet.of(READ, CREATE, UPDATE, DELETE),
-            List.of("/admin/notice/manage"),
-            List.of("/admin/notice/**", "/admin/api/notices", "/admin/api/notices/**")),
-
     /**
      * 게시글 관리(게시판별 위임, PLAN-board.md 쟁점 2). 게이트는 기능 단위 READ("어느 게시판이든 조회 권한") — 게시판별 판정은
      * 핸들러의 {@link RequireBoardPermission}이 한다. 게시판 정의({@code /admin/board/manage}·{@code /admin/api/boards}·
      * {@code /admin/api/boards/{id}})는 이 게이트 밖이라 ADMIN 캐치올이 막는다.
+     *
+     * <p>{@code /admin/notice/manage}는 공지가 공지 게시판으로 흡수되며(PLAN-notice-to-board.md 쟁점 9, 2026-10-09 승인) 옛 북마크·검색 링크를
+     * 게시글 관리로 보내는 리다이렉트 전용 정확 경로 1개다. 게이트는 기능 단위 READ라 어느 게시판에든 조회 권한이 있는 MANAGER만 통과하고,
+     * 옛 {@code /admin/notice/**}·{@code /admin/api/notices/**}의 나머지는 ADMIN 캐치올로 떨어진다. 리다이렉트는 GET만 둔다.
      */
     BOARD(BOARD_SCOPED, "게시판", EnumSet.of(READ, CREATE, UPDATE, DELETE),
             List.of("/admin/board/posts"),
-            List.of("/admin/board/posts", "/admin/api/boards/*/posts", "/admin/api/boards/*/posts/**",
+            List.of("/admin/board/posts", "/admin/notice/manage", "/admin/api/boards/*/posts", "/admin/api/boards/*/posts/**",
                     "/admin/api/boards/*/content-images")),
 
     MEMBER(ADMIN_ONLY, "회원 관리", EnumSet.noneOf(PermissionAction.class),

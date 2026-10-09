@@ -51,7 +51,7 @@ public class AdminPermissionEvaluator {
     }
 
     /**
-     * 현재 사용자가 가진 위임 가능 기능의 동작 키({@code "NOTICE:CREATE"}) — 화면 버튼 표시용이며 서버 판정을 대신하지 않는다.
+     * 현재 사용자가 가진 위임 가능 기능의 동작 키({@code "기능:동작"} 형식) — 화면 버튼 표시용이며 서버 판정을 대신하지 않는다.
      * {@link #decide}를 그대로 쓰므로 ADMIN이면 스냅샷 공급자를 호출하지 않고(DB 비의존), 익명·ROLE_USER는 빈 집합이다.
      */
     public Set<String> grantedActionKeys(Supplier<PermissionSnapshot> snapshot, Authentication authentication) {

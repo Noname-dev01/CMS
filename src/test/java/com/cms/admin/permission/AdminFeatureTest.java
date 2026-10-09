@@ -95,10 +95,10 @@ class AdminFeatureTest {
         assertThat(AdminFeature.BOARD.getKind()).isEqualTo(FeatureKind.BOARD_SCOPED);
         assertThat(AdminFeature.BOARD.supports(PermissionAction.READ)).isTrue();
         assertThat(AdminFeature.BOARD.getMenuUrls()).containsExactly("/admin/board/posts");
-        assertThat(AdminFeature.BOARD.getGatePatterns()).containsExactly("/admin/board/posts",
+        assertThat(AdminFeature.BOARD.getGatePatterns()).containsExactly("/admin/board/posts", "/admin/notice/manage",
                 "/admin/api/boards/*/posts", "/admin/api/boards/*/posts/**", "/admin/api/boards/*/content-images");
         AntPathMatcher matcher = new AntPathMatcher();
-        for (String definitionPath : List.of("/admin/board/manage", "/admin/api/boards", "/admin/api/boards/3")) {
+        for (String definitionPath : List.of("/admin/board/manage", "/admin/api/boards", "/admin/api/boards/3", "/admin/notice/manage/extra", "/admin/api/notices")) {
             assertThat(AdminFeature.BOARD.getGatePatterns()).as(definitionPath)
                     .noneMatch(pattern -> matcher.match(pattern, definitionPath));
         }

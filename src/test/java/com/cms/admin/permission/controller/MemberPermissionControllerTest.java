@@ -50,7 +50,7 @@ class MemberPermissionControllerTest {
 
     private static final long MEMBER_ID = 10L;
     private static final String URL = "/admin/api/members/10/permissions";
-    private static final String VALID_BODY = "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"NOTICE\",\"action\":\"READ\"}]}";
+    private static final String VALID_BODY = "{\"boardGrants\":[],\"version\":3,\"grants\":[]}";
 
     @Autowired
     MockMvc mockMvc;
@@ -88,7 +88,7 @@ class MemberPermissionControllerTest {
     private MemberPermissionMatrixResponse matrix() {
         return new MemberPermissionMatrixResponse(MEMBER_ID, "manager10", "매니저10", MemberStatus.ACTIVE, 3L,
                 List.of(new MemberPermissionMatrixResponse.ActionColumn(PermissionAction.READ, "조회")),
-                List.of(new MemberPermissionMatrixResponse.FeatureRow(AdminFeature.NOTICE, "공지사항", FeatureKind.DELEGABLE,
+                List.of(new MemberPermissionMatrixResponse.FeatureRow(AdminFeature.BOARD, "게시판", FeatureKind.BOARD_SCOPED,
                         List.of(PermissionAction.READ), List.of(PermissionAction.READ))),
                 List.of());
     }
@@ -146,8 +146,8 @@ class MemberPermissionControllerTest {
                 .andExpect(jsonPath("$.version").value(3))
                 .andExpect(jsonPath("$.actions[0].action").value("READ"))
                 .andExpect(jsonPath("$.actions[0].label").value("조회"))
-                .andExpect(jsonPath("$.features[0].feature").value("NOTICE"))
-                .andExpect(jsonPath("$.features[0].kind").value("DELEGABLE"))
+                .andExpect(jsonPath("$.features[0].feature").value("BOARD"))
+                .andExpect(jsonPath("$.features[0].kind").value("BOARD_SCOPED"))
                 .andExpect(jsonPath("$.features[0].supportedActions[0]").value("READ"))
                 .andExpect(jsonPath("$.features[0].grantedActions[0]").value("READ"));
     }
@@ -179,7 +179,7 @@ class MemberPermissionControllerTest {
                 "{\"boardGrants\":[],\"version\":3}",
                 "{\"boardGrants\":[],\"version\":3,\"grants\":[null]}",
                 "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"action\":\"READ\"}]}",
-                "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"NOTICE\"}]}");
+                "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"BOARD\"}]}");
         for (String body : bodies) {
             mockMvc.perform(put(URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isBadRequest())
@@ -194,7 +194,7 @@ class MemberPermissionControllerTest {
     void put_unknownEnumOrBrokenJson_parseError() throws Exception {
         List<String> bodies = List.of(
                 "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"NOPE\",\"action\":\"READ\"}]}",
-                "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"NOTICE\",\"action\":\"NOPE\"}]}",
+                "{\"boardGrants\":[],\"version\":3,\"grants\":[{\"feature\":\"BOARD\",\"action\":\"NOPE\"}]}",
                 "{\"boardGrants\":[],\"version\":");
         for (String body : bodies) {
             mockMvc.perform(put(URL).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))

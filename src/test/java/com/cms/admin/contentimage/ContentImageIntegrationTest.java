@@ -72,18 +72,20 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
     private Member admin;
     private Member manager;
     private final List<Long> noticeIds = new ArrayList<>();
+    private long noticeBoardId;
 
     @BeforeEach
     void setUp() {
         admin = TestMembers.save(memberRepository, "ci-admin", Role.ROLE_ADMIN);
         manager = TestMembers.save(memberRepository, "ci-manager", Role.ROLE_MANAGER);
+        noticeBoardId = jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class);
     }
 
     @AfterEach
     void cleanUp() {
         for (Long id : noticeIds) {
-            jdbc.update("DELETE FROM content_image_ref WHERE owner_type = 'NOTICE' AND owner_id = ?", id);
-            jdbc.update("DELETE FROM notice WHERE id = ?", id);
+            jdbc.update("DELETE FROM content_image_ref WHERE owner_type = 'POST' AND owner_id = ?", id);
+            jdbc.update("DELETE FROM post WHERE id = ?", id);
         }
         List<Long> imageIds = jdbc.queryForList(
                 "SELECT id FROM content_image WHERE uploader_id IN (?, ?)", Long.class, admin.getUserId(), manager.getUserId());
@@ -101,10 +103,10 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
     }
 
     private void grant(PermissionAction... actions) {
-        jdbc.update("DELETE FROM member_permission WHERE member_id = ? AND feature = 'NOTICE'", manager.getId());
+        jdbc.update("DELETE FROM member_board_permission WHERE member_id = ? AND board_id = ?", manager.getId(), noticeBoardId);
         for (PermissionAction action : actions) {
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'NOTICE', ?)",
-                    manager.getId(), action.name());
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, ?)",
+                    manager.getId(), noticeBoardId, action.name());
         }
         cache.invalidate();
     }
@@ -114,7 +116,7 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
     }
 
     private MvcResult upload(MockMultipartFile file, RequestPostProcessor who) throws Exception {
-        return mockMvc.perform(multipart("/admin/api/notices/content-images").file(file).with(who).with(csrf())).andReturn();
+        return mockMvc.perform(multipart("/admin/api/boards/{boardId}/content-images", noticeBoardId).file(file).with(who).with(csrf())).andReturn();
     }
 
     private long uploadOk(RequestPostProcessor who) throws Exception {
@@ -130,7 +132,7 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
     private long createNotice(String contentHtml, boolean useYn) throws Exception {
         String body = objectMapper.writeValueAsString(java.util.Map.of(
                 "title", "ci-notice-" + System.nanoTime(), "content", contentHtml, "contentFormat", "HTML", "useYn", useYn));
-        MvcResult result = mockMvc.perform(post("/admin/api/notices").with(TestMembers.asMember(admin)).with(csrf())
+        MvcResult result = mockMvc.perform(post("/admin/api/boards/{boardId}/posts", noticeBoardId).with(TestMembers.asMember(admin)).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(201);
         long id = objectMapper.readTree(result.getResponse().getContentAsString()).get("id").asLong();
@@ -251,7 +253,7 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
         String[] storedKey = new String[1];
 
         assertThatThrownBy(() -> transactionTemplate.executeWithoutResult(status -> {
-            long id = contentImageService.uploadForNotice(pngFileUnchecked()).id();
+            long id = contentImageService.uploadForBoard(noticeBoardId, pngFileUnchecked()).id();
             storedKey[0] = jdbc.queryForObject("SELECT storage_key FROM content_image WHERE id = ?", String.class, id);
             assertThat(fileStorage.load(storedKey[0])).isNotEmpty();
             throw new IllegalStateException("강제 롤백");
@@ -278,7 +280,7 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
         long imageId = uploadOk(TestMembers.asMember(admin));
         long noticeId = createNotice("<p>본문<img src=\"/content-images/" + imageId + "\"></p>", true);
 
-        assertThat(jdbc.queryForList("SELECT image_id FROM content_image_ref WHERE owner_type = 'NOTICE' AND owner_id = ?",
+        assertThat(jdbc.queryForList("SELECT image_id FROM content_image_ref WHERE owner_type = 'POST' AND owner_id = ?",
                 Long.class, noticeId)).containsExactly(imageId);
         mockMvc.perform(get("/content-images/{id}", imageId))
                 .andExpect(status().isOk())
@@ -292,7 +294,7 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("비노출·삭제 공지만 참조하거나 미참조면 익명 404, NOTICE 조회 권한자는 미리보기 200")
+    @DisplayName("비노출·삭제 공지만 참조하거나 미참조면 익명 404, 공지 게시판 조회 권한자는 미리보기 200")
     void hiddenOrUnreferenced_notPublic() throws Exception {
         long unreferenced = uploadOk(TestMembers.asMember(admin));
         long hiddenImage = uploadOk(TestMembers.asMember(admin));
@@ -309,20 +311,21 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
         mockMvc.perform(get("/content-images/{id}", hiddenImage).with(TestMembers.asMember(manager))).andExpect(status().isNotFound());
 
         // 노출로 바꾸면 공개, 소프트 삭제하면 다시 404
-        mockMvc.perform(patch("/admin/api/notices/{id}", hiddenNotice).with(TestMembers.asMember(admin)).with(csrf())
+        mockMvc.perform(patch("/admin/api/boards/{boardId}/posts/{id}", noticeBoardId, hiddenNotice).with(TestMembers.asMember(admin)).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"useYn\":true}")).andExpect(status().isOk());
         mockMvc.perform(get("/content-images/{id}", hiddenImage)).andExpect(status().isOk());
-        jdbc.update("UPDATE notice SET deleted = 1 WHERE id = ?", hiddenNotice);
+        jdbc.update("UPDATE post SET deleted = 1 WHERE id = ?", hiddenNotice);
         mockMvc.perform(get("/content-images/{id}", hiddenImage)).andExpect(status().isNotFound());
     }
 
     @Test
-    @DisplayName("게시판 출처 이미지(PLAN-board.md 쟁점 9): NOTICE 조회 권한자에게도 404, 공지 본문에 넣으면 400이고 기존 참조·공개 상태가 그대로다")
-    void boardScopedImage_notViewableByNoticeReaders_andNotReferencableByNotice() throws Exception {
+    @DisplayName("다른 게시판 출처 이미지(PLAN-board.md 쟁점 9): 공지 게시판 조회 권한자에게도 404, 공지 본문에 넣으면 400이고 기존 참조·공개 상태가 그대로다")
+    void otherBoardScopedImage_notViewableByNoticeBoardReaders_andNotReferencableByNotice() throws Exception {
         long noticeImage = uploadOk(TestMembers.asMember(admin));
         long boardImage = uploadOk(TestMembers.asMember(admin));
         assertThat(jdbc.queryForObject("SELECT scope_type FROM content_image WHERE id = ?", String.class, noticeImage))
-                .as("공지 편집기 업로드는 NOTICE 출처").isEqualTo("NOTICE");
+                .as("공지 편집기도 게시판 업로드 경로라 공지 게시판 출처다").isEqualTo("BOARD");
+        assertThat(jdbc.queryForObject("SELECT scope_id FROM content_image WHERE id = ?", Long.class, noticeImage)).isEqualTo(noticeBoardId);
         // 게시판 업로드 경로는 PR B — 여기서는 출처 컬럼을 직접 바꿔 게시판 이미지를 모사한다
         jdbc.update("UPDATE content_image SET scope_type = 'BOARD', scope_id = 77 WHERE id = ?", boardImage);
         long noticeId = createNotice("<p><img src=\"/content-images/" + noticeImage + "\"></p>", true);
@@ -334,10 +337,10 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
 
         String patch = objectMapper.writeValueAsString(java.util.Map.of(
                 "content", "<p><img src=\"/content-images/" + boardImage + "\"></p>", "contentFormat", "HTML"));
-        mockMvc.perform(patch("/admin/api/notices/{id}", noticeId).with(TestMembers.asMember(admin)).with(csrf())
+        mockMvc.perform(patch("/admin/api/boards/{boardId}/posts/{id}", noticeBoardId, noticeId).with(TestMembers.asMember(admin)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content(patch))
                 .andExpect(status().isBadRequest());
-        assertThat(jdbc.queryForList("SELECT image_id FROM content_image_ref WHERE owner_type = 'NOTICE' AND owner_id = ?",
+        assertThat(jdbc.queryForList("SELECT image_id FROM content_image_ref WHERE owner_type = 'POST' AND owner_id = ?",
                 Long.class, noticeId)).as("거부되면 기존 참조가 남는다").containsExactly(noticeImage);
         mockMvc.perform(get("/content-images/{id}", boardImage)).andExpect(status().isNotFound());
         mockMvc.perform(get("/content-images/{id}", noticeImage)).andExpect(status().isOk());
@@ -363,7 +366,7 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
         long noticeId = createNotice("<p>a<img src=\"/content-images/" + imageId + "\"></p>", true);
         mockMvc.perform(get("/content-images/{id}", imageId)).andExpect(status().isOk());
 
-        mockMvc.perform(patch("/admin/api/notices/{id}", noticeId).with(TestMembers.asMember(admin)).with(csrf())
+        mockMvc.perform(patch("/admin/api/boards/{boardId}/posts/{id}", noticeBoardId, noticeId).with(TestMembers.asMember(admin)).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"<p>a</p>\",\"contentFormat\":\"HTML\"}"))
                 .andExpect(status().isOk());
 
@@ -375,7 +378,7 @@ class ContentImageIntegrationTest extends MariaDbContainerSupport {
     void nonexistentImageIds_areNotReferenced() throws Exception {
         long noticeId = createNotice("<p>a<img src=\"/content-images/987654321\"></p>", true);
 
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM content_image_ref WHERE owner_type = 'NOTICE' AND owner_id = ?",
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM content_image_ref WHERE owner_type = 'POST' AND owner_id = ?",
                 Long.class, noticeId)).isZero();
     }
 

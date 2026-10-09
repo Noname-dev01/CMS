@@ -19,7 +19,6 @@ public class AdminSearchResponse {
 
     private String keyword;
     private Section<MenuItem> menus;
-    private Section<NoticeItem> notices;
     private Section<PostItem> posts;
     private Section<MemberItem> members;
 
@@ -39,15 +38,6 @@ public class AdminSearchResponse {
         private String path;
         private String url;
         private String icon;
-    }
-
-    @Getter
-    @AllArgsConstructor
-    public static class NoticeItem {
-        private Long id;
-        private String title;
-        private Boolean useYn;
-        private LocalDateTime createDate;
     }
 
     /** 게시글은 본문을 담지 않는다. 게시판 이름은 사용자 입력이라 화면이 textContent로만 그린다. */

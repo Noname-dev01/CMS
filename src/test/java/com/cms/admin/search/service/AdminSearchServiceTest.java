@@ -8,9 +8,6 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.admin.menu.service.MenuService;
-import com.cms.admin.notice.domain.Notice;
-import com.cms.admin.notice.repository.NoticeRepository;
-import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.PermissionCache;
@@ -50,7 +47,6 @@ class AdminSearchServiceTest {
     private static final long MANAGER_ID = 7L;
 
     private MenuService menuService;
-    private NoticeRepository noticeRepository;
     private PostRepository postRepository;
     private MemberRepository memberRepository;
     private PermissionCache cache;
@@ -59,14 +55,12 @@ class AdminSearchServiceTest {
     @BeforeEach
     void setUp() {
         menuService = mock(MenuService.class);
-        noticeRepository = mock(NoticeRepository.class);
         postRepository = mock(PostRepository.class);
         memberRepository = mock(MemberRepository.class);
         cache = mock(PermissionCache.class);
-        service = new AdminSearchService(menuService, noticeRepository, postRepository, memberRepository, new AdminPermissionEvaluator(cache));
+        service = new AdminSearchService(menuService, postRepository, memberRepository, new AdminPermissionEvaluator(cache));
 
         when(menuService.getSidebarMenus(any())).thenReturn(List.of());
-        when(noticeRepository.searchNotices(any(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
         when(memberRepository.searchByKeyword(anyString(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
         when(postRepository.searchForAdminSearch(any(), anyString(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
     }
@@ -76,11 +70,12 @@ class AdminSearchServiceTest {
         return new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities());
     }
 
-    private void managerHasNoticeRead(boolean has) {
-        Set<PermissionSnapshot.Grant> grants = has
-                ? Set.of(new PermissionSnapshot.Grant(MANAGER_ID, AdminFeature.NOTICE, PermissionAction.READ))
+    /** MANAGER가 어느 게시판(공지 게시판 포함)이든 READ가 있는지 — 있으면 게시판 3번 READ 하나, 없으면 빈 스냅샷. */
+    private void managerHasBoardRead(boolean has) {
+        Set<PermissionSnapshot.BoardGrant> boardGrants = has
+                ? Set.of(new PermissionSnapshot.BoardGrant(MANAGER_ID, 3L, PermissionAction.READ))
                 : Set.of();
-        when(cache.snapshot()).thenReturn(new PermissionSnapshot(grants));
+        when(cache.snapshot()).thenReturn(new PermissionSnapshot(Set.of(), boardGrants));
     }
 
     private static SidebarMenuResponse menu(long no, String name, String url, SidebarMenuResponse... children) {
@@ -88,62 +83,58 @@ class AdminSearchServiceTest {
                 .children(List.of(children)).build();
     }
 
-    private static Notice notice(long id, String title) {
-        return Notice.builder().id(id).title(title).useYn(true).deleted(false).createDate(LocalDateTime.of(2026, 10, 1, 10, 0)).build();
-    }
-
     private static Member member(long id, String userId, String userName) {
         return Member.builder().id(id).userId(userId).userName(userName).userType(Role.ROLE_MANAGER).status(MemberStatus.ACTIVE).build();
     }
 
     @Test
-    @DisplayName("ADMIN은 메뉴·공지·관리자 세 섹션을 모두 받고 권한 캐시를 조회하지 않는다")
+    @DisplayName("ADMIN은 메뉴·게시글·관리자 세 섹션을 모두 받고 권한 캐시를 조회하지 않는다")
     void admin_getsAllSections_withoutCache() {
-        when(noticeRepository.searchNotices(any(), any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(notice(31, "공지 제목")), Pageable.ofSize(5), 12));
+        when(postRepository.searchForAdminSearch(any(), anyString(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(postRow(31, 3, "공지사항", "공지 제목")), Pageable.ofSize(5), 12));
         when(memberRepository.searchByKeyword(anyString(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(member(9, "mgr01", "김관리")), Pageable.ofSize(5), 1));
 
         AdminSearchResponse result = service.search("공지", auth(Role.ROLE_ADMIN));
 
         assertThat(result.getMenus()).isNotNull();
-        assertThat(result.getNotices().getTotal()).isEqualTo(12);
-        assertThat(result.getNotices().getItems()).extracting(AdminSearchResponse.NoticeItem::getId).containsExactly(31L);
+        assertThat(result.getPosts().getTotal()).isEqualTo(12);
+        assertThat(result.getPosts().getItems()).extracting(AdminSearchResponse.PostItem::getId).containsExactly(31L);
         assertThat(result.getMembers().getItems()).extracting(AdminSearchResponse.MemberItem::getUserId).containsExactly("mgr01");
         verifyNoInteractions(cache);
     }
 
     @Test
-    @DisplayName("공지 읽기 권한이 있는 MANAGER는 메뉴·공지를 받고 관리자 섹션은 받지 않는다(조회도 하지 않는다)")
-    void manager_withNoticeRead_getsMenusAndNotices_neverMembers() {
-        managerHasNoticeRead(true);
+    @DisplayName("게시판 읽기 권한이 있는 MANAGER는 메뉴·게시글을 받고 관리자 섹션은 받지 않는다(조회도 하지 않는다)")
+    void manager_withBoardRead_getsMenusAndPosts_neverMembers() {
+        managerHasBoardRead(true);
 
         AdminSearchResponse result = service.search("공지", auth(Role.ROLE_MANAGER));
 
         assertThat(result.getMenus()).isNotNull();
-        assertThat(result.getNotices()).isNotNull();
+        assertThat(result.getPosts()).isNotNull();
         assertThat(result.getMembers()).isNull();
         verify(memberRepository, never()).searchByKeyword(anyString(), any(Pageable.class));
     }
 
     @Test
-    @DisplayName("공지 읽기 권한이 없는 MANAGER는 공지 섹션이 응답에서 빠지고 공지 조회도 하지 않는다")
-    void manager_withoutNoticeRead_noticeSectionOmitted() {
-        managerHasNoticeRead(false);
+    @DisplayName("읽을 수 있는 게시판이 없는 MANAGER는 게시글 섹션이 응답에서 빠지고 게시글 조회도 하지 않는다")
+    void manager_withoutBoardRead_postsSectionOmitted() {
+        managerHasBoardRead(false);
 
         AdminSearchResponse result = service.search("공지", auth(Role.ROLE_MANAGER));
 
         assertThat(result.getMenus()).isNotNull();
-        assertThat(result.getNotices()).isNull();
+        assertThat(result.getPosts()).isNull();
         assertThat(result.getMembers()).isNull();
-        verify(noticeRepository, never()).searchNotices(any(), any(Pageable.class));
+        verify(postRepository, never()).searchForAdminSearch(any(), anyString(), any(Pageable.class));
         verify(memberRepository, never()).searchByKeyword(anyString(), any(Pageable.class));
     }
 
     @Test
-    @DisplayName("MANAGER의 권한 스냅샷은 메뉴 가시성과 공지 판정에 한 번만 조회된다")
+    @DisplayName("MANAGER의 권한 스냅샷은 메뉴 가시성과 게시글 판정에 한 번만 조회된다")
     void manager_snapshotLoadedOnce() {
-        managerHasNoticeRead(true);
+        managerHasBoardRead(true);
 
         service.search("공지", auth(Role.ROLE_MANAGER));
 
@@ -154,14 +145,14 @@ class AdminSearchServiceTest {
     @DisplayName("MANAGER가 메뉴 서비스에 넘기는 가시성 판정은 그 회원 본인의 권한을 따른다")
     @SuppressWarnings("unchecked")
     void manager_menuVisibilityFollowsOwnGrants() {
-        managerHasNoticeRead(false);
+        managerHasBoardRead(false);
         var captor = org.mockito.ArgumentCaptor.forClass(Predicate.class);
 
         service.search("공지", auth(Role.ROLE_MANAGER));
 
         verify(menuService).getSidebarMenus(captor.capture());
         Predicate<String> visible = captor.getValue();
-        assertThat(visible.test("/admin/notice/manage")).isFalse(); // 공지 READ 없음
+        assertThat(visible.test("/admin/board/posts")).isFalse();    // 어느 게시판에도 READ 없음
         assertThat(visible.test("/admin")).isTrue();                 // 상시 허용
         assertThat(visible.test("/admin/member/manage")).isFalse();  // ADMIN 전용
     }
@@ -173,10 +164,10 @@ class AdminSearchServiceTest {
             AdminSearchResponse result = service.search(keyword, auth(Role.ROLE_ADMIN));
 
             assertThat(result.getMenus()).as("메뉴: " + keyword).isNull();
-            assertThat(result.getNotices()).as("공지: " + keyword).isNull();
+            assertThat(result.getPosts()).as("게시글: " + keyword).isNull();
             assertThat(result.getMembers()).as("관리자: " + keyword).isNull();
         }
-        verifyNoInteractions(menuService, noticeRepository, memberRepository, cache);
+        verifyNoInteractions(menuService, postRepository, memberRepository, cache);
     }
 
     @Test
@@ -305,13 +296,13 @@ class AdminSearchServiceTest {
     }
 
     @Test
-    @DisplayName("[게시글] 읽을 수 있는 게시판이 없는 MANAGER는 게시글 섹션이 응답에서 빠지고 게시글 조회도 하지 않는다 — 공지 READ만으로는 게시글을 못 본다")
+    @DisplayName("[게시글] 쓰기 권한만 있고 READ가 없는 게시판뿐인 MANAGER는 게시글 섹션이 응답에서 빠지고 게시글 조회도 하지 않는다(의존 규칙)")
     void manager_withoutReadableBoards_postsSectionOmitted() {
-        managerHasNoticeRead(true);
+        when(cache.snapshot()).thenReturn(new PermissionSnapshot(Set.of(),
+                Set.of(new PermissionSnapshot.BoardGrant(MANAGER_ID, 4L, PermissionAction.CREATE))));
 
         AdminSearchResponse result = service.search("보고", auth(Role.ROLE_MANAGER));
 
-        assertThat(result.getNotices()).isNotNull();
         assertThat(result.getPosts()).isNull();
         verify(postRepository, never()).searchForAdminSearch(any(), anyString(), any(Pageable.class));
     }

@@ -215,7 +215,7 @@ public class MemberPermissionService {
             if (feature.getKind() != FeatureKind.DELEGABLE) {
                 throw new InvalidRequestException("위임할 수 없는 기능입니다: " + feature.getLabel());
             }
-            // 현재 카탈로그의 위임 가능 기능(NOTICE)은 모든 동작을 지원해 도달하지 않는 방어 분기다.
+            // 현재 카탈로그에는 DELEGABLE 기능이 없어(공지는 게시판 권한으로 흡수됨) 도달하지 않는 방어 분기다.
             if (!feature.supports(action)) {
                 throw new InvalidRequestException(feature.getLabel() + "은(는) " + action.getLabel() + " 동작을 지원하지 않습니다.");
             }

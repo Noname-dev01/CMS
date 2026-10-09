@@ -85,7 +85,7 @@ class RolePermissionDropMigrationTest extends MariaDbContainerSupport {
     void v22_dropsRoleTablesOnly() throws Exception {
         v21Database();
 
-        flyway(null).migrate();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(roleTables(st)).isZero();
@@ -103,7 +103,7 @@ class RolePermissionDropMigrationTest extends MariaDbContainerSupport {
             st.execute("DROP TABLE role_permission"); // MariaDB DDL 암묵 커밋 — 첫 문장만 반영된 중단을 모사
         }
 
-        flyway(null).migrate();
+        flyway("31").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(roleTables(st)).isZero();
@@ -121,19 +121,19 @@ class RolePermissionDropMigrationTest extends MariaDbContainerSupport {
                     + "CONSTRAINT fk_v22_blocker FOREIGN KEY (role) REFERENCES permission_role (role))");
         }
 
-        assertThatThrownBy(() -> flyway(null).migrate()).isInstanceOf(FlywayException.class);
+        assertThatThrownBy(() -> flyway("31").migrate()).isInstanceOf(FlywayException.class);
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(v22(st, 0)).as("V22 실패 이력").isEqualTo(1);
             assertThat(roleTables(st)).as("자식은 지워지고 부모만 남은 부분 실패").isEqualTo(1);
         }
-        assertThatThrownBy(() -> flyway(null).migrate()).as("원인을 없애기 전에도 SQL 실행 전에 거부된다")
+        assertThatThrownBy(() -> flyway("31").migrate()).as("원인을 없애기 전에도 SQL 실행 전에 거부된다")
                 .hasMessageContaining("failed migration to version 22");
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             st.execute("DROP TABLE v22_blocker"); // ① 원인 제거
         }
-        flyway(null).repair(); // ② 실패 이력 정리
-        flyway(null).migrate(); // ③ 재실행 — 이미 없는 role_permission은 IF EXISTS로 통과
+        flyway("31").repair(); // ② 실패 이력 정리
+        flyway("31").migrate(); // ③ 재실행 — 이미 없는 role_permission은 IF EXISTS로 통과
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(roleTables(st)).isZero();
@@ -147,7 +147,7 @@ class RolePermissionDropMigrationTest extends MariaDbContainerSupport {
     @DisplayName("이전 앱 롤백 호환: V22가 적용된 DB를 V21 이하 파일만 가진 마이그레이션 위치로 validate·migrate해도 실패하지 않는다(미래 버전은 기본값으로 무시)")
     void rollbackToAppWithoutV22_startsAgainstV22Database() throws Exception {
         v21Database();
-        flyway(null).migrate();
+        flyway("31").migrate();
 
         // 이전 앱은 자기 버전 이하 파일만 가진다 — V22 이후 파일을 하나라도 남기면 적용 이력과의 관계가 실제와 달라진다
         Path upToV21 = Files.createTempDirectory("migration-up-to-v21");
