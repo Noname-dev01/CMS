@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
 /**
  * 게시판 정의(PLAN-board.md 쟁점 6). ADMIN만 만들고 고친다. {@code publicYn}은 공개 사이트 노출 여부,
  * {@code attachmentYn}은 새 첨부 업로드 허용 여부(끄더라도 기존 첨부는 그대로 노출·관리된다 — PR B).
- * {@code deleted}는 소프트 삭제이며 삭제 API는 게시글 검사와 함께 PR B에서 추가한다.
+ * {@code deleted}는 소프트 삭제이며 살아 있는 게시글이 없을 때만 삭제할 수 있다.
  */
 @Entity
 @Getter
@@ -59,6 +59,12 @@ public class Board {
         if (attachmentYn != null) {
             this.attachmentYn = attachmentYn;
         }
+        this.updateDate = now;
+    }
+
+    /** 소프트 삭제. deleted=true 처리 후 수정 시각을 갱신한다. */
+    public void softDelete(LocalDateTime now) {
+        this.deleted = true;
         this.updateDate = now;
     }
 }

@@ -15,4 +15,10 @@ public class BoardPageController {
     public String boardManagePage() {
         return "admin/board/manage";
     }
+
+    /** 게시글 관리 화면. URL 게이트(BOARD 기능 단위 READ)가 HTML 403을 낸다 — 게시판별 판정은 API가 한다. {@code ?boardId=&id=} 진입을 지원한다. */
+    @GetMapping("/posts")
+    public String postManagePage() {
+        return "admin/board/posts";
+    }
 }

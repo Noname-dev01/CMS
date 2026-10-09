@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${post.title}">게시글</title>
+    <link rel="stylesheet" th:href="@{/css/public/board.css}">
+</head>
+<body>
+<div class="public-board-container">
+    <div class="public-board-header">
+        <h1><a th:href="@{/boards/{id}(id=${post.boardId})}" th:text="${post.boardName}">게시판</a></h1>
+    </div>
+
+    <div class="board-detail">
+        <h2 class="board-detail-title" th:text="${post.title}"></h2>
+        <div class="board-detail-meta" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd HH:mm')}"></div>
+        <!--/* 본문은 PublicPostDetail.from이 HtmlContentSanitizer로 정리한 HTML이다. 이스케이프 없는 출력은
+             이 한 곳만 허용된다(PublicBoardTemplateConventionTest가 고정 — PLAN-html-editor.md 쟁점 12).
+             파서 수준 주석이라 응답에 나가지 않는다. */-->
+        <div class="board-detail-content" th:utext="${post.content}"></div>
+
+        <div class="board-attachments" th:if="${not #lists.isEmpty(post.attachments)}">
+            <h3 class="board-attachments-title">첨부파일</h3>
+            <ul class="board-attachments-list">
+                <li class="board-attachment-item" th:each="file : ${post.attachments}">
+                    <a th:href="@{/boards/{boardId}/posts/{postId}/attachments/{fid}(boardId=${post.boardId}, postId=${post.id}, fid=${file.id})}"
+                       th:text="${file.originalFilename}"></a>
+                    <span class="board-attachment-size" th:text="${file.fileSizeText}"></span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <a class="board-back-link" th:href="@{/boards/{id}(id=${post.boardId})}">&larr; 목록으로</a>
+</div>
+</body>
+</html>

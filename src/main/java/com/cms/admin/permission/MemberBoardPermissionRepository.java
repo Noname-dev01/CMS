@@ -28,4 +28,12 @@ public interface MemberBoardPermissionRepository extends JpaRepository<MemberBoa
     @Modifying
     @Query("delete from MemberBoardPermission p where p.memberId = :memberId and p.boardId = :boardId and p.action = :action")
     int deleteKey(@Param("memberId") Long memberId, @Param("boardId") Long boardId, @Param("action") String action);
+
+    /**
+     * 게시판 삭제가 그 게시판의 허용 행을 전부 지운다(PLAN-board.md 쟁점 6). 삭제 건수를 돌려준다 — 0이면 캐시 무효화가 필요 없다.
+     * 영속성 컨텍스트는 비우지 않는다(호출 트랜잭션의 게시판 변경이 남아야 한다).
+     */
+    @Modifying
+    @Query("delete from MemberBoardPermission p where p.boardId = :boardId")
+    int deleteByBoardId(@Param("boardId") Long boardId);
 }

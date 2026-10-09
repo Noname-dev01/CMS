@@ -22,16 +22,18 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
@@ -414,6 +416,44 @@ class SecurityConfigTest {
                 .andExpect(redirectedUrl("/admin/login"));
     }
 
+    // ==================== 공개 게시판 인가 범위 검증 (2026-10-08 승인, PLAN-board.md 쟁점 10) ====================
+    // /boards/**가 하위 세그먼트 전체를 포괄하므로 목록·상세·첨부 라우트는 별도 규칙 없이 무인증 공개다 — 암묵적 동작을 명시적으로 고정한다.
+
+    @Test
+    @DisplayName("비인증 GET /boards/{id}, /boards/{id}/posts/{postId}, 첨부 다운로드는 200 (permitAll, 로그인 리다이렉트 아님)")
+    void publicBoards_unauthenticatedGet_ok() throws Exception {
+        mockMvc.perform(get("/boards/1")).andExpect(status().isOk());
+        mockMvc.perform(get("/boards/1/posts/2")).andExpect(status().isOk());
+        mockMvc.perform(get("/boards/1/posts/2/attachments/3")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비인증 HEAD /boards/{id}/posts/{postId}/attachments/{attachmentId}는 200 (permitAll)")
+    void publicBoards_unauthenticatedHead_ok() throws Exception {
+        mockMvc.perform(head("/boards/1/posts/2/attachments/3")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("CSRF 없는 비인증 POST /boards/{id}는 CsrfFilter가 먼저 차단해 403")
+    void publicBoards_unauthenticatedPost_missingCsrf_forbidden() throws Exception {
+        mockMvc.perform(post("/boards/1")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("CSRF 포함 비인증 POST/PATCH/DELETE /boards/**는 denyAll+익명 판별로 /admin/login 302 리다이렉트 (405/401이 아님)")
+    void publicBoards_unauthenticatedWrite_withCsrf_redirectsToLogin() throws Exception {
+        mockMvc.perform(post("/boards/1").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/boards/1/posts/2/attachments/3").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(delete("/boards/1/posts/2").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    @Test
+    @DisplayName("CSRF 포함 ADMIN POST /boards/{id}는 denyAll+인증 사용자 판별로 정확히 403 (denyAll이 역할 불문임을 확인)")
+    @WithMockUser(roles = "ADMIN")
+    void publicBoards_adminPost_withCsrf_forbidden() throws Exception {
+        mockMvc.perform(post("/boards/1").with(csrf())).andExpect(status().isForbidden());
+    }
+
     // ==================== actuator 인가 범위 검증 (PLAN-prod-profile.md 결정 3, 2026-07-29 승인) ====================
 
     @Test
@@ -684,6 +724,41 @@ class ActuatorEnvStubController {
         // 실제 /actuator/env 핸들러가 없어도(exposure=health only) denyAll 규칙은
         // 별도로 실제 등록 여부를 신경 쓰지 않고 경로 자체를 막아야 한다.
         return "{}";
+    }
+}
+
+@TestStubController
+class PublicBoardStubController {
+
+    @GetMapping("/boards/{boardId}")
+    String list() {
+        return "public-board-list";
+    }
+
+    @PostMapping("/boards/{boardId}")
+    ResponseEntity<String> create() {
+        // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
+        return ResponseEntity.ok("{}");
+    }
+
+    @GetMapping("/boards/{boardId}/posts/{postId}")
+    String detail() {
+        return "public-board-detail";
+    }
+
+    @DeleteMapping("/boards/{boardId}/posts/{postId}")
+    ResponseEntity<String> deletePost() {
+        return ResponseEntity.ok("{}");
+    }
+
+    @GetMapping("/boards/{boardId}/posts/{postId}/attachments/{attachmentId}")
+    String attachment() {
+        return "public-board-attachment";
+    }
+
+    @PostMapping("/boards/{boardId}/posts/{postId}/attachments/{attachmentId}")
+    ResponseEntity<String> attachmentCreate() {
+        return ResponseEntity.ok("{}");
     }
 }
 

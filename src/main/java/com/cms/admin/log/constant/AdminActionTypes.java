@@ -39,13 +39,23 @@ public final class AdminActionTypes {
     /** 게시판 생성·수정 — targetType = BOARD, targetId = 게시판 ID. 이름은 사용자 입력이라 targetLabel을 두지 않는다 */
     public static final String BOARD_CREATE = "BOARD_CREATE";
     public static final String BOARD_UPDATE = "BOARD_UPDATE";
+    /** 게시판 삭제(소프트) — targetType = BOARD, targetId = 게시판 ID. 살아 있는 게시글이 없을 때만 가능하다 */
+    public static final String BOARD_DELETE = "BOARD_DELETE";
+    /** 게시글 생성·수정·삭제 — targetType = POST, targetId = 게시글 ID. 제목은 사용자 입력이라 targetLabel을 두지 않는다 */
+    public static final String POST_CREATE = "POST_CREATE";
+    public static final String POST_UPDATE = "POST_UPDATE";
+    public static final String POST_DELETE = "POST_DELETE";
+    /** 게시글 첨부 업로드·삭제 — targetType = POST_ATTACHMENT, targetId = 첨부 ID */
+    public static final String POST_ATTACHMENT_UPLOAD = "POST_ATTACHMENT_UPLOAD";
+    public static final String POST_ATTACHMENT_DELETE = "POST_ATTACHMENT_DELETE";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
             ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_DELETE, MENU_REORDER, MENU_MOVE, MENU_STRUCTURE_APPLY,
             ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE,
             NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE, PERMISSION_UPDATE, MESSAGE_SEND, CONTENT_IMAGE_UPLOAD,
-            BOARD_CREATE, BOARD_UPDATE
+            BOARD_CREATE, BOARD_UPDATE, BOARD_DELETE,
+            POST_CREATE, POST_UPDATE, POST_DELETE, POST_ATTACHMENT_UPLOAD, POST_ATTACHMENT_DELETE
     );
 
     private AdminActionTypes() {}

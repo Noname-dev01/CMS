@@ -79,6 +79,7 @@
                                     </div>
                                     <button type="submit" class="btn btn-primary" id="btnSave">생성</button>
                                     <button type="button" class="btn btn-outline-secondary d-none" id="btnNew">새 게시판 작성</button>
+                                    <button type="button" class="btn btn-outline-danger d-none" id="btnDelete">삭제</button>
                                 </form>
                             </div>
                         </div>
@@ -109,6 +110,7 @@
     const boardAttachment = document.getElementById("boardAttachment");
     const btnSave = document.getElementById("btnSave");
     const btnNew = document.getElementById("btnNew");
+    const btnDelete = document.getElementById("btnDelete");
     const btnReload = document.getElementById("btnReload");
     const pageAlert = document.getElementById("pageAlert");
     const pageSuccess = document.getElementById("pageSuccess");
@@ -218,6 +220,7 @@
         boardAttachment.checked = !!board.attachmentYn;
         btnSave.textContent = "저장";
         btnNew.classList.remove("d-none");
+        btnDelete.classList.remove("d-none");
         loadList();
     }
 
@@ -232,13 +235,14 @@
         boardAttachment.checked = true;
         btnSave.textContent = "생성";
         btnNew.classList.add("d-none");
+        btnDelete.classList.add("d-none");
         loadList();
     }
 
     // 저장 중에는 입력·작성 대상 전환을 잠가 응답 반영 시 초안이 덮어써지지 않게 한다
     function setSaving(value) {
         saving = value;
-        [boardName, boardPublic, boardAttachment, btnSave, btnNew].forEach(function (el) { el.disabled = value; });
+        [boardName, boardPublic, boardAttachment, btnSave, btnNew, btnDelete].forEach(function (el) { el.disabled = value; });
     }
 
     boardForm.addEventListener("submit", async function (event) {
@@ -274,6 +278,39 @@
             }
         } catch (e) {
             showError("저장에 실패했습니다. 네트워크 상태를 확인해 주세요.");
+        } finally {
+            setSaving(false);
+        }
+    });
+
+    // 삭제는 살아 있는 게시글이 없을 때만 된다(409) — 삭제하면 그 게시판에 부여된 MANAGER 권한도 함께 사라진다.
+    btnDelete.addEventListener("click", async function () {
+        if (!editing || saving) {
+            return;
+        }
+        const target = editing;                        // 요청 시작 시점의 대상을 고정한다
+        if (!confirm("게시판 #" + target.id + "을(를) 삭제하시겠습니까?\n이 게시판에 부여된 MANAGER 권한도 함께 사라집니다.")) {
+            return;
+        }
+        setSaving(true);
+        try {
+            const response = await fetch(BOARDS_URL + "/" + encodeURIComponent(target.id), {
+                method: "DELETE",
+                headers: getCsrfHeaders()
+            });
+            if (response.ok || response.status === 204) {
+                showSuccess("게시판을 삭제했습니다: #" + target.id);
+                setSaving(false);
+                startCreate();
+            } else if (response.status === 404) {
+                showError(await extractErrorMessage(response, "게시판을 찾을 수 없습니다."));
+                setSaving(false);
+                startCreate();
+            } else {
+                showError(await extractErrorMessage(response, "삭제에 실패했습니다."));
+            }
+        } catch (e) {
+            showError("삭제에 실패했습니다. 네트워크 상태를 확인해 주세요.");
         } finally {
             setSaving(false);
         }

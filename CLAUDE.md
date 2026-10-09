@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 파일 위치 | 담긴 내용 |
 |---|---|
-| `com.cms.admin.board` | 범용 게시판(PR A) — 게시판 정의(ADMIN 전용·소프트 삭제는 PR B)·게시판 행 잠금 규칙·내 게시판 목록 API |
-| `com.cms.admin.contentimage` | 편집기 본문 이미지 — 업로드 권한(CREATE∨UPDATE 재판정)·카운터 행 잠금 상한·참조 교체·공개 판정·수동 회수 |
+| `com.cms.admin.board` | 범용 게시판 — 게시판 정의(ADMIN 전용·소프트 삭제는 살아 있는 게시글이 없을 때만)·게시글·첨부(게시판별 권한, 루트 스토리지)·게시판 행 잠금 규칙(생성 `FOR SHARE`/삭제 `FOR UPDATE`)·내 게시판 목록 API·통합 검색 게시글 섹션 |
+| `com.cms.admin.contentimage` | 편집기 본문 이미지 — 업로드 권한(CREATE∨UPDATE 재판정, 공지·게시판 두 진입점)·업로드 출처(NOTICE·BOARD)·카운터 행 잠금 상한·참조 교체·공개 판정·수동 회수 |
 | `com.cms.admin.log` | `@AdminActionLogged` 독립 트랜잭션(REQUIRES_NEW)·예외 격리 계약 |
 | `com.cms.admin.member` | 초기 관리자 부트스트랩, 비밀번호 재설정·로그인 실패 잠금·90일 만료, 프로필 이미지 |
 | `com.cms.admin.menu` | 사이드바 3단 제약·권한 판정기 기반 노출 계산(`MenuVisibility`)·노출 안내(`exposure`)·메뉴 시드 조건 |
@@ -18,6 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `com.cms.admin.notification` | 상단바 알림(E1~E4)의 최선 노력 생성 계약·리스너 실행 순서(메서드 `@Order`, AFTER_COMMIT이 AFTER_COMPLETION보다 먼저)·`beforeId` 커서·D11(열람 시점 ADMIN)·V20 |
 | `com.cms.admin.permission` | MANAGER 위임 권한 카탈로그·판정기·캐시(**회원별 허용 행**), 권한관리 API·화면(`PUT` 교체·409·변형 행 가드), 역할 변경 시 개별 권한 삭제, 인가 선언 컨벤션, 롤백·재배포 주의 |
 | `com.cms.config` | `SecurityConfig` 경로별 접근 제어 표(승인 이력 포함) |
+| `com.cms.publicweb.board` | 공개 `/boards/**` — 공개 불변식 격리(게시판·게시글 소속)·404 흡수·스트리밍 복제 주의·이미지 공개 판정 연동 |
 | `com.cms.publicweb.notice` | 공개 노출 불변식 격리, 404 흡수 정책, 공개 첨부 TOCTOU |
 | `src/test/java` | MockMvc·spring-security-test·슬라이스 우선·Testcontainers |
 
@@ -46,7 +47,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 - `publicweb`은 비관리자(공개) 화면 전용으로 `admin` 패키지와 분리한다. `@AdminPage` 미부착 대상이며, 예외 처리도 `publicweb/support/PublicWebExceptionAdvice`가 범위 한정으로 담당한다.
 - `config/ProfileGuardEnvironmentPostProcessor`는 dev+prod 동시 활성화와 활성 프로파일 0개를 컨텍스트 생성 **전에** 차단한다(`META-INF/spring.factories` 등록).
 - **콘텐츠 본문은 HTML이다**(2026-10-07, `adversarial-review/plan/PLAN-html-editor.md`): 관리 화면은 Quill 2.0.3 편집기(`/vendor/quill/`, `static/js/admin/notice-editor.js`), 서버는 `common/html/HtmlContentSanitizer`(jsoup 1.23.2 허용 목록 — `p br strong em u s h2 h3 ol ul li blockquote a img`, 링크는 http/https/mailto, 이미지는 `/content-images/{id}`만)로 **저장 시와 출력 시 모두** 정리한다(멱등). 본문을 출력하는 새 경로·새 콘텐츠 도메인은 반드시 이 sanitizer를 거치고, 편집기 `formats`·툴바·sanitizer 허용 목록을 1:1로 맞춘다. 저장 형식의 공백은 "연속 공백의 첫 칸만 일반 공백, 나머지와 블록 앞뒤는 `&nbsp;`"다 — Quill은 HTML을 읽을 때 일반 공백 연속을 접고 `getSemanticHTML()`은 모든 공백을 `&nbsp;`로 내보내므로 서버가 단일 원본으로 맞춘다(`docs/troubleshooting.md`). 첫 적용은 공지(`com.cms.admin.notice`의 `CLAUDE.md`).
-- `common/storage`의 `FileStorage`(구현 `LocalDiskFileStorage`)는 파일 스토리지 추상화이며, 공지 첨부파일이 첫 소비자다. 읽기는 `load()`(byte[])와 `open()`(스트림 — 반환된 `StoredFileStream`은 호출자가 반드시 닫는다, 무인증 공개 다운로드가 사용) 두 가지다. 둘 다 같은 `openChannel()`(`NOFOLLOW_LINKS`)로 열어 **최종 파일 자체가 심볼릭 링크이면 `IllegalStateException`(500)으로 거부**하고, 경로 검증 기준은 "설정 루트의 실경로 + 네임스페이스 이름(문자 그대로)"이라 `root/profile` 디렉터리 자체가 외부 링크여도 store·load·delete가 루트 밖으로 나가지 않는다(2026-10-07, `adversarial-review/plan/PLAN-storage-load-nofollow.md`). 하드 링크·검증과 열기 사이의 부모 디렉터리 교체 경합은 막지 못한다(저장 볼륨 쓰기 권한 전제, 수용).
+- `common/storage`의 `FileStorage`(구현 `LocalDiskFileStorage`)는 파일 스토리지 추상화이며, 공지 첨부파일이 첫 소비자다. 읽기는 `load()`(byte[])와 `open()`(스트림 — 반환된 `StoredFileStream`은 호출자가 반드시 닫는다, 무인증 공개 다운로드가 사용) 두 가지다. 둘 다 같은 `openChannel()`(`NOFOLLOW_LINKS`)로 열어 **최종 파일 자체가 심볼릭 링크이면 `IllegalStateException`(500)으로 거부**하고, 경로 검증 기준은 "설정 루트의 실경로 + 네임스페이스 이름(문자 그대로)"이라 `root/profile` 디렉터리 자체가 외부 링크여도 store·load·delete가 루트 밖으로 나가지 않는다(2026-10-07, `adversarial-review/plan/PLAN-storage-load-nofollow.md`). 하드 링크·검증과 열기 사이의 부모 디렉터리 교체 경합은 막지 못한다(저장 볼륨 쓰기 권한 전제, 수용). **업로드 파일의 트랜잭션 정리**는 `FileStorageTransactionSupport`가 맡는다 — `deleteOnRollback`은 `STATUS_ROLLED_BACK`이면서 `beforeCommit`이 불리지 않은 **확정 롤백일 때만** 파일을 지우고, 그 밖(커밋 시도 이후의 비커밋 — Spring은 커밋 응답 유실에도 `ROLLED_BACK`을 넘긴다 — 과 롤백 자체 실패 `UNKNOWN`)은 DB가 커밋됐을 수 있어 **보존 + WARN**한다(최악이 "행 없는 파일"이고 `docs/deployment.md` 수동 회수 ⑤·⑤-2가 정리한다, 2026-10-08 `PLAN-board.md` R5-1·v10). 첨부 검증 규칙은 `common/attachment/AttachmentFilePolicy`, 본문(HTML) 검증 규칙은 `common/html/ContentBodyPolicy` 한 벌을 공지와 게시글이 함께 쓴다(보안 화이트리스트가 두 벌이 되면 한쪽만 고쳐지는 표류가 생긴다).
 - **`spring.jpa.open-in-view: false`**(전 프로파일 공통, 2026-09-29): OSIV를 켜 두면 서비스 트랜잭션이 끝나도 요청이 끝날 때까지 JDBC 연결이 유지돼 응답 전송이 긴 요청(공개 첨부 다운로드)이 커넥션 풀을 점유한다(실측: 전송 중 활성 커넥션 1→0). 엔티티에 연관관계 매핑이 없어 지연 로딩 의존이 없다. 다시 켜면 `PublicAttachmentStreamingServerTest`가 실패한다.
 - **시각 원천은 KST `Clock` 하나**(`AppConfig.clock()`, 2026-09-30): 저장·조회 코드는 `LocalDateTime.now()` 같은 시스템 기본 시각 호출을 쓰지 않고 주입된 `Clock`(`LocalDateTime.now(clock)`)을 쓴다. 엔티티는 시계를 모르며 도메인 변경 메서드가 `LocalDateTime now`를 파라미터로 받는다(서비스가 한 요청에서 1회 산출해 전달). `CmsApplication.main()`이 JVM 기본 시간대를 KST로 고정하므로 운영 값은 원래 같았지만, `main()`을 거치지 않는 테스트 JVM(CI는 UTC)에서 시각 원천이 갈라지는 것을 막는 규약이다 — `ClockUsageConventionTest`가 `src/main/java`를 스캔해 위반을 잡는다. 허용 예외 2건: `LocalDiskFileStorage`(저장 디렉터리 샤딩 이름)·`ApiErrorResponse`(static 팩토리라 주입 불가 → `AppConfig.KST` 시간대만 공유). 한계: Flyway 시드 `V3`·`V9`는 DB `NOW()`를 쓴다(머지된 마이그레이션이라 수정 금지). 새 `now()` 호출이 필요하면 Clock 주입 대신 예외를 추가하지 말 것. 시각이 시스템 시각과 무관함을 검증하려면 `JAVA_TOOL_OPTIONS=-Duser.timezone=UTC ./gradlew cleanTest test`(환경변수는 Gradle 입력이 아니라 `cleanTest` 없이는 UP-TO-DATE로 생략될 수 있음). 상세는 `adversarial-review/plan/PLAN-clock-unification.md` 참조.
 

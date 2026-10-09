@@ -1,0 +1,267 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Noto Sans KR', sans-serif;
+    margin: 0;
+    background-color: #f5f7fa;
+    color: #2c3e50;
+}
+
+.public-board-container {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem;
+}
+
+.public-board-header {
+    margin-bottom: 2rem;
+}
+
+.public-board-header h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.public-board-header a {
+    color: #2c3e50;
+    text-decoration: none;
+}
+
+.board-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+}
+
+.board-list-item {
+    border-bottom: 1px solid #edf0f3;
+}
+
+.board-list-item:last-child {
+    border-bottom: none;
+}
+
+.board-list-item a {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 1.1rem 1.5rem;
+    color: #2c3e50;
+    text-decoration: none;
+}
+
+.board-list-item a:hover {
+    background-color: #f8f9fb;
+}
+
+.board-title {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-date {
+    flex: 0 0 auto;
+    font-size: 0.85rem;
+    color: #95a5a6;
+}
+
+.board-empty {
+    padding: 3rem 1.5rem;
+    text-align: center;
+    color: #95a5a6;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+}
+
+.board-pagination {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+
+.board-pagination a,
+.board-pagination span {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #2c3e50;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.board-pagination span.disabled {
+    color: #c3c9cf;
+}
+
+.board-detail {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    padding: 2rem;
+}
+
+.board-detail-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+}
+
+.board-detail-meta {
+    font-size: 0.85rem;
+    color: #95a5a6;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid #edf0f3;
+}
+
+/* 본문은 서버가 정리한 HTML(허용 태그: p br strong em u s h2 h3 ol ul li blockquote a img).
+   표시 규칙은 관리 화면 편집기(Quill .ql-editor)와 같게 맞춘다 — pre-wrap(연속 공백·빈 줄 보존) + 문단 여백 0
+   (PLAN-html-editor.md 쟁점 12). */
+.board-detail-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.7;
+}
+
+.board-detail-content p,
+.board-detail-content h2,
+.board-detail-content h3,
+.board-detail-content ol,
+.board-detail-content ul,
+.board-detail-content blockquote {
+    margin: 0;
+}
+
+.board-detail-content h2 {
+    font-size: 1.3rem;
+    font-weight: 700;
+}
+
+.board-detail-content h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+}
+
+.board-detail-content ol,
+.board-detail-content ul {
+    padding-left: 1.5em;
+}
+
+.board-detail-content blockquote {
+    border-left: 4px solid #d5dbe1;
+    padding-left: 1em;
+    color: #5d6d7e;
+}
+
+.board-detail-content img {
+    max-width: 100%;
+    height: auto;
+}
+
+.board-attachments {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #edf0f3;
+}
+
+.board-attachments-title {
+    font-size: 1rem;
+    font-weight: 500;
+    margin: 0 0 0.75rem;
+    color: #2c3e50;
+}
+
+.board-attachments-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.board-attachment-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.6rem 0;
+}
+
+.board-attachment-item a {
+    color: #3498db;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-attachment-item a:hover {
+    text-decoration: underline;
+}
+
+.board-attachment-size {
+    flex: 0 0 auto;
+    font-size: 0.85rem;
+    color: #95a5a6;
+}
+
+.board-back-link {
+    display: inline-block;
+    margin-top: 2rem;
+    color: #3498db;
+    text-decoration: none;
+}
+
+/* 공개 목록 제목 검색 (공지 CSS(notice.css)를 복사해 접두어만 바꾼 독립 파일 — PLAN-board.md 쟁점 10, ①-2에서 공지가 흡수되면 공통화를 판단한다) */
+.board-search {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.board-search input[type="search"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid #dfe4ea;
+    border-radius: 8px;
+    font: inherit;
+    background: #fff;
+}
+
+.board-search input[type="search"]:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.board-search button {
+    flex: 0 0 auto;
+    padding: 0.6rem 1.1rem;
+    border: none;
+    border-radius: 8px;
+    background: #3498db;
+    color: #fff;
+    font: inherit;
+    cursor: pointer;
+}
+
+.board-search-reset {
+    flex: 0 0 auto;
+    color: #3498db;
+    text-decoration: none;
+    font-size: 0.9rem;
+}

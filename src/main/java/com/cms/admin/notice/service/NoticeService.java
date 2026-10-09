@@ -15,7 +15,7 @@ import com.cms.admin.notice.repository.NoticeRepository;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
-import com.cms.common.html.HtmlContentSanitizer;
+import com.cms.common.html.ContentBodyPolicy;
 import com.cms.common.html.SanitizedHtml;
 import com.cms.config.auth.AdminSecurityService;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +26,6 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.LocalDateTime;
 
@@ -36,17 +35,6 @@ public class NoticeService {
 
     /** 목록 페이지 크기 상한 — AdminActionLogQueryService.MAX_PAGE_SIZE 패턴 미러. */
     private static final int MAX_PAGE_SIZE = 100;
-
-    static final String CONTENT_FORMAT_HTML = "HTML";
-
-    /**
-     * 보이는 텍스트 상한. 기존 "본문 10,000자"에 마지막 문단 종료 1자를 더한 값 — 기존 평문 N자는 HTML 변환 후 N+1자 이하가
-     * 되므로(V25), 경계의 기존 공지도 다시 저장할 수 있다(PLAN-html-editor.md 쟁점 5·R3-1).
-     */
-    static final int MAX_CONTENT_TEXT_LENGTH = 10_001;
-
-    /** 정리된 HTML 저장 상한(컬럼은 MEDIUMTEXT — V23). 기존 평문 변환본의 최악값 109,983바이트를 넉넉히 넘는다. */
-    static final int MAX_CONTENT_BYTES = 200_000;
 
     private final NoticeRepository noticeRepository;
     private final NoticeAttachmentRepository noticeAttachmentRepository;
@@ -59,7 +47,7 @@ public class NoticeService {
     public NoticeResponse createNotice(NoticeCreateRequest request) {
         String authorId = requireCurrentAdminUserId();
         String title = requireNonBlank(request.getTitle(), "제목은 공백일 수 없습니다.");
-        SanitizedHtml content = sanitizeContent(request.getContent(), request.getContentFormat());
+        SanitizedHtml content = ContentBodyPolicy.sanitize(request.getContent(), request.getContentFormat());
         boolean useYn = request.getUseYn() == null || request.getUseYn();
 
         LocalDateTime now = LocalDateTime.now(clock);
@@ -94,7 +82,7 @@ public class NoticeService {
                 ? requireNonBlank(request.getTitle(), "제목은 공백일 수 없습니다.")
                 : null;
         SanitizedHtml content = request.getContent() != null
-                ? sanitizeContent(request.getContent(), request.getContentFormat())
+                ? ContentBodyPolicy.sanitize(request.getContent(), request.getContentFormat())
                 : null;
 
         target.update(title, content != null ? content.html() : null, request.getUseYn(), LocalDateTime.now(clock));
@@ -162,27 +150,6 @@ public class NoticeService {
             throw new AccessDeniedException("인증 정보를 확인할 수 없습니다.");
         }
         return userId;
-    }
-
-    /**
-     * 본문 HTML 정리·검증(PLAN-html-editor.md 쟁점 5). 형식 표식이 "HTML"이 아니면 배포 전에 열어 둔 평문 편집 화면의 요청이라
-     * 거부한다(R2-2) — 평문을 HTML로 해석하면 문자 그대로 쓴 태그가 서식으로 바뀐다.
-     */
-    private SanitizedHtml sanitizeContent(String rawContent, String contentFormat) {
-        if (!CONTENT_FORMAT_HTML.equals(contentFormat)) {
-            throw new InvalidRequestException("편집 화면이 오래되었습니다. 새로고침 후 다시 저장해 주세요.");
-        }
-        SanitizedHtml sanitized = HtmlContentSanitizer.sanitize(rawContent);
-        if (sanitized.blank()) {
-            throw new InvalidRequestException("본문은 공백일 수 없습니다.");
-        }
-        if (sanitized.textLength() > MAX_CONTENT_TEXT_LENGTH) {
-            throw new InvalidRequestException("본문은 10,000자 이하로 입력해주세요.");
-        }
-        if (sanitized.html().getBytes(StandardCharsets.UTF_8).length > MAX_CONTENT_BYTES) {
-            throw new InvalidRequestException("본문 서식이 너무 많습니다. 내용을 줄여주세요.");
-        }
-        return sanitized;
     }
 
     private String requireNonBlank(String value, String message) {

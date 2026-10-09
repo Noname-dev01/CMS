@@ -183,6 +183,19 @@
                     n.useYn === false ? "미사용" : "");
             });
         }
+        if (data.posts && data.posts.items.length > 0) {
+            any = true;
+            appendSection("게시글", data.posts, function (p) {
+                var id = String(p.id);
+                var boardId = String(p.boardId);
+                if (!SAFE_ID.test(id) || !SAFE_ID.test(boardId)) {
+                    return null;
+                }
+                // 게시판 이름·제목은 사용자 입력 — element()가 textContent로만 넣는다. 이동 뒤 권한은 게시글 화면·API가 다시 판정한다
+                return buildItem("/admin/board/posts?boardId=" + boardId + "&id=" + id, "fas fa-fw fa-file-alt", p.title, p.boardName,
+                    p.useYn === false ? "미노출" : "");
+            });
+        }
         if (data.members && data.members.items.length > 0) {
             any = true;
             appendSection("관리자", data.members, function (m) {

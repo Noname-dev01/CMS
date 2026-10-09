@@ -20,6 +20,7 @@ public class AdminSearchResponse {
     private String keyword;
     private Section<MenuItem> menus;
     private Section<NoticeItem> notices;
+    private Section<PostItem> posts;
     private Section<MemberItem> members;
 
     /** 섹션당 표시 건수(items)와 사용자가 볼 수 있는 전체 건수(total). */
@@ -44,6 +45,18 @@ public class AdminSearchResponse {
     @AllArgsConstructor
     public static class NoticeItem {
         private Long id;
+        private String title;
+        private Boolean useYn;
+        private LocalDateTime createDate;
+    }
+
+    /** 게시글은 본문을 담지 않는다. 게시판 이름은 사용자 입력이라 화면이 textContent로만 그린다. */
+    @Getter
+    @AllArgsConstructor
+    public static class PostItem {
+        private Long id;
+        private Long boardId;
+        private String boardName;
         private String title;
         private Boolean useYn;
         private LocalDateTime createDate;
