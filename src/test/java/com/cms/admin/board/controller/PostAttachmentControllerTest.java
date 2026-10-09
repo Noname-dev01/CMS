@@ -1,10 +1,10 @@
-package com.cms.admin.notice.controller;
+package com.cms.admin.board.controller;
 
 import com.cms.config.WithManager;
 import com.cms.admin.menu.service.MenuService;
-import com.cms.admin.notice.dto.response.NoticeAttachmentDownload;
-import com.cms.admin.notice.dto.response.NoticeAttachmentResponse;
-import com.cms.admin.notice.service.NoticeAttachmentService;
+import com.cms.admin.board.dto.response.PostAttachmentDownload;
+import com.cms.admin.board.dto.response.PostAttachmentResponse;
+import com.cms.admin.board.service.PostAttachmentService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
@@ -42,26 +42,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = NoticeAttachmentController.class)
+@WebMvcTest(controllers = PostAttachmentController.class)
 @Import({
-        NoticeAttachmentControllerTest.MockConfig.class,
+        PostAttachmentControllerTest.MockConfig.class,
         MethodSecurityTestConfig.class,
         GlobalApiExceptionHandler.class
 })
-class NoticeAttachmentControllerTest {
+class PostAttachmentControllerTest {
 
     @Autowired
     MockMvc mockMvc;
 
     @Autowired
-    NoticeAttachmentService noticeAttachmentService;
+    PostAttachmentService postAttachmentService;
 
     @Autowired
     AdminSecurityService adminSecurityService;
 
     @BeforeEach
     void setUp() {
-        reset(noticeAttachmentService, adminSecurityService);
+        reset(postAttachmentService, adminSecurityService);
         given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
         given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
     }
@@ -69,8 +69,8 @@ class NoticeAttachmentControllerTest {
     @TestConfiguration
     static class MockConfig {
         @Bean
-        public NoticeAttachmentService noticeAttachmentService() {
-            return Mockito.mock(NoticeAttachmentService.class);
+        public PostAttachmentService postAttachmentService() {
+            return Mockito.mock(PostAttachmentService.class);
         }
 
         @Bean
@@ -85,8 +85,8 @@ class NoticeAttachmentControllerTest {
         }
     }
 
-    private NoticeAttachmentResponse attachmentResponse() {
-        return NoticeAttachmentResponse.builder()
+    private PostAttachmentResponse attachmentResponse() {
+        return PostAttachmentResponse.builder()
                 .id(10L).originalFilename("report.pdf").contentType("application/pdf")
                 .fileSize(100L).createDate(LocalDateTime.now())
                 .build();
@@ -98,12 +98,12 @@ class NoticeAttachmentControllerTest {
     @DisplayName("업로드 성공 (201 Created + Location, ADMIN)")
     @WithMockUser(roles = "ADMIN")
     void upload_success_admin() throws Exception {
-        given(noticeAttachmentService.upload(anyLong(), any())).willReturn(attachmentResponse());
+        given(postAttachmentService.upload(anyLong(), anyLong(), any())).willReturn(attachmentResponse());
         MockMultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", "content".getBytes());
 
-        mockMvc.perform(multipart("/admin/api/notices/1/attachments").file(file).with(csrf()))
+        mockMvc.perform(multipart("/admin/api/boards/1/posts/1/attachments").file(file).with(csrf()))
                 .andExpect(status().isCreated())
-                .andExpect(header().string("Location", containsString("/admin/api/notices/1/attachments/10")))
+                .andExpect(header().string("Location", containsString("/admin/api/boards/1/posts/1/attachments/10")))
                 .andExpect(jsonPath("$.originalFilename").value("report.pdf"));
     }
 
@@ -111,10 +111,10 @@ class NoticeAttachmentControllerTest {
     @DisplayName("업로드 성공 (201 Created, MANAGER)")
     @WithManager
     void upload_success_manager() throws Exception {
-        given(noticeAttachmentService.upload(anyLong(), any())).willReturn(attachmentResponse());
+        given(postAttachmentService.upload(anyLong(), anyLong(), any())).willReturn(attachmentResponse());
         MockMultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", "content".getBytes());
 
-        mockMvc.perform(multipart("/admin/api/notices/1/attachments").file(file).with(csrf()))
+        mockMvc.perform(multipart("/admin/api/boards/1/posts/1/attachments").file(file).with(csrf()))
                 .andExpect(status().isCreated());
     }
 
@@ -122,24 +122,24 @@ class NoticeAttachmentControllerTest {
     @DisplayName("허용되지 않는 확장자면 400 INVALID_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void upload_invalidExtension_badRequest() throws Exception {
-        given(noticeAttachmentService.upload(anyLong(), any()))
+        given(postAttachmentService.upload(anyLong(), anyLong(), any()))
                 .willThrow(new InvalidRequestException("허용되지 않는 파일 형식입니다: .exe"));
         MockMultipartFile file = new MockMultipartFile("file", "malware.exe", "application/octet-stream", "x".getBytes());
 
-        mockMvc.perform(multipart("/admin/api/notices/1/attachments").file(file).with(csrf()))
+        mockMvc.perform(multipart("/admin/api/boards/1/posts/1/attachments").file(file).with(csrf()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
     }
 
     @Test
-    @DisplayName("존재하지 않는 공지에 업로드 시 404")
+    @DisplayName("존재하지 않는 게시글에 업로드 시 404")
     @WithMockUser(roles = "ADMIN")
-    void upload_noticeNotFound() throws Exception {
-        given(noticeAttachmentService.upload(anyLong(), any()))
-                .willThrow(new ResourceNotFoundException("공지사항을 찾을 수 없습니다."));
+    void upload_postNotFound() throws Exception {
+        given(postAttachmentService.upload(anyLong(), anyLong(), any()))
+                .willThrow(new ResourceNotFoundException("게시글을 찾을 수 없습니다."));
         MockMultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", "x".getBytes());
 
-        mockMvc.perform(multipart("/admin/api/notices/99/attachments").file(file).with(csrf()))
+        mockMvc.perform(multipart("/admin/api/boards/1/posts/99/attachments").file(file).with(csrf()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
@@ -148,11 +148,11 @@ class NoticeAttachmentControllerTest {
     @DisplayName("첨부 5개 초과 시 409 RESOURCE_CONFLICT")
     @WithMockUser(roles = "ADMIN")
     void upload_countExceeded_conflict() throws Exception {
-        given(noticeAttachmentService.upload(anyLong(), any()))
-                .willThrow(new ConflictException("공지사항당 첨부파일은 최대 5개까지 업로드할 수 있습니다."));
+        given(postAttachmentService.upload(anyLong(), anyLong(), any()))
+                .willThrow(new ConflictException("게시글당 첨부파일은 최대 5개까지 업로드할 수 있습니다."));
         MockMultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", "x".getBytes());
 
-        mockMvc.perform(multipart("/admin/api/notices/1/attachments").file(file).with(csrf()))
+        mockMvc.perform(multipart("/admin/api/boards/1/posts/1/attachments").file(file).with(csrf()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("RESOURCE_CONFLICT"));
     }
@@ -161,11 +161,11 @@ class NoticeAttachmentControllerTest {
     @DisplayName("file 파트 자체가 없으면 400 INVALID_REQUEST (500 아님)")
     @WithMockUser(roles = "ADMIN")
     void upload_missingFilePart_badRequest() throws Exception {
-        mockMvc.perform(multipart("/admin/api/notices/1/attachments").with(csrf()))
+        mockMvc.perform(multipart("/admin/api/boards/1/posts/1/attachments").with(csrf()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
-        verifyNoInteractions(noticeAttachmentService);
+        verifyNoInteractions(postAttachmentService);
     }
 
     @Test
@@ -173,7 +173,7 @@ class NoticeAttachmentControllerTest {
     void upload_unauthenticated() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", "x".getBytes());
 
-        mockMvc.perform(multipart("/admin/api/notices/1/attachments").file(file).with(csrf()))
+        mockMvc.perform(multipart("/admin/api/boards/1/posts/1/attachments").file(file).with(csrf()))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -183,10 +183,10 @@ class NoticeAttachmentControllerTest {
     void upload_userForbidden() throws Exception {
         MockMultipartFile file = new MockMultipartFile("file", "report.pdf", "application/pdf", "x".getBytes());
 
-        mockMvc.perform(multipart("/admin/api/notices/1/attachments").file(file).with(csrf()))
+        mockMvc.perform(multipart("/admin/api/boards/1/posts/1/attachments").file(file).with(csrf()))
                 .andExpect(status().isForbidden());
 
-        verifyNoInteractions(noticeAttachmentService);
+        verifyNoInteractions(postAttachmentService);
     }
 
     // ===================== list =====================
@@ -195,20 +195,20 @@ class NoticeAttachmentControllerTest {
     @DisplayName("목록 조회 성공")
     @WithMockUser(roles = "ADMIN")
     void list_success() throws Exception {
-        given(noticeAttachmentService.list(1L)).willReturn(List.of(attachmentResponse()));
+        given(postAttachmentService.list(1L, 1L)).willReturn(List.of(attachmentResponse()));
 
-        mockMvc.perform(get("/admin/api/notices/1/attachments"))
+        mockMvc.perform(get("/admin/api/boards/1/posts/1/attachments"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].originalFilename").value("report.pdf"));
     }
 
     @Test
-    @DisplayName("목록 조회 — 존재하지 않는 공지면 404")
+    @DisplayName("목록 조회 — 존재하지 않는 게시글이면 404")
     @WithMockUser(roles = "ADMIN")
-    void list_noticeNotFound() throws Exception {
-        given(noticeAttachmentService.list(99L)).willThrow(new ResourceNotFoundException("공지사항을 찾을 수 없습니다."));
+    void list_postNotFound() throws Exception {
+        given(postAttachmentService.list(1L, 99L)).willThrow(new ResourceNotFoundException("게시글을 찾을 수 없습니다."));
 
-        mockMvc.perform(get("/admin/api/notices/99/attachments"))
+        mockMvc.perform(get("/admin/api/boards/1/posts/99/attachments"))
                 .andExpect(status().isNotFound());
     }
 
@@ -218,10 +218,10 @@ class NoticeAttachmentControllerTest {
     @DisplayName("다운로드 성공 — octet-stream·attachment·nosniff 헤더가 함께 반환된다")
     @WithMockUser(roles = "ADMIN")
     void content_success() throws Exception {
-        given(noticeAttachmentService.download(1L, 10L))
-                .willReturn(new NoticeAttachmentDownload("report.pdf", "content".getBytes()));
+        given(postAttachmentService.download(1L, 1L, 10L))
+                .willReturn(new PostAttachmentDownload("report.pdf", "content".getBytes()));
 
-        mockMvc.perform(get("/admin/api/notices/1/attachments/10/content"))
+        mockMvc.perform(get("/admin/api/boards/1/posts/1/attachments/10/content"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", MediaType.APPLICATION_OCTET_STREAM_VALUE))
                 .andExpect(header().string("Content-Disposition", containsString("report.pdf")))
@@ -229,13 +229,13 @@ class NoticeAttachmentControllerTest {
     }
 
     @Test
-    @DisplayName("다른 notice의 attachmentId로 접근 시 404 (IDOR 차단)")
+    @DisplayName("다른 게시글의 attachmentId로 접근 시 404 (IDOR 차단)")
     @WithMockUser(roles = "ADMIN")
-    void content_wrongNotice_notFound() throws Exception {
-        given(noticeAttachmentService.download(2L, 10L))
+    void content_wrongPost_notFound() throws Exception {
+        given(postAttachmentService.download(1L, 2L, 10L))
                 .willThrow(new ResourceNotFoundException("첨부파일을 찾을 수 없습니다."));
 
-        mockMvc.perform(get("/admin/api/notices/2/attachments/10/content"))
+        mockMvc.perform(get("/admin/api/boards/1/posts/2/attachments/10/content"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
     }
@@ -246,9 +246,9 @@ class NoticeAttachmentControllerTest {
     @DisplayName("삭제 성공 (204 No Content, ADMIN)")
     @WithMockUser(roles = "ADMIN")
     void delete_success_admin() throws Exception {
-        given(noticeAttachmentService.delete(1L, 10L)).willReturn(attachmentResponse());
+        given(postAttachmentService.delete(1L, 1L, 10L)).willReturn(attachmentResponse());
 
-        mockMvc.perform(delete("/admin/api/notices/1/attachments/10").with(csrf()))
+        mockMvc.perform(delete("/admin/api/boards/1/posts/1/attachments/10").with(csrf()))
                 .andExpect(status().isNoContent());
     }
 
@@ -256,9 +256,9 @@ class NoticeAttachmentControllerTest {
     @DisplayName("삭제 성공 (204 No Content, MANAGER)")
     @WithManager
     void delete_success_manager() throws Exception {
-        given(noticeAttachmentService.delete(1L, 10L)).willReturn(attachmentResponse());
+        given(postAttachmentService.delete(1L, 1L, 10L)).willReturn(attachmentResponse());
 
-        mockMvc.perform(delete("/admin/api/notices/1/attachments/10").with(csrf()))
+        mockMvc.perform(delete("/admin/api/boards/1/posts/1/attachments/10").with(csrf()))
                 .andExpect(status().isNoContent());
     }
 
@@ -266,16 +266,16 @@ class NoticeAttachmentControllerTest {
     @DisplayName("존재하지 않는 첨부 삭제 시 404")
     @WithMockUser(roles = "ADMIN")
     void delete_notFound() throws Exception {
-        given(noticeAttachmentService.delete(1L, 99L)).willThrow(new ResourceNotFoundException("첨부파일을 찾을 수 없습니다."));
+        given(postAttachmentService.delete(1L, 1L, 99L)).willThrow(new ResourceNotFoundException("첨부파일을 찾을 수 없습니다."));
 
-        mockMvc.perform(delete("/admin/api/notices/1/attachments/99").with(csrf()))
+        mockMvc.perform(delete("/admin/api/boards/1/posts/1/attachments/99").with(csrf()))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     @DisplayName("인증 없이 삭제 시 401")
     void delete_unauthenticated() throws Exception {
-        mockMvc.perform(delete("/admin/api/notices/1/attachments/10").with(csrf()))
+        mockMvc.perform(delete("/admin/api/boards/1/posts/1/attachments/10").with(csrf()))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -283,9 +283,9 @@ class NoticeAttachmentControllerTest {
     @DisplayName("USER는 삭제 시 403")
     @WithMockUser(roles = "USER")
     void delete_userForbidden() throws Exception {
-        mockMvc.perform(delete("/admin/api/notices/1/attachments/10").with(csrf()))
+        mockMvc.perform(delete("/admin/api/boards/1/posts/1/attachments/10").with(csrf()))
                 .andExpect(status().isForbidden());
 
-        verifyNoInteractions(noticeAttachmentService);
+        verifyNoInteractions(postAttachmentService);
     }
 }

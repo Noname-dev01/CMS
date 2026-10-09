@@ -1,8 +1,10 @@
-package com.cms.admin.notice.service;
+package com.cms.admin.board.service;
 
-import com.cms.admin.notice.domain.Notice;
-import com.cms.admin.notice.dto.request.NoticeUpdateRequest;
-import com.cms.admin.notice.repository.NoticeRepository;
+import com.cms.admin.board.domain.Board;
+import com.cms.admin.board.domain.Post;
+import com.cms.admin.board.dto.request.PostUpdateRequest;
+import com.cms.admin.board.repository.BoardRepository;
+import com.cms.admin.board.repository.PostRepository;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
@@ -35,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * PATCH·DELETE 비관적 락(findByIdAndDeletedFalseForUpdate)을 실제 MariaDB로 검증하는
+ * PATCH·DELETE 비관적 락(findByIdAndBoardIdAndDeletedFalseForUpdate)을 실제 MariaDB로 검증하는
  * 통합 테스트.
  *
  * <p>두 가지를 각각 별도로 검증한다:
@@ -58,35 +60,43 @@ import static org.junit.jupiter.api.Assertions.fail;
  * Docker만 있으면 된다({@link MariaDbContainerSupport}).
  */
 @SpringBootTest(classes = CmsTestApplication.class)
-class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
+class PostConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     @Autowired
-    NoticeRepository noticeRepository;
+    PostRepository postRepository;
 
     @Autowired
-    NoticeService noticeService;
+    PostService postService;
 
     @Autowired
     PlatformTransactionManager transactionManager;
 
     @PersistenceContext
     EntityManager entityManager;
+    @Autowired
+    BoardRepository boardRepository;
 
-    private final List<Long> createdNoticeIds = new ArrayList<>();
+    private Long noticeBoardId() {
+        return boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();
+    }
+
+
+    private final List<Long> createdPostIds = new ArrayList<>();
 
     @AfterEach
     void cleanUp() {
-        for (Long id : createdNoticeIds) {
+        for (Long id : createdPostIds) {
             try {
-                noticeRepository.deleteById(id);
+                postRepository.deleteById(id);
             } catch (Exception ignored) {
             }
         }
     }
 
-    private Notice saveNotice(String titlePrefix) {
+    private Post saveNotice(String titlePrefix) {
         LocalDateTime now = LocalDateTime.now();
-        Notice saved = noticeRepository.save(Notice.builder()
+        Post saved = postRepository.save(Post.builder()
+                .boardId(noticeBoardId())
                 .title(titlePrefix + "-" + System.nanoTime())
                 .content("동시성 테스트 본문")
                 .useYn(true)
@@ -95,7 +105,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
                 .createDate(now)
                 .updateDate(now)
                 .build());
-        createdNoticeIds.add(saved.getId());
+        createdPostIds.add(saved.getId());
         return saved;
     }
 
@@ -104,7 +114,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("findByIdAndDeletedFalseForUpdate는 실제로 PESSIMISTIC_WRITE 행 잠금을 획득한다 (락 실증)")
     void lockQuery_actuallyAcquiresRowLock() throws Exception {
-        Notice target = saveNotice("락실증");
+        Post target = saveNotice("락실증");
 
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         CountDownLatch lockHeld = new CountDownLatch(1);
@@ -113,7 +123,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
         try {
             Future<?> holderFuture = executor.submit(() -> tx.execute(status -> {
-                noticeRepository.findByIdAndDeletedFalseForUpdate(target.getId());
+                postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(target.getId(), noticeBoardId());
                 lockHeld.countDown();
                 try {
                     // 제한 시간 내 해제 신호가 오지 않으면 트랜잭션이 무기한 열려 있지 않도록 짧게 대기.
@@ -138,7 +148,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
                             .getSingleResult();
                     try {
                         entityManager.createNativeQuery("SET SESSION innodb_lock_wait_timeout = 1").executeUpdate();
-                        noticeRepository.findByIdAndDeletedFalseForUpdate(target.getId());
+                        postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(target.getId(), noticeBoardId());
                     } finally {
                         entityManager.createNativeQuery(
                                 "SET SESSION innodb_lock_wait_timeout = " + original).executeUpdate();
@@ -153,7 +163,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
             assertNotNull(thrown,
                     "락 보유 중인 행 재조회는 락 대기 타임아웃으로 실패해야 한다 " +
-                            "(findByIdAndDeletedFalseForUpdate의 @Lock 선언 누락 회귀 의심)");
+                            "(findByIdAndBoardIdAndDeletedFalseForUpdate의 @Lock 선언 누락 회귀 의심)");
 
             holderFuture.get(15, TimeUnit.SECONDS);
         } finally {
@@ -167,7 +177,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("DELETE 커밋 후 대기 중이던 PATCH는 404로 종료되고 삭제 상태가 유지된다 (lost update 방지)")
     void patchAfterDeleteCommit_returns404_deletionPersists() throws Exception {
-        Notice target = saveNotice("PATCH_DELETE_경합");
+        Post target = saveNotice("PATCH_DELETE_경합");
         Long noticeId = target.getId();
 
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
@@ -178,7 +188,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
         try {
             // 스레드 A: 락 획득 → softDelete() → 커밋 직전(해제 래치 대기)에 멈춘다.
             Future<?> deleteFuture = executor.submit(() -> tx.executeWithoutResult(status -> {
-                Notice locked = noticeRepository.findByIdAndDeletedFalseForUpdate(noticeId)
+                Post locked = postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(noticeId, noticeBoardId())
                         .orElseThrow(() -> new IllegalStateException("테스트 대상 공지를 찾을 수 없습니다."));
                 locked.softDelete(LocalDateTime.now());
                 lockHeld.countDown();
@@ -194,7 +204,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
             // 스레드 B: A의 락에 막혀 A가 커밋할 때까지 반환되지 않는다.
             Future<Void> updateFuture = executor.submit(() -> {
-                noticeService.updateNotice(noticeId, NoticeUpdateRequest.builder().title("PATCH로 되살리기 시도").build());
+                postService.updatePost(noticeBoardId(), noticeId, PostUpdateRequest.builder().title("PATCH로 되살리기 시도").build());
                 return null;
             });
 
@@ -216,7 +226,7 @@ class NoticeConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
             deleteFuture.get(15, TimeUnit.SECONDS);
 
-            Notice finalState = noticeRepository.findById(noticeId).orElseThrow();
+            Post finalState = postRepository.findById(noticeId).orElseThrow();
             assertTrue(finalState.getDeleted(), "DELETE로 확정된 삭제 상태가 PATCH로 되살아나지 않아야 한다");
             assertEquals(target.getTitle(), finalState.getTitle(), "제목도 PATCH로 변경되지 않아야 한다");
         } finally {

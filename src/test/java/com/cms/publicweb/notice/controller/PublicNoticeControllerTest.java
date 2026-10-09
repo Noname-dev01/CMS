@@ -3,11 +3,11 @@ package com.cms.publicweb.notice.controller;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.config.auth.AdminSecurityService;
-import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
-import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
-import com.cms.publicweb.notice.dto.PublicNoticeDetail;
-import com.cms.publicweb.notice.dto.PublicNoticeListResult;
-import com.cms.publicweb.notice.dto.PublicNoticeSummary;
+import com.cms.publicweb.board.dto.PublicBoardListResult;
+import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
+import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
+import com.cms.publicweb.board.dto.PublicPostDetail;
+import com.cms.publicweb.board.dto.PublicPostSummary;
 import com.cms.publicweb.notice.service.PublicNoticeService;
 import com.cms.publicweb.support.PublicWebExceptionAdvice;
 import org.junit.jupiter.api.BeforeEach;
@@ -108,26 +108,26 @@ class PublicNoticeControllerTest {
         }
     }
 
-    private PublicNoticeSummary summary(Long id, String title) {
-        return PublicNoticeSummary.builder().id(id).title(title).createDate(LocalDateTime.now()).build();
+    private PublicPostSummary summary(Long id, String title) {
+        return PublicPostSummary.builder().id(id).title(title).createDate(LocalDateTime.now()).build();
     }
 
-    private PublicNoticeDetail detail(Long id, String title, String content) {
-        return PublicNoticeDetail.builder()
+    private PublicPostDetail detail(Long id, String title, String content) {
+        return PublicPostDetail.builder()
                 .id(id).title(title).content(content)
                 .createDate(LocalDateTime.now()).updateDate(LocalDateTime.now())
                 .build();
     }
 
-    private com.cms.publicweb.notice.dto.PublicNoticeAttachment attachmentDto(Long id, String filename) {
-        return com.cms.publicweb.notice.dto.PublicNoticeAttachment.builder()
+    private com.cms.publicweb.board.dto.PublicPostAttachment attachmentDto(Long id, String filename) {
+        return com.cms.publicweb.board.dto.PublicPostAttachment.builder()
                 .id(id).originalFilename(filename).fileSize(100L).fileSizeText("100 B")
                 .build();
     }
 
-    private PublicNoticeDetail detailWithAttachments(Long id, String title, String content,
-                                                       List<com.cms.publicweb.notice.dto.PublicNoticeAttachment> attachments) {
-        return PublicNoticeDetail.builder()
+    private PublicPostDetail detailWithAttachments(Long id, String title, String content,
+                                                       List<com.cms.publicweb.board.dto.PublicPostAttachment> attachments) {
+        return PublicPostDetail.builder()
                 .id(id).title(title).content(content)
                 .createDate(LocalDateTime.now()).updateDate(LocalDateTime.now())
                 .attachments(attachments)
@@ -136,9 +136,34 @@ class PublicNoticeControllerTest {
 
     // ===================== list =====================
 
+    /** 서비스가 돌려주는 목록 결과(공지 게시판 공개 상태). */
+    private static Optional<PublicBoardListResult> listResult(Page<PublicPostSummary> page, String keyword) {
+        return Optional.of(new PublicBoardListResult(3L, "공지사항", page, keyword));
+    }
+
     /** 검색하지 않은 목록 결과(keyword=null). */
-    private static PublicNoticeListResult listOf(Page<PublicNoticeSummary> page) {
-        return new PublicNoticeListResult(page, null);
+    private static Optional<PublicBoardListResult> listOf(Page<PublicPostSummary> page) {
+        return listResult(page, null);
+    }
+
+    @Test
+    @DisplayName("공지 게시판이 공개 상태가 아니면(서비스가 empty) 목록은 상세와 같은 404 error/404 뷰다 — 200 빈 목록·500이 아님(PLAN-notice-to-board.md R2-1)")
+    @WithMockUser
+    void list_noticeBoardNotPublic_returns404() throws Exception {
+        given(publicNoticeService.getPublishedNotices(0, null)).willReturn(Optional.empty());
+
+        mockMvc.perform(get("/notices"))
+                .andExpect(status().isNotFound())
+                .andExpect(view().name("error/404"));
+    }
+
+    @Test
+    @DisplayName("공지 게시판이 공개 상태가 아니면 HEAD 목록도 404다")
+    @WithMockUser
+    void list_noticeBoardNotPublic_headReturns404() throws Exception {
+        given(publicNoticeService.getPublishedNotices(0, null)).willReturn(Optional.empty());
+
+        mockMvc.perform(head("/notices")).andExpect(status().isNotFound());
     }
 
     @Test
@@ -222,7 +247,7 @@ class PublicNoticeControllerTest {
     @WithMockUser
     void list_keyword_passedRawAndNormalizedEchoed() throws Exception {
         given(publicNoticeService.getPublishedNotices(0, "  점검 "))
-                .willReturn(new PublicNoticeListResult(
+                .willReturn(listResult(
                         new PageImpl<>(List.of(summary(1L, "서버 점검 안내")), PageRequest.of(0, 10), 1), "점검"));
 
         mockMvc.perform(get("/notices").param("keyword", "  점검 "))
@@ -240,7 +265,7 @@ class PublicNoticeControllerTest {
     @WithMockUser
     void list_keywordNoResult_showsSearchEmptyState() throws Exception {
         given(publicNoticeService.getPublishedNotices(0, "없는말"))
-                .willReturn(new PublicNoticeListResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), "없는말"));
+                .willReturn(listResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), "없는말"));
 
         mockMvc.perform(get("/notices").param("keyword", "없는말"))
                 .andExpect(status().isOk())
@@ -253,7 +278,7 @@ class PublicNoticeControllerTest {
     @WithMockUser
     void list_keywordPagination_keepsEncodedKeyword() throws Exception {
         given(publicNoticeService.getPublishedNotices(1, "점검 & 공지"))
-                .willReturn(new PublicNoticeListResult(
+                .willReturn(listResult(
                         new PageImpl<>(List.of(summary(1L, "점검 & 공지 1")), PageRequest.of(1, 10), 25), "점검 & 공지"));
 
         String html = mockMvc.perform(get("/notices").param("page", "1").param("keyword", "점검 & 공지"))
@@ -289,7 +314,7 @@ class PublicNoticeControllerTest {
         String attrPayload = "\" autofocus onfocus=\"alert(1)";
         for (String payload : List.of(scriptPayload, attrPayload)) {
             given(publicNoticeService.getPublishedNotices(eq(0), eq(payload)))
-                    .willReturn(new PublicNoticeListResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), payload));
+                    .willReturn(listResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), payload));
 
             String html = mockMvc.perform(get("/notices").param("keyword", payload))
                     .andExpect(status().isOk())
@@ -354,17 +379,18 @@ class PublicNoticeControllerTest {
     }
 
     @Test
-    @DisplayName("본문의 스크립트·이벤트 속성 payload는 PublicNoticeDetail.from의 sanitize로 제거되고 허용 서식만 HTML로 출력된다")
+    @DisplayName("본문의 스크립트·이벤트 속성 payload는 PublicPostDetail.from의 sanitize로 제거되고 허용 서식만 HTML로 출력된다")
     @WithMockUser
     void detail_xssPayloadContent_isSanitized() throws Exception {
         // 본문은 HTML이다(PLAN-html-editor.md) — 상세는 th:utext로 출력하므로 방어선은 DTO 생성 시 sanitize다.
         // 그래서 빌더가 아니라 실제 생성 경로(from)로 DTO를 만든다.
         String payload = "<p><strong>굵게</strong><script>alert('xss')</script><img src=x onerror=\"alert('xss')\">"
                 + "<a href=\"javascript:alert(1)\">링크</a></p>";
-        com.cms.admin.notice.domain.Notice notice = com.cms.admin.notice.domain.Notice.builder()
-                .id(1L).title("제목").content(payload).useYn(true).deleted(false).authorId("admin01").build();
+        com.cms.admin.board.domain.Post post = com.cms.admin.board.domain.Post.builder()
+                .id(1L).boardId(3L).title("제목").content(payload).useYn(true).deleted(false).authorId("admin01").build();
+        com.cms.admin.board.domain.Board board = com.cms.admin.board.domain.Board.builder().id(3L).name("공지사항").publicYn(true).attachmentYn(true).deleted(false).build();
         given(publicNoticeService.findPublishedNotice(1L))
-                .willReturn(Optional.of(PublicNoticeDetail.from(notice, java.util.List.of())));
+                .willReturn(Optional.of(PublicPostDetail.from(board, post, java.util.List.of())));
 
         mockMvc.perform(get("/notices/1"))
                 .andExpect(status().isOk())
@@ -457,7 +483,7 @@ class PublicNoticeControllerTest {
 
     // ===================== attachment (다운로드, 스트리밍) =====================
 
-    private static final PublicNoticeAttachmentRef REF = new PublicNoticeAttachmentRef("report.pdf", "2026/08/03/7.pdf");
+    private static final PublicPostAttachmentRef REF = new PublicPostAttachmentRef("report.pdf", "2026/08/03/7.pdf");
 
     /** 읽기·닫힘을 관측하는 스텁 스트림. failAfter 바이트를 넘겨 읽으려 하면 IOException을 던진다(-1이면 안 던짐). */
     static class TrackingInputStream extends InputStream {
@@ -511,7 +537,7 @@ class PublicNoticeControllerTest {
         TrackingInputStream stream = new TrackingInputStream(bytes, failAfter);
         given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
         given(publicNoticeService.openAttachment(REF))
-                .willReturn(Optional.of(new PublicNoticeAttachmentDownload(filename, bytes.length, stream)));
+                .willReturn(Optional.of(new PublicPostAttachmentDownload(filename, bytes.length, stream)));
         return stream;
     }
 

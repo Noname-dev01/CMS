@@ -1,10 +1,10 @@
 package com.cms.publicweb.notice.controller;
 
-import com.cms.publicweb.notice.dto.PublicNoticeAttachmentDownload;
-import com.cms.publicweb.notice.dto.PublicNoticeAttachmentRef;
-import com.cms.publicweb.notice.dto.PublicNoticeDetail;
-import com.cms.publicweb.notice.dto.PublicNoticeListResult;
-import com.cms.publicweb.notice.dto.PublicNoticeSummary;
+import com.cms.publicweb.board.dto.PublicBoardListResult;
+import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
+import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
+import com.cms.publicweb.board.dto.PublicPostDetail;
+import com.cms.publicweb.board.dto.PublicPostSummary;
 import com.cms.publicweb.notice.service.PublicNoticeService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -65,9 +65,16 @@ public class PublicNoticeController {
     @GetMapping
     public String list(@RequestParam(defaultValue = "0") String page,
                        @RequestParam(required = false) String keyword,
-                       Model model) {
-        PublicNoticeListResult listResult = publicNoticeService.getPublishedNotices(parsePageOrZero(page), keyword);
-        Page<PublicNoticeSummary> result = listResult.page();
+                       Model model,
+                       HttpServletResponse response) {
+        // 공지 게시판이 없거나 비공개·삭제 상태면 empty → 상세와 같은 404(fail-closed, PLAN-notice-to-board.md 쟁점 8)
+        return publicNoticeService.getPublishedNotices(parsePageOrZero(page), keyword)
+                .map(listResult -> renderList(listResult, model))
+                .orElseGet(() -> notFound(response));
+    }
+
+    private String renderList(PublicBoardListResult listResult, Model model) {
+        Page<PublicPostSummary> result = listResult.page();
         model.addAttribute("keyword", listResult.keyword());
         model.addAttribute("notices", result.getContent());
         model.addAttribute("page", result.getNumber());
@@ -107,11 +114,11 @@ public class PublicNoticeController {
     public void attachment(@PathVariable String id,
                            @PathVariable String attachmentId,
                            HttpServletResponse response) throws IOException {
-        Optional<PublicNoticeAttachmentDownload> download = openDownload(id, attachmentId, response);
+        Optional<PublicPostAttachmentDownload> download = openDownload(id, attachmentId, response);
         if (download.isEmpty()) {
             return;
         }
-        try (PublicNoticeAttachmentDownload opened = download.get()) {
+        try (PublicPostAttachmentDownload opened = download.get()) {
             writeBody(opened, response);
         } catch (IOException e) {
             resetIfUncommitted(response);
@@ -129,11 +136,11 @@ public class PublicNoticeController {
     public void attachmentHead(@PathVariable String id,
                                @PathVariable String attachmentId,
                                HttpServletResponse response) throws IOException {
-        Optional<PublicNoticeAttachmentDownload> download = openDownload(id, attachmentId, response);
+        Optional<PublicPostAttachmentDownload> download = openDownload(id, attachmentId, response);
         if (download.isEmpty()) {
             return;
         }
-        try (PublicNoticeAttachmentDownload opened = download.get()) {
+        try (PublicPostAttachmentDownload opened = download.get()) {
             applyDownloadHeaders(opened, response);
         } catch (IOException e) {
             resetIfUncommitted(response);
@@ -146,7 +153,7 @@ public class PublicNoticeController {
      * 보내고 empty를 반환한다. 예외를 던지지 않는다(던지면 {@code PublicWebExceptionAdvice}가 404가 아니라
      * HTML 500으로 만든다). 반환된 DTO는 호출자가 곧바로 try-with-resources로 닫아야 한다.
      */
-    private Optional<PublicNoticeAttachmentDownload> openDownload(String id, String attachmentId,
+    private Optional<PublicPostAttachmentDownload> openDownload(String id, String attachmentId,
                                                                   HttpServletResponse response) throws IOException {
         Long noticeId = parseId(id);
         Long parsedAttachmentId = parseId(attachmentId);
@@ -155,9 +162,9 @@ public class PublicNoticeController {
             return Optional.empty();
         }
 
-        Optional<PublicNoticeAttachmentRef> ref =
+        Optional<PublicPostAttachmentRef> ref =
                 publicNoticeService.findPublishedAttachment(noticeId, parsedAttachmentId);
-        Optional<PublicNoticeAttachmentDownload> download = ref.flatMap(publicNoticeService::openAttachment);
+        Optional<PublicPostAttachmentDownload> download = ref.flatMap(publicNoticeService::openAttachment);
         if (download.isEmpty()) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
         }
@@ -176,7 +183,7 @@ public class PublicNoticeController {
      *       연결을 중단하게 한다(잘린 파일이 정상 응답처럼 보이지 않도록).</li>
      * </ol>
      */
-    private void writeBody(PublicNoticeAttachmentDownload download, HttpServletResponse response) throws IOException {
+    private void writeBody(PublicPostAttachmentDownload download, HttpServletResponse response) throws IOException {
         InputStream in = download.content();
         byte[] buffer = new byte[COPY_BUFFER_SIZE];
 
@@ -204,7 +211,7 @@ public class PublicNoticeController {
         }
     }
 
-    private void applyDownloadHeaders(PublicNoticeAttachmentDownload download, HttpServletResponse response) {
+    private void applyDownloadHeaders(PublicPostAttachmentDownload download, HttpServletResponse response) {
         ContentDisposition contentDisposition = ContentDisposition.attachment()
                 .filename(download.originalFilename(), StandardCharsets.UTF_8)
                 .build();
@@ -216,7 +223,7 @@ public class PublicNoticeController {
         response.setContentLengthLong(download.contentLength());
     }
 
-    private String renderDetail(PublicNoticeDetail notice, Model model) {
+    private String renderDetail(PublicPostDetail notice, Model model) {
         model.addAttribute("notice", notice);
         return "public/notice/detail";
     }

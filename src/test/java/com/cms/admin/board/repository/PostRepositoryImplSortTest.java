@@ -1,6 +1,6 @@
-package com.cms.admin.notice.repository;
+package com.cms.admin.board.repository;
 
-import com.cms.admin.notice.domain.QNotice;
+import com.cms.admin.board.domain.QPost;
 import com.querydsl.core.types.Order;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.jpa.impl.JPAQueryFactory;
@@ -13,18 +13,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 /**
- * NoticeRepositoryImpl의 정렬 변환 로직을 검증하는 단위 테스트.
- * DB 없이 toOrderSpecifiers / buildOrderSpecifier 메서드의 동작만 검증한다.
- * 소프트 삭제 필터·검색 조합 검증(실 DB 필요)은 NoticeRepositoryDataJpaTest가 담당한다.
+ * PostRepositoryImpl의 정렬 변환 로직(옛 NoticeRepositoryImplSortTest 이식 — 공지가 공지 게시판으로 흡수됨, PLAN-notice-to-board.md)을 검증하는 단위 테스트.
+ * DB 없이 toOrderSpecifiers 메서드의 동작만 검증한다.
+ * 소프트 삭제 필터·검색 조합 검증(실 DB 필요)은 PostRepositoryDataJpaTest가 담당한다.
  */
-class NoticeRepositoryImplSortTest {
+class PostRepositoryImplSortTest {
 
-    private NoticeRepositoryImpl repository;
-    private final QNotice n = QNotice.notice;
+    private PostRepositoryImpl repository;
+    private final QPost n = QPost.post;
 
     @BeforeEach
     void setUp() {
-        repository = new NoticeRepositoryImpl(mock(JPAQueryFactory.class));
+        repository = new PostRepositoryImpl(mock(JPAQueryFactory.class));
     }
 
     @Test
@@ -117,23 +117,5 @@ class NoticeRepositoryImplSortTest {
         assertThat(specifiers).hasSize(2);
         assertThat(specifiers[0].getTarget()).isEqualTo(n.title);
         assertThat(specifiers[1].getTarget()).isEqualTo(n.id);
-    }
-
-    @Test
-    @DisplayName("buildOrderSpecifier — 각 허용 필드에 대해 올바른 경로 반환")
-    void buildOrderSpecifier_allAllowedFields() {
-        assertThat(repository.buildOrderSpecifier(n, "id", true).getTarget()).isEqualTo(n.id);
-        assertThat(repository.buildOrderSpecifier(n, "title", true).getTarget()).isEqualTo(n.title);
-        assertThat(repository.buildOrderSpecifier(n, "useYn", false).getTarget()).isEqualTo(n.useYn);
-        assertThat(repository.buildOrderSpecifier(n, "createDate", true).getTarget()).isEqualTo(n.createDate);
-        assertThat(repository.buildOrderSpecifier(n, "updateDate", false).getTarget()).isEqualTo(n.updateDate);
-    }
-
-    @Test
-    @DisplayName("buildOrderSpecifier — 미지원 필드는 null 반환")
-    void buildOrderSpecifier_unsupportedField_returnsNull() {
-        assertThat(repository.buildOrderSpecifier(n, "content", true)).isNull();
-        assertThat(repository.buildOrderSpecifier(n, "authorId", true)).isNull();
-        assertThat(repository.buildOrderSpecifier(n, "unknown", true)).isNull();
     }
 }

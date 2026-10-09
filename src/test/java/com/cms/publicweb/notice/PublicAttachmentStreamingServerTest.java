@@ -1,9 +1,11 @@
 package com.cms.publicweb.notice;
 
-import com.cms.admin.notice.domain.Notice;
-import com.cms.admin.notice.domain.NoticeAttachment;
-import com.cms.admin.notice.repository.NoticeAttachmentRepository;
-import com.cms.admin.notice.repository.NoticeRepository;
+import com.cms.admin.board.domain.Board;
+import com.cms.admin.board.domain.Post;
+import com.cms.admin.board.domain.PostAttachment;
+import com.cms.admin.board.repository.BoardRepository;
+import com.cms.admin.board.repository.PostAttachmentRepository;
+import com.cms.admin.board.repository.PostRepository;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.StoredFileStream;
 import com.cms.support.CmsTestApplication;
@@ -54,10 +56,13 @@ class PublicAttachmentStreamingServerTest extends MariaDbContainerSupport {
     int port;
 
     @Autowired
-    NoticeRepository noticeRepository;
+    BoardRepository boardRepository;
 
     @Autowired
-    NoticeAttachmentRepository noticeAttachmentRepository;
+    PostRepository postRepository;
+
+    @Autowired
+    PostAttachmentRepository postAttachmentRepository;
 
     @Autowired
     DataSource dataSource;
@@ -73,7 +78,8 @@ class PublicAttachmentStreamingServerTest extends MariaDbContainerSupport {
     @BeforeEach
     void createNoticeWithFakeAttachmentRow() {
         LocalDateTime now = LocalDateTime.now();
-        Notice notice = noticeRepository.save(Notice.builder()
+        Post notice = postRepository.save(Post.builder()
+                .boardId(boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow())
                 .title("스트리밍-" + System.nanoTime())
                 .content("스트리밍 서버 테스트")
                 .useYn(true)
@@ -84,8 +90,8 @@ class PublicAttachmentStreamingServerTest extends MariaDbContainerSupport {
                 .build());
         noticeId = notice.getId();
         // 실파일 없이 행만 만든다 — 파일 내용은 매 테스트에서 fileStorage.open 스파이로 주입한다.
-        NoticeAttachment attachment = noticeAttachmentRepository.save(NoticeAttachment.builder()
-                .noticeId(noticeId)
+        PostAttachment attachment = postAttachmentRepository.save(PostAttachment.builder()
+                .postId(noticeId)
                 .originalFilename("report.bin")
                 .contentType("application/octet-stream")
                 .fileSize((long) DECLARED_SIZE)
@@ -97,8 +103,8 @@ class PublicAttachmentStreamingServerTest extends MariaDbContainerSupport {
 
     @AfterEach
     void cleanUp() {
-        noticeAttachmentRepository.deleteById(attachmentId);
-        noticeRepository.deleteById(noticeId);
+        postAttachmentRepository.deleteById(attachmentId);
+        postRepository.deleteById(noticeId);
     }
 
     private String url() {
