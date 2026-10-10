@@ -262,6 +262,67 @@ class LocalDiskFileStorageTest {
         assertThrows(UnsupportedOperationException.class, () -> unsupporting.store("x".getBytes(), "a.txt", "profile"));
         assertThrows(UnsupportedOperationException.class, () -> unsupporting.load("key", "profile"));
         assertThrows(UnsupportedOperationException.class, () -> unsupporting.delete("key", "profile"));
+        assertThrows(UnsupportedOperationException.class, () -> unsupporting.open("key", "profile"));
+    }
+
+    // ===================== 네임스페이스 스트리밍 읽기(배너, PLAN-public-home-banner.md R3-1) =====================
+
+    @Test
+    @DisplayName("banner 네임스페이스 store→open(key, ns) 왕복 — 스트림 전량이 원본과 같고 size가 같다")
+    void open_withNamespace_roundTrip(@TempDir Path tempDir) throws IOException {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        byte[] content = new byte[10_000];
+        for (int i = 0; i < content.length; i++) {
+            content[i] = (byte) (i % 251);
+        }
+        String key = storage.store(content, "banner.png", "banner");
+
+        try (StoredFileStream opened = storage.open(key, "banner")) {
+            assertEquals(content.length, opened.size());
+            assertArrayEquals(content, opened.inputStream().readAllBytes());
+        }
+    }
+
+    @Test
+    @DisplayName("banner는 예약 네임스페이스 — 루트 API(load/open/delete)로 banner/ 하위 파일에 닿지 못한다")
+    void bannerNamespace_isReserved_rootApisRejected(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        String key = storage.store("배너 원본".getBytes(), "banner.png", "banner");
+        String rootStyleKey = "banner/" + key;
+
+        assertThrows(StorageFileNotFoundException.class, () -> storage.load(rootStyleKey));
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open(rootStyleKey));
+        storage.delete(rootStyleKey);   // no-op 계약이지만 실제로 지워지면 안 된다
+        assertArrayEquals("배너 원본".getBytes(), storage.load(key, "banner"));
+    }
+
+    @Test
+    @DisplayName("open(key, ns): 다른 네임스페이스·루트에 저장된 키는 찾지 못하고, 경로 탈출·없는 키는 거부된다")
+    void open_withNamespace_isolationAndTraversal(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        String rootKey = storage.store("공지 첨부".getBytes(), "report.pdf");
+        String profileKey = storage.store("프로필".getBytes(), "a.png", "profile");
+
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open(rootKey, "banner"));
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open(profileKey, "banner"));
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open("2020/01/01/none.png", "banner"));
+        assertThrows(IllegalStateException.class, () -> storage.open("../profile/" + profileKey, "banner"));
+        assertThrows(IllegalArgumentException.class, () -> storage.open("x", "../etc"));
+    }
+
+    @Test
+    @DisplayName("open(key, ns)는 최종 파일 자체가 외부를 가리키는 심볼릭 링크이면 서버 오류로 거부한다")
+    void open_withNamespace_finalFileSymlink_rejected(@TempDir Path tempDir) throws IOException {
+        Path root = tempDir.resolve("storage-root");
+        Path dir = root.resolve("banner").resolve("2020");
+        Files.createDirectories(dir);
+        Path outsideFile = tempDir.resolve("secret.txt");
+        Files.writeString(outsideFile, "secret");
+        createSymlinkOrSkip(dir.resolve("link.png"), outsideFile);
+
+        LocalDiskFileStorage storage = newStorage(root);
+
+        assertRejectedAsServerError(() -> storage.open("2020/link.png", "banner"));
     }
 
     // ===================== open (스트리밍 읽기, PLAN-public-notice-attachment.md 후속 작업) =====================
