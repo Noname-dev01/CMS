@@ -6,6 +6,7 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.permission.MemberBoardPermissionRepository;
 import com.cms.admin.permission.PermissionCache;
+import com.cms.support.LockWaitObserver;
 import com.cms.support.MariaDbContainerSupport;
 import com.cms.support.TestMembers;
 import org.aopalliance.intercept.MethodInterceptor;
@@ -29,8 +30,8 @@ import tools.jackson.databind.ObjectMapper;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -186,30 +187,9 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
                 .content("{\"version\":" + version + ",\"grants\":[],\"boardGrants\":" + boardGrantsJson + "}")).andReturn();
     }
 
-    /**
-     * 폴링 간격. <b>100ms를 넘겨야 한다</b>(이슈 #119) — information_schema.INNODB_TRX·INNODB_LOCK_WAITS는 InnoDB가 캐시로 돌려주는데, 그보다 촘촘히
-     * (예: 25ms) 계속 읽으면 첫 조회 시점의 스냅샷이 갱신되지 않은 채 남아, 삭제가 이미 락을 기다리고 있어도 대기를 수 초~15초 넘게 놓친다. 첫 조회가
-     * 삭제 요청이 락에 걸리기 전에 나가면(CI처럼 빠른 환경) 그대로 시험이 15초 뒤 실패한다. 실측(같은 MariaDB 10.11 이미지): 대기자 생성 전에 폴링을
-     * 시작했을 때 25ms 간격은 9초~15초 이상 못 보았고 150ms 간격은 26~148ms 안에 보았다. SHOW ENGINE INNODB STATUS·PROCESSLIST는 이 캐시를 거치지 않는다.
-     */
-    private static final long LOCK_WAIT_POLL_INTERVAL_MS = 150;
-
-    /** 락을 기다리는 트랜잭션이 생길 때까지 관측한다 — information_schema.INNODB_LOCK_WAITS는 PROCESS 권한이 필요해 root로 조회한다(sleep을 증거로 쓰지 않는다). */
+    /** 락을 기다리는 트랜잭션이 생길 때까지 관측한다(sleep을 증거로 쓰지 않는다) — 폴링 간격·캐시 주의는 {@link LockWaitObserver} 참조. */
     private boolean awaitSomeoneWaiting() throws Exception {
-        try (Connection observer = DriverManager.getConnection(connectionDetails.getJdbcUrl(), "root", connectionDetails.getPassword());
-             var query = observer.prepareStatement("SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS")) {
-            query.setQueryTimeout(2);
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
-            do {
-                try (var result = query.executeQuery()) {
-                    if (result.next() && result.getInt(1) > 0) {
-                        return true;
-                    }
-                }
-                Thread.sleep(LOCK_WAIT_POLL_INTERVAL_MS);
-            } while (System.nanoTime() < deadline);
-            return false;
-        }
+        return new LockWaitObserver(connectionDetails.getJdbcUrl(), connectionDetails.getPassword()).awaitAnyWaiter(Duration.ofSeconds(15));
     }
 
     // ===================== 시험 =====================

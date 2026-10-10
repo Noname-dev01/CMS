@@ -15,6 +15,7 @@ import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.support.CmsTestApplication;
+import com.cms.support.LockWaitObserver;
 import com.cms.support.MariaDbContainerSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -30,9 +31,8 @@ import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -338,33 +338,13 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     }
 
     private void assertDatabaseLockWait(long holder, long waiter) throws Exception {
-        // 이 클래스는 일회용 MariaDBContainer 전용이다. 그 컨테이너는 root에도 같은
-        // test password를 설정한다. PROCESS 권한은 관측 연결에만 쓰고 앱 계정은 바꾸지 않는다.
-        try (Connection observer = DriverManager.getConnection(connectionDetails.getJdbcUrl(),
-                "root", connectionDetails.getPassword());
-             var query = observer.prepareStatement("""
-                     SELECT waiting.trx_query FROM information_schema.INNODB_LOCK_WAITS locks
-                     JOIN information_schema.INNODB_TRX waiting ON waiting.trx_id = locks.requesting_trx_id
-                     JOIN information_schema.INNODB_TRX holding ON holding.trx_id = locks.blocking_trx_id
-                     WHERE waiting.trx_mysql_thread_id = ? AND holding.trx_mysql_thread_id = ?
-                     """)) {
-            query.setLong(1, waiter);
-            query.setLong(2, holder);
-            query.setQueryTimeout(2);
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
-            do {
-                try (var result = query.executeQuery()) {
-                    if (result.next()) {
-                        assertTrue(result.getString(1).toLowerCase(java.util.Locale.ROOT).contains("for update"),
-                                "UPDATE flush 대기가 아니라 최초 SELECT FOR UPDATE 대기여야 한다");
-                        System.out.printf("M-04 DB lock wait verified: holder=%d waiter=%d%n", holder, waiter);
-                        return;
-                    }
-                }
-                Thread.sleep(25); // 관측 query의 polling 간격일 뿐, sleep을 잠금 증거로 쓰지 않는다.
-            } while (System.nanoTime() < deadline);
-            fail("실제 DB row-lock 대기를 관측하지 못함: holder=" + holder + ", waiter=" + waiter);
-        }
+        // 이 클래스는 일회용 MariaDBContainer 전용이다. 그 컨테이너는 root에도 같은 test password를 설정한다. PROCESS 권한은
+        // 관측 연결에만 쓰고 앱 계정은 바꾸지 않는다. 폴링 간격·캐시 주의는 LockWaitObserver 참조(이슈 #119·#121).
+        String waitingQuery = new LockWaitObserver(connectionDetails.getJdbcUrl(), connectionDetails.getPassword())
+                .awaitWaiterPair(holder, waiter, Duration.ofSeconds(8));
+        assertTrue(waitingQuery.toLowerCase(java.util.Locale.ROOT).contains("for update"),
+                "UPDATE flush 대기가 아니라 최초 SELECT FOR UPDATE 대기여야 한다");
+        System.out.printf("M-04 DB lock wait verified: holder=%d waiter=%d%n", holder, waiter);
     }
 
     private static void await(CountDownLatch latch, String phase) {
@@ -472,26 +452,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     /** holder 연결이 잡은 락을 기다리는 트랜잭션이 하나 이상 생길 때까지 관측한다(sleep을 증거로 쓰지 않는다). */
     private void awaitSomeoneWaitingFor(long holder) throws Exception {
-        try (Connection observer = DriverManager.getConnection(connectionDetails.getJdbcUrl(),
-                "root", connectionDetails.getPassword());
-             var query = observer.prepareStatement("""
-                     SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS locks
-                     JOIN information_schema.INNODB_TRX holding ON holding.trx_id = locks.blocking_trx_id
-                     WHERE holding.trx_mysql_thread_id = ?
-                     """)) {
-            query.setLong(1, holder);
-            query.setQueryTimeout(2);
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
-            do {
-                try (var result = query.executeQuery()) {
-                    if (result.next() && result.getInt(1) > 0) {
-                        return;
-                    }
-                }
-                Thread.sleep(25); // 관측 query의 polling 간격일 뿐, sleep을 잠금 증거로 쓰지 않는다.
-            } while (System.nanoTime() < deadline);
-            fail("실제 DB row-lock 대기를 관측하지 못함: holder=" + holder);
-        }
+        new LockWaitObserver(connectionDetails.getJdbcUrl(), connectionDetails.getPassword()).awaitWaiterFor(holder, Duration.ofSeconds(8));
     }
 
     /**
