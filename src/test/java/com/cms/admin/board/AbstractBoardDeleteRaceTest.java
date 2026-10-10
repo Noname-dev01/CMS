@@ -204,6 +204,65 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
         }
     }
 
+    /**
+     * 락 대기가 관측되지 않았을 때의 진단 문자열(이슈 #119) — 실패 메시지에만 쓰이고 시험의 판정에는 영향이 없다. 호출 시점은 생성 스레드가 아직 래치에 묶여
+     * 있는 때라(릴리스·{@code shutdownNow()} 전) 삭제 요청이 어디에서 멈춰 있는지가 그대로 남아 있다. 어떤 조회가 실패해도 진단 때문에 예외가 새지 않는다.
+     */
+    private String diagnoseNoLockWait(Future<Integer> deleteBoard) {
+        StringBuilder out = new StringBuilder("\n[진단] 삭제 요청 완료 여부: ").append(deleteBoard.isDone()).append('\n');
+        try (Connection observer = DriverManager.getConnection(connectionDetails.getJdbcUrl(), "root", connectionDetails.getPassword());
+             Statement statement = observer.createStatement()) {
+            statement.setQueryTimeout(3);
+            out.append(dumpRows(statement, "INNODB_TRX", "SELECT * FROM information_schema.INNODB_TRX"));
+            out.append(dumpRows(statement, "INNODB_LOCK_WAITS", "SELECT * FROM information_schema.INNODB_LOCK_WAITS"));
+            out.append(dumpRows(statement, "PROCESSLIST", "SELECT ID, USER, DB, COMMAND, TIME, STATE, INFO FROM information_schema.PROCESSLIST"));
+        } catch (Exception e) {
+            out.append("[진단] DB 조회 실패: ").append(e).append('\n');
+        }
+        try {
+            var pool = dataSource.unwrap(com.zaxxer.hikari.HikariDataSource.class).getHikariPoolMXBean();
+            out.append("[진단] Hikari 풀: active=").append(pool.getActiveConnections())
+                    .append(", idle=").append(pool.getIdleConnections())
+                    .append(", total=").append(pool.getTotalConnections())
+                    .append(", threadsAwaitingConnection=").append(pool.getThreadsAwaitingConnection()).append('\n');
+        } catch (Exception e) {
+            out.append("[진단] Hikari 풀 상태 조회 실패: ").append(e).append('\n');
+        }
+        Thread.getAllStackTraces().forEach((thread, frames) -> {
+            if (thread.getName().startsWith("pool-")) {
+                out.append("[진단] 스레드 ").append(thread.getName()).append(" (").append(thread.getState()).append(")\n");
+                for (int i = 0; i < Math.min(frames.length, 14); i++) {
+                    out.append("    at ").append(frames[i]).append('\n');
+                }
+            }
+        });
+        return out.toString();
+    }
+
+    private static String dumpRows(Statement statement, String label, String sql) {
+        StringBuilder out = new StringBuilder("[진단] ").append(label).append(":\n");
+        try (java.sql.ResultSet rs = statement.executeQuery(sql)) {
+            int columns = rs.getMetaData().getColumnCount();
+            int rows = 0;
+            while (rs.next()) {
+                rows++;
+                out.append("    ");
+                for (int c = 1; c <= columns; c++) {
+                    String value = String.valueOf(rs.getString(c));
+                    out.append(rs.getMetaData().getColumnLabel(c)).append('=')
+                            .append(value.length() > 140 ? value.substring(0, 140) + "…" : value).append(c < columns ? " | " : "");
+                }
+                out.append('\n');
+            }
+            if (rows == 0) {
+                out.append("    (없음)\n");
+            }
+        } catch (Exception e) {
+            out.append("    조회 실패: ").append(e).append('\n');
+        }
+        return out.toString();
+    }
+
     // ===================== 시험 =====================
 
     @Test
@@ -285,7 +344,8 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
                     .andReturn().getResponse().getStatus());
 
             // 삭제 요청이 게시판 행 잠금을 기다리는 것을 DB에서 관측한다 — 공유 잠금이 없다면 삭제가 바로 진행됐을 것이다
-            assertThat(awaitSomeoneWaiting()).as("삭제가 생성의 게시판 공유 잠금을 기다린다").isTrue();
+            boolean waiting = awaitSomeoneWaiting();
+            assertThat(waiting).as("삭제가 생성의 게시판 공유 잠금을 기다린다%s", waiting ? "" : diagnoseNoLockWait(deleteBoard)).isTrue();
             assertThat(deleteBoard.isDone()).isFalse();
 
             Probe.postRelease.countDown();
