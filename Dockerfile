@@ -13,7 +13,7 @@ RUN ./gradlew --version --no-daemon
 COPY . .
 RUN ./gradlew clean bootJar --no-daemon
 
-FROM eclipse-temurin:21-jre@sha256:cff19e6215689161eb6162c11b86b0c60ddf802164f2eaf48d570f8fb79a36c5
+FROM eclipse-temurin:21-jre-noble@sha256:000fd431958bc81a24abe1e8e5f0f0fd3ae365a594bd50aadb20696805f9408c
 WORKDIR /app
 
 # 첨부파일 저장 디렉터리를 appuser 전환 전에 만들고 소유권을 넘긴다 — 안 하면 named volume
