@@ -1,17 +1,18 @@
 <!DOCTYPE html>
 <html lang="ko" xmlns:th="http://www.thymeleaf.org">
 <head>
-    <meta charset="UTF-8" />
-    <title>Error</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오류가 발생했습니다</title>
+    <link rel="stylesheet" th:href="@{/css/error.css}">
 </head>
 <body>
-<h2>에러가 발생했습니다</h2>
-<ul>
-    <li th:text="'status: ' + ${status}"></li>
-    <li th:text="'error: ' + ${error}"></li>
-    <li th:text="'message: ' + ${message}"></li>
-    <li th:text="'path: ' + ${path}"></li>
-    <li th:text="'timestamp: ' + ${timestamp}"></li>
-</ul>
+    <!-- 전용 템플릿(404·403·429)이 없는 상태의 폴백. 상태 코드(숫자)만 표시한다 — 오류 메시지·예외 정보·경로는 내부 정보를 담을 수 있어 싣지 않는다(CustomErrorController). -->
+    <div class="error-container">
+        <h1 th:text="${status} ?: '오류'">오류</h1>
+        <p class="error-message">에러가 발생했습니다</p>
+        <p class="error-description">요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.</p>
+        <a th:href="@{/}" class="home-button">홈으로 돌아가기</a>
+    </div>
 </body>
 </html>

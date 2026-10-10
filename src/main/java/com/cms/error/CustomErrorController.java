@@ -30,22 +30,33 @@ public class CustomErrorController implements ErrorController {
 
         ModelAndView modelAndView = new ModelAndView();
 
-        if (statusCode != null) {
-            if (statusCode == 404) {
-                if (isAdminPath(requestURI, request.getContextPath())) {
-                    modelAndView.setViewName("error/admin/404");
-                } else {
-                    // 일반 사용자 페이지인 경우
-                    modelAndView.setViewName("error/404");
-                }
-                modelAndView.addObject("timestamp", new java.util.Date());
-                modelAndView.addObject("path", requestURI);
-            } else if (statusCode == 429) {
-                // 레이트리밋 초과(RateLimitFilter의 sendError(429)) — 429가 걸리는 경로는 전부
-                // 무인증 공개 경로(/notices/**)라 admin 전용 429는 두지 않는다.
-                modelAndView.setViewName("error/429");
-                modelAndView.addObject("timestamp", new java.util.Date());
-                modelAndView.addObject("path", requestURI);
+        if (statusCode != null && statusCode == 404) {
+            if (isAdminPath(requestURI, request.getContextPath())) {
+                modelAndView.setViewName("error/admin/404");
+            } else {
+                // 일반 사용자 페이지인 경우
+                modelAndView.setViewName("error/404");
+            }
+            modelAndView.addObject("timestamp", new java.util.Date());
+            modelAndView.addObject("path", requestURI);
+        } else if (statusCode != null && statusCode == 403) {
+            // 권한 없는 관리자 페이지 접근(AccessDeniedHandlerImpl의 sendError(403))과 CSRF 검증 실패가 모두 여기로 온다 —
+            // 둘을 구분하지 않는 중립 문구를 쓴다(이슈 #117: 이전에는 404·429 외 상태가 모델이 빈 error.html로 떨어져 값이 전부 null로 표시됐다).
+            modelAndView.setViewName(isAdminPath(requestURI, request.getContextPath()) ? "error/admin/403" : "error/403");
+            modelAndView.addObject("timestamp", new java.util.Date());
+            modelAndView.addObject("path", requestURI);
+        } else if (statusCode != null && statusCode == 429) {
+            // 레이트리밋 초과(RateLimitFilter의 sendError(429)) — 429가 걸리는 경로는 전부
+            // 무인증 공개 경로(/notices/**)라 admin 전용 429는 두지 않는다.
+            modelAndView.setViewName("error/429");
+            modelAndView.addObject("timestamp", new java.util.Date());
+            modelAndView.addObject("path", requestURI);
+        } else {
+            // 전용 템플릿이 없는 그 밖의 상태 — 안전한 폴백. 모델에는 상태 코드(숫자)만 싣는다:
+            // jakarta.servlet.error.message·예외 정보는 내부 메시지를 담을 수 있어 화면에 내보내지 않는다.
+            modelAndView.setViewName("error");
+            if (statusCode != null) {
+                modelAndView.addObject("status", statusCode);
             }
         }
 

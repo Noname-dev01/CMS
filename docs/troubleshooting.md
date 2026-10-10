@@ -1084,3 +1084,36 @@ PublicAttachmentStreamingServerTest > 커밋 후 읽기 실패 — ... 다음 �
 
 본 프로젝트는 단순 기능 구현뿐 아니라  
 실제 개발 환경에서 발생할 수 있는 문제를 직접 경험하고 해결했습니다.
+
+### 권한 없는 관리자 페이지 접근(403) 오류 화면이 `status: null error: null …`로 표시된다 (2026-10-11, 이슈 #117)
+
+#### 오류 메시지
+
+```
+에러가 발생했습니다
+- status: null
+- error: null
+- message: null
+- path: null
+- timestamp: null
+```
+
+MANAGER가 ADMIN 전용 페이지(`/admin/log/manage`·`/admin/permission/manage`·`/admin/session/manage`)를 열 때 상태 코드는 403으로 맞지만 화면 본문이 위와 같았다. 세션 관리 화면 실기 검증 중 발견했다(그 작업과 무관한 기존 동작 — 기존 ADMIN 전용 페이지에서도 똑같이 재현).
+
+#### 원인
+
+- `CustomErrorController`가 Boot의 `BasicErrorController`를 대체하는데 **404와 429에서만** 뷰 이름과 모델을 채웠다. 그 밖의 상태는 뷰 이름 없는 빈 `ModelAndView`를 돌려줘 기본 뷰 `error.html`이 선택됐고, 이 템플릿이 읽는 `status`·`error`·`message`·`path`·`timestamp`는 채워 주는 쪽이 사라져 전부 `null`이었다.
+- 페이지 요청의 403은 두 경로로 이 화면에 온다: 권한 부족(`AccessDeniedHandlerImpl`의 `sendError(403)` → ERROR 디스패치 → `/error`)과 **CSRF 검증 실패**(같은 핸들러). 후자 때문에 영향이 이슈 본문보다 넓다 — 만료된 로그인 폼 제출도 이 화면이다(실서버 시험으로 확인: CSRF 없는 `POST /admin/login`이 403 + 이 경로).
+- 기존 `DefaultDenyErrorDispatchIntegrationTest (b)`가 "403 + 오류 뷰 본문"을 이미 고정했지만 마커가 `null` 표시 템플릿의 문구(`"에러가 발생했습니다"`)여서 이 결함을 잡지 못했다.
+
+#### 해결 방법
+
+- `CustomErrorController`에 403 분기를 추가했다(관리자 `/admin/**`는 `error/admin/403`, 그 밖은 `error/403` — 404와 같은 `PathPattern` 판정). 전용 템플릿이 없는 그 밖의 상태는 안전한 폴백 `error` 뷰이고 **모델에는 상태 코드(숫자)만** 싣는다 — `jakarta.servlet.error.message`·예외 정보는 내부 메시지를 담을 수 있어 화면에 내보내지 않는다.
+- 템플릿: `error/403.html`·`error/admin/403.html` 신규(관리자용은 `admin/404.html` 스타일을 복사), `error.html`은 상태 코드만 표시하는 폴백으로 교체. 문구는 권한 부족과 CSRF 만료를 구분하지 않는 중립 표현("이 화면을 볼 권한이 없거나, 로그인 세션이 만료되었을 수 있습니다")이다.
+- 시험: `CustomErrorControllerTest`(403 분기·폴백, 모델에 컨테이너 오류 메시지가 새지 않음), `CustomErrorControllerViewTest`(실제 Thymeleaf 렌더링 — 403 관리자·일반, 폴백, 기존 404·429 무회귀, 전부 `null` 없음), `DefaultDenyErrorDispatchIntegrationTest (b)`·`(b2)`(실서버 — 마커를 새 화면으로 바꾸고 `null` 부재 단언, 관리자 경로 변형 추가). 변이 실험: 403 분기를 무력화하면 4건이 실패한다. 실기: MANAGER가 ADMIN 전용 페이지 3곳에서 새 화면을 보고 "관리자 홈으로" 버튼이 `/admin`으로 이동한다.
+
+#### 교훈
+
+- 오류 화면 시험은 "렌더링됐다"가 아니라 "의도한 문구가 있고 `null`이 없다"를 단언해야 한다. 마커가 결함 있는 화면의 문구면 시험이 결함을 고정해 버린다.
+- `ErrorController`를 직접 구현하면 `BasicErrorController`가 채우던 모델 속성도 직접 채워야 한다(또는 상태별 템플릿을 둔다). 채우지 않을 거면 템플릿이 그 속성에 의존하지 않아야 한다.
+- 같은 수정 중 발견한 별개의 문제: 쿠키 없는 클라이언트의 CSRF 거부 403 화면에서 링크가 `;jsessionid=…`로 재작성돼 400이다(세션 추적 모드 미설정, 이슈 #123 — 이 수정의 범위 밖. 쿠키가 있으면 — 만료된 세션 쿠키·낡은 CSRF 토큰 포함 — 재작성되지 않음을 실측했다).

@@ -30,7 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(classes = CmsTestApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class DefaultDenyErrorDispatchIntegrationTest extends MariaDbContainerSupport {
 
-    private static final String ERROR_VIEW_MARKER = "에러가 발생했습니다";
+    /** 403 전용 오류 화면(error/403.html)의 본문 문구 — 이슈 #117 전에는 모델이 빈 error.html("에러가 발생했습니다", 값 전부 null)이었다. */
+    private static final String FORBIDDEN_VIEW_MARKER = "접근할 수 없는 페이지입니다";
 
     @LocalServerPort
     int port;
@@ -62,13 +63,25 @@ class DefaultDenyErrorDispatchIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("(b) CSRF 없는 비인증 POST /notices — 403이며 error 뷰 본문이 렌더링된다 (302·빈 본문·컨테이너 기본 응답이면 실패)")
+    @DisplayName("(b) CSRF 없는 비인증 POST /notices — 403이며 403 오류 화면 본문이 렌더링된다 (302·빈 본문·컨테이너 기본 응답이면 실패, null 표시도 실패)")
     void csrfRejectedPost_rendersErrorViewWith403() throws Exception {
         HttpResponse<String> res = send("POST", "/notices");
 
         assertThat(res.statusCode()).isEqualTo(403);
         assertThat(res.headers().firstValue("Location")).isEmpty();
-        assertThat(res.body()).contains(ERROR_VIEW_MARKER);
+        assertThat(res.body()).contains(FORBIDDEN_VIEW_MARKER);
+        assertThat(res.body()).doesNotContain("null");
+    }
+
+    @Test
+    @DisplayName("(b2) CSRF 없는 POST /admin/login(만료된 로그인 폼 제출) — 403이며 관리자 403 화면이 렌더링된다 (이슈 #117)")
+    void csrfRejectedAdminLoginPost_rendersAdminForbiddenView() throws Exception {
+        HttpResponse<String> res = send("POST", "/admin/login");
+
+        assertThat(res.statusCode()).isEqualTo(403);
+        assertThat(res.headers().firstValue("Location")).isEmpty();
+        assertThat(res.body()).contains(FORBIDDEN_VIEW_MARKER).contains("관리자 홈으로");
+        assertThat(res.body()).doesNotContain("null");
     }
 
     @Test
