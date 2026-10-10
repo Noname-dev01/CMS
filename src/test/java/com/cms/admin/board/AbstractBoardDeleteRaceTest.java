@@ -216,6 +216,13 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
             out.append(dumpRows(statement, "INNODB_TRX", "SELECT * FROM information_schema.INNODB_TRX"));
             out.append(dumpRows(statement, "INNODB_LOCK_WAITS", "SELECT * FROM information_schema.INNODB_LOCK_WAITS"));
             out.append(dumpRows(statement, "PROCESSLIST", "SELECT ID, USER, DB, COMMAND, TIME, STATE, INFO FROM information_schema.PROCESSLIST"));
+            // information_schema의 INNODB_* 뷰는 캐시를 거치므로, 엔진 자체의 락 대기 기록(SHOW ENGINE INNODB STATUS)과 대조한다 —
+            // 여기에 "WAITING ... FOR THIS LOCK TO BE GRANTED"가 보이면 실제 락 대기를 information_schema가 놓친 것이다.
+            out.append(dumpRows(statement, "INNODB_LOCKS", "SELECT * FROM information_schema.INNODB_LOCKS"));
+            out.append(engineTransactions(statement));
+            for (String variable : List.of("version", "innodb_lock_wait_timeout", "innodb_deadlock_detect", "innodb_snapshot_isolation", "transaction_isolation")) {
+                out.append(dumpRows(statement, "@@global." + variable, "SELECT @@global." + variable));
+            }
         } catch (Exception e) {
             out.append("[진단] DB 조회 실패: ").append(e).append('\n');
         }
@@ -236,6 +243,23 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
                 }
             }
         });
+        return out.toString();
+    }
+
+    /** {@code SHOW ENGINE INNODB STATUS}의 TRANSACTIONS 섹션만 잘라 돌려준다(길이 상한 5000자). */
+    private static String engineTransactions(Statement statement) {
+        StringBuilder out = new StringBuilder("[진단] INNODB STATUS(TRANSACTIONS):\n");
+        try (java.sql.ResultSet rs = statement.executeQuery("SHOW ENGINE INNODB STATUS")) {
+            if (rs.next()) {
+                String status = rs.getString("Status");
+                int from = status.indexOf("\nTRANSACTIONS\n");
+                int to = status.indexOf("\nFILE I/O\n");
+                String section = from < 0 ? status : status.substring(from, to > from ? to : status.length());
+                out.append(section.length() > 5000 ? section.substring(0, 5000) + "…" : section).append('\n');
+            }
+        } catch (Exception e) {
+            out.append("    조회 실패: ").append(e).append('\n');
+        }
         return out.toString();
     }
 
