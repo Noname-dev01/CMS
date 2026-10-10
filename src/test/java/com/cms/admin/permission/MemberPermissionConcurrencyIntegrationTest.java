@@ -14,6 +14,7 @@ import com.cms.admin.permission.service.MemberPermissionService;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.support.CmsTestApplication;
+import com.cms.support.LockWaitObserver;
 import com.cms.support.MariaDbContainerSupport;
 import com.cms.support.TestMembers;
 import jakarta.persistence.EntityManager;
@@ -29,8 +30,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -47,7 +47,6 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * 회원별 권한 저장의 동시성 시험(PLAN-member-permission.md §7-1 ⑤): 실제 MariaDB 행 잠금 대기를 {@code INNODB_LOCK_WAITS}로 관측한다
@@ -426,24 +425,6 @@ class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport
 
     /** holder 연결이 잡은 락을 기다리는 트랜잭션이 하나 이상 생길 때까지 관측한다(sleep을 증거로 쓰지 않는다). */
     private void awaitSomeoneWaitingFor(long holder) throws Exception {
-        try (Connection observer = DriverManager.getConnection(connectionDetails.getJdbcUrl(), "root", connectionDetails.getPassword());
-             var query = observer.prepareStatement("""
-                     SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS locks
-                     JOIN information_schema.INNODB_TRX holding ON holding.trx_id = locks.blocking_trx_id
-                     WHERE holding.trx_mysql_thread_id = ?
-                     """)) {
-            query.setLong(1, holder);
-            query.setQueryTimeout(2);
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(8);
-            do {
-                try (var result = query.executeQuery()) {
-                    if (result.next() && result.getInt(1) > 0) {
-                        return;
-                    }
-                }
-                Thread.sleep(25); // 관측 query의 polling 간격일 뿐, sleep을 잠금 증거로 쓰지 않는다.
-            } while (System.nanoTime() < deadline);
-            fail("실제 DB row-lock 대기를 관측하지 못함: holder=" + holder);
-        }
+        new LockWaitObserver(connectionDetails.getJdbcUrl(), connectionDetails.getPassword()).awaitWaiterFor(holder, Duration.ofSeconds(8));
     }
 }

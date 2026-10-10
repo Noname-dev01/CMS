@@ -1117,3 +1117,38 @@ MANAGER가 ADMIN 전용 페이지(`/admin/log/manage`·`/admin/permission/manage
 - 오류 화면 시험은 "렌더링됐다"가 아니라 "의도한 문구가 있고 `null`이 없다"를 단언해야 한다. 마커가 결함 있는 화면의 문구면 시험이 결함을 고정해 버린다.
 - `ErrorController`를 직접 구현하면 `BasicErrorController`가 채우던 모델 속성도 직접 채워야 한다(또는 상태별 템플릿을 둔다). 채우지 않을 거면 템플릿이 그 속성에 의존하지 않아야 한다.
 - 같은 수정 중 발견한 별개의 문제: 쿠키 없는 클라이언트의 CSRF 거부 403 화면에서 링크가 `;jsessionid=…`로 재작성돼 400이다(세션 추적 모드 미설정, 이슈 #123 — 이 수정의 범위 밖. 쿠키가 있으면 — 만료된 세션 쿠키·낡은 CSRF 토큰 포함 — 재작성되지 않음을 실측했다).
+
+### 락 대기를 관측하는 동시성 시험이 CI에서 간헐적으로 "대기를 관측하지 못함"으로 실패한다 — information_schema 락 뷰의 캐시 (2026-10-11, 이슈 #119·#121)
+
+#### 오류 메시지
+
+```
+org.opentest4j.AssertionFailedError at AbstractBoardDeleteRaceTest.java:288
+  assertThat(awaitSomeoneWaiting()).as("삭제가 생성의 게시판 공유 잠금을 기다린다").isTrue();
+
+org.opentest4j.AssertionFailedError: 실제 DB row-lock 대기를 관측하지 못함: holder=5
+```
+
+`BoardDeleteRaceSnapshotIsolation{On,Off}IntegrationTest [쟁점 7]`이 CI(`pull_request`)에서 간헐적으로 실패했다(2026-10-10, PR #115·#118의 `test` 잡 5번 시도 중 3번 실패, master push 실행은 성공). 로컬(Windows)에서는 전체 테스트 4회가 모두 통과했다.
+
+#### 원인
+
+- 시험은 삭제 요청이 생성 트랜잭션의 `FOR SHARE` 때문에 락을 기다리는 모습을 `information_schema.INNODB_LOCK_WAITS`에서 25ms 간격으로 15초 동안 찾았다.
+- 실패 순간의 진단(진단 커밋으로 확보한 CI 표본 3건)에서 `SHOW ENGINE INNODB STATUS`에는 삭제 트랜잭션이 정확히 15초 동안 `TRX HAS BEEN WAITING … FOR THIS LOCK TO BE GRANTED`(board 기본키 행의 X 락, 생성이 차단)로 찍혀 있었는데, 같은 순간 `INNODB_TRX`에는 삭제 트랜잭션이 없고 `INNODB_LOCK_WAITS`·`INNODB_LOCKS`는 비어 있었다. **앱의 락 동작은 정상이고 관측 수단이 대기를 놓친 것이다.**
+- InnoDB는 이 뷰들을 캐시로 돌려주는데, 25ms마다 계속 읽으면 캐시가 갱신되지 않은 채 **첫 조회 시점의 스냅샷에 머문다.** 삭제 요청이 락에 걸리기 전에 첫 조회가 나가면 이후 폴링이 계속 낡은 스냅샷을 본다. 로컬에서는 관측용 연결을 새로 맺는 시간 동안 삭제가 먼저 락에 걸려 첫 조회에서 보이므로 통과하고, 대기자 경로(MockMvc·보안·트랜잭션)가 느린 CI에서만 순서가 뒤집힌다.
+- 로컬 재현(같은 MariaDB 10.11 이미지, 대기자가 생기기 **전에** 폴링 시작): 25ms 간격은 9.3초 뒤에야 보았고 다른 시도에서는 600회(약 15초)를 돌고도 끝까지 못 보았다. 150ms 간격은 26~148ms 안에 보았다.
+- 이 시점의 진단 가설 중 연결 고갈(`Too many connections`)은 로그에 증거가 없어 기각했고, Java 쪽 지연(풀 대기 0, 삭제 스레드는 DB 소켓 응답 대기)도 아니었다.
+
+#### 해결 방법
+
+- #119(PR #120): 해당 시험의 폴링 간격을 150ms로 바꿨다. 수정 후 그 PR의 CI 9회 연속 통과(수정 전 약 50% 실패).
+- #121: 같은 폴링을 하는 헬퍼가 `MenuConcurrencyIntegrationTest`(2개)·`MemberPermissionConcurrencyIntegrationTest`(1개)에도 복제돼 있었다(#120에서 한 곳만 고쳐 남음). 락 대기 관측을 `com.cms.support.LockWaitObserver` 한 곳으로 모으고(간격 상수·이유를 한 곳에), 복제본 4개를 이 헬퍼 호출로 바꿨다. 헬퍼가 지탱하는 시험은 14개(Menu 9 + MemberPermission 5)이고 시험 본문은 바뀌지 않았다. `LockWaitPollingConventionTest`가 헬퍼 밖의 직접 조회를 CI에서 막는다.
+- 시험: `LockWaitObserverTest`가 "대기자가 첫 폴링 뒤에 생기는" 순서를 헬퍼의 시험용 훅(첫 조회가 빈 결과를 낸 직후 호출)으로 **시간 지연 없이 결정적으로** 만든다 — 처음에는 대기자를 400ms 늦추는 방식이었으나 코드 리뷰에서 "관측 스레드가 늦으면 그 순서가 안 나오고 상한 단언이 거짓 실패를 만든다"는 지적을 받아 바꿨다. 간격을 25ms로 되돌리면 이 시험과 결정적 가드(`POLL_INTERVAL_MS > 100`)가 실패한다.
+- **같은 캐시의 반대 방향**(코드 리뷰 중 새 시험이 실패하며 발견): 직전 관측이 100ms 이내에 읽은 스냅샷이 갱신되지 않아, 그 스냅샷에 남은 **이미 끝난 대기**를 새 관측이 "대기자 있음"으로 받는다(대기자가 없음을 확인하는 시험이 `true`를 받았다). 헬퍼가 첫 조회 전에 폴링 간격만큼 쉬도록 고쳤고(캐시 위생이며 deadline에 포함, 증거가 아님), `awaitAnyWaiter_doesNotReuseStaleSnapshotOfAFinishedWait`가 이를 고정한다(수정 전 실패 확인). `awaitAnyWaiter`는 전역이라 이런 낡은 스냅샷에 특히 취약하므로 대기자를 특정할 수 있으면 연결 ID로 좁히는 변형을 쓴다.
+
+#### 교훈
+
+- 동시성 시험의 "락 대기 관측"은 **첫 조회가 대기 시작보다 먼저 나갈 수 있다는 순서**를 가정에 넣어야 한다. 로컬에서 통과한다는 것은 그 순서가 안 나왔다는 뜻일 뿐이다 — 헬퍼에 대기자 지연을 주입하면(수정 전 실패·수정 후 통과) 환경 없이 재현된다. 이 프로젝트에서 실측: 평소 42회 측정은 모두 첫 폴링에서 보였지만 대기자를 400ms 늦추자 `MemberPermission`·`Menu`의 실제 시험이 실패했다.
+- 엔진 내부 뷰(`information_schema.INNODB_*`)가 실시간이라고 가정하지 않는다. 캐시를 거치지 않는 `SHOW ENGINE INNODB STATUS`·`PROCESSLIST`와 대조하면 "대기가 없다"와 "대기를 못 본다"를 구분할 수 있다.
+- 같은 로직이 시험마다 복제돼 있으면 한 곳만 고쳐지고 나머지가 남는다. 공용 헬퍼 + 컨벤션 시험으로 복제의 재발을 막는다.
+- 간헐 실패를 "원인 미상의 플레이키"로 두지 말고, 실패 순간의 상태를 실패 메시지에 남기는 진단을 먼저 붙이면 원인이 한 번에 갈린다(이번에는 CI를 반복 재실행해 실패 표본 3건을 확보했다).
