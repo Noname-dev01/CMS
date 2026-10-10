@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>홈</title>
+    <link rel="stylesheet" th:href="@{/css/public/home.css}">
+</head>
+<body>
+<div class="home-container">
+
+    <!--/* 배너: 서버가 노출 여부·기간을 판정한 목록이다. 제목은 대체 텍스트로만 쓴다(th:alt는 속성 이스케이프).
+         링크는 PublicBanner가 SafeUrls로 한 번 더 거른 값이라 javascript: 등은 여기까지 오지 않는다.
+         첫 배너만 즉시 로딩하고 나머지는 지연 로딩한다(PLAN-public-home-banner.md R1-3). */-->
+    <section class="home-banners" th:if="${not #lists.isEmpty(home.banners)}" aria-label="배너">
+        <div class="home-banner" th:each="banner, stat : ${home.banners}">
+            <a th:if="${banner.linkUrl != null and banner.externalLink}" th:href="${banner.linkUrl}"
+               target="_blank" rel="noopener noreferrer">
+                <img th:src="@{/banners/{id}/image(id=${banner.id})}" th:alt="${banner.title}"
+                     th:attr="loading=${stat.index > 0} ? 'lazy' : 'eager'">
+            </a>
+            <a th:if="${banner.linkUrl != null and not banner.externalLink}" th:href="${banner.linkUrl}">
+                <img th:src="@{/banners/{id}/image(id=${banner.id})}" th:alt="${banner.title}"
+                     th:attr="loading=${stat.index > 0} ? 'lazy' : 'eager'">
+            </a>
+            <img th:if="${banner.linkUrl == null}" th:src="@{/banners/{id}/image(id=${banner.id})}" th:alt="${banner.title}"
+                 th:attr="loading=${stat.index > 0} ? 'lazy' : 'eager'">
+        </div>
+    </section>
+
+    <div class="home-sections">
+        <section class="home-section" th:if="${not #lists.isEmpty(home.notices)}">
+            <h2 class="home-section-title">
+                <a th:href="@{/notices}">공지사항</a>
+            </h2>
+            <ul class="home-post-list">
+                <li class="home-post-item" th:each="post : ${home.notices}">
+                    <a th:href="@{/notices/{id}(id=${post.id})}">
+                        <span class="home-post-title" th:text="${post.title}"></span>
+                        <span class="home-post-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
+                    </a>
+                </li>
+            </ul>
+        </section>
+
+        <section class="home-section" th:if="${not #lists.isEmpty(home.latestPosts)}">
+            <h2 class="home-section-title">새 글</h2>
+            <ul class="home-post-list">
+                <li class="home-post-item" th:each="post : ${home.latestPosts}">
+                    <a th:href="@{/boards/{boardId}/posts/{postId}(boardId=${post.boardId}, postId=${post.id})}">
+                        <span class="home-post-board" th:text="${post.boardName}"></span>
+                        <span class="home-post-title" th:text="${post.title}"></span>
+                        <span class="home-post-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
+                    </a>
+                </li>
+            </ul>
+        </section>
+    </div>
+
+    <p class="home-empty"
+       th:if="${#lists.isEmpty(home.banners) and #lists.isEmpty(home.notices) and #lists.isEmpty(home.latestPosts)}">
+        아직 게시된 내용이 없습니다.
+    </p>
+</div>
+</body>
+</html>
