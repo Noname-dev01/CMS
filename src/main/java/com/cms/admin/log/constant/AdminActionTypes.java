@@ -54,6 +54,8 @@ public final class AdminActionTypes {
     public static final String BANNER_DELETE = "BANNER_DELETE";
     /** 배너 표시 순서 일괄 저장 — targetType = BANNER, targetId 없음(순서 전체가 대상) */
     public static final String BANNER_ORDER = "BANNER_ORDER";
+    /** 세션 강제 만료(단일·회원 단위) — targetType = MEMBER, targetId = 세션 소유 회원 ID(성공 행만), targetLabel = "세션 n개 만료". 세션 ID·핸들은 기록하지 않는다 */
+    public static final String SESSION_EXPIRE = "SESSION_EXPIRE";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
@@ -62,7 +64,8 @@ public final class AdminActionTypes {
             NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE, PERMISSION_UPDATE, MESSAGE_SEND, CONTENT_IMAGE_UPLOAD,
             BOARD_CREATE, BOARD_UPDATE, BOARD_DELETE,
             POST_CREATE, POST_UPDATE, POST_DELETE, POST_ATTACHMENT_UPLOAD, POST_ATTACHMENT_DELETE,
-            BANNER_CREATE, BANNER_UPDATE, BANNER_DELETE, BANNER_ORDER
+            BANNER_CREATE, BANNER_UPDATE, BANNER_DELETE, BANNER_ORDER,
+            SESSION_EXPIRE
     );
 
     private AdminActionTypes() {}
