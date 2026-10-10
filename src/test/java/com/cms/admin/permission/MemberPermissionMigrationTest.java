@@ -237,6 +237,33 @@ class MemberPermissionMigrationTest extends MariaDbContainerSupport {
         }
     }
 
+    @Test
+    @DisplayName("배너 도입 전 버전으로 롤백했다가 재배포: 구 앱이 남긴 BANNER 행(전체 회수를 해도 카탈로그에 없는 기능이라 diff에서 제외됨)이 정리 SQL로 지워지고 전원의 버전이 올라 부활하지 않는다 (PLAN-public-home-banner.md R2-1)")
+    void redeployReset_afterBannerRollback_removesLeftoverBannerRows() throws Exception {
+        v16Database();
+        flyway(null).migrate();   // 최신(V33 배너 테이블 포함)
+
+        try (Connection conn = connect(); Statement st = conn.createStatement()) {
+            // 신버전 운영 중 부여된 BANNER 권한 → 구 앱으로 롤백 → 구 앱의 권한관리가 "전체 회수"를 했지만 BANNER 행은 남았다고 가정
+            long managerId = memberId(st, "m_active");
+            st.execute("INSERT INTO member_permission (member_id, feature, action) VALUES (" + managerId + ", 'BANNER', 'READ')");
+            st.execute("INSERT INTO member_permission (member_id, feature, action) VALUES (" + managerId + ", 'BANNER', 'DELETE')");
+            long versionBefore = count(st, "SELECT permission_version FROM member WHERE user_id = 'm_active'");
+
+            // docs/deployment.md의 롤백 후 재배포 정리 절차와 같은 트랜잭션
+            conn.setAutoCommit(false);
+            st.execute("DELETE FROM member_permission");
+            st.execute("DELETE FROM member_board_permission");
+            st.execute("UPDATE member SET permission_version = permission_version + 1");
+            conn.commit();
+            conn.setAutoCommit(true);
+
+            assertThat(count(st, "SELECT COUNT(*) FROM member_permission WHERE feature = 'BANNER'")).isZero();
+            assertThat(count(st, "SELECT permission_version FROM member WHERE user_id = 'm_active'"))
+                    .as("정리 전 화면의 오래된 PUT이 과거 권한을 복원하지 못하게 버전이 오른다").isEqualTo(versionBefore + 1);
+        }
+    }
+
     // ── ⑬ V17·V18 실패 이력 복구(R-11·R-12) ─────────────────
 
     @Test

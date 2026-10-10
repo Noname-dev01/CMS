@@ -10,7 +10,7 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 | 기능 | 종류 | 설명 |
 |---|---|---|
 | `DASHBOARD`, `MY_INFO`, `SEARCH` | `ALWAYS` | 로그인한 ADMIN·MANAGER 전원 상시 허용(`SEARCH`=상단바 통합 검색 API 사용 자체 — 결과의 도메인별 노출은 `AdminSearchService`가 판정기로 필터한다, 아래 "통합 검색"). DB를 보지 않고 끌 수 없다(로그인 직후 `/admin`으로 이동하므로 대시보드를 끄면 403이 난다). **`MY_INFO`의 게이트에는 쪽지함 페이지 `/admin/member/messages`가 정확 경로 1개로 포함**된다(2026-10-05 승인, `com.cms.admin.message`의 `CLAUDE.md`) — ALWAYS 게이트는 HTTP 메서드를 구분하지 않아 그 경로에는 GET 핸들러만 두고 `MessagePageMethodConventionTest`가 CI에서 잠근다. 쪽지 API는 기존 `/admin/api/members/me/**` 안이다 |
-| (없음) | `DELEGABLE` | **현재 카탈로그에 기능 단위 위임 기능이 없다**(2026-10-09, 공지 흡수 — `PLAN-notice-to-board.md` 쟁점 6). 옛 `NOTICE`는 제거돼 공지 권한은 공지 게시판(`board_key='NOTICE'`)의 게시판별 권한(`member_board_permission`)이다. 판정·캐시·`PUT grants`·권한관리 화면의 기능 표 코드는 남아 있다(②배너 등 다음 `DELEGABLE` 기능이 쓴다) — 그 경로의 시험은 공백이다(아래 "시험 공백"). 규칙은 이전과 같다: ADMIN은 항상, MANAGER는 **그 회원의** (기능, 동작) 허용 행이 있을 때만, 쓰기 동작은 READ 의존 |
+| `BANNER` | `DELEGABLE` | 공개 메인 배너(**첫 기능 단위 위임 기능**, 2026-10-10 — `PLAN-public-home-banner.md` 쟁점 9). 동작 READ·CREATE·UPDATE·DELETE. ADMIN은 항상, MANAGER는 **그 회원의** (기능, 동작) 허용 행(`member_permission`)이 있을 때만, 쓰기 동작은 READ 의존. 핸들러 분류: 목록·상세·관리자 이미지 보기 = READ, 등록 = CREATE, 수정(`PUT` 전체 교체)·순서 저장 = UPDATE, 삭제 = DELETE. 게이트 `/admin/banner/manage`·`/admin/api/banners`·`/admin/api/banners/**`는 `SecurityConfig`의 `DELEGABLE` 루프가 자동 생성한다(코드 변경 없음). 공지 흡수(V32)로 0개였다가 처음 다시 생겼다 — 판정·캐시·`PUT grants`·권한관리 화면의 기능 표 코드가 이때 처음 실제 기능을 만났다. 상세는 `com.cms.admin.banner`의 `CLAUDE.md` |
 | `BOARD` | `BOARD_SCOPED` | 게시글(게시판별 위임, 2026-10-08 — 아래 "게시판별 권한"). ADMIN은 항상, MANAGER는 **그 회원의 (게시판, 동작) 행**(`member_board_permission`)으로 판정. `member_permission`의 `BOARD` 행으로는 부여할 수 없다(캐시가 무시, PUT은 400) |
 | `MEMBER`, `MENU`, `ACTION_LOG`, `BOARD_ADMIN`, `PERMISSION` | `ADMIN_ONLY` | 위임 불가. `PERMISSION`을 `DELEGABLE`로 바꾸면 `AdminFeature` 생성자가 **클래스 로딩 시점에 예외**를 던진다(자기 승격 차단). 권한관리 메뉴는 ADMIN만 접근한다 |
 
@@ -37,9 +37,14 @@ MANAGER가 무엇을 할 수 있는지는 **코드 카탈로그(`AdminFeature`) 
 
 `AdminPermissionMatrixIntegrationTest`(실제 SecurityConfig·판정기·캐시·MariaDB, 시험마다 실제 MANAGER 회원 행을 만들고 지운다)는 **공지 게시판의 게시글 핸들러** 9개 × MANAGER 권한 조합(2026-10-09 공지 흡수로 공지 핸들러 매트릭스를 옮김; 판정 키는 (회원, 게시판, 동작))(전부·없음·READ만·READ+CREATE·READ+UPDATE·READ+DELETE·READ 없는 쓰기)을 시험한다. 허용은 **기대 성공 상태와 실제 저장 결과**, 거부는 403(API JSON `ACCESS_DENIED`)과 **변경 없음**으로 단언하고, 경계 입력(후행 슬래시·`;`·`/./`·HEAD·OPTIONS)도 확인한다. **교차 회원 격리**(회원 A에게만 준 권한이 같은 역할의 회원 B에게 적용되지 않음)와 **신규 MANAGER(권한 0개)** 시험이 있다. 변이 실험으로 "삭제를 UPDATE로 오표시"가 이 시험에서 실패함을 확인했다.
 
-## 시험 공백 (2026-10-09, 공지 흡수로 `DELEGABLE` 기능이 0개)
 
-기능 단위 위임(`member_permission`) 경로의 **실제 기능 픽스처가 없어** 다음 시험은 `BOARD_SCOPED` 판으로 옮기거나 삭제했다 — `AdminPermissionEvaluatorTest`의 `delegableFollowsGrantsAndReadDependency` 유형(기능 행 + READ 의존의 진리표는 `BOARD` 기능 단위 판정으로 대체)·`grantedActionKeys_truthTable`(DELEGABLE이 없어 빈 집합 계약으로 축소)·`PermissionCacheTest`(기능 행 로드 케이스는 게시판 행으로 대체, 알 수 없는 `NOTICE` 행 무시 케이스 추가)·`MemberPermissionServiceTest`의 `replace_*`(diff·전체 회수·변경 없음·변형 행 충돌 — 같은 규칙의 게시판 판이 `MemberPermissionServiceBoardTest`)·`MemberPermissionApiIntegrationTest`·`MemberPermissionConcurrencyIntegrationTest`·`MemberRoleChangePermissionIntegrationTest`(공지 게시판 권한으로 이식). **다음 `DELEGABLE` 기능(②배너)이 들어오면 위 기능 단위 시험을 되살린다**(`grantedActionKeys` 진리표·`PUT grants` 400/409 규칙·`featureReadGate` 게이트·`` 컨벤션).
+## 기능 단위 위임 시험 복구 (2026-10-10, 배너가 첫 `DELEGABLE` 기능이 되며 — 이전 "시험 공백"은 대부분 해소)
+
+공지 흡수(2026-10-09)로 `DELEGABLE`이 0개가 돼 삭제·축소됐던 기능 단위 위임 경로 시험을 **배너(BANNER) 픽스처로 되살렸다**(`PLAN-public-home-banner.md` 쟁점 16, 구현·검증 결과 참조).
+
+- **복구됨**: `AdminPermissionEvaluatorTest`(`grantedActionKeys_truthTable`·`bannerFollowsGrantsAndReadDependency` — ADMIN 캐시 미호출, READ 의존, 교차 회원 격리, `menuUrlVisibility`)·`PermissionCacheTest`(`delegableFeatureRowsAreLoaded`·`snapshotCombinesFeatureAndBoardRows` — 모르는·위임 불가·`BOARD`·제거된 `NOTICE` 행 무시)·`MemberPermissionServiceTest`(`replace_*`·`bannerGrants_*`·`getMatrix_bannerEffectiveGrants`)·`BannerPermissionApiIntegrationTest`(PUT 행·버전·감사, 변경 없음, 400 검증, 409, GET 매트릭스, **변형 행 409**, 실제 로그인 세션 즉시 반영, 자기 승격 차단)·`BannerPermissionMatrixIntegrationTest`(핸들러 7 × 권한 7조합, 신규 MANAGER, 교차 회원, 회수 즉시 반영 — 변이 실험으로 "삭제를 UPDATE로 오표시"가 실패함을 확인)·`MemberRoleChangePermissionIntegrationTest`·`MemberPermissionConcurrencyIntegrationTest`의 BANNER 판(역할 왕복 비부활, 역할 변경 ↔ BANNER PUT 직렬화 — 변이 실험으로 `memberPermissionRepository.deleteByMemberId` 제거가 4건 실패함을 확인)·`MemberPermissionMigrationTest`(배너 롤백 후 재배포 정리 SQL).
+- **여전히 게시판 판만**: `PermissionCacheIsolationIntegrationTest`(REQUIRES_NEW 격리 교차 실행)·`MemberPermissionConcurrencyIntegrationTest`의 `INNODB_LOCK_WAITS` 락 대기 관측(`replace_waitsForRowLock_thenConflicts` 등)은 기능 판을 되살리지 않았다 — 같은 `replace()`·같은 회원 행 잠금·같은 캐시 코드를 게시판 판이 이미 실제 MariaDB로 고정하고, BANNER 판은 위 직렬화 시험이 같은 잠금 경로를 지난다.
+- **롤백 주의(R2-1)**: 배너 도입 전 앱으로 롤백했다가 재배포할 때 이전 앱의 "전체 회수"가 `BANNER` 행을 남긴다(카탈로그에 없는 기능 행은 이전 앱의 diff에서 제외) — `docs/deployment.md` "공개 메인(`/`)과 배너"의 정리 트랜잭션이 필수이고, 새 `DELEGABLE` 기능을 추가할 때마다 같은 주의가 적용된다.
 
 ## 캐시 (`PermissionCache`)
 

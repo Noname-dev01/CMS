@@ -48,6 +48,12 @@ public final class AdminActionTypes {
     /** 게시글 첨부 업로드·삭제 — targetType = POST_ATTACHMENT, targetId = 첨부 ID */
     public static final String POST_ATTACHMENT_UPLOAD = "POST_ATTACHMENT_UPLOAD";
     public static final String POST_ATTACHMENT_DELETE = "POST_ATTACHMENT_DELETE";
+    /** 배너 등록·수정·삭제 — targetType = BANNER, targetId = 배너 ID. 제목은 사용자 입력이라 targetLabel을 두지 않는다 */
+    public static final String BANNER_CREATE = "BANNER_CREATE";
+    public static final String BANNER_UPDATE = "BANNER_UPDATE";
+    public static final String BANNER_DELETE = "BANNER_DELETE";
+    /** 배너 표시 순서 일괄 저장 — targetType = BANNER, targetId 없음(순서 전체가 대상) */
+    public static final String BANNER_ORDER = "BANNER_ORDER";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
@@ -55,7 +61,8 @@ public final class AdminActionTypes {
             ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE,
             NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE, PERMISSION_UPDATE, MESSAGE_SEND, CONTENT_IMAGE_UPLOAD,
             BOARD_CREATE, BOARD_UPDATE, BOARD_DELETE,
-            POST_CREATE, POST_UPDATE, POST_DELETE, POST_ATTACHMENT_UPLOAD, POST_ATTACHMENT_DELETE
+            POST_CREATE, POST_UPDATE, POST_DELETE, POST_ATTACHMENT_UPLOAD, POST_ATTACHMENT_DELETE,
+            BANNER_CREATE, BANNER_UPDATE, BANNER_DELETE, BANNER_ORDER
     );
 
     private AdminActionTypes() {}
