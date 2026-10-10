@@ -95,6 +95,34 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
         return new PageImpl<>(content, pageable, total == null ? 0 : total);
     }
 
+    @Override
+    public List<PublishedPostRow> findLatestPublished(Long boardId, Long excludeBoardId, int limit) {
+        QPost post = QPost.post;
+        QBoard board = QBoard.board;
+
+        BooleanBuilder condition = new BooleanBuilder()
+                .and(board.publicYn.isTrue())
+                .and(board.deleted.isFalse())
+                .and(post.deleted.isFalse())
+                .and(post.useYn.isTrue());
+        if (boardId != null) {
+            condition.and(post.boardId.eq(boardId));
+        }
+        if (excludeBoardId != null) {
+            condition.and(post.boardId.ne(excludeBoardId));
+        }
+
+        return queryFactory
+                .select(Projections.constructor(PublishedPostRow.class,
+                        post.id, post.boardId, board.name, post.title, post.createDate))
+                .from(post)
+                .join(board).on(board.id.eq(post.boardId))
+                .where(condition)
+                .orderBy(post.createDate.desc(), post.id.desc())
+                .limit(limit)
+                .fetch();
+    }
+
     private Page<Post> page(BooleanBuilder condition, Pageable pageable) {
         QPost post = QPost.post;
 

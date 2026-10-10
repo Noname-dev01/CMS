@@ -132,6 +132,18 @@ cms:
         methods: [GET, HEAD]
         capacity: 240
         refill-period-seconds: 60
+      # 공개 메인(/)과 배너 이미지 — 메인 1회에 이미지가 최대 10장이라 이미지 한도는 메인의 두 배(메인 로드 24회분). 두 규칙은 경로가 겹치지 않는다.
+      # 공유 IP(사내망 등)에서 한도를 넘으면 이미지가 429로 깨질 수 있음을 수용한다. PLAN-public-home-banner.md 쟁점 11
+      - id: public-home
+        pattern: /
+        methods: [GET, HEAD]
+        capacity: 120
+        refill-period-seconds: 60
+      - id: banner-image
+        pattern: /banners/*/image
+        methods: [GET, HEAD]
+        capacity: 240
+        refill-period-seconds: 60
       - id: reset-request
         pattern: /admin/api/password-reset-requests
         methods: [POST]

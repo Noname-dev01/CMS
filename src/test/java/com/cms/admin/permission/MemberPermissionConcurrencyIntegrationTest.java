@@ -274,6 +274,136 @@ class MemberPermissionConcurrencyIntegrationTest extends MariaDbContainerSupport
                 .as("삭제 뒤 캐시가 무효화돼 낡은 허용이 남지 않는다").isFalse();
     }
 
+    // ── ④ 기능 단위(BANNER) 권한 저장 ↔ 역할 변경 직렬화 (PLAN-public-home-banner.md R1-5) ──────────
+    // 게시판 판(③)만으로는 기능 행(member_permission) 삭제 호출이 빠지는 회귀를 잡지 못한다.
+
+    private Set<String> bannerActions() {
+        return new TreeSet<>(jdbc.queryForList(
+                "SELECT action FROM member_permission WHERE member_id = ? AND feature = 'BANNER'", String.class, manager.getId()));
+    }
+
+    private void grantBanner(String... actions) {
+        for (String action : actions) {
+            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'BANNER', ?)", manager.getId(), action);
+        }
+        cache.invalidate();
+    }
+
+    private MemberPermissionUpdateRequest bannerRequest(long version, PermissionAction... actions) {
+        return MemberPermissionUpdateRequest.builder().boardGrants(java.util.List.of()).version(version)
+                .grants(Arrays.stream(actions).map(a -> new MemberPermissionUpdateRequest.Grant(AdminFeature.BANNER, a)).toList())
+                .build();
+    }
+
+    @Test
+    @DisplayName("BANNER: 역할 변경이 먼저 커밋되면(기능 행 삭제·버전 증가) 대기하던 BANNER PUT은 실제 락 대기 뒤 ADMIN 대상 400이고 BANNER 행은 0개다")
+    void bannerRoleChangeFirst_thenReplaceIsRejected() throws Exception {
+        grantBanner("READ", "UPDATE");
+        long before = version();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        try {
+            Future<?> holder = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                Member locking = memberRepository.findByIdForUpdate(manager.getId()).orElseThrow();
+                holderConnection.set(((Number) entityManager.createNativeQuery("SELECT CONNECTION_ID()").getSingleResult()).longValue());
+                locking.changeRole(Role.ROLE_ADMIN, LocalDateTime.now());
+                jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+                jdbc.update("DELETE FROM member_board_permission WHERE member_id = ?", manager.getId());
+                locking.increasePermissionVersion();
+                locked.countDown();
+                await(release);
+            }));
+            await(locked);
+
+            Future<?> waiter = executor.submit(() -> service.replace(manager.getId(), bannerRequest(before, PermissionAction.READ)));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertThat(waiter.isDone()).as("역할 변경이 커밋되기 전에는 PUT이 끝나지 않는다").isFalse();
+
+            release.countDown();
+            holder.get(15, TimeUnit.SECONDS);
+            assertThat(causeOf(waiter)).as("커밋된 새 역할(ADMIN)을 본다").isInstanceOf(InvalidRequestException.class);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(role()).isEqualTo("ROLE_ADMIN");
+        assertThat(bannerActions()).isEmpty();
+        assertThat(version()).isEqualTo(before + 1);
+    }
+
+    @Test
+    @DisplayName("BANNER: 권한 저장 중(회원 행 잠금)에 들어온 역할 변경은 락 대기 뒤 실행되어 BANNER 행을 지우고 버전을 올리며 캐시의 낡은 허용도 남지 않는다")
+    void bannerReplaceInFlight_thenRoleChangeWaitsAndDeletesFeatureRows() throws Exception {
+        grantBanner("READ", "DELETE");
+        assertThat(cache.snapshot().has(manager.getId(), AdminFeature.BANNER, PermissionAction.READ)).isTrue();   // 캐시에 올려 둔다
+        long before = version();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holderConnection = new AtomicLong();
+        try {
+            Future<?> holder = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                memberRepository.findByIdForUpdate(manager.getId()).orElseThrow();
+                holderConnection.set(((Number) entityManager.createNativeQuery("SELECT CONNECTION_ID()").getSingleResult()).longValue());
+                locked.countDown();
+                await(release);
+            }));
+            await(locked);
+
+            Future<?> waiter = executor.submit(() -> adminMemberService.updateAdminMember(
+                    -1L, manager.getId(), AdminMemberUpdateRequest.builder().userType(Role.ROLE_ADMIN).build()));
+            awaitSomeoneWaitingFor(holderConnection.get());
+            assertThat(waiter.isDone()).as("권한 저장이 끝나기 전에는 역할 변경이 끝나지 않는다").isFalse();
+
+            release.countDown();
+            holder.get(15, TimeUnit.SECONDS);
+            assertThat(causeOf(waiter)).as("역할 변경은 성공한다").isNull();
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(role()).isEqualTo("ROLE_ADMIN");
+        assertThat(bannerActions()).as("역할 변경이 기능 행을 지웠다").isEmpty();
+        assertThat(version()).isEqualTo(before + 1);
+        assertThat(cache.snapshot().has(manager.getId(), AdminFeature.BANNER, PermissionAction.READ))
+                .as("삭제 뒤 캐시가 무효화돼 낡은 허용이 남지 않는다").isFalse();
+    }
+
+    @Test
+    @DisplayName("BANNER: 같은 version으로 동시에 저장하면 정확히 하나만 성공하고 최종 BANNER 행은 성공한 요청의 집합이다")
+    void bannerConcurrentReplace_exactlyOneWins() throws Exception {
+        long before = version();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        try {
+            Future<Boolean> readOnly = executor.submit(() -> attemptBanner(barrier, bannerRequest(before, PermissionAction.READ)));
+            Future<Boolean> readDelete = executor.submit(() ->
+                    attemptBanner(barrier, bannerRequest(before, PermissionAction.READ, PermissionAction.DELETE)));
+            boolean readWon = readOnly.get(30, TimeUnit.SECONDS);
+            boolean readDeleteWon = readDelete.get(30, TimeUnit.SECONDS);
+
+            assertThat(readWon ^ readDeleteWon).as("정확히 하나만 성공").isTrue();
+            assertThat(bannerActions()).isEqualTo(readWon ? new TreeSet<>(Set.of("READ")) : new TreeSet<>(Set.of("READ", "DELETE")));
+        } finally {
+            executor.shutdownNow();
+        }
+        assertThat(version()).isEqualTo(before + 1);
+    }
+
+    private boolean attemptBanner(CyclicBarrier barrier, MemberPermissionUpdateRequest request) throws Exception {
+        barrier.await(15, TimeUnit.SECONDS);
+        try {
+            service.replace(manager.getId(), request);
+            return true;
+        } catch (ConflictException e) {
+            return false;
+        }
+    }
+
     // ── 보조 ────────────────────────────────────────────────
 
     private static Throwable causeOf(Future<?> future) throws Exception {

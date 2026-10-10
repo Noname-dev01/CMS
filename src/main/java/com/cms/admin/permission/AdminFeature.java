@@ -55,6 +55,16 @@ public enum AdminFeature {
             List.of("/admin/board/posts", "/admin/notice/manage", "/admin/api/boards/*/posts", "/admin/api/boards/*/posts/**",
                     "/admin/api/boards/*/content-images")),
 
+    /**
+     * 공개 메인 배너(기능 단위 위임, PLAN-public-home-banner.md 쟁점 9) — 카탈로그의 첫 {@code DELEGABLE} 기능. 게이트는 기능 단위 READ이고
+     * 동작별 판정은 핸들러의 {@link RequirePermission}이 한다: 목록·상세·이미지 보기 = READ, 등록 = CREATE, 수정·순서 저장 = UPDATE, 삭제 = DELETE.
+     * {@code /admin/api/banners}와 {@code /admin/api/banners/**}를 함께 적는다(하위 경로만 있는 패턴이 컬렉션 경로를 포함하는지에
+     * 기대지 않는다 — MY_INFO의 {@code /admin/api/members/me} 두 줄과 같은 이유).
+     */
+    BANNER(DELEGABLE, "배너", EnumSet.of(READ, CREATE, UPDATE, DELETE),
+            List.of("/admin/banner/manage"),
+            List.of("/admin/banner/manage", "/admin/api/banners", "/admin/api/banners/**")),
+
     MEMBER(ADMIN_ONLY, "회원 관리", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/member/manage", "/admin/member/new"), List.of()),
 

@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.util.Collection;
+import java.util.List;
 
 public interface PostRepositoryCustom {
 
@@ -24,4 +25,12 @@ public interface PostRepositoryCustom {
      * 게시판(ADMIN), 아니면 그 게시판들로 한정한다(MANAGER의 READ 게시판 집합). 빈 컬렉션은 호출자가 거르고 부르지 않는다. 최신순 + id 보조 정렬.
      */
     Page<PostSearchRow> searchForAdminSearch(Collection<Long> boardIds, String keyword, Pageable pageable);
+
+    /**
+     * 공개 메인 최신 글 — 공개·미삭제 게시판의 노출·미삭제 게시글을 최신순(+id 보조)으로 {@code limit}건. 공개 조건(게시판 {@code publicYn ∧ ¬deleted},
+     * 게시글 {@code useYn ∧ ¬deleted})은 이 메서드 안에 고정돼 있다. {@code boardId}가 null이 아니면 그 게시판만, {@code excludeBoardId}가
+     * null이 아니면 그 게시판을 뺀다. 호출은 공개 메인 서비스 한 곳에서만 한다(공개 불변식 격리).
+     * 예약 게시(④)가 들어오면 이 메서드에도 기간 조건을 넣어야 한다.
+     */
+    List<PublishedPostRow> findLatestPublished(Long boardId, Long excludeBoardId, int limit);
 }

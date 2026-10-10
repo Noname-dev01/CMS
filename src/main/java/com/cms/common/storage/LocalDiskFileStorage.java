@@ -52,7 +52,7 @@ public class LocalDiskFileStorage implements FileStorage {
      * 문제는 네임스페이스 스코프 자체가 물리적으로 분리하므로 별도 방어가 필요 없다
      * (adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 2, v6).
      */
-    private static final Set<String> RESERVED_NAMESPACES = Set.of("profile");
+    private static final Set<String> RESERVED_NAMESPACES = Set.of("profile", "banner");
 
     private static final Pattern NAMESPACE_PATTERN = Pattern.compile("[a-z0-9_-]+");
 
@@ -157,6 +157,12 @@ public class LocalDiskFileStorage implements FileStorage {
             throw new StorageFileNotFoundException("첨부파일을 찾을 수 없습니다: " + storageKey);
         }
         return openUnder(resolveRoot(), storageKey);
+    }
+
+    @Override
+    public StoredFileStream open(String storageKey, String namespace) {
+        // createIfMissing=false — 읽기는 디렉터리를 새로 만들 이유가 없다(없으면 곧 not-found로 귀결).
+        return openUnder(resolveNamespaceRoot(namespace, false), storageKey);
     }
 
     /**

@@ -104,6 +104,16 @@ public class SecurityConfig {
                     auth
                         // 그 외 admin 전부 ADMIN 전용 (카탈로그에 없는 /admin/** 포함 — 기본 거부 유지)
                         .requestMatchers("/admin/**").hasRole("ADMIN")
+                        // 공개 메인(/): 정확 경로 1개만 GET/HEAD 공개, 그 외 메서드는 명시적으로 차단(2026-10-09 승인,
+                        // PLAN-public-home-banner.md 쟁점 1 — /**를 열지 않는다. 하위 경로는 아래 기본 거부가 막는다).
+                        .requestMatchers(HttpMethod.GET, "/").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/").permitAll()
+                        .requestMatchers("/").denyAll()
+                        // 배너 이미지: GET/HEAD만 공개, 그 외 명시 차단(2026-10-09 승인). 노출 여부·기간 재검증은 PublicBannerService가 하고
+                        // 비노출·기간 외·없는 ID는 모두 같은 404다. 이미지 외 하위 경로는 라우트가 없고 /banners/** 나머지는 명시 거부한다.
+                        .requestMatchers(HttpMethod.GET, "/banners/*/image").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/banners/*/image").permitAll()
+                        .requestMatchers("/banners", "/banners/**").denyAll()
                         // 공개 공지 페이지: GET/HEAD만 공개, 그 외 메서드는 명시적으로 차단
                         // (2026-07-28 승인 — anyRequest().permitAll()에 기대지 않고 지금 당장
                         // 비-GET/HEAD를 막는다. denyAll()은 인증 여부·역할과 무관하게 전부 거부한다)

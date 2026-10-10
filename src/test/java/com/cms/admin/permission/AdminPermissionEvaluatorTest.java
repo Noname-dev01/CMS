@@ -239,23 +239,62 @@ class AdminPermissionEvaluatorTest {
 
     // ── 화면 버튼용 동작 키(myPermissions) ─────────────────────
 
+    /** 기능 단위 위임(DELEGABLE) 허용 행 — 배너(BANNER)가 카탈로그의 첫 DELEGABLE 기능이다(PLAN-public-home-banner.md 쟁점 9·16). */
+    private static PermissionSnapshot bannerGrants(long memberId, PermissionAction... actions) {
+        Set<PermissionSnapshot.Grant> set = new java.util.HashSet<>();
+        for (PermissionAction action : actions) {
+            set.add(new PermissionSnapshot.Grant(memberId, AdminFeature.BANNER, action));
+        }
+        return new PermissionSnapshot(set, Set.of());
+    }
+
     @Test
-    @DisplayName("grantedActionKeys: 현재 카탈로그에 기능 단위 위임(DELEGABLE) 기능이 없어 모든 주체에게 빈 집합이고 공급자(캐시)도 호출하지 않는다 — 공지가 게시판 권한으로 흡수됨(PLAN-notice-to-board.md 쟁점 6)")
-    void grantedActionKeys_emptyWhileNoDelegableFeature() {
+    @DisplayName("grantedActionKeys 진리표: ADMIN은 BANNER 전 동작을 DB 없이, MANAGER는 허용 행 ∧ READ 의존만, 그 밖의 주체는 빈 집합")
+    void grantedActionKeys_truthTable() {
         AdminPermissionEvaluator evaluator = evaluatorWith(PermissionSnapshot.EMPTY);
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
         java.util.function.Supplier<PermissionSnapshot> counting = () -> {
             calls.incrementAndGet();
-            return grants(PermissionAction.values());
+            return bannerGrants(MEMBER_ID, PermissionAction.values());
         };
 
-        assertThat(evaluator.grantedActionKeys(counting, user("ROLE_ADMIN"))).isEmpty();
-        assertThat(evaluator.grantedActionKeys(counting, user("ROLE_MANAGER"))).isEmpty();
+        assertThat(evaluator.grantedActionKeys(counting, user("ROLE_ADMIN")))
+                .containsExactlyInAnyOrder("BANNER:READ", "BANNER:CREATE", "BANNER:UPDATE", "BANNER:DELETE");
+        assertThat(calls.get()).as("ADMIN은 스냅샷 공급자(캐시)를 호출하지 않는다").isZero();
         assertThat(evaluator.grantedActionKeys(counting, user("ROLE_USER"))).isEmpty();
         assertThat(evaluator.grantedActionKeys(counting, null)).isEmpty();
         assertThat(calls.get()).isZero();
-        assertThat(AdminFeature.ofKind(FeatureKind.DELEGABLE))
-                .as("DELEGABLE 기능이 다시 생기면(②배너 등) 이 시험을 진리표 시험으로 되살린다").isEmpty();
+
+        assertThat(evaluator.grantedActionKeys(() -> bannerGrants(MEMBER_ID, PermissionAction.values()), user("ROLE_MANAGER")))
+                .containsExactlyInAnyOrder("BANNER:READ", "BANNER:CREATE", "BANNER:UPDATE", "BANNER:DELETE");
+        assertThat(evaluator.grantedActionKeys(() -> bannerGrants(MEMBER_ID, PermissionAction.READ, PermissionAction.UPDATE),
+                user("ROLE_MANAGER"))).containsExactlyInAnyOrder("BANNER:READ", "BANNER:UPDATE");
+        assertThat(evaluator.grantedActionKeys(() -> bannerGrants(MEMBER_ID, PermissionAction.CREATE, PermissionAction.DELETE),
+                user("ROLE_MANAGER"))).as("READ 없는 쓰기는 의존 규칙상 무효").isEmpty();
+        assertThat(evaluator.grantedActionKeys(() -> PermissionSnapshot.EMPTY, user("ROLE_MANAGER"))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("BANNER(DELEGABLE): 허용 행 ∧ READ 의존으로 판정하고 판정 키는 회원 ID다 — 다른 회원의 행으로는 열리지 않는다")
+    void bannerFollowsGrantsAndReadDependency() {
+        AdminPermissionEvaluator all = evaluatorWith(bannerGrants(MEMBER_ID, PermissionAction.values()));
+        for (PermissionAction action : PermissionAction.values()) {
+            assertThat(all.allows(user("ROLE_MANAGER"), AdminFeature.BANNER, action)).as(action.name()).isTrue();
+        }
+        AdminPermissionEvaluator readOnly = evaluatorWith(bannerGrants(MEMBER_ID, PermissionAction.READ));
+        assertThat(readOnly.allows(user("ROLE_MANAGER"), AdminFeature.BANNER, PermissionAction.READ)).isTrue();
+        assertThat(readOnly.allows(user("ROLE_MANAGER"), AdminFeature.BANNER, PermissionAction.UPDATE)).isFalse();
+        AdminPermissionEvaluator deleteWithoutRead = evaluatorWith(bannerGrants(MEMBER_ID, PermissionAction.DELETE));
+        assertThat(deleteWithoutRead.allows(user("ROLE_MANAGER"), AdminFeature.BANNER, PermissionAction.DELETE)).isFalse();
+
+        // 회원 1에게만 준 권한은 회원 2에게 적용되지 않는다(허용·메뉴·버튼 키)
+        Authentication member2 = userWithId(2L, "ROLE_MANAGER");
+        assertThat(all.allows(member2, AdminFeature.BANNER, PermissionAction.READ)).isFalse();
+        assertThat(all.menuUrlVisibility(() -> bannerGrants(MEMBER_ID, PermissionAction.READ), member2)
+                .test("/admin/banner/manage")).isFalse();
+        assertThat(all.menuUrlVisibility(() -> bannerGrants(MEMBER_ID, PermissionAction.READ), user("ROLE_MANAGER"))
+                .test("/admin/banner/manage")).isTrue();
+        assertThat(all.grantedActionKeys(() -> bannerGrants(MEMBER_ID, PermissionAction.values()), member2)).isEmpty();
     }
 
 
@@ -275,7 +314,7 @@ class AdminPermissionEvaluatorTest {
         assertThat(evaluator.menuUrlVisibility(() -> onlyMember1, member2).test("/admin/board/posts")).isFalse();
         assertThat(evaluator.menuUrlVisibility(() -> onlyMember1, member2).test("/admin")).as("상시 허용은 그대로").isTrue();
         assertThat(evaluator.grantedActionKeys(() -> onlyMember1, member2)).isEmpty();
-        assertThat(evaluator.grantedActionKeys(() -> onlyMember1, user("ROLE_MANAGER"))).as("기능 단위 위임 기능이 없어 버튼 키는 비어 있다").isEmpty();
+        assertThat(evaluator.grantedActionKeys(() -> onlyMember1, user("ROLE_MANAGER"))).as("게시판 단위 행은 기능 단위 버튼 키(BANNER 등)를 만들지 않는다").isEmpty();
     }
 
     @Test
@@ -304,6 +343,7 @@ class AdminPermissionEvaluatorTest {
         assertThat(visible.test("/admin")).isTrue();
         assertThat(visible.test("/admin/member/info")).isTrue();
         assertThat(visible.test("/admin/board/posts")).isTrue();
+        assertThat(visible.test("/admin/banner/manage")).as("위임 가능 기능 URL은 권한을 받으면 볼 수 있다").isTrue();
         assertThat(visible.test("/admin/menu/manage")).isFalse();
         assertThat(visible.test("/admin/permission/manage")).isFalse();
         assertThat(visible.test("/외부")).isFalse();

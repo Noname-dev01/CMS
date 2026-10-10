@@ -258,4 +258,52 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
                 .extracting(Post::getId)
                 .containsExactly(tieSecond.getId(), tieFirst.getId(), older.getId());
     }
+
+    // ===== 공개 메인 최신 글 findLatestPublished (PLAN-public-home-banner.md 쟁점 12) =====
+
+    @Test
+    @DisplayName("findLatestPublished: 공개 조건(게시판 공개·미삭제 ∧ 게시글 노출·미삭제)을 만족하는 글만, 최신순 + id 보조 정렬, limit 적용")
+    void findLatestPublished_invariantOrderAndLimit() {
+        LocalDateTime base = LocalDateTime.now().withNano(0);
+        Post older = savePostAt("older", base.minusDays(1));
+        Post tieFirst = savePostAt("tie1", base);
+        Post tieSecond = savePostAt("tie2", base);
+        savePost("hidden", false, false);                     // 미노출
+        savePost("deleted", true, true);                      // 삭제
+
+        var rows = postRepository.findLatestPublished(boardId, null, 10);
+
+        assertThat(rows).extracting(PublishedPostRow::id).containsExactly(tieSecond.getId(), tieFirst.getId(), older.getId());
+        assertThat(rows).extracting(PublishedPostRow::boardName).containsOnly("시험 게시판");
+        assertThat(postRepository.findLatestPublished(boardId, null, 2)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("findLatestPublished: 비공개·삭제된 게시판의 글은 노출 글이어도 나오지 않는다(게시판 조건이 쿼리에 고정)")
+    void findLatestPublished_excludesPrivateAndDeletedBoards() {
+        Long privateBoard = boardRepository.save(Board.builder().name("비공개 게시판").publicYn(false).attachmentYn(true).deleted(false).build()).getId();
+        Long deletedBoard = boardRepository.save(Board.builder().name("삭제된 게시판").publicYn(true).attachmentYn(true).deleted(true).build()).getId();
+        savePost(privateBoard, "비공개 게시판 글", true, false);
+        savePost(deletedBoard, "삭제된 게시판 글", true, false);
+        Post visible = savePost(boardId, "공개 글", true, false);
+
+        assertThat(postRepository.findLatestPublished(null, null, 100))
+                .extracting(PublishedPostRow::id).contains(visible.getId());
+        assertThat(postRepository.findLatestPublished(null, null, 100))
+                .extracting(PublishedPostRow::title).doesNotContain("비공개 게시판 글", "삭제된 게시판 글");
+        assertThat(postRepository.findLatestPublished(privateBoard, null, 10)).isEmpty();
+        assertThat(postRepository.findLatestPublished(deletedBoard, null, 10)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findLatestPublished: excludeBoardId로 한 게시판을 뺀다 — 공지 게시판을 제외한 새 글 섹션용")
+    void findLatestPublished_excludeBoard() {
+        Post inBoard = savePost(boardId, "A 게시판 글", true, false);
+        Post inOther = savePost(otherBoardId, "B 게시판 글", true, false);
+
+        assertThat(postRepository.findLatestPublished(null, boardId, 100))
+                .extracting(PublishedPostRow::id).contains(inOther.getId()).doesNotContain(inBoard.getId());
+        assertThat(postRepository.findLatestPublished(null, null, 100))
+                .extracting(PublishedPostRow::id).contains(inOther.getId(), inBoard.getId());
+    }
 }

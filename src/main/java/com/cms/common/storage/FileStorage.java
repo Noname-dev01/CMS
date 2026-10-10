@@ -85,4 +85,16 @@ public interface FileStorage {
     default void delete(String storageKey, String namespace) {
         throw new UnsupportedOperationException("이 FileStorage 구현체는 네임스페이스를 지원하지 않습니다.");
     }
+
+    /**
+     * {@code namespace} 영역의 파일을 전량 메모리에 올리지 않고 스트림으로 연다(무인증 공개 이미지처럼 요청당 힙 점유를 피해야 하는
+     * 소비자용 — {@link #open(String)}의 네임스페이스 판). 반환된 {@link StoredFileStream}은 <b>호출자가 반드시 닫아야</b> 하며,
+     * {@link #open(String)}과 같은 경로 검증·최종 링크 거부를 적용한다(PLAN-public-home-banner.md R3-1).
+     *
+     * @throws StorageFileNotFoundException  파일이 존재하지 않는 경우
+     * @throws UnsupportedOperationException 이 구현체가 네임스페이스를 지원하지 않는 경우
+     */
+    default StoredFileStream open(String storageKey, String namespace) {
+        throw new UnsupportedOperationException("이 FileStorage 구현체는 네임스페이스를 지원하지 않습니다.");
+    }
 }

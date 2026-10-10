@@ -138,6 +138,42 @@ class PermissionCacheTest {
     }
 
     @Test
+    @DisplayName("기능 단위(DELEGABLE) 행 로드: BANNER 행은 스냅샷에 담기고, 같은 목록의 모르는·위임 불가·게시판 기능 행만 걸러진다")
+    void delegableFeatureRowsAreLoaded() {
+        PermissionSnapshot snapshot = PermissionCache.toSnapshot(rows(
+                1L, "BANNER", "READ",
+                1L, "BANNER", "DELETE",
+                2L, "BANNER", "READ",
+                1L, "NOTICE", "READ",             // 카탈로그에서 제거된 기능 — 무시
+                1L, "MENU", "READ",               // 위임 불가
+                1L, "BOARD", "READ",              // 게시판 단위 기능은 member_permission으로 부여할 수 없다
+                1L, "BANNER", "MANAGE"));         // 모르는 동작
+
+        assertThat(snapshot.grants()).containsExactlyInAnyOrder(
+                new PermissionSnapshot.Grant(1L, AdminFeature.BANNER, PermissionAction.READ),
+                new PermissionSnapshot.Grant(1L, AdminFeature.BANNER, PermissionAction.DELETE),
+                new PermissionSnapshot.Grant(2L, AdminFeature.BANNER, PermissionAction.READ));
+        assertThat(snapshot.has(1L, AdminFeature.BANNER, PermissionAction.READ)).isTrue();
+        assertThat(snapshot.has(3L, AdminFeature.BANNER, PermissionAction.READ)).as("행이 없는 회원").isFalse();
+        assertThat(snapshot.has(null, AdminFeature.BANNER, PermissionAction.READ)).isFalse();
+    }
+
+    @Test
+    @DisplayName("스냅샷 하나가 기능 행(member_permission)과 게시판 행(member_board_permission)을 함께 담는다")
+    void snapshotCombinesFeatureAndBoardRows() {
+        MemberPermissionRepository featureRepository = mock(MemberPermissionRepository.class);
+        when(featureRepository.findAllGrantRows()).thenReturn(rows(1L, "BANNER", "READ"));
+        MemberBoardPermissionRepository boardRepository = mock(MemberBoardPermissionRepository.class);
+        when(boardRepository.findAllGrantRows()).thenReturn(rows(1L, 10L, "READ"));
+        PermissionCache cache = new PermissionCache(featureRepository, boardRepository, noopTransactionManager());
+
+        PermissionSnapshot snapshot = cache.snapshot();
+
+        assertThat(snapshot.has(1L, AdminFeature.BANNER, PermissionAction.READ)).isTrue();
+        assertThat(snapshot.hasBoard(1L, 10L, PermissionAction.READ)).isTrue();
+    }
+
+    @Test
     @DisplayName("게시판 행: 정상 행은 적재하고 모르는 동작 행은 무시하며, member_permission의 BOARD 행은 무시한다(게시판별 테이블로만 부여)")
     void boardRowsAndBoardFeatureRowsInMemberPermission() {
         PermissionSnapshot snapshot = PermissionCache.toSnapshot(

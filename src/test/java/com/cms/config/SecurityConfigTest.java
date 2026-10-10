@@ -31,9 +31,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
@@ -549,12 +550,93 @@ class SecurityConfigTest {
                 .andExpect(redirectedUrl("/admin/login"));
     }
 
+    // ==================== 공개 메인(/)과 배너 이미지 (2026-10-09 승인, PLAN-public-home-banner.md 쟁점 1) ====================
+
     @Test
-    @DisplayName("비인증 GET / 도 미분류라 로그인 페이지로 302")
-    void defaultDeny_anonymousRoot_redirectsToLogin() throws Exception {
-        mockMvc.perform(get("/"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/admin/login"));
+    @DisplayName("비인증 GET / 는 200 (정확 경로 공개 — 더는 로그인으로 302되지 않는다)")
+    void publicHome_anonymousGet_ok() throws Exception {
+        mockMvc.perform(get("/")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비인증 HEAD / 는 200")
+    void publicHome_anonymousHead_ok() throws Exception {
+        mockMvc.perform(head("/")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("/ 의 그 외 메서드는 막힌다 — CSRF 없으면 403, CSRF 포함 비인증은 /admin/login 302, ADMIN도 403 (denyAll)")
+    @WithMockUser(roles = "ADMIN")
+    void publicHome_writeMethods_denied() throws Exception {
+        mockMvc.perform(post("/")).andExpect(status().isForbidden());
+        mockMvc.perform(post("/").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(delete("/").with(csrf())).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("/ 쓰기 시도는 비인증이면 /admin/login 302 (denyAll+익명 판별)")
+    void publicHome_unauthenticatedWrite_redirectsToLogin() throws Exception {
+        mockMvc.perform(post("/").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    @Test
+    @DisplayName("/ 를 열어도 하위·유사 경로는 기본 거부 그대로다 — 정확 경로 1개만 공개된다")
+    void publicHome_doesNotOpenOtherPaths() throws Exception {
+        mockMvc.perform(get("/index.html")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/home")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/does-not-exist")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    @Test
+    @DisplayName("비인증 GET·HEAD /banners/{id}/image는 200 (permitAll)")
+    void publicBannerImage_anonymousGetAndHead_ok() throws Exception {
+        mockMvc.perform(get("/banners/1/image")).andExpect(status().isOk());
+        mockMvc.perform(head("/banners/1/image")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("/banners/** 의 이미지 외 경로·쓰기 메서드는 막힌다 (denyAll)")
+    void publicBanners_otherPathsAndWrites_denied() throws Exception {
+        mockMvc.perform(get("/banners")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/banners/1")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/banners/1/image/extra")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/banners/1/image").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/banners/1/image")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("ADMIN POST /banners/{id}/image는 denyAll로 403 (역할 불문)")
+    @WithMockUser(roles = "ADMIN")
+    void publicBanners_adminWrite_forbidden() throws Exception {
+        mockMvc.perform(post("/banners/1/image").with(csrf())).andExpect(status().isForbidden());
+    }
+
+    // ==================== 배너 관리 게이트 (DELEGABLE BANNER — 카탈로그에서 자동 생성) ====================
+
+    @Test
+    @DisplayName("비인증 배너 관리 페이지·API는 로그인으로 보낸다(페이지 302, API JSON 401)")
+    void adminBanner_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/banner/manage")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/admin/api/banners")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("배너 권한(member_permission BANNER)이 없는 MANAGER는 페이지·API 게이트에서 403 — 위임 전에는 열리지 않는다")
+    @WithManager
+    void adminBanner_managerWithoutGrant_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/banner/manage")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/banners")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/banners/1/image")).andExpect(status().isForbidden());
+        mockMvc.perform(put("/admin/api/banners/order").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("{\"ids\":[]}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("ADMIN은 배너 관리 페이지·API 게이트를 통과한다")
+    @WithMockUser(roles = "ADMIN")
+    void adminBanner_admin_ok() throws Exception {
+        mockMvc.perform(get("/admin/banner/manage")).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/banners")).andExpect(status().isOk());
     }
 
     @Test
@@ -812,5 +894,68 @@ class AdminMessagePageStubController {
     @GetMapping("/admin/member/messages")
     String messagesPage() {
         return "messages";
+    }
+}
+
+@TestStubController
+class HomeStubController {
+
+    @GetMapping("/")
+    String home() {
+        return "public-home";
+    }
+
+    @PostMapping("/")
+    ResponseEntity<String> write() {
+        // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
+        return ResponseEntity.ok("{}");
+    }
+
+    @DeleteMapping("/")
+    ResponseEntity<String> delete() {
+        return ResponseEntity.ok("{}");
+    }
+}
+
+@TestStubController
+class PublicBannerStubController {
+
+    @GetMapping("/banners/{id}/image")
+    String image() {
+        return "banner-image";
+    }
+
+    @PostMapping("/banners/{id}/image")
+    ResponseEntity<String> write() {
+        return ResponseEntity.ok("{}");
+    }
+
+    @GetMapping("/banners/{id}")
+    String detail() {
+        return "banner-detail";
+    }
+}
+
+@TestStubController
+class AdminBannerStubController {
+
+    @GetMapping("/admin/banner/manage")
+    String page() {
+        return "banner-manage";
+    }
+
+    @GetMapping("/admin/api/banners")
+    String list() {
+        return "[]";
+    }
+
+    @GetMapping("/admin/api/banners/{id}/image")
+    String image() {
+        return "image";
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/admin/api/banners/order")
+    ResponseEntity<String> order() {
+        return ResponseEntity.ok("[]");
     }
 }

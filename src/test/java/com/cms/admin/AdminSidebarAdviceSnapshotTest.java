@@ -73,11 +73,11 @@ class AdminSidebarAdviceSnapshotTest {
         ArgumentCaptor<Predicate<String>> visible = ArgumentCaptor.forClass(Predicate.class);
         verify(menuService).getSidebarMenus(visible.capture());
         assertThat(visible.getValue().test("/admin/board/posts")).isTrue();
-        assertThat(model.getAttribute("myPermissions")).as("기능 단위 위임 기능이 없어 버튼 키는 비어 있다").isEqualTo(Set.of());
+        assertThat(model.getAttribute("myPermissions")).as("게시판 단위 허용만 있으면 기능 단위 버튼 키(BANNER)는 비어 있다").isEqualTo(Set.of());
     }
 
     @Test
-    @DisplayName("ADMIN: 캐시를 호출하지 않고 myPermissions는 비어 있다(기능 단위 위임 기능이 없음 — 게시글 화면은 내 게시판 API의 동작 목록을 쓴다)")
+    @DisplayName("ADMIN: 캐시를 호출하지 않고 myPermissions는 기능 단위 위임 기능(BANNER)의 전 동작을 담는다 — 게시글 화면은 내 게시판 API의 동작 목록을 쓴다")
     void admin_neverTouchesCache() {
         login("ROLE_ADMIN");
         when(menuService.getSidebarMenus(any())).thenReturn(List.of());
@@ -87,7 +87,7 @@ class AdminSidebarAdviceSnapshotTest {
 
         verify(cache, never()).snapshot();
         assertThat(model.getAttribute("myPermissions"))
-                .isEqualTo(Set.of());
+                .isEqualTo(Set.of("BANNER:READ", "BANNER:CREATE", "BANNER:UPDATE", "BANNER:DELETE"));
     }
 
     @Test

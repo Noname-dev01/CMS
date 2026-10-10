@@ -225,6 +225,76 @@ class MemberRoleChangePermissionIntegrationTest extends MariaDbContainerSupport 
         assertThat(canReadNotice(other)).as("다른 회원은 그대로 허용").isTrue();
     }
 
+    // ── 기능 단위(member_permission) 권한 — 배너(BANNER)가 첫 DELEGABLE 기능이 되며 복구 (PLAN-public-home-banner.md R1-5) ──
+    // AdminMemberService는 기능 권한과 게시판 권한을 서로 다른 리포지토리 호출로 지운다 — 게시판 시험으로는 기능 행 삭제 호출만 빠지는 회귀를 못 잡는다.
+
+    private void grantBanner(long memberId, String... actions) {
+        for (String action : actions) {
+            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'BANNER', ?)", memberId, action);
+        }
+        cache.invalidate();
+        clearInvocations(cache);
+    }
+
+    private Set<String> bannerActions(long memberId) {
+        return new TreeSet<>(jdbc.queryForList("SELECT action FROM member_permission WHERE member_id = ? AND feature = 'BANNER'", String.class, memberId));
+    }
+
+    private boolean canReadBanner(Member member) {
+        Member fresh = memberRepository.findById(member.getId()).orElseThrow();
+        CustomUserDetails details = new CustomUserDetails(fresh);
+        return evaluator.allows(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities()),
+                AdminFeature.BANNER, PermissionAction.READ);
+    }
+
+    @Test
+    @DisplayName("기능 단위 BANNER 권한만 있어도 MANAGER → ADMIN → MANAGER 왕복 뒤 행이 지워져 부활하지 않고 버전이 오르며 캐시가 무효화된다")
+    void roleRoundTrip_deletesFeatureRows_bannerDoesNotComeBack() {
+        grantBanner(target.getId(), "READ", "UPDATE", "DELETE");
+        long before = version(target.getId());
+        assertThat(canReadBanner(target)).isTrue();
+
+        changeRole(target.getId(), Role.ROLE_ADMIN);
+        changeRole(target.getId(), Role.ROLE_MANAGER);
+
+        assertThat(bannerActions(target.getId())).as("기능 행 삭제 호출이 빠지면 권한이 되살아난다").isEmpty();
+        assertThat(version(target.getId())).isEqualTo(before + 2);
+        verify(cache, org.mockito.Mockito.atLeastOnce()).invalidate();   // 기능 행만 지웠어도 캐시를 폐기해야 한다(두 테이블 합계 기준)
+        assertThat(canReadBanner(target)).isFalse();
+    }
+
+    @Test
+    @DisplayName("기능 행과 게시판 행이 함께 있어도 역할 변경이 둘 다 지우고, 다른 회원의 BANNER 권한은 그대로다")
+    void roleChange_deletesBothKinds_otherMemberUntouched() {
+        Member other = newManager("rolechg-banner-other");
+        grantBanner(target.getId(), "READ");
+        grantAllNotice(target.getId());
+        grantBanner(other.getId(), "READ", "CREATE");
+        long otherVersion = version(other.getId());
+
+        changeRole(target.getId(), Role.ROLE_ADMIN);
+
+        assertThat(bannerActions(target.getId())).isEmpty();
+        assertThat(actions(target.getId())).isEmpty();
+        assertThat(bannerActions(other.getId())).containsExactly("CREATE", "READ");
+        assertThat(version(other.getId())).isEqualTo(otherVersion);
+        assertThat(canReadBanner(other)).isTrue();
+    }
+
+    @Test
+    @DisplayName("BANNER 권한을 가진 회원의 역할 변경 전 화면 버전으로 PUT하면 409 — 왕복 뒤에도 오래된 화면이 권한을 되살리지 못한다")
+    void staleReplaceAfterRoundTrip_withBannerRows_conflicts() {
+        grantBanner(target.getId(), "READ");
+        long before = version(target.getId());
+        changeRole(target.getId(), Role.ROLE_ADMIN);
+        changeRole(target.getId(), Role.ROLE_MANAGER);
+
+        MemberPermissionUpdateRequest stale = MemberPermissionUpdateRequest.builder().version(before).boardGrants(List.of())
+                .grants(List.of(new MemberPermissionUpdateRequest.Grant(AdminFeature.BANNER, PermissionAction.READ))).build();
+        assertThatThrownBy(() -> permissionService.replace(target.getId(), stale)).isInstanceOf(ConflictException.class);
+        assertThat(bannerActions(target.getId())).isEmpty();
+    }
+
     @Test
     @DisplayName("신규 MANAGER(생성 직후)는 개별 권한이 없어 공지를 읽을 수 없다 — 기본값은 권한 0개")
     void newManagerStartsWithoutGrants() throws Exception {
