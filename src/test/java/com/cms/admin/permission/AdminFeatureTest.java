@@ -23,6 +23,15 @@ class AdminFeatureTest {
     }
 
     @Test
+    @DisplayName("세션 관리 기능은 영구 ADMIN 전용이다 — 일반 불변식은 이미 ADMIN_ONLY인 항목만 검사하므로 종류를 직접 고정한다(PLAN-session-management.md R1-10)")
+    void sessionFeatureIsAdminOnly() {
+        assertThat(AdminFeature.SESSION.getKind()).isEqualTo(FeatureKind.ADMIN_ONLY);
+        assertThat(AdminFeature.SESSION.getActions()).isEmpty();
+        assertThat(AdminFeature.SESSION.getGatePatterns()).isEmpty();
+        assertThat(AdminFeature.forMenuUrl("/admin/session/manage")).contains(AdminFeature.SESSION);
+    }
+
+    @Test
     @DisplayName("권한관리 기능은 영구 ADMIN 전용이다(자기 승격 차단) — DELEGABLE로 바꿀 수 없다")
     void permissionFeatureIsAdminOnly() {
         assertThat(AdminFeature.PERMISSION.getKind()).isEqualTo(FeatureKind.ADMIN_ONLY);

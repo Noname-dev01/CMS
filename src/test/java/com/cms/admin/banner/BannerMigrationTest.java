@@ -88,7 +88,7 @@ class BannerMigrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("V32 → 최신: banner·banner_lock 테이블이 생기고 가드 행(id=1)이 정확히 1개, 배너 관리 메뉴가 최상위 맨 끝에 1개 시드된다")
+    @DisplayName("V32 → V34: banner·banner_lock 테이블이 생기고 가드 행(id=1)이 정확히 1개, 배너 관리 메뉴가 최상위 맨 끝에 1개 시드된다")
     void upgradeFromV32() throws Exception {
         freshSchema();
         flyway("32").migrate();
@@ -97,7 +97,8 @@ class BannerMigrationTest extends MariaDbContainerSupport {
             topLevelBefore = count(st, "SELECT COUNT(*) FROM menu WHERE up_menu_no IS NULL");
         }
 
-        flyway(null).migrate();
+        // 최신이 아니라 V34에 고정한다 — 이후 마이그레이션(V35 세션 메뉴 등)이 최상위 메뉴를 더 추가해도 "배너 메뉴가 맨 끝" 단언이 깨지지 않게
+        flyway("34").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(count(st, "SELECT COUNT(*) FROM banner")).isZero();

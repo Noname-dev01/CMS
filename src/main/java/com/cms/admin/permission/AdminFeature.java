@@ -74,6 +74,13 @@ public enum AdminFeature {
     ACTION_LOG(ADMIN_ONLY, "활동 로그", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/log/manage"), List.of()),
 
+    /**
+     * 세션 관리(접속 중 관리자 조회·강제 만료, PLAN-session-management.md 쟁점 5) — 영구 ADMIN 전용. 다른 관리자의 작업을 끊는 권한이라 위임하지 않는다.
+     * 페이지 {@code /admin/session/manage}와 API {@code /admin/api/sessions}는 어떤 게이트에도 걸리지 않아 {@code /admin/**} ADMIN 캐치올이 막는다.
+     */
+    SESSION(ADMIN_ONLY, "세션 관리", EnumSet.noneOf(PermissionAction.class),
+            List.of("/admin/session/manage"), List.of()),
+
     /** 게시판 정의 관리 — 위임 불가. 권한관리 매트릭스에 "위임 불가"로 보이게 하려고 카탈로그에 둔다(판정은 캐치올과 같다). */
     BOARD_ADMIN(ADMIN_ONLY, "게시판 관리", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/board/manage"), List.of()),
