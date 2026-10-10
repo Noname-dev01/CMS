@@ -2,7 +2,11 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-10-08(31차) — `/updateRoadmap` 사실확인: **Top 8(2026-10-07) ⓪ HTML 편집기 + sanitizer + 본문 이미지 업로드 완료 반영.** Top 8의 첫 항목이자 ①·⑤·⑥·⑦(HTML 본문을 쓰는 모든 항목)의 선행이다. 계획 `plan/PLAN-html-editor.md`(설계 v7, `/plan-review-loop` 7라운드 ship — 새 의존성 jsoup 1.23.2·Quill 2.0.3, 스키마 V23~V25, `GET/HEAD /content-images/*` 공개 인가 정책 사전 승인) → 구현·dev Docker Playwright 실기 → `/code-review-loop` 7라운드(지적 10건 전부 수용 — 수동 회수 절차의 실패 시 삭제 차단 가드, 공지 전환 시 저장 버튼·업로드 오류 표시 경합, prod compose 상한 환경변수 전달, 유니코드 공백만 있는 본문, sanitizer 멱등성(고정점 반복)·인라인 서식 안 줄바꿈 길이, 편집기 링크 프로토콜 http/https/mailto 정합 / 마지막 라운드 지적 0) → `/commitPR`(커밋 6개, 30차 갱신·Top 8 선정 문서 포함). PR #111(`01a7b47`) `gh pr view` state=MERGED(mergedAt=2026-10-07T16:00:00Z = 2026-10-08 KST), `gh pr checks 111` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37648535010) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1498건 실패·건너뜀 0(`HtmlContentSanitizerTest` 69·`ContentImageIntegrationTest` 11·`ImageFileValidatorTest` 8·`NoticeContentHtmlMigrationTest` 1). master 직접 확인: `common/html/HtmlContentSanitizer`가 저장(`NoticeService`)·출력(`NoticeResponse`·`PublicNoticeDetail`) 양쪽에 적용, `admin/contentimage`·`publicweb/contentimage`, V23~V25, `SecurityConfig` `/content-images/*` GET·HEAD `permitAll` + 그 외 `denyAll`. 완료 기준의 "전체 용량 초과 400"은 계획 쟁점 9 결정에 따라 **409**로 구현됐다(상한 도달은 서버 상태 충돌 — 사용자 확인 후 완료 처리). **범위 밖·후속**: 미참조 이미지 자동 정리(⑧ 미디어 라이브러리 — 지금은 `docs/deployment.md` 수동 회수 절차), 실배포 시 V25 전 `make prod-backup`·구버전 롤백은 공지 쓰기 동결이 조건. 코드 리뷰 루프에서 개정한 수동 회수 절차는 dev에서 실패 경로(인증 실패·컨테이너 없음·가드 미통과)만 재현했고 개정본 전체 수행은 하지 않았다.
+> 최근 갱신: 2026-10-11(35차) — `/updateRoadmap` 사실확인: **Top 8 ③ 세션 관리 화면(접속 중 관리자 조회·강제 만료) 완료 반영.** PR #118 `d8fafb3` `gh pr view` state=MERGED(mergedAt=2026-10-10T18:11:10Z), PR CI `test`·`prod-smoke` pass, 머지 커밋 master push CI success. 계획 `plan/PLAN-session-management.md`(v4, 적대적 리뷰 4라운드 ship — 2라운드는 codex 사용량 한도로 자체 리뷰) "구현·검증 결과"에 전체 테스트 1788건 실패 0(UTC 재실행 동일, `-Duser.timezone=UTC`가 JVM에 전달된 것까지 확인)·변이 실험 8건 전부 시험이 잡음·dev 실기(별개의 ADMIN 두 계정 + MANAGER, Playwright + DB 감사 행)가 기록돼 있고, 코드 리뷰 루프 1라운드 approve. master 확인: `admin/session/{controller,service,dto}`·`templates/admin/session/manage.html`·`V35__seed_session_menu.sql`·`AdminFeature.SESSION`(ADMIN_ONLY)·`AdminActionTypes.SESSION_EXPIRE` 존재, 시험 `AdminSessionServiceTest`·`AdminSessionManageServiceTest`·`AdminSessionControllerTest`·`AdminSessionManagementIntegrationTest`·`SessionMenuMigrationTest`·`AdminFeatureTest`. 스키마 변경 없음·`SecurityConfig` 무변경(새 경로는 기존 ADMIN 캐치올). 남은 후속: ③의 **문의하기**(공개 폼 → 관리자 문의함)는 그대로 미완료. 이 작업 중 발견·분리한 것 — 권한 없는 관리자 페이지 403 화면이 `status: null …`로 표시되는 기존 버그(#117, 미수정), CI `test`가 PR 실행에서 간헐 실패하던 게시판 삭제 경합 시험(#119 → PR #120 `6a2f477`로 해결: 원인은 앱 락이 아니라 시험이 `information_schema.INNODB_*`를 25ms로 폴링해 캐시가 낡은 스냅샷에 머문 것, 수정 후 같은 PR의 CI 9회 연속 통과), 같은 폴링 패턴의 시험 3곳(#121, 아직 CI 실패 기록 없음·미수정). 미확인: 감사 저장 실패에도 만료가 유지되는 것은 dev 실기가 아니라 통합 시험으로만 확인했다.
+> 이전 갱신: 2026-10-10(34차) — `/updateRoadmap` 사실확인: **Top 8 ② 공개 메인 페이지(`/`) + 배너 관리 완료 반영.** PR #115 `e644b71` `gh pr view` state=MERGED(mergedAt=2026-10-10T11:53:12Z), PR CI `test`·`prod-smoke` pass, 머지 커밋 master push CI success. 계획 `plan/PLAN-public-home-banner.md`(v5, 적대적 리뷰 5라운드 ship) "구현·검증 결과"에 전체 테스트 1743건 실패 0(UTC 재실행 동일)·변이 실험·dev Docker 실기(Playwright+curl)가 기록돼 있다. master 확인: `admin/banner/`·`publicweb/home/`·`publicweb/banner/`·`templates/public/home.html`·`templates/admin/banner/manage.html` 존재, 시험 `BannerApiIntegrationTest`·`BannerPermissionMatrixIntegrationTest`·`BannerRepositoryDataJpaTest`·`DisplayPeriodTest`·`SafeLinkUrlValidatorTest`·`PublicHomeIntegrationTest`·`PublicBannerImageStreamingServerTest`·`SecurityConfigTest`. 첫 기능 단위 `DELEGABLE` 기능 `BANNER`로 공지 흡수 때 생긴 위임 경로의 시험 공백이 복구됐다. 미확인·한계: Playwright 자동화 세션이 중간부터 클릭이 전달되지 않아 행 클릭 수정 폼·삭제 확인창·MANAGER 화면은 사용자가 일반 브라우저에서 직접 확인했다(계획 문서 "실기 한계와 사후 보완"). 후속: 공용 `error/429.html`의 "홈으로 돌아가기" 링크가 `/notices`를 가리킴(`/`로 변경 검토), 구 `notice`·`notice_attachment` 테이블 DROP(롤백 창 뒤 별도 PR). 같은 날 CI `prod-smoke` Trivy 실패(런타임 베이스 `21-jre`의 `pebble` Go stdlib HIGH CVE 3건)는 PR #116 `e16187c`(`21-jre-noble` 전환)로 해소했다.
+> 이전 갱신: 2026-10-09(33차) — `/updateRoadmap` 사실확인: **Top 8 ①-2 공지사항 게시판 흡수 완료 반영.** PR #114 `9d339c6` `gh pr view` state=MERGED(mergedAt=2026-10-09T10:05:37Z), PR CI `test`·`prod-smoke` pass. 계획 `plan/PLAN-notice-to-board.md`(v6, 적대적 리뷰 5라운드 ship) "구현·검증 결과"에 전체 `./gradlew test` 1608건 실패 0·dev Docker 실기(Playwright+curl)가 기록돼 있고, 코드 리뷰 루프 2라운드(V32 메뉴 정리의 URL 대소문자·4단 깊이 지적 수용, 회귀 테스트 2건 추가) 후 전체 테스트 통과. master 확인: `V31`·`V32`·`NoticeAbsorbMigrationTest`·`NoticeRedirectController` 존재, `admin/notice/` 제거. 남은 후속: 구 `notice`·`notice_attachment` 테이블 DROP(롤백 창 뒤 별도 PR), `DELEGABLE` 권한 시험 공백은 ②에서 복구. 미확인: MANAGER 실제 로그인 실기, 머지 커밋의 master push CI(작성 시점 진행 중).
+> 이전 갱신: 2026-10-09(32차) — `/updateRoadmap` 사실확인: **Top 8 ①-1 게시판 구축 완료 반영.** 두 PR로 나눠 머지했다 — PR A `23547ba` #112(게시판 정의·게시판별 권한·본문 이미지 출처, V26~V28), PR B `6e4b37b` #113(게시글·첨부·공개 `/boards`·통합 검색·게시판 삭제·파일 정리 헬퍼 수정, V29~V30). 두 PR 모두 master push CI success(run 37737107378·37897757123), 계획 `plan/PLAN-board.md`(v10) "구현·검증 결과"에 전체 `./gradlew test` 1597건 실패 0·dev 실기 검증이 기록돼 있고 시험 클래스(`BoardPermissionIntegrationTest`·`PostApiIntegrationTest`·`PublicBoardIntegrationTest`·`PublicBoardAttachmentStreamingServerTest`)가 실제로 존재함을 확인했다. 남은 것은 ①-2(공지 흡수)이며 ①-1이 그 선행 조건을 충족했다.
+> 이전 갱신: 2026-10-08(31차) — `/updateRoadmap` 사실확인: **Top 8(2026-10-07) ⓪ HTML 편집기 + sanitizer + 본문 이미지 업로드 완료 반영.** Top 8의 첫 항목이자 ①·⑤·⑥·⑦(HTML 본문을 쓰는 모든 항목)의 선행이다. 계획 `plan/PLAN-html-editor.md`(설계 v7, `/plan-review-loop` 7라운드 ship — 새 의존성 jsoup 1.23.2·Quill 2.0.3, 스키마 V23~V25, `GET/HEAD /content-images/*` 공개 인가 정책 사전 승인) → 구현·dev Docker Playwright 실기 → `/code-review-loop` 7라운드(지적 10건 전부 수용 — 수동 회수 절차의 실패 시 삭제 차단 가드, 공지 전환 시 저장 버튼·업로드 오류 표시 경합, prod compose 상한 환경변수 전달, 유니코드 공백만 있는 본문, sanitizer 멱등성(고정점 반복)·인라인 서식 안 줄바꿈 길이, 편집기 링크 프로토콜 http/https/mailto 정합 / 마지막 라운드 지적 0) → `/commitPR`(커밋 6개, 30차 갱신·Top 8 선정 문서 포함). PR #111(`01a7b47`) `gh pr view` state=MERGED(mergedAt=2026-10-07T16:00:00Z = 2026-10-08 KST), `gh pr checks 111` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37648535010) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1498건 실패·건너뜀 0(`HtmlContentSanitizerTest` 69·`ContentImageIntegrationTest` 11·`ImageFileValidatorTest` 8·`NoticeContentHtmlMigrationTest` 1). master 직접 확인: `common/html/HtmlContentSanitizer`가 저장(`NoticeService`)·출력(`NoticeResponse`·`PublicNoticeDetail`) 양쪽에 적용, `admin/contentimage`·`publicweb/contentimage`, V23~V25, `SecurityConfig` `/content-images/*` GET·HEAD `permitAll` + 그 외 `denyAll`. 완료 기준의 "전체 용량 초과 400"은 계획 쟁점 9 결정에 따라 **409**로 구현됐다(상한 도달은 서버 상태 충돌 — 사용자 확인 후 완료 처리). **범위 밖·후속**: 미참조 이미지 자동 정리(⑧ 미디어 라이브러리 — 지금은 `docs/deployment.md` 수동 회수 절차), 실배포 시 V25 전 `make prod-backup`·구버전 롤백은 공지 쓰기 동결이 조건. 코드 리뷰 루프에서 개정한 수동 회수 절차는 dev에서 실패 경로(인증 실패·컨테이너 없음·가드 미통과)만 재현했고 개정본 전체 수행은 하지 않았다.
 > 이전 갱신: 2026-10-07(30차) — `/updateRoadmap` 사실확인: **공개 공지 목록 제목 검색 완료 반영.** "선정에서 탈락한 후보"의 마지막 기능 항목이다. `/suggestRoadmap`에서 3개 후보(공개 공지 목록 검색·Mockito `-javaagent` 명시 로드·dev compose healthcheck 따옴표) 중 사용자가 선택 → `/feature` 8단계(정찰: QueryDSL `TemplateFactory.escapeForLike` 바이트코드 확인, `JPAQueryFactory` 기본 이스케이프 문자 `!`, notice 콜레이션·인덱스) → 계획 `plan/PLAN-public-notice-search.md`(`/plan-review-loop` 2라운드 ship, 수용 3·기각 1 — COUNT·페이지 메타데이터의 공개 불변식 검증, 비용 근거 정정과 1만·5만 행 실측, 길이 단위를 UTF-16 코드 유닛으로 통일 / 기각: 버스트 동시 부하 측정은 기존 목록과 같은 위험이라 후속) → 승인 시 검색 대상 **제목만** 사용자 확정 → 구현 → `/code-review-loop`(1라운드 approve, 지적 0) → `/commitPR`(커밋 4개, 29차 로드맵 반영 문서 포함). PR #110(`c762fe4`) `gh pr view` state=MERGED(mergedAt=2026-10-07T08:54:28Z), `gh pr checks 110` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37596925685) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1392건 실패·건너뜀 0(`NoticeRepositoryDataJpaTest` 18·`PublicNoticeControllerTest` 38·`PublicNoticeServiceTest` 31). master 직접 확인: `NoticeRepositoryCustom/Impl.searchPublishedByTitle`, `PublicNoticeService.MAX_KEYWORD_LENGTH = 100`·검색 분기, `list.html` 검색 폼(`maxlength="100"`). 로컬 검증: 와일드카드 테스트가 이스케이프 없는 `like` 변형에서 실패(판별력), dev Docker 스택 비로그인 Playwright 실기(검색·2페이지 검색어 유지·비노출·삭제 제외·`%`/`_` 문자 그대로·결과 없음·101자·반사 XSS 2종·기존 목록·상세·관리자 검색 회귀)와 1만·5만 행 비용 실측(한 요청 목록+COUNT 약 7~9ms / 32~39ms, 검색어 유무 차이 수 ms) 후 원복. 스키마·`SecurityConfig`·레이트리밋·의존성 변경 없음. **후속 기준**: 전체 `notice` 행수 5만 초과 또는 운영 검색 응답 100ms 초과 시 FULLTEXT(ngram) 재평가. **범위 밖**: 버스트 동시 부하·동시 검색 수 제한(기존 공개 목록과 같은 위험), 본문 검색, 상세 → 목록 복귀 시 검색어 유지. 같은 PR에 29차 갱신 문서가 포함돼 머지됐다.
 > 이전 갱신: 2026-10-07(29차) — `/updateRoadmap` 사실확인: **첨부 확장자 소문자화 `Locale.ROOT` 고정 완료 반영.** 27차 갱신의 "범위 밖 후속(계획 §8)"에 남아 있던 인자 없는 `toLowerCase()` 2곳이다. `/suggestRoadmap`에서 3개 후보(`Locale.ROOT` 고정·공개 공지 목록 검색·Mockito `-javaagent` 명시 로드) 중 사용자가 선택 → `/feature` 8단계(정찰: jshell로 로케일별 결과 재현 — tr/az에서 `"GIF"` → `"gıf"`) → 계획 `plan/PLAN-extension-locale-root.md`(`/plan-review-loop` 2라운드 ship, 수용 2 — 영향 확장자가 `gif`뿐 아니라 `zip`도 있음, tr/az에서 지금 통과하던 `GİF`·`ZİP`(U+0130)이 거부로 바뀌는 변화 명시) → 구현 → `/code-review-loop`(1라운드 approve, 지적 0) → `/commitPR`(커밋 4개, 28차 로드맵 반영 문서 포함). PR #109(`c01ff79`) `gh pr view` state=MERGED(mergedAt=2026-10-07T07:26:17Z), `gh pr checks 109` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37587314984) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1374건 실패·건너뜀 0, 신규 6케이스(GIF·ZIP 허용, GİF·ZİP 거부, 저장 키 `.gif`·`.zip`) 전부 success. master 직접 확인: 두 호출이 `toLowerCase(Locale.ROOT)`, `src/main/java`의 인자 없는 `toLowerCase()`·`toUpperCase()` 0곳, CLAUDE.md 코딩 컨벤션 "대소문자 변환은 `Locale.ROOT`". 로컬 검증: 신규 6케이스는 수정 전 코드에서 전부 실패(판별력), dev Docker 스택 실기 — en_US 회귀(업로드·다운로드 바이트 일치, `.exe`·`GİF` 400, 비인증 401)와 `user.language=tr` 재기동 상태의 대문자 GIF·ZIP 업로드 201(저장 키 ASCII). 현재 런타임(운영 en_US·로컬 ko_KR) 동작 변화 없음, 스키마·인가 정책·의존성 변경 없음. 같은 PR에 28차 갱신 문서가 포함돼 머지됐다. 27차 "범위 밖 후속"에 남은 것: 가상 스레드 도입 검토, 다음 JDK 메이저 때 Mockito `-javaagent` 명시 로드.
 > 이전 갱신: 2026-10-07(28차) — `/updateRoadmap` 사실확인: **`LocalDiskFileStorage` 심볼릭 링크 탈출 차단 완료 반영.** "후속 과제 — ② 공개 첨부 다운로드 완료 시 기록"에 "새로 알게 된 한계"로 남아 있던 항목이다(`load()`는 최종 파일 링크를 따라감). `/suggestRoadmap`에서 3개 후보(`load()` 링크 차단·`toLowerCase()` `Locale.ROOT` 고정·공개 공지 목록 검색) 중 사용자가 선택 → `/feature` 8단계 → 계획 `plan/PLAN-storage-load-nofollow.md`(`/plan-review-loop` 3라운드 ship, 수용 3·기각 2 — 1라운드에서 **네임스페이스 루트(`root/profile`) 자체가 외부 링크이면 검증 기준이 루트 밖으로 옮겨가 store·load·delete가 모두 루트 밖을 다루는** 구멍을 발견해 사용자 결정으로 범위에 포함, 2라운드에서 기준 실경로를 정규화 전 원본 설정값으로 구하도록 정정) → 구현 → `/code-review-loop`(1라운드 approve, 지적 0) → `/commitPR`(커밋 3개). PR #108(`626764b`) `gh pr view` state=MERGED(mergedAt=2026-10-07T06:07:44Z), `gh pr checks 108` `test`·`prod-smoke` pass, 머지 커밋의 master push CI(run 37579845176) `test`·`prod-smoke` success. PR CI 테스트 리포트(Linux): 전체 1368건 실패 0·**건너뜀 0**, `LocalDiskFileStorageTest` 30건 중 링크 테스트 11건 전부 success(로컬 Windows는 링크를 만들 수 없어 11건 건너뜀). master 직접 확인: `loadUnder`가 `openChannel()`(`NOFOLLOW_LINKS`)로 열고, `verifyWithinRoot` 기준이 `configuredRoot.toRealPath()` + 네임스페이스 상대 경로이며, `FileStorage.load()` Javadoc에 링크 거부 계약이 있다. 로컬 검증: 수정 전 코드에서 신규 테스트 6건 실패(판별력), dev Docker 스택(Linux) + Playwright 실기 — 정상 왕복(첨부·프로필 바이트 일치), `/etc/passwd` 링크 → 관리자·공개 다운로드 500·내용 미노출, `profile` 디렉터리 링크 → 조회 500·삭제 시 외부 파일 보존, 원복. 스키마·인가 정책·의존성 변경 없음. **운영 주의**: 배포 전 `find "$APP_FILE_STORAGE_ROOT" -type l`이 비어 있어야 한다(링크가 있으면 해당 요청 500, 대상 없는 최종 링크도 404 → 500). **잔여(수용)**: 하드 링크, 검증과 열기 사이의 부모 디렉터리 교체 경합, 네임스페이스 링크 상황에서 루트 밖 빈 날짜 디렉터리 생성 — 모두 저장 볼륨 쓰기 권한 전제.
@@ -464,7 +468,9 @@
   - 본문 서식: ⓪의 HTML 편집기 적용
   - 공지 흡수: **게시판 완성 후 별도 PR(①-2)**. 흡수 후에도 공개 URL **`/notices`는 유지**한다(공지 게시판만 이 경로를 쓰고 내부는 게시판 코드).
 
-#### ①-1 게시판 구축
+#### ①-1 게시판 구축 — ✅ 완료 (2026-10-09 · PR A `23547ba` #112 + PR B `6e4b37b` #113)
+
+- **실행 원본**: [`plan/PLAN-board.md`](plan/PLAN-board.md) (v10 — 적대적 리뷰 7라운드 ship + PR B 보정 2라운드, 구현·검증 결과 기록됨)
 
 - **목표**: ADMIN이 게시판(이름·공개 여부·첨부 허용 여부)을 정의하고, 그 게시판의 권한을 위임받은 MANAGER가 게시글을 작성·수정·삭제한다. 공개 게시판의 게시글은 `/boards/{boardId}`에서 목록·검색·상세·첨부 다운로드로 노출된다.
 - **계획 단계에서 정할 것**: 권한 구조 확장 방식(`member_permission`에 리소스 식별자 컬럼 추가 + 기본키 변경 vs 별도 `member_board_permission` 테이블), 게시판별 판정을 URL 게이트(`AdminFeature.gatePatterns`)가 아닌 메서드 레벨(`@RequirePermission` 확장 또는 서비스 판정)로 거는 방식, 권한관리 화면에서 게시판별 권한을 표시·편집하는 방식, 게시판 삭제 시 권한 행 정리.
@@ -482,25 +488,25 @@
   4. 서비스(비관적 락·첨부 상한·`FileStorage` 네임스페이스 분리·⓪ sanitizer·`@AdminActionLogged`) → 관리자 API·화면(편집기) → 메뉴 시드
   5. 공개 서비스·컨트롤러·템플릿(비공개 게시판·미노출·삭제 글은 404 흡수) → `SecurityConfig`·레이트리밋 → 통합 검색 → 테스트 → Playwright
 - **완료 기준**:
-  - [ ] `./gradlew test` 통과, CI 통과
-  - [ ] 게시판별 위임: 게시판 A 권한만 있는 MANAGER가 게시판 B 글 작성·수정·삭제·관리 화면 조회에서 403, A에서는 허용(보안 슬라이스 + 서비스 테스트)
-  - [ ] 기존 공지 권한(`NOTICE`) 동작이 권한 구조 확장 후에도 그대로임(회귀 테스트)
-  - [ ] 공개 측: 비공개 게시판·미노출·삭제 게시글이 목록·COUNT·상세·첨부 모두에서 404임을 Testcontainers 테스트로 검증, `/boards/**` 비-GET/HEAD 거부·레이트리밋 적용
-  - [ ] Playwright: 게시판 생성 → MANAGER에게 그 게시판만 위임 → 편집기로 게시글+첨부 작성 → 공개 화면 노출·다운로드 → 다른 게시판 접근 차단
+  - [x] `./gradlew test` 통과, CI 통과 — 전체 1597건 실패 0(로컬), PR #112·#113 master push CI success
+  - [x] 게시판별 위임: 게시판 A 권한만 있는 MANAGER가 게시판 B에서 403, A에서는 허용 — `BoardPermissionIntegrationTest`·`PostApiIntegrationTest`·`RequireBoardPermissionSpelTest`, dev 실기 확인
+  - [x] 기존 공지 권한(`NOTICE`) 동작 회귀 — `BoardPermissionIntegrationTest`·`MemberPermissionApiIntegrationTest`, PR A 실기 5번(공지 회귀)
+  - [x] 공개 측: 비공개 게시판·미노출·삭제 게시글 404, `/boards/**` 비-GET/HEAD 거부 — `PublicBoardIntegrationTest`·`PublicBoardAttachmentStreamingServerTest`·`SecurityConfigTest`. 레이트리밋(`board-*` 규칙)은 테스트에서 전역 off라 **dev 스택 실기로만 검증**(첨부 21번째 429)
+  - [x] Playwright: 게시판 생성 → 단일 게시판 위임 → 편집기로 게시글+첨부 작성 → 공개 노출·다운로드 → 타 게시판 차단 — 계획 문서 "구현·검증 결과 — PR A·B > 실기"
 
-#### ①-2 공지사항 게시판 흡수 (별도 PR)
+#### ①-2 공지사항 게시판 흡수 — ✅ 완료 (2026-10-09 · PR #114 `9d339c6`)
 
 - **목표**: 기존 `notice`·`notice_attachment` 데이터와 MANAGER 공지 권한을 "공지" 게시판으로 옮기고, 관리자 공지 화면·공개 `/notices`가 게시판 코드로 동작한다. 공개 URL(`/notices`, `/notices/{id}`, `/notices/{id}/attachments/{attachmentId}`)과 공개 노출·404 계약은 바뀌지 않는다.
 - **계획 단계에서 정할 것**: 게시글 ID 재사용 여부(공개 URL의 `{id}` 유지를 위해 기존 공지 ID를 보존하는 방법), 관리자 URL(`/admin/notice/**`) 유지 또는 리다이렉트, 기존 `NOTICE` 권한 행 → 게시판별 권한 행 변환, 구 테이블 DROP 시점(권한관리 V22처럼 롤백 창을 둔 뒤 후속 PR에서 DROP 권장), 공지 메뉴 시드(V9)와의 관계.
 - **수정해야 할 파일**: 신규 데이터 이관 마이그레이션(공지·첨부·권한 행), 수정 `src/main/java/com/cms/publicweb/notice/`(게시판 서비스 위임 — 공개 불변식·404 흡수·스트리밍 다운로드 계약 유지), `src/main/java/com/cms/admin/notice/`(제거 또는 게시판으로 위임), `src/main/java/com/cms/admin/permission/AdminFeature.java`(`NOTICE` 정리), `src/main/java/com/cms/admin/search/service/AdminSearchService.java`, `src/main/java/com/cms/admin/notice/CLAUDE.md`·`src/main/java/com/cms/publicweb/notice/CLAUDE.md`, 기존 공지 테스트(`src/test/java/com/cms/admin/notice/`·`src/test/java/com/cms/publicweb/notice/`)
 - **단계별 작업 순서**: `PLAN-notice-to-board.md` → `/plan-review-loop` → 이관 마이그레이션(+Testcontainers 이관 테스트) → 공개 `/notices` 경로를 게시판 서비스로 전환 → 관리자 공지 화면 전환 → 기존 공지 테스트를 같은 계약으로 유지·이전 → Playwright
 - **완료 기준**:
-  - [ ] `./gradlew test` 통과, 기존 공개 공지 테스트(`PublicAttachmentStreamingServerTest` 포함)가 같은 계약으로 통과
-  - [ ] 이관 전후 공지 건수·첨부 파일 바이트·공개/비공개 상태·MANAGER 권한이 일치함을 Testcontainers 이관 테스트로 검증
-  - [ ] 기존 공개 URL(`/notices/{id}`·첨부 다운로드)이 같은 ID로 200, 비공개·삭제는 404
-  - [ ] Playwright: 이관 후 공개 `/notices` 목록·검색·상세·첨부 다운로드, 관리자 공지 수정
+  - [x] `./gradlew test` 통과, 기존 공개 공지 테스트(`PublicAttachmentStreamingServerTest` 포함)가 같은 계약으로 통과
+  - [x] 이관 전후 공지 건수·첨부 파일 바이트·공개/비공개 상태·MANAGER 권한이 일치함을 Testcontainers 이관 테스트로 검증 (`NoticeAbsorbMigrationTest`)
+  - [x] 기존 공개 URL(`/notices/{id}`·첨부 다운로드)이 같은 ID로 200, 비공개·삭제는 404
+  - [x] Playwright: 이관 후 공개 `/notices` 목록·검색·상세·첨부 다운로드, 관리자 공지 수정 (MANAGER 실제 로그인 화면만 미확인 — 접근 매트릭스·이관 시험으로 대체)
 
-### ② 공개 메인 페이지(`/`) + 배너 관리
+### ② 공개 메인 페이지(`/`) + 배너 관리 — ✅ 완료 (2026-10-10 · PR #115 `e644b71`)
 
 - **유형**: 기능 추가
 - **선정 이유**: 지금 공개 진입점은 `/notices`뿐이고 `/`는 `anyRequest().denyAll()`에 걸린다. 공개 사이트가 "사이트"로 보이게 하는 최소 단위이며 `FileStorage`·KST `Clock` 재사용 비용이 낮다.
@@ -521,14 +527,14 @@
   3. 관리자 서비스(이미지 매직 바이트 검증, `FileStorage` 별도 네임스페이스) → API·화면(정렬은 메뉴 드래그 패턴 참고) → 메뉴 시드
   4. 공개 메인·배너 이미지 다운로드 → `SecurityConfig`·레이트리밋 → 테스트 → Playwright
 - **완료 기준**:
-  - [ ] `./gradlew test` 통과, CI 통과
-  - [ ] 노출 기간 경계(시작 직전·종료 직후)를 고정 `Clock`으로 검증, 비노출·기간 외 배너의 `/banners/{id}/image`가 404
-  - [ ] 링크 검증: 허용 외 스킴 400, 내부 상대 경로·http/https 허용
-  - [ ] MANAGER 위임 전 403·위임 후 허용(보안 슬라이스)
-  - [ ] `/` 비로그인 GET 200, 비-GET/HEAD 거부, 기존 `/admin/**` 규칙 회귀 없음(`SecurityConfigTest`)
-  - [ ] Playwright: 배너 등록 → `/`에 노출 → 기간 만료(또는 비노출) 후 사라짐
+  - [x] `./gradlew test` 통과, CI 통과 — 전체 1743건 실패 0(로컬, UTC 재실행 동일), PR #115 `test`·`prod-smoke` pass, master push CI success
+  - [x] 노출 기간 경계(시작 직전·종료 직후)를 고정 `Clock`으로 검증, 비노출·기간 외 배너의 `/banners/{id}/image`가 404 — `DisplayPeriodTest`·`BannerRepositoryDataJpaTest`·`PublicBannerImageStreamingServerTest`
+  - [x] 링크 검증: 허용 외 스킴 400, 내부 상대 경로·http/https 허용 — `SafeLinkUrlValidatorTest`·`BannerApiIntegrationTest`
+  - [x] MANAGER 위임 전 403·위임 후 허용(보안 슬라이스) — `BannerPermissionMatrixIntegrationTest`, dev 실기(등록·삭제 403)
+  - [x] `/` 비로그인 GET 200, 비-GET/HEAD 거부, 기존 `/admin/**` 규칙 회귀 없음(`SecurityConfigTest`)
+  - [x] Playwright: 배너 등록 → `/`에 노출 → 기간 만료(또는 비노출) 후 사라짐 (일부 화면 동작은 사용자 직접 확인으로 대체 — 계획 문서 "실기 한계와 사후 보완")
 
-### ③ 세션 관리 화면 (접속 중 관리자·강제 로그아웃) — 문의하기는 후속
+### ③ 세션 관리 화면 (접속 중 관리자·강제 로그아웃) — ✅ 완료 (2026-10-11 · PR #118 `d8fafb3`) — 문의하기는 후속
 
 - **유형**: 기능 추가(운영·보안)
 - **확정 결정(2026-10-07)**: ③의 두 후보 중 **세션 관리 화면을 먼저** 한다(스키마 변경·공개 POST 개방 없음). 문의하기는 아래 "③ 후속 — 문의하기"로 남긴다. ADMIN은 **본인의 다른 세션은 강제 만료할 수 있고, 지금 쓰는 세션은 목록에서 막는다.**
@@ -536,11 +542,11 @@
 - **수정해야 할 파일**: 수정 `src/main/java/com/cms/config/auth/AdminSessionService.java`(조회 메서드 추가 — 기존 `expireSessionsFor(Long)` 재사용, 단일 세션 만료 추가), 신규 세션 관리 컨트롤러(API + `@AdminPage`)·DTO·`templates/admin/`(화면), 수정 `src/main/java/com/cms/admin/permission/AdminFeature.java`(ADMIN_ONLY 항목), `src/main/java/com/cms/admin/log/constant/AdminActionTypes.java`, 신규 메뉴 시드 마이그레이션. **테이블 스키마 변경 없음**.
 - **단계별 작업 순서**: 계획(세션 식별자를 응답에 원문으로 내보내지 않는 방식 결정) → 서비스 조회·단일 만료 메서드 → API·화면 → 메뉴 시드 → 테스트 → Playwright
 - **완료 기준**:
-  - [ ] `./gradlew test` 통과, MANAGER 접근 403 보안 테스트
-  - [ ] 강제 만료 후 대상 세션의 다음 요청이 API는 JSON 401, 페이지는 로그인 리다이렉트(`AdminSessionExpiredStrategy` 계약)
-  - [ ] 요청자의 현재 세션 만료 요청은 거부되고, 본인의 다른 세션은 만료됨
-  - [ ] 응답에 세션 ID 원문이 포함되지 않음, 강제 만료가 감사 로그에 남음
-  - [ ] Playwright: 브라우저 2개로 로그인 → 한쪽에서 다른 쪽 강제 로그아웃 → 다른 쪽 로그인 화면으로 이동
+  - [x] `./gradlew test` 통과, MANAGER 접근 403 보안 테스트 — 전체 1788건 실패 0(로컬·UTC), PR #118 `test`·`prod-smoke` pass·master push CI success, `AdminSessionManagementIntegrationTest.manager_isForbiddenEverywhere`(실제 로그인 세션·유효 CSRF)·`AdminSessionControllerTest.manager_forbiddenOnAllEndpoints`
+  - [x] 강제 만료 후 대상 세션의 다음 요청이 API는 JSON 401, 페이지는 로그인 리다이렉트(`AdminSessionExpiredStrategy` 계약) — `expireOtherMembersSession`·`expiredSession_pageRequestRedirectsToLogin`, dev 실기(만료된 쪽의 다음 API 401·fetch가 첫 요청인 새로고침이 `/admin/login`으로 이동)
+  - [x] 요청자의 현재 세션 만료 요청은 거부되고, 본인의 다른 세션은 만료됨 — `currentSessionProtected_otherOwnSessionAllowed`(409)·`expireOwnOtherSessions_keepsCurrent`, dev 실기(현재 세션 409, "내 다른 세션 모두 만료")
+  - [x] 응답에 세션 ID 원문이 포함되지 않음, 강제 만료가 감사 로그에 남음 — 해시 핸들(`AdminSessionService.handleOf`)·`list_groupsSessionsAndMarksCurrent`·`AdminSessionManageServiceTest`, 감사 `SESSION_EXPIRE`(성공은 대상 회원·라벨, 실패는 대상 없는 FAIL — Aspect 계약의 수용한 한계)를 DB 행으로 확인
+  - [x] Playwright: 브라우저 2개로 로그인 → 한쪽에서 다른 쪽 강제 로그아웃 → 다른 쪽 로그인 화면으로 이동 — 별개의 ADMIN 두 계정 + MANAGER, 컨텍스트 3개(`PLAN-session-management.md` "구현·검증 결과")
 
 #### ③ 후속 — 문의하기 (공개 폼 → 관리자 문의함)
 
