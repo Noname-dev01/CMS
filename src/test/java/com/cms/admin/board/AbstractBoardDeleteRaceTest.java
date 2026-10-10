@@ -186,6 +186,14 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
                 .content("{\"version\":" + version + ",\"grants\":[],\"boardGrants\":" + boardGrantsJson + "}")).andReturn();
     }
 
+    /**
+     * 폴링 간격. <b>100ms를 넘겨야 한다</b>(이슈 #119) — information_schema.INNODB_TRX·INNODB_LOCK_WAITS는 InnoDB가 캐시로 돌려주는데, 그보다 촘촘히
+     * (예: 25ms) 계속 읽으면 첫 조회 시점의 스냅샷이 갱신되지 않은 채 남아, 삭제가 이미 락을 기다리고 있어도 대기를 수 초~15초 넘게 놓친다. 첫 조회가
+     * 삭제 요청이 락에 걸리기 전에 나가면(CI처럼 빠른 환경) 그대로 시험이 15초 뒤 실패한다. 실측(같은 MariaDB 10.11 이미지): 대기자 생성 전에 폴링을
+     * 시작했을 때 25ms 간격은 9초~15초 이상 못 보았고 150ms 간격은 26~148ms 안에 보았다. SHOW ENGINE INNODB STATUS·PROCESSLIST는 이 캐시를 거치지 않는다.
+     */
+    private static final long LOCK_WAIT_POLL_INTERVAL_MS = 150;
+
     /** 락을 기다리는 트랜잭션이 생길 때까지 관측한다 — information_schema.INNODB_LOCK_WAITS는 PROCESS 권한이 필요해 root로 조회한다(sleep을 증거로 쓰지 않는다). */
     private boolean awaitSomeoneWaiting() throws Exception {
         try (Connection observer = DriverManager.getConnection(connectionDetails.getJdbcUrl(), "root", connectionDetails.getPassword());
@@ -198,93 +206,10 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
                         return true;
                     }
                 }
-                Thread.sleep(25);
+                Thread.sleep(LOCK_WAIT_POLL_INTERVAL_MS);
             } while (System.nanoTime() < deadline);
             return false;
         }
-    }
-
-    /**
-     * 락 대기가 관측되지 않았을 때의 진단 문자열(이슈 #119) — 실패 메시지에만 쓰이고 시험의 판정에는 영향이 없다. 호출 시점은 생성 스레드가 아직 래치에 묶여
-     * 있는 때라(릴리스·{@code shutdownNow()} 전) 삭제 요청이 어디에서 멈춰 있는지가 그대로 남아 있다. 어떤 조회가 실패해도 진단 때문에 예외가 새지 않는다.
-     */
-    private String diagnoseNoLockWait(Future<Integer> deleteBoard) {
-        StringBuilder out = new StringBuilder("\n[진단] 삭제 요청 완료 여부: ").append(deleteBoard.isDone()).append('\n');
-        try (Connection observer = DriverManager.getConnection(connectionDetails.getJdbcUrl(), "root", connectionDetails.getPassword());
-             Statement statement = observer.createStatement()) {
-            statement.setQueryTimeout(3);
-            out.append(dumpRows(statement, "INNODB_TRX", "SELECT * FROM information_schema.INNODB_TRX"));
-            out.append(dumpRows(statement, "INNODB_LOCK_WAITS", "SELECT * FROM information_schema.INNODB_LOCK_WAITS"));
-            out.append(dumpRows(statement, "PROCESSLIST", "SELECT ID, USER, DB, COMMAND, TIME, STATE, INFO FROM information_schema.PROCESSLIST"));
-            // information_schema의 INNODB_* 뷰는 캐시를 거치므로, 엔진 자체의 락 대기 기록(SHOW ENGINE INNODB STATUS)과 대조한다 —
-            // 여기에 "WAITING ... FOR THIS LOCK TO BE GRANTED"가 보이면 실제 락 대기를 information_schema가 놓친 것이다.
-            out.append(dumpRows(statement, "INNODB_LOCKS", "SELECT * FROM information_schema.INNODB_LOCKS"));
-            out.append(engineTransactions(statement));
-            for (String variable : List.of("version", "innodb_lock_wait_timeout", "innodb_deadlock_detect", "innodb_snapshot_isolation", "transaction_isolation")) {
-                out.append(dumpRows(statement, "@@global." + variable, "SELECT @@global." + variable));
-            }
-        } catch (Exception e) {
-            out.append("[진단] DB 조회 실패: ").append(e).append('\n');
-        }
-        try {
-            var pool = dataSource.unwrap(com.zaxxer.hikari.HikariDataSource.class).getHikariPoolMXBean();
-            out.append("[진단] Hikari 풀: active=").append(pool.getActiveConnections())
-                    .append(", idle=").append(pool.getIdleConnections())
-                    .append(", total=").append(pool.getTotalConnections())
-                    .append(", threadsAwaitingConnection=").append(pool.getThreadsAwaitingConnection()).append('\n');
-        } catch (Exception e) {
-            out.append("[진단] Hikari 풀 상태 조회 실패: ").append(e).append('\n');
-        }
-        Thread.getAllStackTraces().forEach((thread, frames) -> {
-            if (thread.getName().startsWith("pool-")) {
-                out.append("[진단] 스레드 ").append(thread.getName()).append(" (").append(thread.getState()).append(")\n");
-                for (int i = 0; i < Math.min(frames.length, 14); i++) {
-                    out.append("    at ").append(frames[i]).append('\n');
-                }
-            }
-        });
-        return out.toString();
-    }
-
-    /** {@code SHOW ENGINE INNODB STATUS}의 TRANSACTIONS 섹션만 잘라 돌려준다(길이 상한 5000자). */
-    private static String engineTransactions(Statement statement) {
-        StringBuilder out = new StringBuilder("[진단] INNODB STATUS(TRANSACTIONS):\n");
-        try (java.sql.ResultSet rs = statement.executeQuery("SHOW ENGINE INNODB STATUS")) {
-            if (rs.next()) {
-                String status = rs.getString("Status");
-                int from = status.indexOf("\nTRANSACTIONS\n");
-                int to = status.indexOf("\nFILE I/O\n");
-                String section = from < 0 ? status : status.substring(from, to > from ? to : status.length());
-                out.append(section.length() > 5000 ? section.substring(0, 5000) + "…" : section).append('\n');
-            }
-        } catch (Exception e) {
-            out.append("    조회 실패: ").append(e).append('\n');
-        }
-        return out.toString();
-    }
-
-    private static String dumpRows(Statement statement, String label, String sql) {
-        StringBuilder out = new StringBuilder("[진단] ").append(label).append(":\n");
-        try (java.sql.ResultSet rs = statement.executeQuery(sql)) {
-            int columns = rs.getMetaData().getColumnCount();
-            int rows = 0;
-            while (rs.next()) {
-                rows++;
-                out.append("    ");
-                for (int c = 1; c <= columns; c++) {
-                    String value = String.valueOf(rs.getString(c));
-                    out.append(rs.getMetaData().getColumnLabel(c)).append('=')
-                            .append(value.length() > 140 ? value.substring(0, 140) + "…" : value).append(c < columns ? " | " : "");
-                }
-                out.append('\n');
-            }
-            if (rows == 0) {
-                out.append("    (없음)\n");
-            }
-        } catch (Exception e) {
-            out.append("    조회 실패: ").append(e).append('\n');
-        }
-        return out.toString();
     }
 
     // ===================== 시험 =====================
@@ -368,8 +293,7 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
                     .andReturn().getResponse().getStatus());
 
             // 삭제 요청이 게시판 행 잠금을 기다리는 것을 DB에서 관측한다 — 공유 잠금이 없다면 삭제가 바로 진행됐을 것이다
-            boolean waiting = awaitSomeoneWaiting();
-            assertThat(waiting).as("삭제가 생성의 게시판 공유 잠금을 기다린다%s", waiting ? "" : diagnoseNoLockWait(deleteBoard)).isTrue();
+            assertThat(awaitSomeoneWaiting()).as("삭제가 생성의 게시판 공유 잠금을 기다린다").isTrue();
             assertThat(deleteBoard.isDone()).isFalse();
 
             Probe.postRelease.countDown();
