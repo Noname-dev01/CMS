@@ -391,6 +391,14 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **메뉴**: '공지사항 관리' 메뉴 행은 대체 메뉴('게시글 관리')가 정상이면 삭제(자식이 있으면 URL만 비움)되고, 정상이 아니면 '게시글 관리' 링크로 전환된다.
 - **옛 주소**: `/admin/notice/manage[?id=]`는 공지 게시판의 게시글 관리 화면으로 302한다. `/admin/api/notices/**`는 사라졌다(ADMIN 404, MANAGER 403).
 
+## 공개 메인(`/`)과 배너 (V33~V34, 2026-10-10, adversarial-review/plan/PLAN-public-home-banner.md)
+
+- **새 공개 경로**: `GET·HEAD /`(정확 경로 1개)와 `GET·HEAD /banners/{id}/image`가 무인증이다(`SecurityConfig` 승인 2026-10-09). 리버스 프록시·ingress가 `/`를 로그인 리다이렉트로 가정하고 있었다면 확인한다. 레이트리밋 규칙 `public-home`(120/60초)·`banner-image`(240/60초)가 IP별로 걸리며 공유 IP(사내망 등)에서는 한도를 넘으면 이미지가 429로 깨질 수 있다.
+- **배너 이미지 저장**: 같은 파일 볼륨의 **`banner/` 하위 디렉터리**(네임스페이스, `profile/`과 같은 방식)에 저장된다. 볼륨 백업·복구는 기존 절차에 그대로 포함된다. 배너 이미지는 업로드 시 파일당 2MB·한 변 2560px 이하, 배너는 최대 10개다.
+- **수동 회수(아래 절차) 주의**: ⑤는 `banner/`를 제외하고 **⑤-3이 `banner` 테이블 대조로 따로 회수**한다. 이 제외가 없던 이전 판의 ⑤를 그대로 실행하면 **정상 배너 이미지가 삭제**된다(비노출·만료 배너 포함).
+- **롤백(배너 도입 전 앱으로)**: V33·V34는 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `BannerMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `BANNER` 기능 행을 diff에서 제외하므로 롤백 중 "전체 회수"를 해도 그 행이 DB에 남고, 신버전을 다시 배포하면 **회수한 배너 권한이 되살아난다**(PLAN R2-1). 재배포 전에 위 "사용자별 권한 전환 > 롤백했다가 신버전을 다시 배포할 때(필수 정리)"의 정리 트랜잭션(`DELETE FROM member_permission; … UPDATE member SET permission_version = permission_version + 1;`)을 그대로 수행하고 신버전 기동 후 배너 권한을 ADMIN이 다시 부여한다(`MemberPermissionMigrationTest`가 BANNER 행 케이스를 고정). roll-forward가 기본이다.
+- **배너 삭제**: 행을 지운 뒤 커밋 후 파일을 지운다. 파일 삭제가 실패하면 "행 없는 파일"이 남고 ⑤-3이 다음 회수 때 정리한다.
+
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
 공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 게시글이 참조하는지 — `owner_type` = `POST`; 공지 흡수(V32, 2026-10-09) 이전에는 공지 참조 `NOTICE`도 있었다)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
@@ -458,7 +466,7 @@ docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20
 echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일을 지우지 않았다"
 
 # ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
-#    보존 대상 = content_image + post_attachment의 storage_key, profile/ 네임스페이스는 제외(⑤-2가 따로 다룬다).
+#    보존 대상 = content_image + post_attachment의 storage_key, profile/·banner/ 네임스페이스는 제외(⑤-2·⑤-3이 따로 다룬다 — 제외하지 않으면 정상 배너 이미지가 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1).
 #    notice_attachment는 V32 이후 이관 시점의 동결 스냅샷일 뿐 앱이 읽지 않으므로 보존 목록에 넣지 않는다 — 넣으면 삭제 실패로 남은
 #    "행 없는 파일"이 동결 행 때문에 영구 보존된다(PLAN-notice-to-board.md 리뷰 R3-1). 공지 첨부는 post_attachment로 이관됐다.
 #    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
@@ -470,7 +478,7 @@ SELECT storage_key FROM content_image UNION SELECT storage_key FROM post_attachm
 SQL
 sort -o keep-keys.txt keep-keys.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
-  cd /data && find . -type f -not -path "./profile/*" -not -path "./.restore-staging/*" | sed "s|^\./||" | sort' > disk-keys.txt &&
+  cd /data && find . -type f -not -path "./profile/*" -not -path "./banner/*" -not -path "./.restore-staging/*" | sed "s|^\./||" | sort' > disk-keys.txt &&
 comm -23 disk-keys.txt keep-keys.txt > orphan-files.txt ||
 echo "⑤ 중단: 보존 목록 또는 디스크 목록 수집 실패 — 아래 삭제를 실행하지 않는다"
 cat orphan-files.txt    # 먼저 눈으로 확인한다(파일이 없다는 오류가 나오면 위 단계가 실패한 것)
@@ -496,6 +504,24 @@ cat profile-orphans.txt    # 먼저 눈으로 확인한다(파일이 없다는 �
 ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
   test -f /work/profile-orphans.txt || { echo "profile-orphans.txt 없음 — 삭제 중단"; exit 1; }
   while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/profile/$k";; esac; done < /work/profile-orphans.txt'
+
+# ⑤-3 배너 파일 대조(2026-10-10, PLAN-public-home-banner.md R4-1 — 일회용 스키마·볼륨에서 이 블록을 그대로 실행해 비노출·만료 배너 파일 보존과 행 없는 파일만 삭제됨을 확인): 배너 이미지는 banner/ 네임스페이스에 저장되어 위 ⑤가 제외하므로 여기서 따로 대조한다.
+#      보존 대상 = banner 테이블의 storage_key(네임스페이스 로컬 키 — **비노출·만료 배너도 행이 있으면 보존**), 디스크 = banner/ 아래 파일(접두어 제거).
+#      차이만 고아 목록이 된다. 앞 단계와 같은 ready 가드 + && 체인 — 조회가 실패하면 목록이 만들어지지 않고 아래 삭제는 아무것도 지우지 않는다.
+rm -f banner-keep.txt banner-disk.txt banner-orphans.txt
+ready &&
+db > banner-keep.txt <<'SQL' &&
+SELECT storage_key FROM banner;
+SQL
+sort -o banner-keep.txt banner-keep.txt &&
+docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
+  if [ -d /data/banner ]; then cd /data/banner && find . -type f | sed "s|^\./||" | sort; fi' > banner-disk.txt &&
+comm -23 banner-disk.txt banner-keep.txt > banner-orphans.txt ||
+echo "⑤-3 중단: 보존 목록 또는 디스크 목록 수집 실패 — 아래 삭제를 실행하지 않는다"
+cat banner-orphans.txt    # 먼저 눈으로 확인한다(파일이 없다는 오류가 나오면 위 단계가 실패한 것)
+ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
+  test -f /work/banner-orphans.txt || { echo "banner-orphans.txt 없음 — 삭제 중단"; exit 1; }
+  while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/banner/$k";; esac; done < /work/banner-orphans.txt'
 
 # ⑥ 앱 기동
 docker start cms-app-prod

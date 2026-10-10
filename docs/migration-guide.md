@@ -37,6 +37,8 @@
 | V30 | `V30__seed_board_post_menu.sql` | 게시글 관리 메뉴 시드(멱등 DML) |
 | V31 | `V31__add_board_key.sql` | `board.board_key`(시스템 게시판 키, UNIQUE, NULL=일반 게시판) — DDL 1문 |
 | V32 | `V32__absorb_notice_into_board.sql` | **공지 → 공지 게시판 이관**(공지·첨부 복사, 본문 이미지 출처·참조 이동, MANAGER 공지 권한 이동, 메뉴 정리) — 순수 DML 한 트랜잭션, **되돌릴 수 없음 — 아래 "V31~V32" 백업 필수** |
+| V33 | `V33__create_banner.sql` | 배너 `banner`·동시성 가드 `banner_lock`(DDL 2문 — 실패 복구는 아래 "V33~V34") |
+| V34 | `V34__seed_banner_lock_and_menu.sql` | 가드 행(id=1)·배너 관리 메뉴 시드(멱등 DML) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -99,6 +101,14 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **백업 복원 순서(V22와 같은 형식)**: ① V30 이하 이미지로 컨테이너를 먼저 교체한다(V31·V32가 다시 실행되지 않도록) ② 정지 상태 백업(DB + 파일 볼륨)을 복원한다 ③ 수정한 신버전을 배포해 V31·V32를 다시 적용한다.
 - **동결 테이블**: `notice`·`notice_attachment`는 지우지 않는다(이관 시점 스냅샷, 앱이 읽지 않음). 후속 PR이 DROP한다 — 그 전에는 수동 회수 절차가 이 테이블을 보존 목록에 쓰지 않는다.
 - **시험**: `NoticeAbsorbMigrationTest`(같은 ID·플래그·날짜·첨부 바이트, 충돌 재번호와 연결 유지, AUTO_INCREMENT, 이미지·권한·메뉴 이동, 회수 가드 SQL). 과거 마이그레이션 시험(`MemberPermissionMigrationTest`·`RolePermissionDropMigrationTest`·`BoardMigrationTest`)은 NOTICE 행·공지 출처를 다루므로 **V31(또는 V30)까지만 적용**한다.
+
+
+## V33~V34 — 공개 메인 배너 (2026-10-10, `adversarial-review/plan/PLAN-public-home-banner.md`)
+
+- **V33**(DDL 2문: `banner`, `banner_lock`)은 문마다 암묵 커밋이다. 실패 복구: `SELECT version, success FROM flyway_schema_history WHERE version = '33';`에서 이력이 없거나 `success=0`이면 **이력 없는 쪽의 잔여 테이블만** `DROP TABLE IF EXISTS banner_lock; DROP TABLE IF EXISTS banner;`(자식 없음, FK 없음)한 뒤 `flyway repair` → 재기동. `success=1`인 버전의 객체는 건드리지 않는다(V17~V19 복구와 같은 원칙).
+- **V34**는 순수 DML이다(가드 행 `banner_lock(id=1)` + 메뉴 '배너 관리' 최상위 맨 끝, 둘 다 `WHERE NOT EXISTS`로 멱등). **가드 행이 없으면 배너 생성·삭제·순서 저장이 `IllegalStateException`으로 실패**한다(조용히 잠금 없이 진행하지 않는다) — 수동으로 지웠다면 `INSERT INTO banner_lock (id) VALUES (1);`.
+- **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다(`BannerMigrationTest.rollbackToAppWithoutBanner_startsAgainstLatestDatabase`). 이전 앱으로 롤백했다가 다시 배포할 때의 **권한 정리**와 **수동 회수 ⑤의 `banner/` 제외**는 `docs/deployment.md` "공개 메인(`/`)과 배너".
+- **시험**: `BannerMigrationTest`(테이블·가드 행 1개·메뉴 최상위 맨 끝 1개, 시드 멱등, 컬럼 제약·`datetime(6)`, V32 이하 앱 롤백 기동 호환).
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.
