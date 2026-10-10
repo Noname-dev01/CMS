@@ -82,14 +82,78 @@ class CustomErrorControllerTest {
         assertViewName("/cms/administrator/missing", "/cms", "error/404");
     }
 
-    private void assertViewName(String requestUri, String contextPath, String expectedViewName) {
+    // ==================== 403 (이슈 #117) ====================
+
+    @Test
+    @DisplayName("403: 관리자 경로는 관리자 403 화면, 그 밖의 경로는 일반 403 화면 — 404와 같은 경로 판정")
+    void forbidden_adminAndPublicViews() {
+        assertViewName(403, "/admin/log/manage", "", "error/admin/403");
+        assertViewName(403, "/admin", "", "error/admin/403");
+        assertViewName(403, "/admin;v=1/log/manage", "", "error/admin/403");
+        assertViewName(403, "/notices", "", "error/403");
+        assertViewName(403, "/administrator/x", "", "error/403");
+        assertViewName(403, "/cms/admin/log/manage", "/cms", "error/admin/403");
+        assertViewName(403, null, "", "error/403");
+    }
+
+    @Test
+    @DisplayName("403: 화면용 모델은 timestamp·path뿐이다 — 예외 메시지 등 내부 정보를 싣지 않는다")
+    void forbidden_modelHasOnlyTimestampAndPath() {
+        ModelAndView modelAndView = handle(403, "/admin/log/manage", "", "내부 오류 메시지");
+
+        assertThat(modelAndView.getModel()).containsOnlyKeys("timestamp", "path");
+        assertThat(modelAndView.getModel().get("path")).isEqualTo("/admin/log/manage");
+    }
+
+    // ==================== 그 밖의 상태: 안전한 폴백 ====================
+
+    @Test
+    @DisplayName("전용 템플릿이 없는 상태(400·401·405·500·503)는 폴백 error 뷰이고 모델에는 상태 코드뿐이다 — null 표시 회귀 방지")
+    void otherStatuses_fallbackViewWithOnlyStatus() {
+        for (int status : new int[]{400, 401, 405, 500, 503}) {
+            ModelAndView modelAndView = handle(status, "/admin/x", "", "SQL 오류: 내부 정보");
+
+            assertThat(modelAndView.getViewName()).as("상태 " + status).isEqualTo("error");
+            assertThat(modelAndView.getModel()).as("상태 " + status + " 모델").containsOnlyKeys("status");
+            assertThat(modelAndView.getModel().get("status")).isEqualTo(status);
+        }
+    }
+
+    @Test
+    @DisplayName("상태 코드를 알 수 없으면(null) 폴백 error 뷰이고 모델은 비어 있다")
+    void unknownStatus_fallbackViewWithEmptyModel() {
         HttpServletRequest request = mock(HttpServletRequest.class);
-        given(request.getAttribute("jakarta.servlet.error.status_code")).willReturn(404);
-        given(request.getAttribute("jakarta.servlet.error.request_uri")).willReturn(requestUri);
-        given(request.getContextPath()).willReturn(contextPath);
+        given(request.getContextPath()).willReturn("");
 
         ModelAndView modelAndView = controller.handleError(request);
 
-        assertThat(modelAndView.getViewName()).isEqualTo(expectedViewName);
+        assertThat(modelAndView.getViewName()).isEqualTo("error");
+        assertThat(modelAndView.getModel()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("기존 계약 유지: 429는 error/429, 404는 timestamp·path 모델")
+    void existingStatuses_unchanged() {
+        assertViewName(429, "/notices", "", "error/429");
+        assertThat(handle(404, "/notices/1", "", null).getModel()).containsOnlyKeys("timestamp", "path");
+    }
+
+    private void assertViewName(String requestUri, String contextPath, String expectedViewName) {
+        assertViewName(404, requestUri, contextPath, expectedViewName);
+    }
+
+    private void assertViewName(int status, String requestUri, String contextPath, String expectedViewName) {
+        assertThat(handle(status, requestUri, contextPath, null).getViewName()).isEqualTo(expectedViewName);
+    }
+
+    /** {@code errorMessage}는 컨테이너가 넣는 jakarta.servlet.error.message — 어떤 값이어도 모델로 새면 안 된다. */
+    private ModelAndView handle(int status, String requestUri, String contextPath, String errorMessage) {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        given(request.getAttribute("jakarta.servlet.error.status_code")).willReturn(status);
+        given(request.getAttribute("jakarta.servlet.error.request_uri")).willReturn(requestUri);
+        given(request.getAttribute("jakarta.servlet.error.message")).willReturn(errorMessage);
+        given(request.getContextPath()).willReturn(contextPath);
+
+        return controller.handleError(request);
     }
 }

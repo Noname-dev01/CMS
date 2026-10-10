@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>403 - 접근할 수 없습니다</title>
+    <link rel="stylesheet" th:href="@{/css/error.css}">
+</head>
+<body>
+    <div class="error-container">
+        <h1>403</h1>
+        <p class="error-message">접근할 수 없는 페이지입니다.</p>
+        <p class="error-description">이 화면을 볼 권한이 없거나, 로그인 세션이 만료되었을 수 있습니다.</p>
+        <a th:href="@{/}" class="home-button">홈으로 돌아가기</a>
+        <div class="error-details" th:if="${timestamp}">
+            <p>오류 발생 시간: <span th:text="${#dates.format(timestamp, 'yyyy-MM-dd HH:mm:ss')}"></span></p>
+        </div>
+    </div>
+</body>
+</html>
