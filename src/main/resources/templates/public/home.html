@@ -68,5 +68,10 @@
         아직 게시된 내용이 없습니다.
     </p>
 </div>
+
+<!--/* 레이어 팝업: 별도 조각이다(PLAN-popup.md 쟁점 9). 이 파일에는 비이스케이프 출력·스크립트를 두지 않는다 — 팝업에 필요한 것은 조각의 규약 시험이 따로 고정한다. */-->
+<th:block th:if="${not #lists.isEmpty(popups)}">
+    <th:block th:replace="~{public/fragments/home-popups :: popups(${popups})}"></th:block>
+</th:block>
 </body>
 </html>

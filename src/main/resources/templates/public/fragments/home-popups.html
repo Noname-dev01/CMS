@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  공개 메인의 레이어 팝업 조각(PLAN-popup.md 쟁점 9). home.html은 이 조각을 포함만 한다 — 메인 템플릿의 "비이스케이프 출력·스크립트 없음" 규약은
+  그대로 두고, 이 조각에 대한 규약은 PublicHomePopupTemplateConventionTest가 따로 고정한다.
+  - 팝업은 서버가 숨김(hidden)으로 그리고, 스크립트가 "오늘 하루 보지 않기" 상태를 확인한 뒤 보일 것만 연다. 스크립트가 없거나 실패하면 팝업은 뜨지 않는다.
+  - 이미지는 src가 아니라 data-src로만 내보낸다. 스크립트가 보이기로 한 팝업의 src만 채우므로 숨겨진 팝업·스크립트 없는 환경은 이미지를 내려받지 않는다.
+  - 배치 값(px)은 정수만 CSS 변수로 넘긴다. 제목은 이스케이프 출력이고, 본문 HTML 출력은 PublicPopup이 출력 시 한 번 더 정리한 값(이미지·스크립트 불허)뿐이다.
+  - 링크는 PublicPopup이 SafeUrls로 거른 값만 href에 들어온다.
+*/-->
+<th:block th:fragment="popups(popups)">
+    <div class="home-popup-layer">
+        <section class="home-popup" th:each="popup : ${popups}" hidden role="dialog" aria-modal="false"
+                 th:classappend="${popup.image} ? 'is-image' : 'is-html'"
+                 th:attr="aria-label=${popup.title},data-popup-id=${popup.id},data-version=${popup.revision}"
+                 th:style="'--popup-x:' + ${popup.posX} + 'px;--popup-y:' + ${popup.posY} + 'px;--popup-w:' + ${popup.width} + 'px;' + (${popup.height} != null ? '--popup-h:' + ${popup.height} + 'px;' : '')">
+            <div class="home-popup-head">
+                <span class="home-popup-title" th:text="${popup.title}" th:title="${popup.title}"></span>
+                <button type="button" class="home-popup-close" data-popup-close aria-label="닫기">&times;</button>
+            </div>
+            <div class="home-popup-body">
+                <th:block th:if="${popup.image}">
+                    <a th:if="${popup.linkUrl != null and popup.externalLink}" th:href="${popup.linkUrl}" target="_blank" rel="noopener noreferrer">
+                        <img th:attr="data-src=@{/popups/{id}/image(id=${popup.id})}" th:alt="${popup.title}">
+                    </a>
+                    <a th:if="${popup.linkUrl != null and not popup.externalLink}" th:href="${popup.linkUrl}">
+                        <img th:attr="data-src=@{/popups/{id}/image(id=${popup.id})}" th:alt="${popup.title}">
+                    </a>
+                    <img th:if="${popup.linkUrl == null}" th:attr="data-src=@{/popups/{id}/image(id=${popup.id})}" th:alt="${popup.title}">
+                </th:block>
+                <div th:unless="${popup.image}" class="home-popup-content" th:utext="${popup.bodyHtml}"></div>
+            </div>
+            <div class="home-popup-foot">
+                <button type="button" class="home-popup-hide" data-popup-hide-today>오늘 하루 보지 않기</button>
+                <button type="button" class="home-popup-dismiss" data-popup-close>닫기</button>
+            </div>
+        </section>
+    </div>
+    <script th:src="@{/js/public/home-popup.js}" defer></script>
+</th:block>
+</body>
+</html>

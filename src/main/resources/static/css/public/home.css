@@ -134,3 +134,97 @@ body {
 .home-footer a:hover {
     text-decoration: underline;
 }
+
+/* ===== 레이어 팝업(PLAN-popup.md 쟁점 7·9) =====
+   - [hidden]을 작성자 CSS가 덮어쓰지 않게 display:none !important를 명시하고 flex 레이아웃은 :not([hidden])에만 적용한다(R2-1).
+   - 세로 위치도 화면 안으로 클램프한다. 머리·바닥은 줄어들지 않고(flex:none) 내용 영역만 줄어들며 스크롤되므로 닫기·"오늘 하루 보지 않기"는
+     어떤 위치·내용 길이에서도 보인다. 높이 예산: 머리 40 + 바닥 48 + 내용 최소 48 + 여백 8 = 144px <= 클램프 예약 160px(R2-2). */
+.home-popup[hidden] {
+    display: none !important;
+}
+
+.home-popup:not([hidden]) {
+    --popup-top: max(8px, min(var(--popup-y, 100px), calc(100dvh - 160px)));
+    position: fixed;
+    z-index: 1000;
+    top: var(--popup-top);
+    left: max(8px, min(var(--popup-x, 100px), calc(100vw - var(--popup-w, 400px) - 8px)));
+    width: min(var(--popup-w, 400px), calc(100vw - 16px));
+    height: var(--popup-h, auto);
+    /* 머리 40 + 내용 최소 48 + 바닥 48 = 136px — 지정 높이가 이보다 낮아도(서버는 144 미만을 거부하지만 DB 직접 수정 방어) 조작 버튼이 잘리지 않게 한다(코드 리뷰 R1). */
+    min-height: 144px;
+    max-height: calc(100dvh - var(--popup-top) - 8px);
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+}
+
+.home-popup-head {
+    flex: none;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0 0.5rem 0 0.9rem;
+    border-bottom: 1px solid #e5e9ef;
+    font-weight: 500;
+}
+
+.home-popup-title {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.home-popup-close {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    background: transparent;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.home-popup-body {
+    flex: 1 1 auto;
+    min-height: 48px;
+    overflow: auto;
+}
+
+.home-popup-body img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
+.home-popup-content {
+    padding: 0.9rem;
+    overflow-wrap: anywhere;
+}
+
+.home-popup-foot {
+    flex: none;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.6rem;
+    border-top: 1px solid #e5e9ef;
+    background: #f8f9fb;
+}
+
+.home-popup-hide,
+.home-popup-dismiss {
+    border: 0;
+    background: transparent;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}

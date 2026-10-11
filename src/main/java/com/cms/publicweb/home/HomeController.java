@@ -2,6 +2,8 @@ package com.cms.publicweb.home;
 
 import com.cms.publicweb.page.PublicSitePageService;
 import com.cms.publicweb.page.dto.PublicFooterLink;
+import com.cms.publicweb.popup.PublicPopupService;
+import com.cms.publicweb.popup.dto.PublicPopup;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
@@ -22,11 +24,13 @@ public class HomeController {
 
     private final PublicHomeService publicHomeService;
     private final PublicSitePageService publicSitePageService;
+    private final PublicPopupService publicPopupService;
 
     @GetMapping("/")
     public String home(Model model) {
         model.addAttribute("home", publicHomeService.getHome());
         model.addAttribute("footerLinks", findFooterLinksSafely());
+        model.addAttribute("popups", findPopupsSafely());
         return "public/home";
     }
 
@@ -39,6 +43,19 @@ public class HomeController {
             return publicSitePageService.findFooterLinks();
         } catch (RuntimeException e) {
             log.warn("공개 메인 푸터 링크 조회 실패 — 푸터 없이 렌더링합니다: {}", e.getClass().getName());
+            return List.of();
+        }
+    }
+
+    /**
+     * 팝업은 선택 섹션이라 조회 실패가 메인을 깨뜨리면 안 된다. 푸터와 같은 이유로 {@code getHome()}과 별도 호출로 두고 예외를 여기서 격리한다
+     * (PLAN-popup.md 쟁점 8 — 실패 주입 시험 {@code PublicHomePopupIsolationIntegrationTest}).
+     */
+    private List<PublicPopup> findPopupsSafely() {
+        try {
+            return publicPopupService.findDisplayablePopups();
+        } catch (RuntimeException e) {
+            log.warn("공개 메인 팝업 조회 실패 — 팝업 없이 렌더링합니다: {}", e.getClass().getName());
             return List.of();
         }
     }

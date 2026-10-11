@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, PublicSitePageStubController.class, AdminSitePageStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, PublicSitePageStubController.class, AdminSitePageStubController.class, PublicPopupStubController.class, AdminPopupStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
@@ -639,6 +639,60 @@ class SecurityConfigTest {
         mockMvc.perform(get("/admin/api/banners")).andExpect(status().isOk());
     }
 
+    // ==================== 공개 팝업 이미지 /popups/*/image (2026-10-12 승인, PLAN-popup.md 쟁점 10) ====================
+
+    @Test
+    @DisplayName("비인증 GET·HEAD /popups/{id}/image는 200 (permitAll)")
+    void publicPopupImage_anonymousGetAndHead_ok() throws Exception {
+        mockMvc.perform(get("/popups/1/image")).andExpect(status().isOk());
+        mockMvc.perform(head("/popups/1/image")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("/popups/** 의 이미지 외 경로·쓰기 메서드는 막힌다 (denyAll)")
+    void publicPopups_otherPathsAndWrites_denied() throws Exception {
+        mockMvc.perform(get("/popups")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/popups/1")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/popups/1/image/extra")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/popups/1/other")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/popups/1/image").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/popups/1/image")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("ADMIN POST /popups/{id}/image는 denyAll로 403 (역할 불문)")
+    @WithMockUser(roles = "ADMIN")
+    void publicPopups_adminWrite_forbidden() throws Exception {
+        mockMvc.perform(post("/popups/1/image").with(csrf())).andExpect(status().isForbidden());
+    }
+
+    // ==================== 팝업 관리 게이트 (DELEGABLE POPUP — 카탈로그에서 자동 생성) ====================
+
+    @Test
+    @DisplayName("비인증 팝업 관리 페이지·API는 로그인으로 보낸다(페이지 302, API JSON 401)")
+    void adminPopup_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/popup/manage")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/admin/api/popups")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("팝업 권한(member_permission POPUP)이 없는 MANAGER는 페이지·API 게이트에서 403 — 위임 전에는 열리지 않는다")
+    @WithManager
+    void adminPopup_managerWithoutGrant_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/popup/manage")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/popups")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/popups/1")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/popups/1/image")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("ADMIN은 팝업 관리 페이지·API 게이트를 통과한다")
+    @WithMockUser(roles = "ADMIN")
+    void adminPopup_admin_ok() throws Exception {
+        mockMvc.perform(get("/admin/popup/manage")).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/popups")).andExpect(status().isOk());
+    }
+
     // ==================== 공개 정적 페이지 /pages/** (2026-10-11 승인, PLAN-static-page.md 쟁점 12) ====================
 
     @Test
@@ -1020,6 +1074,49 @@ class AdminBannerStubController {
     @org.springframework.web.bind.annotation.PutMapping("/admin/api/banners/order")
     ResponseEntity<String> order() {
         return ResponseEntity.ok("[]");
+    }
+}
+
+@TestStubController
+class PublicPopupStubController {
+
+    @GetMapping("/popups/{id}/image")
+    String image() {
+        return "popup-image";
+    }
+
+    @PostMapping("/popups/{id}/image")
+    ResponseEntity<String> write() {
+        return ResponseEntity.ok("{}");
+    }
+
+    @GetMapping("/popups/{id}")
+    String detail() {
+        return "popup-detail";
+    }
+}
+
+@TestStubController
+class AdminPopupStubController {
+
+    @GetMapping("/admin/popup/manage")
+    String page() {
+        return "popup-manage";
+    }
+
+    @GetMapping("/admin/api/popups")
+    String list() {
+        return "[]";
+    }
+
+    @GetMapping("/admin/api/popups/{id}")
+    String detail() {
+        return "{}";
+    }
+
+    @GetMapping("/admin/api/popups/{id}/image")
+    String image() {
+        return "image";
     }
 }
 

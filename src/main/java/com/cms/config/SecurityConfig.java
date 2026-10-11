@@ -114,6 +114,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/banners/*/image").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/banners/*/image").permitAll()
                         .requestMatchers("/banners", "/banners/**").denyAll()
+                        // 팝업 이미지: GET/HEAD만 공개, 그 외 명시 차단(2026-10-12 승인, PLAN-popup.md 쟁점 10). 노출 여부·기간·종류(이미지형) 재검증은
+                        // PublicPopupService가 하고 비노출·기간 외·HTML형·없는 ID는 모두 같은 404다. 이미지 외 하위 경로는 라우트가 없고 /popups/** 나머지는 명시 거부한다.
+                        .requestMatchers(HttpMethod.GET, "/popups/*/image").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/popups/*/image").permitAll()
+                        .requestMatchers("/popups", "/popups/**").denyAll()
                         // 공개 공지 페이지: GET/HEAD만 공개, 그 외 메서드는 명시적으로 차단
                         // (2026-07-28 승인 — anyRequest().permitAll()에 기대지 않고 지금 당장
                         // 비-GET/HEAD를 막는다. denyAll()은 인증 여부·역할과 무관하게 전부 거부한다)
