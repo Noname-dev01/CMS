@@ -125,6 +125,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/boards", "/boards/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/boards", "/boards/**").permitAll()
                         .requestMatchers("/boards", "/boards/**").denyAll()
+                        // 공개 정적 페이지(현재 버전·개정 목록·이전 개정): GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-11 승인, PLAN-static-page.md 쟁점 12).
+                        // 라우트는 /pages/{slug}, /pages/{slug}/revisions, /pages/{slug}/revisions/{no} 셋뿐이고 공개 여부(페이지 노출)는
+                        // PublicSitePageService가 판정하며 비노출·없는 슬러그·없는 개정은 모두 같은 404다.
+                        .requestMatchers(HttpMethod.GET, "/pages", "/pages/**").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/pages", "/pages/**").permitAll()
+                        .requestMatchers("/pages", "/pages/**").denyAll()
                         // 편집기 본문 이미지: GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-07 승인, PLAN-html-editor.md).
                         // 공개 여부(공개 게시글이 참조하거나 그 게시판 조회 권한자)는 PublicContentImageService가 판정한다.
                         .requestMatchers(HttpMethod.GET, "/content-images/*").permitAll()

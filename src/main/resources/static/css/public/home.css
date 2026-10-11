@@ -114,3 +114,23 @@ body {
     color: #8a96a3;
     padding: 3rem 0;
 }
+
+.home-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem 1.5rem;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e3e8ee;
+}
+
+.home-footer a {
+    color: #5b7a99;
+    font-size: 0.9rem;
+    text-decoration: none;
+}
+
+.home-footer a:hover {
+    text-decoration: underline;
+}

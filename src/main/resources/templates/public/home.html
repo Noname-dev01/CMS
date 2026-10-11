@@ -57,6 +57,12 @@
         </section>
     </div>
 
+    <!--/* 푸터: 푸터로 지정된 노출 중 정적 페이지 링크. 제목은 th:text, 슬러그는 th:href 경로 변수라 이스케이프된다.
+         조회 실패 시 컨트롤러가 빈 목록으로 대체하므로 푸터만 빠진다(PLAN-static-page.md R1-3). */-->
+    <footer class="home-footer" th:if="${not #lists.isEmpty(footerLinks)}">
+        <a th:each="link : ${footerLinks}" th:href="@{/pages/{slug}(slug=${link.slug})}" th:text="${link.title}"></a>
+    </footer>
+
     <p class="home-empty"
        th:if="${#lists.isEmpty(home.banners) and #lists.isEmpty(home.notices) and #lists.isEmpty(home.latestPosts)}">
         아직 게시된 내용이 없습니다.
