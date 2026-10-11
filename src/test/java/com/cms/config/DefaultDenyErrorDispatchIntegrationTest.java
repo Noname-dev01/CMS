@@ -85,6 +85,17 @@ class DefaultDenyErrorDispatchIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("(b3) 쿠키 없는 CSRF 거부 403 화면의 링크에 ;jsessionid가 붙지 않는다 — 붙으면 스타일시트·홈 버튼이 400 (이슈 #123)")
+    void csrfRejectedPostWithoutCookie_linksAreNotRewrittenWithSessionId() throws Exception {
+        for (String path : List.of("/admin/login", "/notices")) {
+            HttpResponse<String> res = send("POST", path);
+
+            assertThat(res.statusCode()).as(path).isEqualTo(403);
+            assertThat(res.body()).as(path).doesNotContainIgnoringCase("jsessionid");
+        }
+    }
+
+    @Test
     @DisplayName("(c) 비인증 GET 미분류 경로 — 기본 거부로 /admin/login 302")
     void unclassifiedPath_redirectsToLogin() throws Exception {
         HttpResponse<String> res = send("GET", "/foo-unclassified");

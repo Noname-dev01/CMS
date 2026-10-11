@@ -54,6 +54,10 @@ spring:
       ddl-auto: validate
 
 server:
+  servlet:
+    session:
+      # URL 재작성(;jsessionid) 비활성 — 쿠키 없는 요청의 오류 화면 링크가 재작성되면 방화벽이 400으로 막는다(이슈 #123)
+      tracking-modes: cookie
   error:
     whitelabel:
       enabled: false
