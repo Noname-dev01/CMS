@@ -1152,3 +1152,32 @@ org.opentest4j.AssertionFailedError: 실제 DB row-lock 대기를 관측하지 �
 - 엔진 내부 뷰(`information_schema.INNODB_*`)가 실시간이라고 가정하지 않는다. 캐시를 거치지 않는 `SHOW ENGINE INNODB STATUS`·`PROCESSLIST`와 대조하면 "대기가 없다"와 "대기를 못 본다"를 구분할 수 있다.
 - 같은 로직이 시험마다 복제돼 있으면 한 곳만 고쳐지고 나머지가 남는다. 공용 헬퍼 + 컨벤션 시험으로 복제의 재발을 막는다.
 - 간헐 실패를 "원인 미상의 플레이키"로 두지 말고, 실패 순간의 상태를 실패 메시지에 남기는 진단을 먼저 붙이면 원인이 한 번에 갈린다(이번에는 CI를 반복 재실행해 실패 표본 3건을 확보했다).
+
+### 쿠키 없는 CSRF 거부 403 화면의 링크가 ;jsessionid로 재작성돼 400 — 세션 추적 모드 미설정 (2026-10-11, 이슈 #123)
+
+#### 오류 메시지
+
+```
+$ curl -s -X POST http://localhost:8080/admin/login        # 쿠키 없음, CSRF 토큰 없음 → 403
+href="/css/error.css;jsessionid=7B521DCAB335EF50971B7811EB47F15D"
+href="/admin;jsessionid=7B521DCAB335EF50971B7811EB47F15D"
+
+$ curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/css/error.css;jsessionid=ABC"   → 400
+```
+
+#### 원인
+
+- `server.servlet.session.tracking-modes`를 설정하지 않아 서블릿 컨테이너의 URL 세션 추적(`;jsessionid=` 재작성)이 켜져 있었다. Thymeleaf `@{...}` 링크는 `response.encodeURL`을 거치므로, 쿠키 없이 들어온 요청에서 세션이 만들어지면(CSRF 필터가 토큰을 만들며 세션을 만든다) 오류 화면의 링크에 세션 ID가 붙는다.
+- 세션 ID가 붙은 URL은 Spring Security 방화벽이 400으로 막는다. 이 앱에서 URL 세션 추적은 어차피 동작하지 않으므로 재작성은 이득 없이 화면만 깨뜨렸다.
+- 쿠키가 있는 요청(만료된 세션 쿠키·낡은 CSRF 토큰 포함)은 재작성되지 않아 영향이 없다.
+- 실측으로 확인한 것은 "설정이 없으면 재현되고, `tracking-modes: cookie`를 두면 사라진다"까지다. 쿠키 없는 일반 `GET /admin/login`에는 붙지 않고 CSRF 거부 경로에만 붙는 컨테이너 내부의 정확한 이유는 규명하지 않았다.
+
+#### 해결 방법
+
+- `application.yml`(공통)에 `server.servlet.session.tracking-modes: cookie`를 추가했다. 다른 프로파일 파일에는 세션 설정이 없어 충돌하지 않는다.
+- `DefaultDenyErrorDispatchIntegrationTest`의 (b3)이 쿠키 없는 `POST /admin/login`·`POST /notices`의 403 화면 본문에 `jsessionid`가 없음을 고정한다(설정 전에는 이 시험만 실패, 설정 후 통과를 확인).
+
+#### 교훈
+
+- 세션 추적 모드를 명시하지 않으면 URL 재작성이 켜진다. 쿠키로만 세션을 쓰는 앱은 `tracking-modes: cookie`를 명시해 세션 ID가 HTML·로그·Referer에 남을 구성을 없앤다.
+- 쿠키 상태가 다른 요청(없음·만료·유효)을 나눠 실측하면 영향 범위를 좁힐 수 있다.
