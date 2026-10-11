@@ -278,6 +278,22 @@ cleanup() {
 
 **검증**: 최소 재현 코드(`ServerSocket(0, 0, loopback)` + 필러 커넥션 5개 + probe 커넥션, 전부 `System.nanoTime()`으로 경과 시간 측정)를 `java`/`javac` 직접 실행으로 확인 — 전 연결이 0~1ms. 관련 결정 근거는 `adversarial-review/remediation-plan.md` "PR 5 실행 기록" 참조.
 
+### 8080을 쥔 프로세스가 앱이 아니라 Docker Desktop 백엔드일 수 있다 — PID로 바로 종료하면 Docker가 내려간다 (2026-10-11, PLAN-content-menu-unify.md 실기 검증 중)
+
+#### 증상
+
+`bootRun`이 "Web server failed to start. Port 8080 was already in use"로 실패해 `netstat -ano | grep :8080`으로 찾은 PID를 `taskkill //PID <pid> //F`로 종료했더니 **Docker Desktop 전체가 내려가** dev DB(`cms-db-dev`)에 접속할 수 없게 되었다(`failed to connect to the docker API … dockerDesktopLinuxEngine`, 앱은 `Connection refused: localhost:3307`).
+
+#### 원인
+
+8080을 점유한 프로세스는 `com.docker.backend.exe`였다. 컨테이너 `cms-app-dev`(dev compose의 앱)가 `0.0.0.0:8080->8080`을 게시하면 Windows에서는 **Docker 백엔드가 호스트 포트를 대신 listen**하므로 `netstat`의 PID는 앱이 아니라 Docker다. 앞서 `bootRun`이 8080에서 문제없이 떴던 것은 그때 이 컨테이너가 떠 있지 않았기 때문이다.
+
+#### 해결 방법
+
+- **종료 전에 프로세스 이름을 확인한다**: `Get-Process -Id <pid>`(PowerShell) 또는 `wmic process where "ProcessId=<pid>" get Name` — `java`일 때만 종료한다. 이름 확인과 `taskkill`을 같은 명령줄에 이어 붙이면 확인 결과를 보기 전에 종료가 실행된다.
+- `docker ps`에 8080을 게시하는 컨테이너가 있으면 그 컨테이너를 쓰는 사람의 환경이다. 지우지 말고 `SERVER_PORT=8081 ./gradlew bootRun`처럼 **다른 포트**로 띄운다(`localhost`의 쿠키는 포트와 무관하게 공유되므로 두 앱을 브라우저로 동시에 쓸 때는 `127.0.0.1`과 `localhost`로 호스트 이름을 달리해 JSESSIONID 충돌을 피한다).
+- 이미 Docker를 종료했다면 `Docker Desktop.exe`를 다시 실행하면 된다. 데이터 볼륨은 유지되고 컨테이너는 재시작 정책으로 되살아난다(이번에는 약 1분, `menu`·`member`·`flyway_schema_history` 데이터 그대로 확인).
+
 ---
 
 ## 빌드 / 의존성
@@ -328,6 +344,22 @@ IDE로 개발할 때는 저장 시 자동 컴파일(Build project automatically)
 ## 애플리케이션 / 런타임
 
 Spring Security 필터, AOP 로깅, 트랜잭션 경계, JPA/QueryDSL 동작 등 런타임 문제를 기록한다.
+
+### Thymeleaf 조각 이름을 `body`·`script`로 지으면 `th:replace`가 HTML 요소 `<body>`·`<script>`를 통째로 끌어온다 (2026-10-11, PLAN-content-menu-unify.md 구현 중 시험으로 발견)
+
+#### 증상
+
+화면을 조각으로 나누며 `<div th:fragment="body">`·`<th:block th:fragment="script">`를 만들고 `th:replace="~{… :: body}"`로 포함했더니, 조각 파일의 **`<body>` 전체**(마크업·모달·스크립트)가 포함되었다. 모달이 두 번 렌더링돼 `id`가 중복됐고, 조각 안의 스크립트가 하단 의존성(jQuery·jstree)보다 **먼저** 실행되는 위치에 들어갔다(`$ is not defined` 위험). MANAGER용 응답에 ADMIN 전용 마크업이 새는 형태로도 나타났다.
+
+#### 원인
+
+`~{template :: selector}`의 selector는 `th:fragment` 이름만이 아니라 **마크업 선택자(요소 이름)**로도 해석된다. 조각 이름이 `body`·`script`처럼 HTML 요소 이름과 같으면 선택자가 요소로 먼저 매칭된다.
+
+#### 해결 방법
+
+조각 이름을 HTML 요소 이름과 겹치지 않게 짓는다(`menuPanel`·`menuModals`·`menuScript`·`pagePanel`·`pageScript`). 이 프로젝트에서는 `ContentManagePageIntegrationTest`가 중복 `id`, 모달 위치, 스크립트 배치 순서, MANAGER 응답의 마크업 누출을 렌더링 결과로 고정한다. **같은 시험으로 일반 HTML 주석도 응답에 그대로 나간다는 점**(`<!-- -->`에 쓴 설명이 MANAGER 응답에 노출)도 잡았다 — 응답에 나가면 안 되는 설명은 파서 수준 주석 `<!--/* … */-->`로 쓴다.
+
+---
 
 ### 동시성 시험이 잠금을 제거해도 통과한다 — Hikari 기본 풀(10)이 경합을 한도와 같은 수로 제한하고 "병렬로 시작"만으로는 요청이 겹치지 않는다 (2026-10-05, PLAN-admin-message.md 구현 중 변이 실험으로 발견)
 
