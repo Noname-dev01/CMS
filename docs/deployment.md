@@ -400,6 +400,21 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **세션 관리 메뉴(V35, 2026-10-10, PLAN-session-management.md 쟁점 10)**: V35는 `menu` 행 1개(`/admin/session/manage`)를 넣는 순수 DML이고 스키마·권한 행은 바꾸지 않는다(`SESSION`은 영구 ADMIN 전용 — `member_permission`을 쓰지 않아 배너 같은 권한 정리가 필요 없다). **세션 관리 도입 전 앱으로 롤백하면 이 메뉴 행이 남아 클릭 시 404**가 난다(이전 앱은 그 URL을 모른다) — 기동에는 영향이 없다(배너 메뉴 행과 같은 취급 — `BannerMigrationTest`의 롤백 호환 시험이 "새 마이그레이션의 메뉴 행이 남은 최신 DB를 이전 앱 파일로 validate·migrate"해도 실패하지 않음을 고정한다). 필요하면 메뉴 관리 화면에서 그 행을 비활성화한다. 세션 레지스트리는 **단일 인스턴스 메모리**라 앱을 재시작하면 모든 세션이 소멸하고(강제 만료와 무관하게 전원 재로그인) 다중 인스턴스에서는 이 화면이 접속한 인스턴스의 세션만 보여 준다.
 - **배너 삭제**: 행을 지운 뒤 커밋 후 파일을 지운다. 파일 삭제가 실패하면 "행 없는 파일"이 남고 ⑤-3이 다음 회수 때 정리한다.
 
+## 게시글 예약 게시 (V36, 2026-10-11, adversarial-review/plan/PLAN-post-publish-period.md)
+
+- **동작**: 게시글의 공개 노출은 `useYn ∧ 노출 기간 [publishStart, publishEnd)`이다(시작 포함·종료 미포함, 한쪽이 비면 그쪽은 열림, 둘 다 비면 `useYn`만). 판정은 스케줄러 없이 **조회 시점의 서버 KST `Clock`**으로 한다 — 서버 시계가 틀리면 공개 시각도 틀어진다. 공개 경로 다섯 곳(`/boards` 목록·검색·COUNT, 상세, 첨부 다운로드, 공개 메인의 공지·새 글, 본문 이미지 `/content-images/{id}`)과 `/notices/**`가 모두 같은 조건을 쓴다. 새 공개 경로·`SecurityConfig`·레이트리밋 변경은 없다.
+- **스키마**: V36은 `post`에 `publish_start`·`publish_end datetime(6) NULL` 2개를 더한다(기존 행은 NULL = 제한 없음이라 **기존 공개 동작은 그대로**). 인덱스는 추가하지 않았다. 입력은 2000-01-01 이상 2100-01-01 미만, 분 단위로 절단, 오프셋 없는 한국 시각 문자열만 받는다.
+- **롤백 주의(필수)**: V36 이후 **이전 앱은 `publish_*` 컬럼을 모르고 `useYn`만 본다**(`ddl-auto: validate`는 엔티티에 없는 여분 컬럼을 허용해 기동은 된다). 그대로 되돌리면 **시작 전 글이 즉시 공개되고 만료 글이 다시 보인다.** roll-forward를 우선하고, 불가피하게 되돌릴 때는 아래 순서를 지킨다.
+  1. **쓰기 동결** — 관리자 쓰기(특히 게시글 수정)를 멈춘다(정리 중 진행 중이던 수정이 글을 다시 켜는 틈은 이것으로만 막힌다).
+  2. 새 버전 인스턴스를 정지한다.
+  3. 기간이 걸린 글의 현재 `use_yn`을 백업한다: `CREATE TABLE post_period_rollback_backup AS SELECT id, use_yn FROM post WHERE publish_start IS NOT NULL OR publish_end IS NOT NULL;` (결과를 파일로도 덤프해 둔다).
+  4. 해당 글을 비노출로: `UPDATE post SET use_yn = 0 WHERE publish_start IS NOT NULL OR publish_end IS NOT NULL;`
+  5. **잔여 0건 검증**: `SELECT COUNT(*) FROM post WHERE (publish_start IS NOT NULL OR publish_end IS NOT NULL) AND use_yn = 1;` 이 0이어야 이전 버전을 기동한다.
+  6. 롤백 기간 중 이전 앱 관리 화면에서 **그 글들을 다시 켜지 않는다**(이전 앱은 예약 제약을 알려 주지 않는다).
+  7. 다시 신버전으로 재전진한 뒤 원래 설정을 복원한다: `UPDATE post p JOIN post_period_rollback_backup b ON b.id = p.id SET p.use_yn = b.use_yn;` → 확인 후 `DROP TABLE post_period_rollback_backup;`
+- **수용한 한계**: 기간은 통째 교체 + 마지막 저장 우선이다(게시글에 낙관적 락이 없어, 낡은 편집 화면이 다른 관리자가 줄인 기간을 되돌릴 수 있다). 다운로드가 시작된 뒤 종료 시각이 지나도 진행 중 전송은 끝까지 간다(기존 공개 첨부의 약한 보장과 같다).
+- **VM·컨테이너 시계**: DB 컨테이너 시계가 UTC여도 앱은 KST `Clock`을 쓰므로 영향이 없다. 다만 SQL로 기간을 직접 넣을 때는 앱 기준 KST 벽시계 값을 리터럴로 쓴다(`NOW()`는 9시간 어긋난다).
+
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
 공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 게시글이 참조하는지 — `owner_type` = `POST`; 공지 흡수(V32, 2026-10-09) 이전에는 공지 참조 `NOTICE`도 있었다)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
