@@ -249,7 +249,7 @@ class AdminPermissionEvaluatorTest {
     }
 
     @Test
-    @DisplayName("grantedActionKeys 진리표: ADMIN은 BANNER·SITE_PAGE 전 동작을 DB 없이, MANAGER는 허용 행 ∧ READ 의존만, 그 밖의 주체는 빈 집합")
+    @DisplayName("grantedActionKeys 진리표: ADMIN은 BANNER·SITE_PAGE·POPUP 전 동작을 DB 없이, MANAGER는 허용 행 ∧ READ 의존만, 그 밖의 주체는 빈 집합")
     void grantedActionKeys_truthTable() {
         AdminPermissionEvaluator evaluator = evaluatorWith(PermissionSnapshot.EMPTY);
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
@@ -260,7 +260,8 @@ class AdminPermissionEvaluatorTest {
 
         assertThat(evaluator.grantedActionKeys(counting, user("ROLE_ADMIN")))
                 .containsExactlyInAnyOrder("BANNER:READ", "BANNER:CREATE", "BANNER:UPDATE", "BANNER:DELETE",
-                        "SITE_PAGE:READ", "SITE_PAGE:CREATE", "SITE_PAGE:UPDATE", "SITE_PAGE:DELETE");
+                        "SITE_PAGE:READ", "SITE_PAGE:CREATE", "SITE_PAGE:UPDATE", "SITE_PAGE:DELETE",
+                        "POPUP:READ", "POPUP:CREATE", "POPUP:UPDATE", "POPUP:DELETE");
         assertThat(calls.get()).as("ADMIN은 스냅샷 공급자(캐시)를 호출하지 않는다").isZero();
         assertThat(evaluator.grantedActionKeys(counting, user("ROLE_USER"))).isEmpty();
         assertThat(evaluator.grantedActionKeys(counting, null)).isEmpty();
