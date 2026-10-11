@@ -211,6 +211,38 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("등록 검증(기간 범위): 2000~2099 밖의 시작·종료는 400이고 행도 파일도 남기지 않는다 — 경계(2000-01-01·2099-12-31)는 통과")
+    void createValidation_periodRange() throws Exception {
+        for (String bad : List.of("0001-01-01T00:00", "1999-12-31T23:59", "2100-01-01T00:00", "9999-12-31T23:59")) {
+            assertThat(createBanner("t", null, bad, null, true, png(), "image/png").getResponse().getStatus()).as("start " + bad).isEqualTo(400);
+            assertThat(createBanner("t", null, null, bad, true, png(), "image/png").getResponse().getStatus()).as("end " + bad).isEqualTo(400);
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM banner", Integer.class)).isZero();
+
+        assertThat(createBanner("하한", null, "2000-01-01T00:00", null, true, png(), "image/png").getResponse().getStatus()).as("2000-01-01 시작").isEqualTo(201);
+        assertThat(createBanner("상한", null, null, "2099-12-31T23:59", true, png(), "image/png").getResponse().getStatus()).as("2099-12-31 종료").isEqualTo(201);
+    }
+
+    @Test
+    @DisplayName("수정 검증(기간 범위): 2000~2099 밖의 시작·종료는 400이고 기존 기간은 그대로다")
+    void updateValidation_periodRange() throws Exception {
+        LocalDateTime start = LocalDateTime.now().minusDays(1).withSecond(0).withNano(0);
+        LocalDateTime end = LocalDateTime.now().plusDays(1).withSecond(0).withNano(0);
+        long id = createOk("대상", null, start, end, true);
+
+        for (String bad : List.of("0001-01-01T00:00", "1999-12-31T23:59", "2100-01-01T00:00", "9999-12-31T23:59")) {
+            assertThat(updateStatus(id, Map.of("title", "t", "useYn", true, "displayStart", bad))).as("start " + bad).isEqualTo(400);
+            assertThat(updateStatus(id, Map.of("title", "t", "useYn", true, "displayEnd", bad))).as("end " + bad).isEqualTo(400);
+        }
+        assertThat(jdbc.queryForObject("SELECT display_start FROM banner WHERE id = ?", LocalDateTime.class, id)).as("400이면 기간 불변").isEqualTo(start);
+        assertThat(jdbc.queryForObject("SELECT display_end FROM banner WHERE id = ?", LocalDateTime.class, id)).isEqualTo(end);
+        assertThat(jdbc.queryForObject("SELECT title FROM banner WHERE id = ?", String.class, id)).isEqualTo("대상");
+
+        assertThat(updateStatus(id, Map.of("title", "경계", "useYn", true, "displayStart", "2000-01-01T00:00", "displayEnd", "2099-12-31T23:59")))
+                .as("경계값은 통과").isEqualTo(200);
+    }
+
+    @Test
     @DisplayName("허용되는 링크: 내부 경로와 http/https 절대 주소")
     void createAllowedLinks() throws Exception {
         createOk("내부", "/boards/2", null, null, true);

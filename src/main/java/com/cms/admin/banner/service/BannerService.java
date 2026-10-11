@@ -86,8 +86,8 @@ public class BannerService {
         // 잠금 전에 끝낼 수 있는 검증을 모두 마친다 — 가드 행을 쥐는 시간을 줄인다.
         String title = requireNonBlank(request.getTitle());
         String linkUrl = normalizeLink(request.getLinkUrl());
-        LocalDateTime start = DisplayPeriod.normalize(request.getDisplayStart());
-        LocalDateTime end = DisplayPeriod.normalize(request.getDisplayEnd());
+        LocalDateTime start = normalizeBound(request.getDisplayStart());
+        LocalDateTime end = normalizeBound(request.getDisplayEnd());
         DisplayPeriod.requireValid(start, end);
         boolean useYn = request.getUseYn() == null || request.getUseYn();
 
@@ -138,8 +138,8 @@ public class BannerService {
     public BannerResponse updateBanner(Long id, BannerUpdateRequest request) {
         String title = requireNonBlank(request.getTitle());
         String linkUrl = normalizeLink(request.getLinkUrl());
-        LocalDateTime start = DisplayPeriod.normalize(request.getDisplayStart());
-        LocalDateTime end = DisplayPeriod.normalize(request.getDisplayEnd());
+        LocalDateTime start = normalizeBound(request.getDisplayStart());
+        LocalDateTime end = normalizeBound(request.getDisplayEnd());
         DisplayPeriod.requireValid(start, end);
 
         Banner target = bannerRepository.findByIdForUpdate(id)
@@ -213,6 +213,15 @@ public class BannerService {
     private void lockGuard() {
         bannerLockRepository.findByIdForUpdate(BannerLock.SINGLETON_ID)
                 .orElseThrow(() -> new IllegalStateException("banner_lock 가드 행이 없습니다(V34 시드 누락)."));
+    }
+
+    /**
+     * 노출 기간의 한쪽 값을 검증·절단한다. 제품 허용 범위(2000-01-01 이상 2100-01-01 미만)를 <b>분 절단 전에</b> 확인한다 — 범위 밖 값(예: 0001년)이
+     * 조용히 저장돼 의미 없는 기간이 되는 것을 막는다. 게시글 예약 게시와 같은 {@link DisplayPeriod#requireInRange} 규칙이다.
+     */
+    private static LocalDateTime normalizeBound(LocalDateTime value) {
+        DisplayPeriod.requireInRange(value);
+        return DisplayPeriod.normalize(value);
     }
 
     private static String requireNonBlank(String title) {
