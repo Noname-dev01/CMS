@@ -1,23 +1,28 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{admin/fragments/head :: adminHead}">
-    <title>메뉴 관리</title>
-</head>
-<body id="page-top">
 <!--
-    th:replace는 head 태그 자체를 통째로 adminHead 프래그먼트로 치환하므로, 원래 head 안에
-    있던 title·link·style은 렌더링 결과에 포함되지 않는다(기존 admin-manage.html의
-    페이지 전용 CSS link도 동일한 이유로 head 바깥/body 시작 지점에 둔다 — 그 컨벤션을 따른다).
+    메뉴 구조 탭의 조각(PLAN-content-menu-unify.md). 정적 페이지 관리 화면(admin/page/manage.html)의 ADMIN 전용 탭이 포함한다.
+    조각은 셋이다: menuPanel(마크업·전용 CSS) / menuModals(탭 패널 밖에 둔다 — 아래 설명) / menuScript(의존성 로딩 뒤에 포함). 조각 이름을 body·script로 짓지 않는다 — Thymeleaf가 HTML 요소 이름과 구분하지 못해 <body> 전체를 끌어온다.
+    예전 admin/menu/manage.html을 옮긴 것이고 동작은 바꾸지 않았다. 바뀐 곳: CSS를 패널·모달 루트 id로 스코프, handleApply의
+    가드와 content:menu-* 이벤트 발행(정적 페이지 패널과 새로고침을 조정).
 -->
-<!-- jstree CSS -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
+<body>
+
+<div th:fragment="menuPanel">
 <style>
-        .menu-container {
+        /* 높이: 원래 화면의 calc(100vh - 200px)에서 탭 내비게이션과 머리글 여백만큼(약 90px) 줄였다 — 안 줄이면 #content-wrapper가 자체 스크롤바를 만들어 스크롤바가 둘이 된다.
+           스코프: 이 CSS는 정적 페이지 탭에 번지지 않도록 모든 규칙을 패널(#menuTabPanel)과 모달 루트 id로 제한한다. 모달은 탭 패널 밖에 렌더링된다. */
+
+        #menuTabPanel .menu-container,
+        #permanentDeleteModal .menu-container,
+        #iconPickerModal .menu-container {
             padding: 20px;
-            height: calc(100vh - 200px);
+            height: calc(100vh - 290px);
             background-color: #f8f9fc;
         }
-        .tree-container {
+        #menuTabPanel .tree-container,
+        #permanentDeleteModal .tree-container,
+        #iconPickerModal .tree-container {
             background: white;
             padding: 0;
             border-radius: 0.35rem;
@@ -27,7 +32,9 @@
             margin-right: 20px;
             border: 1px solid #4e73df;
         }
-        .form-container {
+        #menuTabPanel .form-container,
+        #permanentDeleteModal .form-container,
+        #iconPickerModal .form-container {
             background: white;
             padding: 0;
             border-radius: 0.35rem;
@@ -37,37 +44,53 @@
             margin-left: 20px;
             border: 1px solid #1cc88a;
         }
-        .card-header {
+        #menuTabPanel .card-header,
+        #permanentDeleteModal .card-header,
+        #iconPickerModal .card-header {
             background-color: #f8f9fc;
             border-bottom: 1px solid #e3e6f0;
             padding: 0.75rem 1.25rem;
         }
-        .tree-container .card-header {
+        #menuTabPanel .tree-container .card-header,
+        #permanentDeleteModal .tree-container .card-header,
+        #iconPickerModal .tree-container .card-header {
             background: linear-gradient(to right, #4e73df, #224abe);
             border-bottom: none;
         }
-        .form-container .card-header {
+        #menuTabPanel .form-container .card-header,
+        #permanentDeleteModal .form-container .card-header,
+        #iconPickerModal .form-container .card-header {
             background: linear-gradient(to right, #1cc88a, #13855c);
             border-bottom: none;
         }
-        .card-header h6 {
+        #menuTabPanel .card-header h6,
+        #permanentDeleteModal .card-header h6,
+        #iconPickerModal .card-header h6 {
             margin: 0;
             font-size: 1rem;
             font-weight: 700;
             color: white;
         }
-        .form-container .card-header h6 {
+        #menuTabPanel .form-container .card-header h6,
+        #permanentDeleteModal .form-container .card-header h6,
+        #iconPickerModal .form-container .card-header h6 {
             color: #1cc88a;
         }
-        .card-body {
+        #menuTabPanel .card-body,
+        #permanentDeleteModal .card-body,
+        #iconPickerModal .card-body {
             padding: 1.25rem;
         }
-        .btn-container {
+        #menuTabPanel .btn-container,
+        #permanentDeleteModal .btn-container,
+        #iconPickerModal .btn-container {
             margin-top: 25px;
             display: flex;
             gap: 10px;
         }
-        .tree-toolbar {
+        #menuTabPanel .tree-toolbar,
+        #permanentDeleteModal .tree-toolbar,
+        #iconPickerModal .tree-toolbar {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -75,11 +98,15 @@
             gap: 10px;
             margin-bottom: 10px;
         }
-        .tree-toolbar .btn-group-actions {
+        #menuTabPanel .tree-toolbar .btn-group-actions,
+        #permanentDeleteModal .tree-toolbar .btn-group-actions,
+        #iconPickerModal .tree-toolbar .btn-group-actions {
             display: flex;
             gap: 8px;
         }
-        .draft-bar {
+        #menuTabPanel .draft-bar,
+        #permanentDeleteModal .draft-bar,
+        #iconPickerModal .draft-bar {
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -87,151 +114,203 @@
             gap: 10px;
             margin-top: 12px;
         }
-        .draft-bar .draft-status {
+        #menuTabPanel .draft-bar .draft-status,
+        #permanentDeleteModal .draft-bar .draft-status,
+        #iconPickerModal .draft-bar .draft-status {
             font-size: 0.85rem;
         }
-        .draft-bar.dirty .draft-status {
+        #menuTabPanel .draft-bar.dirty .draft-status,
+        #permanentDeleteModal .draft-bar.dirty .draft-status,
+        #iconPickerModal .draft-bar.dirty .draft-status {
             color: #e74a3b;
             font-weight: 700;
         }
-        .draft-bar .btn-group-actions {
+        #menuTabPanel .draft-bar .btn-group-actions,
+        #permanentDeleteModal .draft-bar .btn-group-actions,
+        #iconPickerModal .draft-bar .btn-group-actions {
             display: flex;
             gap: 8px;
         }
-        #menuTree {
+        #menuTabPanel #menuTree,
+        #permanentDeleteModal #menuTree,
+        #iconPickerModal #menuTree {
             margin-top: 15px;
             padding: 20px;
             border: 1px solid #eaecf4;
             border-radius: 8px;
             background-color: #f8f9fc;
         }
-        .form-group {
+        #menuTabPanel .form-group,
+        #permanentDeleteModal .form-group,
+        #iconPickerModal .form-group {
             margin-bottom: 1.5rem;
             background-color: #f8f9fc;
             padding: 20px;
             border-radius: 8px;
             border: 1px solid #eaecf4;
         }
-        .form-group label {
+        #menuTabPanel .form-group label,
+        #permanentDeleteModal .form-group label,
+        #iconPickerModal .form-group label {
             font-weight: 600;
             color: #5a5c69;
             margin-bottom: 0.5rem;
             display: block;
         }
-        .form-control {
+        #menuTabPanel .form-control,
+        #permanentDeleteModal .form-control,
+        #iconPickerModal .form-control {
             border-radius: 5px;
             border: 1px solid #d1d3e2;
             padding: 0.6rem 1rem;
             transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
             background-color: white;
         }
-        .form-control:focus {
+        #menuTabPanel .form-control:focus,
+        #permanentDeleteModal .form-control:focus,
+        #iconPickerModal .form-control:focus {
             border-color: #4e73df;
             box-shadow: 0 0 0 0.2rem rgba(78, 115, 223, 0.25);
         }
-        .btn {
+        #menuTabPanel .btn,
+        #permanentDeleteModal .btn,
+        #iconPickerModal .btn {
             padding: 0.6rem 1.2rem;
             font-weight: 600;
             border-radius: 5px;
             transition: all 0.2s;
         }
-        .btn-primary {
+        #menuTabPanel .btn-primary,
+        #permanentDeleteModal .btn-primary,
+        #iconPickerModal .btn-primary {
             background-color: #4e73df;
             border-color: #4e73df;
         }
-        .btn-primary:hover {
+        #menuTabPanel .btn-primary:hover,
+        #permanentDeleteModal .btn-primary:hover,
+        #iconPickerModal .btn-primary:hover {
             background-color: #2e59d9;
             border-color: #2653d4;
         }
-        .btn-danger {
+        #menuTabPanel .btn-danger,
+        #permanentDeleteModal .btn-danger,
+        #iconPickerModal .btn-danger {
             background-color: #e74a3b;
             border-color: #e74a3b;
         }
-        .btn-danger:hover {
+        #menuTabPanel .btn-danger:hover,
+        #permanentDeleteModal .btn-danger:hover,
+        #iconPickerModal .btn-danger:hover {
             background-color: #e02d1b;
             border-color: #d52a1a;
         }
-        .btn-secondary {
+        #menuTabPanel .btn-secondary,
+        #permanentDeleteModal .btn-secondary,
+        #iconPickerModal .btn-secondary {
             background-color: #858796;
             border-color: #858796;
         }
-        .btn-secondary:hover {
+        #menuTabPanel .btn-secondary:hover,
+        #permanentDeleteModal .btn-secondary:hover,
+        #iconPickerModal .btn-secondary:hover {
             background-color: #717384;
             border-color: #6b6d7d;
         }
-        .custom-control-input:checked ~ .custom-control-label::before {
+        #menuTabPanel .custom-control-input:checked ~ .custom-control-label::before,
+        #permanentDeleteModal .custom-control-input:checked ~ .custom-control-label::before,
+        #iconPickerModal .custom-control-input:checked ~ .custom-control-label::before {
             background-color: #4e73df;
             border-color: #4e73df;
         }
-        .jstree-default .jstree-node {
+        #menuTabPanel .jstree-default .jstree-node,
+        #permanentDeleteModal .jstree-default .jstree-node,
+        #iconPickerModal .jstree-default .jstree-node {
             margin-left: 12px;
         }
-        .icon-preview { display: inline-flex; width: 2.25rem; height: 2.25rem; align-items: center; justify-content: center;
+        #menuTabPanel .icon-preview,
+        #permanentDeleteModal .icon-preview,
+        #iconPickerModal .icon-preview { display: inline-flex; width: 2.25rem; height: 2.25rem; align-items: center; justify-content: center;
             border: 1px solid #d1d3e2; border-radius: .35rem; font-size: 1.1rem; color: #4e73df; }
-        .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: .5rem; max-height: 50vh; overflow-y: auto; }
-        .icon-grid .icon-item { display: flex; flex-direction: column; align-items: center; padding: .5rem .25rem; background: #fff;
+        #menuTabPanel .icon-grid,
+        #permanentDeleteModal .icon-grid,
+        #iconPickerModal .icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: .5rem; max-height: 50vh; overflow-y: auto; }
+        #menuTabPanel .icon-grid .icon-item,
+        #permanentDeleteModal .icon-grid .icon-item,
+        #iconPickerModal .icon-grid .icon-item { display: flex; flex-direction: column; align-items: center; padding: .5rem .25rem; background: #fff;
             border: 1px solid #e3e6f0; border-radius: .35rem; cursor: pointer; color: #5a5c69; }
-        .icon-grid .icon-item:hover, .icon-grid .icon-item:focus { border-color: #4e73df; color: #4e73df; outline: none; }
-        .icon-grid .icon-item.selected { background: #4e73df; border-color: #4e73df; color: #fff; }
-        .icon-grid .icon-item i { font-size: 1.25rem; margin-bottom: .25rem; }
-        .icon-grid .icon-item span { font-size: .65rem; word-break: break-all; text-align: center; }
-        .jstree-default .jstree-themeicon {
+        #menuTabPanel .icon-grid .icon-item:hover,
+        #permanentDeleteModal .icon-grid .icon-item:hover,
+        #iconPickerModal .icon-grid .icon-item:hover,
+        #menuTabPanel .icon-grid .icon-item:focus,
+        #permanentDeleteModal .icon-grid .icon-item:focus,
+        #iconPickerModal .icon-grid .icon-item:focus { border-color: #4e73df; color: #4e73df; outline: none; }
+        #menuTabPanel .icon-grid .icon-item.selected,
+        #permanentDeleteModal .icon-grid .icon-item.selected,
+        #iconPickerModal .icon-grid .icon-item.selected { background: #4e73df; border-color: #4e73df; color: #fff; }
+        #menuTabPanel .icon-grid .icon-item i,
+        #permanentDeleteModal .icon-grid .icon-item i,
+        #iconPickerModal .icon-grid .icon-item i { font-size: 1.25rem; margin-bottom: .25rem; }
+        #menuTabPanel .icon-grid .icon-item span,
+        #permanentDeleteModal .icon-grid .icon-item span,
+        #iconPickerModal .icon-grid .icon-item span { font-size: .65rem; word-break: break-all; text-align: center; }
+        #menuTabPanel .jstree-default .jstree-themeicon,
+        #permanentDeleteModal .jstree-default .jstree-themeicon,
+        #iconPickerModal .jstree-default .jstree-themeicon {
             color: #4e73df;
         }
-        .jstree-default .jstree-clicked {
+        #menuTabPanel .jstree-default .jstree-clicked,
+        #permanentDeleteModal .jstree-default .jstree-clicked,
+        #iconPickerModal .jstree-default .jstree-clicked {
             background-color: #eaecf4 !important;
             box-shadow: none;
         }
-        .jstree-default .jstree-hovered {
+        #menuTabPanel .jstree-default .jstree-hovered,
+        #permanentDeleteModal .jstree-default .jstree-hovered,
+        #iconPickerModal .jstree-default .jstree-hovered {
             background-color: #f8f9fc !important;
             box-shadow: none;
         }
-        .custom-control {
+        #menuTabPanel .custom-control,
+        #permanentDeleteModal .custom-control,
+        #iconPickerModal .custom-control {
             padding-left: 2rem;
         }
-        .custom-control-label {
+        #menuTabPanel .custom-control-label,
+        #permanentDeleteModal .custom-control-label,
+        #iconPickerModal .custom-control-label {
             color: #5a5c69;
         }
-        .custom-switch .custom-control-label::before {
+        #menuTabPanel .custom-switch .custom-control-label::before,
+        #permanentDeleteModal .custom-switch .custom-control-label::before,
+        #iconPickerModal .custom-switch .custom-control-label::before {
             height: 1.25rem;
             width: 2.5rem;
             border-radius: 0.625rem;
         }
-        .custom-switch .custom-control-label::after {
+        #menuTabPanel .custom-switch .custom-control-label::after,
+        #permanentDeleteModal .custom-switch .custom-control-label::after,
+        #iconPickerModal .custom-switch .custom-control-label::after {
             height: calc(1.25rem - 4px);
             width: calc(1.25rem - 4px);
             border-radius: calc(1.25rem - 4px);
         }
-        .form-mode-label {
+        #menuTabPanel .form-mode-label,
+        #permanentDeleteModal .form-mode-label,
+        #iconPickerModal .form-mode-label {
             font-size: 0.85rem;
             color: #858796;
             margin-bottom: 10px;
         }
         /* 비활성 메뉴는 회색으로만 구분하고 선택은 그대로 가능하게 둔다 (jstree state.disabled 미사용) */
-        .jstree-anchor.menu-inactive,
-        .jstree-anchor.menu-inactive .jstree-icon {
+        #menuTabPanel .jstree-anchor.menu-inactive,
+        #permanentDeleteModal .jstree-anchor.menu-inactive,
+        #iconPickerModal .jstree-anchor.menu-inactive,
+        #menuTabPanel .jstree-anchor.menu-inactive .jstree-icon,
+        #permanentDeleteModal .jstree-anchor.menu-inactive .jstree-icon,
+        #iconPickerModal .jstree-anchor.menu-inactive .jstree-icon {
             color: #b0b3b8 !important;
         }
-    </style>
-
-<div id="wrapper">
-    <!-- Sidebar -->
-    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
-    <!-- End of Sidebar -->
-
-    <!-- Content Wrapper -->
-    <div id="content-wrapper" class="d-flex flex-column">
-        <!-- Main Content -->
-        <div id="content">
-            <!-- Topbar -->
-            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
-            <!-- End of Topbar -->
-
-            <div class="container-fluid">
-                <!-- Page Heading -->
-                <div class="d-sm-flex align-items-center justify-content-between mb-4">
-                    <h1 class="h3 mb-0 text-gray-800">메뉴 관리</h1>
-                </div>
+</style>
 
                 <div class="menu-container">
                     <div class="row">
@@ -322,11 +401,13 @@
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
 </div>
 
+<!--
+    모달은 탭 패널(숨겨질 수 있다) 밖에 둔다. Bootstrap은 이미 부모가 있는 모달을 body로 옮기지 않고 배경막만 body에 붙이므로,
+    숨겨지는 패널 안에 있으면 탭 전환 때 배경막·포커스 강제만 남아 화면이 갇힌다(영구삭제 모달은 Escape로도 못 닫는다).
+-->
+<th:block th:fragment="menuModals">
 <!-- 메뉴 영구삭제 확인 모달: 메뉴명(확인 문자열)을 직접 입력해야 [영구삭제]가 활성화된다 -->
 <div class="modal fade" id="permanentDeleteModal" tabindex="-1" role="dialog"
      aria-labelledby="permanentDeleteModalLabel" aria-hidden="true" data-backdrop="static" data-keyboard="false">
@@ -371,22 +452,9 @@
         </div>
     </div>
 </div>
+</th:block>
 
-<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
-
-<!-- Bootstrap core JavaScript-->
-<script src="/vendor/jquery/jquery.min.js"></script>
-<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-
-<!-- Core plugin JavaScript-->
-<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
-
-<!-- Custom scripts for all pages-->
-<script src="/js/sb-admin-2.min.js"></script>
-
-<!-- jstree JavaScript -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
-
+<th:block th:fragment="menuScript">
 <script>
 $(document).ready(function () {
     // 메뉴 최대 깊이(최상위=1). 서버 MenuService.MAX_MENU_DEPTH와 같다 — 서버가 최종 판정하고 화면은 UX 보조다.
@@ -879,11 +947,25 @@ $(document).ready(function () {
         };
     }
 
+    // 같은 화면의 정적 페이지 패널과 새로고침을 조정한다(PLAN-content-menu-unify.md 쟁점 9).
+    // active=true: 반영 요청 시작(정적 페이지 패널 입력 잠금). false는 요청이 실패해 이 화면에서 계속 작업할 때만 보낸다 —
+    // 성공은 reload()로 문서가 교체될 때까지 잠금을 유지해야 하므로 false를 보내지 않는다.
+    function notifyApplying(active) {
+        window.dispatchEvent(new CustomEvent('content:menu-applying', { detail: active }));
+    }
+
     async function handleApply() {
         if (busy || draftChanged === 0 || treeScope !== 'all') {
             return;
         }
+        // 정적 페이지 패널에 미저장 입력이 있거나 저장·삭제 중이면 서버 요청 없이 막는다 — 반영 성공 뒤의 전체 새로고침이
+        // 그 입력·진행 중 요청을 날리거나(저장 중에는 이탈 경고도 없다) 확인창 취소 시 이 화면이 잠기기 때문이다.
+        if (window.ContentScreen && window.ContentScreen.isPagePanelBusyOrDirty && window.ContentScreen.isPagePanelBusyOrDirty()) {
+            showTreeError('정적 페이지 탭에 저장하지 않은 변경이 있거나 저장 중입니다. 먼저 저장하거나 취소한 뒤 반영하세요.');
+            return;
+        }
         busy = true;
+        notifyApplying(true);
         refreshDraftUi();
         hideTreeError();
         hideTreeWarning();
@@ -908,6 +990,8 @@ $(document).ready(function () {
                     // 저장소를 쓸 수 없으면 메시지 없이 새로고침만 한다.
                 }
                 leavingAfterApply = true;
+                // 셸이 "새로 고치는 중 / 멈췄다면 [지금 새로고침]" 안내를 띄운다(문서 교체가 멈춘 경우의 수동 복구).
+                window.dispatchEvent(new CustomEvent('content:menu-applied'));
                 window.location.reload();
                 return;
             }
@@ -932,6 +1016,7 @@ $(document).ready(function () {
             }
         } finally {
             busy = false;
+            notifyApplying(false);
             refreshDraftUi();
         }
     }
@@ -1352,6 +1437,7 @@ $(document).ready(function () {
     loadTree();
 });
 </script>
+</th:block>
 
 </body>
 </html>

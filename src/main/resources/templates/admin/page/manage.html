@@ -1,22 +1,21 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head th:replace="~{admin/fragments/head :: adminHead}">
-    <title>정적 페이지 관리</title>
+    <title>정적 페이지 · 메뉴 관리</title>
 </head>
 <body id="page-top">
+<!--/*
+    정적 페이지 + 메뉴 구조를 한 화면에서 관리하는 셸(PLAN-content-menu-unify.md, 방법 3′).
+    - 게이트는 정적 페이지 기능(SITE_PAGE)의 URL 그대로다: ADMIN은 항상, MANAGER는 SITE_PAGE 조회 권한이 있을 때 들어온다.
+    - 메뉴 구조 탭·모달·jstree는 ADMIN에게만 서버가 렌더링한다(sec:authorize). 메뉴 API는 따로 ADMIN 전용이라 숨김은 UX일 뿐 최종 판정이 아니다.
+    - 두 패널은 모두 DOM에 마운트한 채 탭으로 보이기만 토글한다(탭을 바꿔도 작성 중 입력·드래그 초안이 사라지지 않는다).
+    - 배치 순서: 페이지 전용 CSS → 패널 body 조각 → 메뉴 modals 조각(탭 패널 밖) → 공통 의존성 → 패널 script 조각 → 셸 스크립트.
+      조각의 스크립트는 반드시 의존성(jQuery·Quill 등) 뒤에 둔다(앞에 두면 $·NoticeEditor가 없는 채 실행된다).
+*/-->
 <link rel="stylesheet" th:href="@{/vendor/quill/quill.snow.css}">
-<!-- 페이지 전용 CSS는 body 시작 지점에 둔다(menu/manage.html 컨벤션 — th:replace가 head를 통째로 치환한다). -->
-<style>
-    .page-card {
-        background: white;
-        border-radius: 0.35rem;
-        box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
-        border: 1px solid #4e73df;
-    }
-    .page-row { cursor: pointer; }
-    .page-row.table-active td { font-weight: bold; }
-    .page-editor .ql-editor { min-height: 320px; font-size: 1rem; }
-</style>
+<th:block sec:authorize="hasRole('ADMIN')">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
+</th:block>
 
 <div id="wrapper">
     <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
@@ -27,81 +26,35 @@
 
             <div class="container-fluid">
                 <div class="d-sm-flex align-items-center justify-content-between mb-4">
-                    <h1 class="h3 mb-0 text-gray-800">정적 페이지 관리</h1>
+                    <!--/* 머리글은 볼 수 있는 기능과 맞춘다 — MANAGER는 메뉴를 관리할 수 없으므로 "메뉴"를 보이지 않는다. */-->
+                    <h1 class="h3 mb-0 text-gray-800" sec:authorize="hasRole('ADMIN')">정적 페이지 · 메뉴 관리</h1>
+                    <h1 class="h3 mb-0 text-gray-800" sec:authorize="!hasRole('ADMIN')">정적 페이지 관리</h1>
                 </div>
 
-                <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
-                <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
+                <!--/* 메뉴 구조 반영이 성공하면 문서를 새로 읽는다. 로딩이 멈춘 경우의 수동 복구(잠금은 문서가 교체될 때까지 유지된다). */-->
+                <div id="contentReloadNotice" class="alert alert-info d-none" role="alert">
+                    메뉴 구조를 반영했습니다. 화면을 새로 고치는 중입니다.
+                    멈춘 경우 <button type="button" class="btn btn-sm btn-primary ml-1" id="contentReloadNow">지금 새로고침</button>
+                </div>
 
-                <p class="text-muted small">
-                    약관·개인정보처리방침·소개 같은 고정 페이지를 관리합니다. 공개 주소는 <code>/pages/슬러그</code>이며 슬러그는 만든 뒤 바꿀 수 없습니다.
-                    <strong>제목이나 본문을 바꿔 저장할 때마다 개정이 쌓이고</strong> 방문자는 이전 버전을 볼 수 있습니다. 이미지는 넣을 수 없습니다.
-                    잘못 올린 내용을 이전 개정에서만 지울 수는 없으니, 민감한 내용이 들어갔다면 페이지를 비노출하거나 삭제하세요.
-                </p>
+                <!--/* 탭은 ADMIN에게만 보인다. MANAGER는 정적 페이지 패널 하나뿐이라 탭 내비게이션을 그리지 않는다. */-->
+                <ul class="nav nav-tabs mb-3" id="contentTabs" role="tablist" sec:authorize="hasRole('ADMIN')">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="pagesTab" data-toggle="tab" href="#pages" data-target="#pagesTabPanel"
+                           role="tab" aria-controls="pagesTabPanel" aria-selected="true">정적 페이지</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="menuTab" data-toggle="tab" href="#menu" data-target="#menuTabPanel"
+                           role="tab" aria-controls="menuTabPanel" aria-selected="false">메뉴 구조</a>
+                    </li>
+                </ul>
 
-                <div class="row">
-                    <div class="col-lg-5 mb-4">
-                        <div class="page-card">
-                            <div class="card-header py-3 d-flex justify-content-between align-items-center">
-                                <h6 class="m-0 font-weight-bold text-primary">페이지 목록</h6>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
-                            </div>
-                            <div class="card-body">
-                                <div class="table-responsive">
-                                    <table class="table table-bordered table-hover mb-0">
-                                        <thead class="thead-light">
-                                        <tr><th>슬러그</th><th>제목</th><th>상태</th><th>개정</th></tr>
-                                        </thead>
-                                        <tbody id="pageList">
-                                        <tr><td colspan="4" class="text-muted">불러오는 중...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
+                <div class="tab-content">
+                    <div class="tab-pane active" id="pagesTabPanel" role="tabpanel">
+                        <div th:replace="~{admin/page/fragments/page-tab :: pagePanel}"></div>
                     </div>
-
-                    <div class="col-lg-7 mb-4">
-                        <div class="page-card">
-                            <div class="card-header py-3">
-                                <h6 class="m-0 font-weight-bold text-primary" id="formTitle">새 페이지</h6>
-                            </div>
-                            <div class="card-body">
-                                <form id="pageForm">
-                                    <div class="form-group">
-                                        <label for="pageSlug">슬러그 (소문자·숫자·하이픈, 2~50자 · 만든 뒤 변경 불가)</label>
-                                        <input type="text" class="form-control" id="pageSlug" maxlength="50"
-                                               placeholder="privacy-policy" autocomplete="off" required>
-                                        <small class="form-text text-muted" id="slugLink"></small>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="pageTitle">제목</label>
-                                        <input type="text" class="form-control" id="pageTitle" maxlength="200" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <label>본문</label>
-                                        <div class="page-editor"><div id="pageContentEditor"></div></div>
-                                        <small class="form-text text-muted">보이는 글자 50,000자 이하. 이미지는 지원하지 않습니다.</small>
-                                    </div>
-                                    <div class="form-group form-check">
-                                        <input type="checkbox" class="form-check-input" id="pageUse" checked>
-                                        <label class="form-check-label" for="pageUse">노출 (끄면 현재 버전과 개정 이력 모두 공개되지 않음)</label>
-                                    </div>
-                                    <div class="form-group form-check">
-                                        <input type="checkbox" class="form-check-input" id="pageFooter">
-                                        <label class="form-check-label" for="pageFooter">공개 메인 하단 푸터에 링크 (만든 순서대로 표시)</label>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary" id="btnSave">등록</button>
-                                    <button type="button" class="btn btn-outline-secondary d-none" id="btnNew">새 페이지 작성</button>
-                                    <button type="button" class="btn btn-outline-danger d-none" id="btnDelete">삭제</button>
-                                </form>
-
-                                <div class="mt-4 d-none" id="revisionGroup">
-                                    <h6 class="font-weight-bold">개정 이력 <small class="text-muted" id="revisionSummary"></small></h6>
-                                    <ul class="list-group" id="revisionList"></ul>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="tab-pane" id="menuTabPanel" role="tabpanel" sec:authorize="hasRole('ADMIN')">
+                        <div th:replace="~{admin/menu/fragments/menu-tab :: menuPanel}"></div>
                     </div>
                 </div>
             </div>
@@ -111,12 +64,20 @@
     </div>
 </div>
 
+<!--/* 메뉴 모달(영구삭제 확인·아이콘 선택)은 탭 패널 밖에 둔다(숨겨지는 패널 안에 있으면 배경막만 남아 화면이 갇힌다). */-->
+<th:block sec:authorize="hasRole('ADMIN')">
+    <th:block th:replace="~{admin/menu/fragments/menu-tab :: menuModals}"></th:block>
+</th:block>
+
 <div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
 
 <script src="/vendor/jquery/jquery.min.js"></script>
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
+<th:block sec:authorize="hasRole('ADMIN')">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
+</th:block>
 <script src="/vendor/quill/quill.js"></script>
 <script src="/js/admin/notice-editor.js"></script>
 
@@ -124,390 +85,46 @@
     // 서버가 렌더링한 내 위임 권한 키("SITE_PAGE:CREATE" 등). 버튼 표시용일 뿐 서버 판정(403)이 최종이다.
     const MY_PERMISSIONS = new Set(/*[[${myPermissions}]]*/ []);
 </script>
+
+<th:block th:replace="~{admin/page/fragments/page-tab :: pageScript}"></th:block>
+<th:block sec:authorize="hasRole('ADMIN')">
+    <th:block th:replace="~{admin/menu/fragments/menu-tab :: menuScript}"></th:block>
+</th:block>
+
 <script>
-    const PAGES_URL = "/admin/api/site-pages";
-
-    const pageList = document.getElementById("pageList");
-    const pageForm = document.getElementById("pageForm");
-    const formTitle = document.getElementById("formTitle");
-    const fSlug = document.getElementById("pageSlug");
-    const slugLink = document.getElementById("slugLink");
-    const fTitle = document.getElementById("pageTitle");
-    const fUse = document.getElementById("pageUse");
-    const fFooter = document.getElementById("pageFooter");
-    const btnSave = document.getElementById("btnSave");
-    const btnNew = document.getElementById("btnNew");
-    const btnDelete = document.getElementById("btnDelete");
-    const btnReload = document.getElementById("btnReload");
-    const revisionGroup = document.getElementById("revisionGroup");
-    const revisionSummary = document.getElementById("revisionSummary");
-    const revisionList = document.getElementById("revisionList");
-    const pageAlert = document.getElementById("pageAlert");
-    const pageSuccess = document.getElementById("pageSuccess");
-
-    const canCreate = MY_PERMISSIONS.has("SITE_PAGE:CREATE");
-    const canUpdate = MY_PERMISSIONS.has("SITE_PAGE:UPDATE");
-    const canDelete = MY_PERMISSIONS.has("SITE_PAGE:DELETE");
-
-    let pages = [];             // 서버 응답 스냅샷(목록)
-    let editing = null;         // 편집 대상 상세 응답(null이면 새 페이지 작성) — version은 이 응답의 값을 저장 요청에 싣는다
-    let saving = false;
-    let loadingDetail = false;
-    let listRequestSeq = 0;     // 늦게 도착한 이전 목록 응답이 최신 목록을 덮어쓰지 않게 하는 세대
-    let detailRequestSeq = 0;   // 늦게 도착한 이전 상세 응답이 다른 페이지 선택을 덮어쓰지 않게 하는 세대
-
-    // 이미지 없는 편집기(PLAN-static-page.md 쟁점 7) — 서버도 저장·출력 시 img를 제거한다
-    const editor = NoticeEditor.create(document.getElementById("pageContentEditor"), {
-        allowImages: false,
-        onError: function (message) { showError(message); }
-    });
-
-    function csrfHeaders(json) {
-        const token = document.querySelector('meta[name="_csrf"]');
-        const header = document.querySelector('meta[name="_csrf_header"]');
-        const headers = {};
-        if (json) {
-            headers["Content-Type"] = "application/json";
-        }
-        if (token && header) {
-            headers[header.content || "X-CSRF-TOKEN"] = token.content;
-        }
-        return headers;
-    }
-
-    async function errorMessage(response, fallback) {
-        if (response.status === 403) {
-            return "이 작업을 수행할 권한이 없습니다.";   // 메서드 보안 403의 message는 영문이라 고정 문구를 쓴다
-        }
-        try {
-            const body = await response.json();
-            return body.message || fallback;
-        } catch (e) {
-            return fallback;
-        }
-    }
-
-    function showError(message) {
-        pageSuccess.classList.add("d-none");
-        pageAlert.textContent = message;
-        pageAlert.classList.remove("d-none");
-    }
-
-    function showSuccess(message) {
-        pageAlert.classList.add("d-none");
-        pageSuccess.textContent = message;
-        pageSuccess.classList.remove("d-none");
-    }
-
-    function cell(text) {
-        const td = document.createElement("td");
-        td.textContent = text;                            // 슬러그·제목은 사용자 입력 — textContent만 쓴다
-        return td;
-    }
-
-    function fmt(value) {
-        return value ? String(value).replace("T", " ").substring(0, 16) : "";
-    }
-
-    function lockUi() {
-        const busy = saving || loadingDetail;
-        btnSave.disabled = busy || !(editing ? canUpdate : canCreate);
-        btnDelete.disabled = busy;
-        btnNew.disabled = busy;
-        btnReload.disabled = busy;
-        // 슬러그는 새 페이지에서만 입력할 수 있다
-        fSlug.disabled = busy || editing !== null;
-        [fTitle, fUse, fFooter].forEach(function (field) { field.disabled = busy; });
-        // 본문 편집기도 잠근다 — 이미 전송된 요청에 담기지 않은 추가 입력이 성공 응답의 setHtml로 조용히 사라지는 것을 막는다(코드 리뷰 R1)
-        editor.quill.enable(!busy);
-    }
-
-    function renderList() {
-        pageList.replaceChildren();
-        if (pages.length === 0) {
-            const tr = document.createElement("tr");
-            const td = cell("등록된 정적 페이지가 없습니다.");
-            td.colSpan = 4;
-            td.className = "text-muted";
-            tr.appendChild(td);
-            pageList.appendChild(tr);
-        }
-        pages.forEach(function (page) {
-            const tr = document.createElement("tr");
-            tr.className = "page-row" + (editing && editing.id === page.id ? " table-active" : "");
-            tr.appendChild(cell(page.slug));
-            tr.appendChild(cell(page.title));
-
-            const statusCell = document.createElement("td");
-            const badge = document.createElement("span");
-            badge.className = "badge " + (page.useYn ? "badge-success" : "badge-warning");
-            badge.textContent = page.useYn ? "노출" : "비노출";
-            statusCell.appendChild(badge);
-            if (page.footerYn) {
-                const footerBadge = document.createElement("span");
-                footerBadge.className = "badge badge-info ml-1";
-                footerBadge.textContent = "푸터";
-                statusCell.appendChild(footerBadge);
-            }
-            tr.appendChild(statusCell);
-
-            tr.appendChild(cell(String(page.currentRevisionNo)));
-            tr.addEventListener("click", function () { startEdit(page.id); });
-            pageList.appendChild(tr);
-        });
-        lockUi();
-    }
-
-    function renderRevisions() {
-        revisionList.replaceChildren();
-        if (!editing) {
-            revisionGroup.classList.add("d-none");
-            return;
-        }
-        revisionGroup.classList.remove("d-none");
-        const shown = editing.revisions.length;
-        revisionSummary.textContent = "(전체 " + editing.revisionCount + "건" + (shown < editing.revisionCount ? ", 최근 " + shown + "건 표시" : "") + ")";
-        editing.revisions.forEach(function (revision) {
-            const li = document.createElement("li");
-            li.className = "list-group-item d-flex justify-content-between align-items-center py-2";
-            const left = document.createElement("span");
-            // 이전 개정 본문은 공개 주소로 본다(노출 중인 페이지만 — 비노출이면 링크 없음)
-            if (editing.useYn) {
-                const link = document.createElement("a");
-                link.href = "/pages/" + encodeURIComponent(editing.slug) + "/revisions/" + encodeURIComponent(revision.revisionNo);
-                link.target = "_blank";
-                link.rel = "noopener noreferrer";
-                link.textContent = "개정 " + revision.revisionNo;
-                left.appendChild(link);
-            } else {
-                left.textContent = "개정 " + revision.revisionNo;
-            }
-            const title = document.createElement("span");
-            title.className = "ml-2";
-            title.textContent = revision.title;
-            left.appendChild(title);
-            const date = document.createElement("small");
-            date.className = "text-muted";
-            date.textContent = fmt(revision.createDate);
-            li.appendChild(left);
-            li.appendChild(date);
-            revisionList.appendChild(li);
-        });
-    }
-
-    function startCreate() {
-        detailRequestSeq++;
-        editing = null;
-        formTitle.textContent = "새 페이지";
-        pageForm.reset();
-        fUse.checked = true;
-        fFooter.checked = false;
-        editor.setHtml("");
-        slugLink.textContent = "";
-        btnSave.textContent = "등록";
-        btnNew.classList.add("d-none");
-        btnDelete.classList.add("d-none");
-        renderRevisions();
-        renderList();
-    }
-
-    function applyDetail(detail) {
-        editing = detail;
-        formTitle.textContent = "페이지 #" + detail.id + " 수정 (개정 " + detail.currentRevisionNo + ")";
-        fSlug.value = detail.slug;
-        fTitle.value = detail.title;
-        fUse.checked = !!detail.useYn;
-        fFooter.checked = !!detail.footerYn;
-        editor.setHtml(detail.content || "");
-        slugLink.textContent = "공개 주소: /pages/" + detail.slug + (detail.useYn ? "" : " (비노출 중이라 방문자에게 404)");
-        btnSave.textContent = "저장";
-        btnNew.classList.remove("d-none");
-        btnDelete.classList.toggle("d-none", !canDelete);
-        renderRevisions();
-        renderList();
-    }
-
-    /** 저장하지 않은 입력이 있는가 — 이탈(beforeunload)과 화면 안 전환(목록 선택·새 페이지 작성)이 같은 기준을 쓴다. */
-    function isDirty() {
-        return editing === null
-                ? (fSlug.value !== "" || fTitle.value !== "" || editor.isChanged())
-                : (fTitle.value !== editing.title || editor.isChanged() || fUse.checked !== !!editing.useYn || fFooter.checked !== !!editing.footerYn);
-    }
-
-    /** 사용자가 직접 하는 전환 전에 미저장 입력을 버려도 되는지 묻는다(코드 리뷰 R2). 저장·삭제 성공 뒤의 내부 초기화는 묻지 않는다. */
-    function confirmDiscard() {
-        return !isDirty() || confirm("저장하지 않은 변경이 있습니다. 버리고 이동하시겠습니까?");
-    }
-
-    async function startEdit(id) {
-        if (saving || loadingDetail) {
-            return;
-        }
-        if (!confirmDiscard()) {
-            return;
-        }
-        const seq = ++detailRequestSeq;
-        loadingDetail = true;
-        lockUi();
-        try {
-            const response = await fetch(PAGES_URL + "/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } });
-            if (seq !== detailRequestSeq) {
-                return;
-            }
-            if (!response.ok) {
-                showError(await errorMessage(response, "페이지를 불러오지 못했습니다."));
-                return;
-            }
-            const detail = await response.json();
-            if (seq !== detailRequestSeq) {
-                return;
-            }
-            applyDetail(detail);
-        } catch (e) {
-            if (seq === detailRequestSeq) {
-                showError("페이지를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
-            }
-        } finally {
-            if (seq === detailRequestSeq) {
-                loadingDetail = false;
-                lockUi();
-            }
-        }
-    }
-
-    async function loadList() {
-        const seq = ++listRequestSeq;
-        try {
-            const response = await fetch(PAGES_URL, { headers: { "Accept": "application/json" } });
-            if (seq !== listRequestSeq) {
-                return;
-            }
-            if (!response.ok) {
-                showError(await errorMessage(response, "페이지 목록을 불러오지 못했습니다."));
-                return;
-            }
-            const loaded = await response.json();
-            if (seq !== listRequestSeq) {
-                return;
-            }
-            pages = loaded;
-            renderList();
-        } catch (e) {
-            if (seq === listRequestSeq) {
-                showError("페이지 목록을 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
-            }
-        }
-    }
-
-    function setSaving(value) {
-        saving = value;
-        lockUi();
-    }
-
-    pageForm.addEventListener("submit", async function (event) {
-        event.preventDefault();
-        if (saving || loadingDetail) {
-            return;
-        }
-        if (editor.isBusy()) {
-            return;
-        }
-        const target = editing;                             // 요청 시작 시점의 대상을 고정한다
-        setSaving(true);
-        try {
-            let response;
-            if (target) {
-                response = await fetch(PAGES_URL + "/" + encodeURIComponent(target.id), {
-                    method: "PUT",
-                    headers: csrfHeaders(true),
-                    body: JSON.stringify({
-                        title: fTitle.value,
-                        content: editor.getHtml(),
-                        contentFormat: "HTML",
-                        useYn: fUse.checked,
-                        footerYn: fFooter.checked,
-                        version: target.version
-                    })
-                });
-            } else {
-                response = await fetch(PAGES_URL, {
-                    method: "POST",
-                    headers: csrfHeaders(true),
-                    body: JSON.stringify({
-                        slug: fSlug.value,
-                        title: fTitle.value,
-                        content: editor.getHtml(),
-                        contentFormat: "HTML",
-                        useYn: fUse.checked,
-                        footerYn: fFooter.checked
-                    })
-                });
-            }
-            if (response.ok) {
-                const saved = await response.json();
-                showSuccess(target ? "페이지를 저장했습니다 (개정 " + saved.currentRevisionNo + ")." : "페이지를 등록했습니다: /pages/" + saved.slug);
-                applyDetail(saved);                          // 최신 version·개정 목록을 바로 받는다
-                await loadList();
-            } else if (response.status === 409 && target) {
-                // 낡은 화면 — 입력 중인 내용은 지우지 않는다. 목록에서 다시 선택하면 최신 내용을 불러온다.
-                showError((await errorMessage(response, "다른 관리자가 먼저 저장했습니다.")) + " 입력한 내용은 그대로 두었으니 복사해 두고, 목록에서 이 페이지를 다시 선택해 최신 내용을 불러오세요.");
-                await loadList();
-            } else {
-                showError(await errorMessage(response, "저장에 실패했습니다."));
-            }
-        } catch (e) {
-            showError("저장에 실패했습니다. 네트워크 상태를 확인해 주세요.");
-        } finally {
-            setSaving(false);
-        }
-    });
-
-    btnDelete.addEventListener("click", async function () {
-        if (!editing || saving || loadingDetail) {
-            return;
-        }
-        const target = editing;
-        if (!confirm("정적 페이지 /pages/" + target.slug + " 을(를) 삭제하시겠습니까?\n개정 이력까지 모두 삭제되며 복구할 수 없습니다.")) {
-            return;
-        }
-        setSaving(true);
-        try {
-            const response = await fetch(PAGES_URL + "/" + encodeURIComponent(target.id) + "?version=" + encodeURIComponent(target.version), {
-                method: "DELETE",
-                headers: csrfHeaders(false)
-            });
-            if (response.ok || response.status === 204 || response.status === 404) {
-                showSuccess(response.status === 404 ? "이미 삭제된 페이지입니다." : "페이지를 삭제했습니다: /pages/" + target.slug);
-                startCreate();
-                await loadList();
-            } else {
-                showError(await errorMessage(response, "삭제에 실패했습니다."));
-                if (response.status === 409) {
-                    await loadList();
+    // 탭 상태는 URL 해시(#pages·#menu)로 표현한다. 기본은 정적 페이지. MANAGER는 탭이 없어(메뉴 패널 자체가 없다) 항상 정적 페이지다.
+    // 메뉴 반영 뒤의 location.reload()는 해시를 보존하므로 새로고침 뒤에도 메뉴 탭이 유지된다.
+    (function () {
+        const tabLinks = Array.from(document.querySelectorAll('#contentTabs a[data-toggle="tab"]'));
+        if (tabLinks.length > 0) {
+            // 해시에 맞는 탭을 보인다. 알 수 없는 해시는 정적 페이지 탭이다. 이미 보이는 탭이면 아무것도 하지 않는다.
+            const showTabFromHash = function () {
+                const wanted = window.location.hash === '#menu' ? '#menu' : '#pages';
+                const link = tabLinks.find(function (a) { return a.getAttribute('href') === wanted; });
+                if (link && !link.classList.contains('active')) {
+                    $(link).tab('show');
                 }
-            }
-        } catch (e) {
-            showError("삭제에 실패했습니다. 네트워크 상태를 확인해 주세요.");
-        } finally {
-            setSaving(false);
+            };
+            showTabFromHash();
+            // 이력을 쌓지 않는다(replaceState) — 뒤로 가기가 탭을 되돌리며 화면 상태와 어긋나는 일을 만들지 않는다.
+            // replaceState는 hashchange를 일으키지 않으므로 아래 리스너와 순환하지 않는다.
+            $(tabLinks).on('shown.bs.tab', function (event) {
+                window.history.replaceState(null, '', event.target.getAttribute('href'));
+            });
+            // 주소창에서 해시를 직접 바꾸거나 해시가 다른 링크를 눌러 같은 문서 안에서 해시만 바뀌는 경우에도 탭이 따라간다.
+            window.addEventListener('hashchange', showTabFromHash);
         }
-    });
 
-    window.addEventListener("beforeunload", function (event) {
-        if (isDirty() && !saving) {
-            event.preventDefault();
-            event.returnValue = "";
-        }
-    });
-
-    btnNew.addEventListener("click", function () {
-        if (confirmDiscard()) {
-            startCreate();
-        }
-    });
-    btnReload.addEventListener("click", loadList);
-    startCreate();
-    loadList();
+        // 메뉴 구조 반영이 성공하면(content:menu-applied) 안내와 [지금 새로고침]을 보인다. 시간 초과로 잠금을 풀지 않는다 —
+        // 풀면 문서가 교체되기 전에 입력·저장이 가능해져 교체 때 사라진다. 로딩이 멈췄다면 버튼으로 다시 새로고침한다.
+        const notice = document.getElementById('contentReloadNotice');
+        window.addEventListener('content:menu-applied', function () {
+            notice.classList.remove('d-none');
+        });
+        document.getElementById('contentReloadNow').addEventListener('click', function () {
+            window.location.reload();
+        });
+    })();
 </script>
 </body>
 </html>

@@ -4,7 +4,7 @@ import com.cms.admin.dashboard.dto.response.DashboardStatsResponse;
 import com.cms.admin.dashboard.service.DashboardService;
 import com.cms.admin.log.controller.AdminActionLogPageController;
 import com.cms.admin.member.controller.AdminMemberPageController;
-import com.cms.admin.menu.controller.MenuPageController;
+import com.cms.admin.page.controller.SitePagePageController;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.config.auth.AdminSecurityService;
@@ -39,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         AdminMainController.class,
         AdminMemberPageController.class,
         AdminActionLogPageController.class,
-        MenuPageController.class,
+        SitePagePageController.class,
         com.cms.admin.permission.controller.PermissionPageController.class
 })
 @Import(AdminSidebarAdviceTest.MockConfig.class)
@@ -105,7 +105,7 @@ class AdminSidebarAdviceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/admin", "/admin/member/info", "/admin/log/manage", "/admin/menu/manage", "/admin/permission/manage"})
+    @ValueSource(strings = {"/admin", "/admin/member/info", "/admin/log/manage", "/admin/site-page/manage", "/admin/permission/manage"})
     @DisplayName("모든 @AdminPage 페이지는 sidebarMenus·myPermissions·currentUri 모델을 받는다")
     @WithMockUser(roles = "ADMIN")
     void adminPages_receiveSidebarModel(String path) throws Exception {
