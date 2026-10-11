@@ -33,6 +33,10 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      # 브라우저 시험(Playwright)이 쓰는 Chromium과 시스템 의존성을 미리 설치한다 — 시험 안에서 설치하면 apt 권한 없이 실패할 수 있다.
+      - name: Install Playwright browsers
+        run: ./gradlew installPlaywrightBrowsers
+
       - name: Run tests
         run: ./gradlew test
         env:

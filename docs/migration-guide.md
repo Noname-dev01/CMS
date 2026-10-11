@@ -43,6 +43,8 @@
 | V36 | `V36__add_post_publish_period.sql` | `post.publish_start`·`publish_end` — DDL 1문(아래 "V36") |
 | V37 | `V37__create_site_page.sql` | 정적 페이지 `site_page`·개정 `site_page_revision`(DDL 2문 — 실패 복구는 아래 "V37~V38") |
 | V38 | `V38__seed_site_page_menu.sql` | 정적 페이지 관리 메뉴 시드(멱등 DML) |
+| V39 | `V39__create_popup.sql` | 공개 메인 팝업 `popup`(DDL 1문 — 실패 복구는 아래 "V39~V40") |
+| V40 | `V40__seed_popup_menu.sql` | 팝업 관리 메뉴 시드(멱등 DML) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -126,6 +128,13 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **V38**은 순수 DML(메뉴 '정적 페이지 관리' 최상위 맨 끝, `WHERE NOT EXISTS`로 멱등)이다.
 - **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다. 롤백 후 재배포 시 **권한 정리**는 `docs/deployment.md` "정적 페이지".
 - **시험**: `SitePageMigrationTest`(V36→V38 테이블·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(슬러그 유일·복합 PK·FK RESTRICT), V36 이하 앱 롤백 기동 호환, **V37 부분 적용 실패 → repair 복구**).
+
+## V39~V40 — 공개 메인 팝업 (2026-10-12, `adversarial-review/plan/PLAN-popup.md`)
+
+- **V39**(DDL 1문: `popup`)는 문 하나라 부분 적용 상태가 생기지 않지만, 문 실행 중 실패해 `success=0` 이력이 남을 수 있다. 복구: ① 앱 정지·원인 제거 ② `SELECT version, success FROM flyway_schema_history WHERE version = '39';`와 `SHOW TABLES LIKE 'popup';` ③ **이력이 없거나 `success=0`인 경우에만** `DROP TABLE IF EXISTS popup;`(이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 데이터가 없다) ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. **`success=1`인 버전의 테이블은 실제 팝업 데이터일 수 있으므로 절대 건드리지 않는다**(V17~V19·V33·V37 복구와 같은 원칙).
+- **V40**은 순수 DML(메뉴 '팝업 관리' 최상위 맨 끝, `WHERE NOT EXISTS`로 멱등)이다. 가드 행·권한 행 시드는 없다(`popup_lock` 같은 가드 테이블이 없고 권한 행은 권한관리 화면이 만든다).
+- **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다. 롤백 후 재배포 시 **권한 정리와 수동 회수 주의**는 `docs/deployment.md` "공개 메인 팝업" — 특히 롤백 기간에는 구버전 문서의 수동 회수 ⑤를 실행하지 않는다(`popup/` 파일이 전부 고아로 삭제된다).
+- **시험**: `PopupMigrationTest`(V38→V40 테이블·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(이미지형·HTML형 NULL 허용, storage_key 유일, 필수 컬럼, revision 기본 0), V38 이하 앱 롤백 기동 호환).
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

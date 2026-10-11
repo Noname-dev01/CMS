@@ -154,6 +154,12 @@ cms:
         methods: [GET, HEAD]
         capacity: 240
         refill-period-seconds: 60
+      # 팝업 이미지 — 메인 1회에 보이기로 한 팝업(최대 5개)의 이미지만 받고(숨겨진 팝업은 요청하지 않는다) 배너(240)의 절반. PLAN-popup.md 쟁점 10
+      - id: popup-image
+        pattern: /popups/*/image
+        methods: [GET, HEAD]
+        capacity: 120
+        refill-period-seconds: 60
       - id: reset-request
         pattern: /admin/api/password-reset-requests
         methods: [POST]

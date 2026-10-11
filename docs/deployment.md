@@ -424,6 +424,16 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **수용한 한계**: 기간은 통째 교체 + 마지막 저장 우선이다(게시글에 낙관적 락이 없어, 낡은 편집 화면이 다른 관리자가 줄인 기간을 되돌릴 수 있다). 다운로드가 시작된 뒤 종료 시각이 지나도 진행 중 전송은 끝까지 간다(기존 공개 첨부의 약한 보장과 같다).
 - **VM·컨테이너 시계**: DB 컨테이너 시계가 UTC여도 앱은 KST `Clock`을 쓰므로 영향이 없다. 다만 SQL로 기간을 직접 넣을 때는 앱 기준 KST 벽시계 값을 리터럴로 쓴다(`NOW()`는 9시간 어긋난다).
 
+## 공개 메인 팝업 (V39~V40, 2026-10-12, adversarial-review/plan/PLAN-popup.md)
+
+- **새 공개 경로**: `GET·HEAD /popups/{id}/image`가 무인증이다(`SecurityConfig` 승인 2026-10-12). `/popups`·`/popups/**`의 나머지 경로·메서드는 `denyAll`이다. 리버스 프록시·ingress가 경로를 허용 목록으로 관리한다면 이 경로를 추가한다. 레이트리밋 규칙 `popup-image`(120/60초). 공개 메인(`/`)은 노출 중인 팝업을 등록 순서대로 **최대 5개**까지 그리고, 그 스크립트는 정적 파일 `/js/public/home-popup.js`(기존 `/js/**` 공개 범위)다.
+- **팝업 이미지 저장**: 같은 파일 볼륨의 **`popup/` 하위 디렉터리**(네임스페이스, `banner/`·`profile/`과 같은 방식)에 저장된다. 볼륨 백업·복구는 기존 절차에 그대로 포함된다. 이미지형만 파일이 있고 HTML형은 본문이 DB(`popup.content_html`)에만 있다.
+- **수동 회수(위 절차) 주의**: ⑤는 `popup/`도 제외하고 **⑤-4가 `popup` 테이블 대조로 따로 회수**한다(비노출·만료 팝업도 행이 있으면 보존). 이 제외가 없는 이전 판의 ⑤를 그대로 실행하면 **정상 팝업 이미지가 전부 삭제**된다.
+- **롤백 중에는 구버전 문서의 수동 회수 ⑤를 실행하지 않는다**: 팝업 도입 전 앱(V38 이하)으로 되돌려도 `popup` 테이블과 `popup/` 파일은 DB·볼륨에 남는다. 구버전 ⑤는 `content_image`·`post_attachment`만 보존하고 `profile/`·`banner/`만 제외하므로 `popup/`의 모든 파일을 고아로 삭제하고, 신버전으로 재전진해도 복구되지 않는다(`ready` 가드는 V32 성공만 확인해 막지 못한다). 롤백 기간에 회수가 필요하면 이 문서의 신버전 절차(⑤에 `popup/` 제외, ⑤-4 포함)만 쓴다.
+- **롤백(팝업 도입 전 앱으로)**: V39·V40은 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `PopupMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `POPUP` 행을 모르고 "전체 회수"가 그 행을 남기므로, 재배포 시 되살아날 수 있다. 앱 정지 후 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'POPUP'; UPDATE member SET permission_version = permission_version + 1;`을 실행하고(전원의 버전을 올려 정리 전 화면의 오래된 PUT이 과거 권한을 복원하지 못하게 한다) 기동한다 — 위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL(`DELETE FROM member_permission; …`)을 이미 실행했다면 별도 조치는 필요 없다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다.
+- **팝업 삭제**: 행을 지운 뒤 커밋 후 파일을 지운다. 파일 삭제가 실패하면 "행 없는 파일"이 남고 ⑤-4가 다음 회수 때 정리한다.
+- **수정과 "오늘 하루 보지 않기"**: 방문자 브라우저의 숨김 상태(`localStorage`)는 서버가 모른다. 팝업을 수정하면 `popup.revision`이 올라가 이전에 숨긴 방문자에게도 다시 표시된다. DB를 직접 고쳐 내용을 바꿀 때는 `revision`도 함께 올려야 같은 효과가 난다.
+
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
 공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 게시글이 참조하는지 — `owner_type` = `POST`; 공지 흡수(V32, 2026-10-09) 이전에는 공지 참조 `NOTICE`도 있었다)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
@@ -491,7 +501,7 @@ docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20
 echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일을 지우지 않았다"
 
 # ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
-#    보존 대상 = content_image + post_attachment의 storage_key, profile/·banner/ 네임스페이스는 제외(⑤-2·⑤-3이 따로 다룬다 — 제외하지 않으면 정상 배너 이미지가 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1).
+#    보존 대상 = content_image + post_attachment의 storage_key, profile/·banner/·popup/ 네임스페이스는 제외(⑤-2·⑤-3·⑤-4가 따로 다룬다 — 제외하지 않으면 정상 배너·팝업 이미지가 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1·PLAN-popup.md R3-1).
 #    notice_attachment는 V32 이후 이관 시점의 동결 스냅샷일 뿐 앱이 읽지 않으므로 보존 목록에 넣지 않는다 — 넣으면 삭제 실패로 남은
 #    "행 없는 파일"이 동결 행 때문에 영구 보존된다(PLAN-notice-to-board.md 리뷰 R3-1). 공지 첨부는 post_attachment로 이관됐다.
 #    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
@@ -503,7 +513,7 @@ SELECT storage_key FROM content_image UNION SELECT storage_key FROM post_attachm
 SQL
 sort -o keep-keys.txt keep-keys.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
-  cd /data && find . -type f -not -path "./profile/*" -not -path "./banner/*" -not -path "./.restore-staging/*" | sed "s|^\./||" | sort' > disk-keys.txt &&
+  cd /data && find . -type f -not -path "./profile/*" -not -path "./banner/*" -not -path "./popup/*" -not -path "./.restore-staging/*" | sed "s|^\./||" | sort' > disk-keys.txt &&
 comm -23 disk-keys.txt keep-keys.txt > orphan-files.txt ||
 echo "⑤ 중단: 보존 목록 또는 디스크 목록 수집 실패 — 아래 삭제를 실행하지 않는다"
 cat orphan-files.txt    # 먼저 눈으로 확인한다(파일이 없다는 오류가 나오면 위 단계가 실패한 것)
@@ -547,6 +557,24 @@ cat banner-orphans.txt    # 먼저 눈으로 확인한다(파일이 없다는 �
 ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
   test -f /work/banner-orphans.txt || { echo "banner-orphans.txt 없음 — 삭제 중단"; exit 1; }
   while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/banner/$k";; esac; done < /work/banner-orphans.txt'
+
+# ⑤-4 팝업 파일 대조(2026-10-12, PLAN-popup.md R3-1 — 일회용 MariaDB·볼륨에서 이 블록 전체를 실행해 활성·비노출·만료 팝업 파일 보존과 행 없는 파일만 삭제됨을 확인): 팝업 이미지는 popup/ 네임스페이스에 저장되어 위 ⑤가 제외하므로 여기서 따로 대조한다.
+#      보존 대상 = popup 테이블의 storage_key(이미지형만 값이 있다 — **비노출·만료 팝업도 행이 있으면 보존**, HTML형은 NULL이라 제외), 디스크 = popup/ 아래 파일(접두어 제거).
+#      차이만 고아 목록이 된다. 앞 단계와 같은 ready 가드 + && 체인 — 조회가 실패하면 목록이 만들어지지 않고 아래 삭제는 아무것도 지우지 않는다.
+rm -f popup-keep.txt popup-disk.txt popup-orphans.txt
+ready &&
+db > popup-keep.txt <<'SQL' &&
+SELECT storage_key FROM popup WHERE storage_key IS NOT NULL;
+SQL
+sort -o popup-keep.txt popup-keep.txt &&
+docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
+  if [ -d /data/popup ]; then cd /data/popup && find . -type f | sed "s|^\./||" | sort; fi' > popup-disk.txt &&
+comm -23 popup-disk.txt popup-keep.txt > popup-orphans.txt ||
+echo "⑤-4 중단: 보존 목록 또는 디스크 목록 수집 실패 — 아래 삭제를 실행하지 않는다"
+cat popup-orphans.txt    # 먼저 눈으로 확인한다(파일이 없다는 오류가 나오면 위 단계가 실패한 것)
+ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
+  test -f /work/popup-orphans.txt || { echo "popup-orphans.txt 없음 — 삭제 중단"; exit 1; }
+  while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/popup/$k";; esac; done < /work/popup-orphans.txt'
 
 # ⑥ 앱 기동
 docker start cms-app-prod

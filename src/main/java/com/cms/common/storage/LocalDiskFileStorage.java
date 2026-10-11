@@ -52,7 +52,7 @@ public class LocalDiskFileStorage implements FileStorage {
      * 문제는 네임스페이스 스코프 자체가 물리적으로 분리하므로 별도 방어가 필요 없다
      * (adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 2, v6).
      */
-    private static final Set<String> RESERVED_NAMESPACES = Set.of("profile", "banner");
+    private static final Set<String> RESERVED_NAMESPACES = Set.of("profile", "banner", "popup");
 
     private static final Pattern NAMESPACE_PATTERN = Pattern.compile("[a-z0-9_-]+");
 

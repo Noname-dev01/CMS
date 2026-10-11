@@ -76,10 +76,23 @@ dependencies {
     // 자체 MariaDB 인스턴스로 도는 상태를 위해 도입 (PLAN-testcontainers.md)
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:testcontainers-mariadb'
+    // 실제 브라우저(Chromium) 시험 — 브라우저 기본 폼 검증처럼 MockMvc로 재현되지 않는 관리 화면 동작을 고정한다(PLAN-popup.md 코드 리뷰 R2 후속).
+    // 첫 실행 때 드라이버·브라우저를 자동으로 내려받고, CI는 installPlaywrightBrowsers 태스크가 미리 설치한다.
+    testImplementation 'com.microsoft.playwright:playwright:1.63.0'
     implementation 'com.querydsl:querydsl-jpa:5.1.0:jakarta'
     annotationProcessor 'com.querydsl:querydsl-apt:5.1.0:jakarta'
     annotationProcessor 'jakarta.annotation:jakarta.annotation-api'
     annotationProcessor 'jakarta.persistence:jakarta.persistence-api'
+}
+
+// CI 전용 사전 단계: 브라우저 시험이 쓰는 Chromium과 시스템 의존성(apt)을 설치한다. 로컬은 첫 실행 때 Playwright가 브라우저를 자동으로 내려받으므로
+// 필요 없다(Windows·macOS에서는 --with-deps가 시스템 패키지를 설치하지 않는다).
+tasks.register('installPlaywrightBrowsers', JavaExec) {
+    group = 'verification'
+    description = 'Playwright 브라우저 시험용 Chromium과 시스템 의존성을 설치한다(CI 사전 단계)'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.microsoft.playwright.CLI'
+    args = ['install', '--with-deps', 'chromium']
 }
 
 tasks.named('test') {

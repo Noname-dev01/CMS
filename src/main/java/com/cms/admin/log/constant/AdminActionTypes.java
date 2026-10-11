@@ -58,6 +58,10 @@ public final class AdminActionTypes {
     public static final String SITE_PAGE_CREATE = "SITE_PAGE_CREATE";
     public static final String SITE_PAGE_UPDATE = "SITE_PAGE_UPDATE";
     public static final String SITE_PAGE_DELETE = "SITE_PAGE_DELETE";
+    /** 팝업 등록·수정·삭제 — targetType = POPUP, targetId = 팝업 ID. 제목·본문은 사용자 입력이라 targetLabel을 두지 않는다 */
+    public static final String POPUP_CREATE = "POPUP_CREATE";
+    public static final String POPUP_UPDATE = "POPUP_UPDATE";
+    public static final String POPUP_DELETE = "POPUP_DELETE";
     /** 세션 강제 만료(단일·회원 단위) — targetType = MEMBER, targetId = 세션 소유 회원 ID(성공 행만), targetLabel = "세션 n개 만료". 세션 ID·핸들은 기록하지 않는다 */
     public static final String SESSION_EXPIRE = "SESSION_EXPIRE";
 
@@ -70,7 +74,8 @@ public final class AdminActionTypes {
             POST_CREATE, POST_UPDATE, POST_DELETE, POST_ATTACHMENT_UPLOAD, POST_ATTACHMENT_DELETE,
             BANNER_CREATE, BANNER_UPDATE, BANNER_DELETE, BANNER_ORDER,
             SESSION_EXPIRE,
-            SITE_PAGE_CREATE, SITE_PAGE_UPDATE, SITE_PAGE_DELETE
+            SITE_PAGE_CREATE, SITE_PAGE_UPDATE, SITE_PAGE_DELETE,
+            POPUP_CREATE, POPUP_UPDATE, POPUP_DELETE
     );
 
     private AdminActionTypes() {}

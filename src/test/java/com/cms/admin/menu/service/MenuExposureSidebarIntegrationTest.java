@@ -69,7 +69,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
     }
 
     /**
-     * 위임 메뉴의 노출 근거를 한꺼번에 켜고 끈다 — 게시판 단위(BOARD_SCOPED)는 {@code member_board_permission}, 기능 단위(DELEGABLE, 배너·정적 페이지)는
+     * 위임 메뉴의 노출 근거를 한꺼번에 켜고 끈다 — 게시판 단위(BOARD_SCOPED)는 {@code member_board_permission}, 기능 단위(DELEGABLE — 배너·정적 페이지·팝업 등 카탈로그의 모든 위임 기능)는
      * {@code member_permission}의 READ 행이다. 트리 API의 {@code PERMISSION:*}은 두 종류를 구분하지 않으므로 둘 다 맞춘다.
      */
     private void setBoardRead(boolean granted) {
@@ -77,8 +77,10 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
         jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
         if (granted) {
             jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, 'READ')", manager.getId(), boardId);
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'BANNER', 'READ')", manager.getId());
-            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'SITE_PAGE', 'READ')", manager.getId());
+            // 기능 단위 위임(DELEGABLE)은 카탈로그에서 생성한다 — 새 위임 기능이 생겨도 시드를 따로 고치지 않아도 된다(PLAN-popup.md R4-1)
+            for (com.cms.admin.permission.AdminFeature feature : com.cms.admin.permission.AdminFeature.ofKind(com.cms.admin.permission.FeatureKind.DELEGABLE)) {
+                jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, ?, 'READ')", manager.getId(), feature.name());
+            }
         }
         cache.invalidate();
     }

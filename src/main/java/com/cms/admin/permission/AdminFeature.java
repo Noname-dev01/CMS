@@ -74,6 +74,15 @@ public enum AdminFeature {
             List.of("/admin/site-page/manage"),
             List.of("/admin/site-page/manage", "/admin/api/site-pages", "/admin/api/site-pages/**")),
 
+    /**
+     * 공개 메인 팝업(기능 단위 위임, PLAN-popup.md 쟁점 3) — 세 번째 {@code DELEGABLE} 기능. 게이트는 기능 단위 READ이고 동작별 판정은
+     * 핸들러의 {@link RequirePermission}이 한다: 목록·상세·이미지 보기 = READ, 등록 = CREATE, 수정 = UPDATE, 삭제 = DELETE. 배너와 권한은
+     * 따로다(한쪽을 부여해도 다른 쪽은 열리지 않는다).
+     */
+    POPUP(DELEGABLE, "팝업", EnumSet.of(READ, CREATE, UPDATE, DELETE),
+            List.of("/admin/popup/manage"),
+            List.of("/admin/popup/manage", "/admin/api/popups", "/admin/api/popups/**")),
+
     MEMBER(ADMIN_ONLY, "회원 관리", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/member/manage", "/admin/member/new"), List.of()),
 
