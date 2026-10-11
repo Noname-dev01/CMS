@@ -29,6 +29,14 @@ public final class ContentBodyPolicy {
     public static final int PAGE_MAX_CONTENT_BYTES = 500_000;
     public static final int PAGE_MAX_RAW_BYTES = 600_000;
 
+    /**
+     * 팝업 HTML 본문 상한(PLAN-popup.md 쟁점 5) — 보이는 글자 2,000자(+ 마지막 문단 종료 1자), 정리 후 50,000바이트.
+     * 요청 DTO의 원문 상한은 {@link #POPUP_MAX_RAW_BYTES}로 sanitizer가 원문을 파싱하기 전에 거른다.
+     */
+    public static final int POPUP_MAX_TEXT_LENGTH = 2_001;
+    public static final int POPUP_MAX_CONTENT_BYTES = 50_000;
+    public static final int POPUP_MAX_RAW_BYTES = 100_000;
+
     private ContentBodyPolicy() {
     }
 
@@ -50,6 +58,19 @@ public final class ContentBodyPolicy {
 
     /** 정적 페이지 본문의 출력 시 정리 — 저장 시와 같은 이미지 불허 규칙(DB 직접 수정으로 들어온 {@code img}도 렌더하지 않는다). */
     public static String sanitizeForPageOutput(String storedContent) {
+        return HtmlContentSanitizer.sanitize(storedContent, false).html();
+    }
+
+    /**
+     * 팝업 HTML형 본문 규칙(PLAN-popup.md 쟁점 5) — 정적 페이지처럼 <b>이미지를 허용하지 않고</b>(이미지가 필요하면 이미지형 팝업을 쓴다)
+     * 상한이 작다. 출력 시 정리는 {@link #sanitizeForPopupOutput}가 같은 규칙으로 한다.
+     */
+    public static SanitizedHtml sanitizePopup(String rawContent, String contentFormat) {
+        return sanitize(rawContent, contentFormat, false, POPUP_MAX_TEXT_LENGTH, "2,000", POPUP_MAX_CONTENT_BYTES);
+    }
+
+    /** 팝업 본문의 출력 시 정리 — 저장 시와 같은 이미지 불허 규칙(DB 직접 수정으로 들어온 {@code script}·{@code img}도 렌더하지 않는다). */
+    public static String sanitizeForPopupOutput(String storedContent) {
         return HtmlContentSanitizer.sanitize(storedContent, false).html();
     }
 

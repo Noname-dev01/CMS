@@ -297,6 +297,25 @@ class LocalDiskFileStorageTest {
     }
 
     @Test
+    @DisplayName("popup도 예약 네임스페이스 — 루트 API로 popup/ 하위 파일에 닿지 못하고, banner와 서로 섞이지 않는다 (PLAN-popup.md 쟁점 4)")
+    void popupNamespace_isReserved_rootApisRejected(@TempDir Path tempDir) throws IOException {
+        LocalDiskFileStorage storage = newStorage(tempDir);
+        String key = storage.store("팝업 원본".getBytes(), "popup.png", "popup");
+        String rootStyleKey = "popup/" + key;
+
+        assertThrows(StorageFileNotFoundException.class, () -> storage.load(rootStyleKey));
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open(rootStyleKey));
+        storage.delete(rootStyleKey);   // no-op 계약이지만 실제로 지워지면 안 된다
+        assertArrayEquals("팝업 원본".getBytes(), storage.load(key, "popup"));
+
+        try (StoredFileStream opened = storage.open(key, "popup")) {
+            assertArrayEquals("팝업 원본".getBytes(), opened.inputStream().readAllBytes());
+        }
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open(key, "banner"));
+        assertThrows(StorageFileNotFoundException.class, () -> storage.open(key, "profile"));
+    }
+
+    @Test
     @DisplayName("open(key, ns): 다른 네임스페이스·루트에 저장된 키는 찾지 못하고, 경로 탈출·없는 키는 거부된다")
     void open_withNamespace_isolationAndTraversal(@TempDir Path tempDir) {
         LocalDiskFileStorage storage = newStorage(tempDir);
