@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface ContentImageRefRepository extends JpaRepository<ContentImageRef, ContentImageRefId> {
@@ -23,14 +24,15 @@ public interface ContentImageRefRepository extends JpaRepository<ContentImageRef
 
     /**
      * 공개 게시글이 이 이미지를 참조하는지(PLAN-board.md 쟁점 9·D-6). 공개 조건은 {@code PublicBoardService}의 공개 불변식과 같아야 한다 —
-     * 게시판 {@code publicYn ∧ ¬deleted}, 게시글 {@code useYn ∧ ¬deleted}, 게시글이 그 게시판 소속. 이미지 출처는 {@code BOARD}이고 참조한
+     * 게시판 {@code publicYn ∧ ¬deleted}, 게시글 {@code useYn ∧ ¬deleted}, 게시글이 그 게시판 소속. 노출 기간 {@code [publishStart, publishEnd)}도 만족해야 한다(예약·만료 글의 이미지가 글보다 먼저/오래 공개되지 않게). 이미지 출처는 {@code BOARD}이고 참조한
      * 게시글의 게시판과 같아야 한다(롤백 중 출처 검증 없이 생긴 참조로는 공개되지 않는다). {@code r.imageId = :imageId}가 빠지면 다른 공개 글의
      * 참조가 아무 이미지나 공개하므로 반드시 요청 이미지와 연결한다.
      */
     @Query("select count(r) > 0 from ContentImageRef r, Post p, Board b, ContentImage i"
             + " where r.imageId = :imageId and r.ownerType = 'POST' and p.id = r.ownerId"
             + " and p.useYn = true and p.deleted = false"
+            + " and (p.publishStart is null or p.publishStart <= :now) and (p.publishEnd is null or p.publishEnd > :now)"
             + " and b.id = p.boardId and b.publicYn = true and b.deleted = false"
             + " and i.id = r.imageId and i.scopeType = 'BOARD' and i.scopeId = p.boardId")
-    boolean existsPublishedPostRef(@Param("imageId") Long imageId);
+    boolean existsPublishedPostRef(@Param("imageId") Long imageId, @Param("now") LocalDateTime now);
 }

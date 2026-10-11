@@ -1,6 +1,8 @@
 package com.cms.admin.board.dto.response;
 
 import com.cms.admin.board.domain.Post;
+import com.cms.common.display.DisplayPeriod;
+import com.cms.common.display.DisplayStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -24,8 +26,15 @@ public class PostSummaryResponse {
     private String authorId;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
+    @Schema(description = "노출 기간 시작(포함). null이면 시작 제한 없음", nullable = true)
+    private LocalDateTime publishStart;
+    @Schema(description = "노출 기간 종료(미포함). null이면 종료 제한 없음", nullable = true)
+    private LocalDateTime publishEnd;
+    @Schema(description = "노출 상태 — HIDDEN > SCHEDULED > EXPIRED > ACTIVE. 서버 Clock 기준")
+    private DisplayStatus status;
 
-    public static PostSummaryResponse from(Post post) {
+    /** @param now 앱 Clock 기준 현재 시각 — 노출 상태 계산용(서비스가 요청당 1회 산출해 전달) */
+    public static PostSummaryResponse from(Post post, LocalDateTime now) {
         return PostSummaryResponse.builder()
                 .id(post.getId())
                 .boardId(post.getBoardId())
@@ -34,6 +43,9 @@ public class PostSummaryResponse {
                 .authorId(post.getAuthorId())
                 .createDate(post.getCreateDate())
                 .updateDate(post.getUpdateDate())
+                .publishStart(post.getPublishStart())
+                .publishEnd(post.getPublishEnd())
+                .status(DisplayPeriod.statusOf(Boolean.TRUE.equals(post.getUseYn()), post.getPublishStart(), post.getPublishEnd(), now))
                 .build();
     }
 }
