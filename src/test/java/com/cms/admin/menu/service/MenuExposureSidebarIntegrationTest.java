@@ -69,7 +69,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
     }
 
     /**
-     * 위임 메뉴의 노출 근거를 한꺼번에 켜고 끈다 — 게시판 단위(BOARD_SCOPED)는 {@code member_board_permission}, 기능 단위(DELEGABLE, 배너)는
+     * 위임 메뉴의 노출 근거를 한꺼번에 켜고 끈다 — 게시판 단위(BOARD_SCOPED)는 {@code member_board_permission}, 기능 단위(DELEGABLE, 배너·정적 페이지)는
      * {@code member_permission}의 READ 행이다. 트리 API의 {@code PERMISSION:*}은 두 종류를 구분하지 않으므로 둘 다 맞춘다.
      */
     private void setBoardRead(boolean granted) {
@@ -78,6 +78,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
         if (granted) {
             jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, 'READ')", manager.getId(), boardId);
             jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'BANNER', 'READ')", manager.getId());
+            jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'SITE_PAGE', 'READ')", manager.getId());
         }
         cache.invalidate();
     }

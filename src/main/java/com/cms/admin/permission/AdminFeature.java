@@ -65,6 +65,15 @@ public enum AdminFeature {
             List.of("/admin/banner/manage"),
             List.of("/admin/banner/manage", "/admin/api/banners", "/admin/api/banners/**")),
 
+    /**
+     * 정적 페이지(약관·개인정보처리방침·소개 등, 기능 단위 위임, PLAN-static-page.md 쟁점 9). 게이트는 기능 단위 READ이고 동작별 판정은 핸들러의
+     * {@link RequirePermission}이 한다: 목록·상세 = READ, 등록 = CREATE, 수정 = UPDATE, 삭제 = DELETE. 이름이 {@code PAGE}가 아닌 것은
+     * {@code @AdminPage}(페이지 컨트롤러 마커)와의 혼동을 피하기 위해서다.
+     */
+    SITE_PAGE(DELEGABLE, "정적 페이지", EnumSet.of(READ, CREATE, UPDATE, DELETE),
+            List.of("/admin/site-page/manage"),
+            List.of("/admin/site-page/manage", "/admin/api/site-pages", "/admin/api/site-pages/**")),
+
     MEMBER(ADMIN_ONLY, "회원 관리", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/member/manage", "/admin/member/new"), List.of()),
 

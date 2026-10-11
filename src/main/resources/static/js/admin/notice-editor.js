@@ -10,6 +10,8 @@
  *   계속 옮기며(transformPosition), 여러 파일은 순서대로 올려 선택 순서대로 넣는다. 업로드 중에는 busy 상태를 알려 저장을 막는다.
  * - 업로드 URL: options.uploadUrl(기본 없음 — 없으면 이미지 업로드는 오류 안내만 하고 올리지 않는다). 게시판 화면은 인스턴스를 하나만 만들고 게시판을 열 때마다 setUploadUrl(url)로 바꾼다 —
  *   진행 중인 업로드를 무효화한 뒤 URL만 교체하므로 이전 게시판 출처로 늦게 올라가는 이미지가 없다(PLAN-board.md 쟁점 9·R3-4).
+ * - options.allowImages(기본 true): false면 이미지 서식·툴바 버튼·파일 붙여넣기/끌어놓기 업로드·붙여넣은 img를 모두 끈다.
+ *   이미지를 지원하지 않는 콘텐츠(정적 페이지, PLAN-static-page.md 쟁점 7)가 쓰며 서버 sanitizer의 allowImages=false와 짝이다.
  * - 로딩: clipboard.convert는 서식 없는 마지막 개행을 버려 끝 빈 문단이 재편집마다 줄어든다 — Quill 자신의 초기 로딩처럼 빈 문단을
  *   하나 덧붙여 변환한다(R5-1).
  */
@@ -53,6 +55,11 @@
         const onBusyChange = options.onBusyChange || function () {};
         const onError = options.onError || function () {};
         let uploadUrl = options.uploadUrl || null;
+        const allowImages = options.allowImages !== false;
+        const formats = allowImages ? FORMATS : FORMATS.filter(function (format) { return format !== "image"; });
+        const toolbar = allowImages ? TOOLBAR : TOOLBAR.map(function (group) {
+            return Array.isArray(group) ? group.filter(function (item) { return item !== "image"; }) : group;
+        });
         const Delta = global.Quill.import("delta");
         // 링크 프로토콜을 서버 sanitizer(http/https/mailto)와 맞춘다 — Quill 기본값은 tel·sms도 허용해 편집기에선 링크로 보이다가 저장 후 href가 사라진다
         global.Quill.import("formats/link").PROTOCOL_WHITELIST = ["http", "https", "mailto"];
@@ -69,6 +76,9 @@
         }
 
         function contentImageOnly(node, delta) {
+            if (!allowImages) {
+                return new Delta();
+            }
             return CONTENT_IMAGE_SRC.test(node.getAttribute("src") || "") ? delta : new Delta();
         }
 
@@ -79,11 +89,11 @@
 
         const quill = new global.Quill(container, {
             theme: "snow",
-            formats: FORMATS,
+            formats: formats,
             modules: {
-                toolbar: { container: TOOLBAR, handlers: { image: pickImages } },
+                toolbar: { container: toolbar, handlers: { image: pickImages } },
                 uploader: {
-                    mimetypes: IMAGE_MIME_TYPES,
+                    mimetypes: allowImages ? IMAGE_MIME_TYPES : [],
                     handler: function (range, files) {
                         uploadFiles(range ? range.index : quill.getLength() - 1, files);
                     }
