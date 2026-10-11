@@ -279,6 +279,15 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 | SQL 로그(`show-sql`) | `true` | `false` |
 | 초기 관리자 계정 | `TestMemberLoader`(고정 `admin`/`1234`, 회원 0명일 때만) | `AdminBootstrapLoader`(환경변수 기반, `ROLE_ADMIN`+`ACTIVE`/`LOCKED`/`PASSWORD_EXPIRED` 중 하나도 없을 때만 — 감사 H-01, 위 "초기 관리자 계정" 절 참조) |
 
+## 정적 페이지 (V37~V38, 2026-10-11, adversarial-review/plan/PLAN-static-page.md)
+
+- **새 공개 경로**: `GET·HEAD /pages/{slug}`·`/pages/{slug}/revisions`·`/pages/{slug}/revisions/{no}`가 무인증이다(`SecurityConfig` 승인 2026-10-11, `/pages`·`/pages/**`의 그 외 메서드는 `denyAll`). 공개 메인(`/`) 하단 푸터에는 푸터로 지정한 노출 중 페이지 링크가 붙는다. 리버스 프록시·ingress가 `/pages`를 막고 있다면 확인한다. 레이트리밋 규칙 `public-page`(`/pages/**` 120/60초)가 IP별로 걸린다.
+- **저장**: 페이지 메타 `site_page`와 개정 `site_page_revision`은 DB에만 있고 파일 볼륨을 쓰지 않는다(본문 이미지는 지원하지 않는다). 개정은 본문이 바뀐 저장마다 쌓이고 페이지 삭제 때만 함께 지워진다 — **DB 백업(`make prod-backup`)에 두 테이블이 그대로 들어간다**. 개정 한 건은 본문이 최대 약 500KB라 개정이 많이 쌓이면 DB 용량이 늘 수 있다(상한을 두지 않았다 — 요청된 적 없음, 모니터링 포인트).
+- **이전 개정은 계속 공개된다**: 노출 중인 페이지의 모든 이전 개정이 `/pages/{slug}/revisions/{no}`로 열린다. 실수로 넣은 민감 정보를 **그 개정만** 가리는 기능은 없고 페이지 비노출(`useYn=false`)·삭제만 수단이다. 비노출이면 현재 버전·이력·이전 개정이 모두 404다.
+- **롤백(정적 페이지 도입 전 앱으로)**: V37·V38은 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `SitePageMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `SITE_PAGE` 기능 행을 diff에서 제외하므로 롤백 중 "전체 회수"를 해도 그 행이 남고, 신버전을 다시 배포하면 **회수한 정적 페이지 권한이 되살아난다**(배너 `BANNER`와 같은 문제). 재배포 전에 위 "사용자별 권한 전환 > 롤백했다가 신버전을 다시 배포할 때(필수 정리)"의 정리 트랜잭션을 그대로 수행하고 기동 후 ADMIN이 권한을 다시 부여한다. 롤백 중에는 **공개 `/pages/**`가 404가 되고 메뉴 행은 클릭 시 404**다(필요하면 메뉴 관리에서 비활성화). roll-forward가 기본이다.
+- **V37 실패 복구**: `docs/migration-guide.md` "V37~V38".
+- **본문 상한**: 정적 페이지 본문은 보이는 글자 50,000자·정리 후 500,000바이트·요청 원문 600,000바이트다(게시글은 10,000자). 리버스 프록시의 요청 본문 크기 제한(`client_max_body_size` 등)이 1MB 미만이면 큰 본문 저장이 프록시에서 막힌다.
+
 ## 무인증 공개 엔드포인트 레이트리밋
 
 `cms.rate-limit.*`(전 프로파일 공통값, `application.yml`)이 `/notices/**`·비밀번호 재설정 API를 토큰 버킷으로 방어한다. 상세 설계는 `adversarial-review/plan/PLAN-public-endpoint-rate-limit.md` 참조.

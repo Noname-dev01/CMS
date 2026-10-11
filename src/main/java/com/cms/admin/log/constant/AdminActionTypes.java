@@ -54,6 +54,10 @@ public final class AdminActionTypes {
     public static final String BANNER_DELETE = "BANNER_DELETE";
     /** 배너 표시 순서 일괄 저장 — targetType = BANNER, targetId 없음(순서 전체가 대상) */
     public static final String BANNER_ORDER = "BANNER_ORDER";
+    /** 정적 페이지 등록·수정·삭제 — targetType = SITE_PAGE, targetId = 페이지 ID, targetLabel = "rev=N"(시스템 생성 개정 번호; 제목·슬러그는 사용자 입력이라 싣지 않는다) */
+    public static final String SITE_PAGE_CREATE = "SITE_PAGE_CREATE";
+    public static final String SITE_PAGE_UPDATE = "SITE_PAGE_UPDATE";
+    public static final String SITE_PAGE_DELETE = "SITE_PAGE_DELETE";
     /** 세션 강제 만료(단일·회원 단위) — targetType = MEMBER, targetId = 세션 소유 회원 ID(성공 행만), targetLabel = "세션 n개 만료". 세션 ID·핸들은 기록하지 않는다 */
     public static final String SESSION_EXPIRE = "SESSION_EXPIRE";
 
@@ -65,7 +69,8 @@ public final class AdminActionTypes {
             BOARD_CREATE, BOARD_UPDATE, BOARD_DELETE,
             POST_CREATE, POST_UPDATE, POST_DELETE, POST_ATTACHMENT_UPLOAD, POST_ATTACHMENT_DELETE,
             BANNER_CREATE, BANNER_UPDATE, BANNER_DELETE, BANNER_ORDER,
-            SESSION_EXPIRE
+            SESSION_EXPIRE,
+            SITE_PAGE_CREATE, SITE_PAGE_UPDATE, SITE_PAGE_DELETE
     );
 
     private AdminActionTypes() {}

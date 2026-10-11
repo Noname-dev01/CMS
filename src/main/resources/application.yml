@@ -130,6 +130,12 @@ cms:
         methods: [GET, HEAD]
         capacity: 120
         refill-period-seconds: 60
+      # 공개 정적 페이지(현재 버전·개정 목록·이전 개정) — 본문 외 자원을 내려주지 않아 공개 게시판 목록·상세와 같은 값. PLAN-static-page.md 쟁점 12
+      - id: public-page
+        pattern: /pages/**
+        methods: [GET, HEAD]
+        capacity: 120
+        refill-period-seconds: 60
       # 편집기 본문 이미지 공개 다운로드 — 공지 1건에 이미지가 여러 장이라 공지 페이지보다 넉넉하게(PLAN-html-editor.md).
       - id: content-image
         pattern: /content-images/*

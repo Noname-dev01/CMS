@@ -39,6 +39,10 @@
 | V32 | `V32__absorb_notice_into_board.sql` | **공지 → 공지 게시판 이관**(공지·첨부 복사, 본문 이미지 출처·참조 이동, MANAGER 공지 권한 이동, 메뉴 정리) — 순수 DML 한 트랜잭션, **되돌릴 수 없음 — 아래 "V31~V32" 백업 필수** |
 | V33 | `V33__create_banner.sql` | 배너 `banner`·동시성 가드 `banner_lock`(DDL 2문 — 실패 복구는 아래 "V33~V34") |
 | V34 | `V34__seed_banner_lock_and_menu.sql` | 가드 행(id=1)·배너 관리 메뉴 시드(멱등 DML) |
+| V35 | `V35__seed_session_menu.sql` | 세션 관리 메뉴 시드(멱등 DML) |
+| V36 | `V36__add_post_publish_period.sql` | `post.publish_start`·`publish_end` — DDL 1문(아래 "V36") |
+| V37 | `V37__create_site_page.sql` | 정적 페이지 `site_page`·개정 `site_page_revision`(DDL 2문 — 실패 복구는 아래 "V37~V38") |
+| V38 | `V38__seed_site_page_menu.sql` | 정적 페이지 관리 메뉴 시드(멱등 DML) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -115,6 +119,13 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **V36**은 `ALTER TABLE post ADD COLUMN publish_start, publish_end`(둘 다 `datetime(6) NULL`) 한 문이다. 기존 행은 NULL이라 기존 공개 동작이 그대로다. 되돌릴 때는 **이전 앱이 예약·만료 글을 공개한다** — 반드시 `docs/deployment.md` "게시글 예약 게시"의 롤백 순서(쓰기 동결·백업·비노출·잔여 0건 검증)를 따른다.
 - **실패 복구**: DDL 커밋 후 이력 기록 전에 프로세스가 끊기면 "컬럼은 있고 성공 이력은 없는" 상태나 `success=0` 이력이 남는다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version = '36';`와 `SHOW COLUMNS FROM post LIKE 'publish_%';` ③ **`success=1`이면 컬럼을 건드리지 않는다**(기간이 든 실제 데이터가 있을 수 있다). 이력이 없거나 `success=0`인데 컬럼만 있으면 이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 값이 모두 NULL이므로 `ALTER TABLE post DROP COLUMN publish_end, DROP COLUMN publish_start;`(이미 있는 쪽만) ④ `flyway repair` ⑤ 재기동.
 - **시험**: `PostPublishPeriodMigrationTest`(V35 → 최신: 기존 행 NULL·use_yn/삭제 상태 불변·기존 공개 조건이 그대로 노출 글 하나만 고름, 컬럼이 `datetime(6)` NULL 허용, 저장 범위 왕복). 이전 앱 코드로 기동하는 호환은 코드가 없어 시험하지 못한다 — `ddl-auto: validate`가 여분 컬럼을 허용한다는 점에 의존한다.
+
+## V37~V38 — 정적 페이지 (2026-10-11, `adversarial-review/plan/PLAN-static-page.md`)
+
+- **V37**(DDL 2문: `site_page`, `site_page_revision`)은 문마다 암묵 커밋이다. 두 번째 문이 실패하면 **첫 테이블만 남고 `success=0` 이력이 남는다 — 단순 재기동은 "failed migration to version 37"로 중단된다.** 복구: ① 앱 정지·원인 제거 ② `SELECT version, success FROM flyway_schema_history WHERE version = '37';`와 `SHOW TABLES LIKE 'site_page%';` ③ **이력이 없거나 `success=0`인 경우에만** 잔여 객체를 자식→부모 순으로 `DROP TABLE IF EXISTS site_page_revision; DROP TABLE IF EXISTS site_page;` (이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 데이터가 없다) ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. **`success=1`인 버전의 테이블은 개정 이력이 든 실제 데이터일 수 있으므로 절대 건드리지 않는다**(V17~V19·V33 복구와 같은 원칙).
+- **V38**은 순수 DML(메뉴 '정적 페이지 관리' 최상위 맨 끝, `WHERE NOT EXISTS`로 멱등)이다.
+- **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다. 롤백 후 재배포 시 **권한 정리**는 `docs/deployment.md` "정적 페이지".
+- **시험**: `SitePageMigrationTest`(V36→V38 테이블·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(슬러그 유일·복합 PK·FK RESTRICT), V36 이하 앱 롤백 기동 호환, **V37 부분 적용 실패 → repair 복구**).
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

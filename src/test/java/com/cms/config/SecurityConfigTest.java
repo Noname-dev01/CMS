@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, PublicSitePageStubController.class, AdminSitePageStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
@@ -639,6 +639,69 @@ class SecurityConfigTest {
         mockMvc.perform(get("/admin/api/banners")).andExpect(status().isOk());
     }
 
+    // ==================== 공개 정적 페이지 /pages/** (2026-10-11 승인, PLAN-static-page.md 쟁점 12) ====================
+
+    @Test
+    @DisplayName("비인증 GET·HEAD /pages/{slug}·/revisions·/revisions/{no}는 200 (permitAll)")
+    void publicPages_anonymousGetAndHead_ok() throws Exception {
+        for (String path : new String[]{"/pages/terms", "/pages/terms/revisions", "/pages/terms/revisions/2"}) {
+            mockMvc.perform(get(path)).andExpect(status().isOk());
+            mockMvc.perform(head(path)).andExpect(status().isOk());
+        }
+    }
+
+    @Test
+    @DisplayName("/pages/** 의 쓰기 메서드는 막힌다 — 비인증은 로그인으로(csrf 있음), csrf 없으면 403 (denyAll)")
+    void publicPages_writes_denied() throws Exception {
+        for (String path : new String[]{"/pages/terms", "/pages/terms/revisions/1"}) {
+            mockMvc.perform(post(path).with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+            mockMvc.perform(put(path).with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+            mockMvc.perform(delete(path).with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+            mockMvc.perform(post(path)).andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    @DisplayName("ADMIN도 /pages/** 쓰기는 denyAll로 403 (역할 불문)")
+    @WithMockUser(roles = "ADMIN")
+    void publicPages_adminWrite_forbidden() throws Exception {
+        mockMvc.perform(post("/pages/terms").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(delete("/pages/terms").with(csrf())).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("/pages와 비슷한 접두사 경로(/pagesx, /page)는 공개되지 않는다 (기본 거부)")
+    void publicPages_lookalikePrefixes_notPublic() throws Exception {
+        mockMvc.perform(get("/pagesx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/page/terms")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    // ==================== 정적 페이지 관리 게이트 (DELEGABLE SITE_PAGE — 카탈로그에서 자동 생성) ====================
+
+    @Test
+    @DisplayName("비인증 정적 페이지 관리 페이지·API는 로그인으로 보낸다(페이지 302, API JSON 401)")
+    void adminSitePage_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/site-page/manage")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/admin/api/site-pages")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("정적 페이지 권한(member_permission SITE_PAGE)이 없는 MANAGER는 페이지·API 게이트에서 403")
+    @WithManager
+    void adminSitePage_managerWithoutGrant_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/site-page/manage")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/site-pages")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/site-pages/1")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("ADMIN은 정적 페이지 관리 페이지·API 게이트를 통과한다")
+    @WithMockUser(roles = "ADMIN")
+    void adminSitePage_admin_ok() throws Exception {
+        mockMvc.perform(get("/admin/site-page/manage")).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/site-pages")).andExpect(status().isOk());
+    }
+
     @Test
     @WithMockUser(roles = "ADMIN")
     @DisplayName("ADMIN도 미분류 경로는 403 (denyAll은 역할과 무관)")
@@ -957,5 +1020,49 @@ class AdminBannerStubController {
     @org.springframework.web.bind.annotation.PutMapping("/admin/api/banners/order")
     ResponseEntity<String> order() {
         return ResponseEntity.ok("[]");
+    }
+}
+
+@TestStubController
+class PublicSitePageStubController {
+
+    @GetMapping("/pages/{slug}")
+    String current() {
+        return "page-current";
+    }
+
+    @GetMapping("/pages/{slug}/revisions")
+    String revisions() {
+        return "page-revisions";
+    }
+
+    @GetMapping("/pages/{slug}/revisions/{no}")
+    String revision() {
+        return "page-revision";
+    }
+
+    @PostMapping("/pages/{slug}")
+    ResponseEntity<String> write() {
+        // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
+        return ResponseEntity.ok("{}");
+    }
+}
+
+@TestStubController
+class AdminSitePageStubController {
+
+    @GetMapping("/admin/site-page/manage")
+    String page() {
+        return "site-page-manage";
+    }
+
+    @GetMapping("/admin/api/site-pages")
+    String list() {
+        return "[]";
+    }
+
+    @GetMapping("/admin/api/site-pages/{id}")
+    String detail() {
+        return "{}";
     }
 }

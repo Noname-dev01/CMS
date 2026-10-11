@@ -70,9 +70,18 @@ public final class HtmlContentSanitizer {
      * 결과를 다시 정리해 더 바뀌지 않을 때(고정점)의 결과를 쓴다. 길이·공백 판정도 그 결과 기준이라 저장 시와 출력 시가 같다.
      */
     public static SanitizedHtml sanitize(String html) {
-        SanitizedHtml result = sanitizeOnce(html);
+        return sanitize(html, true);
+    }
+
+    /**
+     * 이미지 허용 여부를 고를 수 있는 정리. {@code allowImages=false}면 허용 목록을 통과한 {@code img}도 <b>전부 제거</b>한다 —
+     * 본문 이미지의 출처·공개 판정이 게시판에 묶여 있어 이미지를 지원하지 않는 콘텐츠(정적 페이지, PLAN-static-page.md 쟁점 7)가 쓴다.
+     * 멱등성은 유지되며, 저장 시와 출력 시 같은 값으로 호출해야 한다.
+     */
+    public static SanitizedHtml sanitize(String html, boolean allowImages) {
+        SanitizedHtml result = sanitizeOnce(html, allowImages);
         for (int pass = 1; pass < MAX_PASSES; pass++) {
-            SanitizedHtml again = sanitizeOnce(result.html());
+            SanitizedHtml again = sanitizeOnce(result.html(), allowImages);
             if (again.html().equals(result.html())) {
                 return again;
             }
@@ -81,7 +90,7 @@ public final class HtmlContentSanitizer {
         return result;
     }
 
-    private static SanitizedHtml sanitizeOnce(String html) {
+    private static SanitizedHtml sanitizeOnce(String html, boolean allowImages) {
         Document dirty = Jsoup.parseBodyFragment(html == null ? "" : html, "");
         mapHeadings(dirty.body());
 
@@ -92,7 +101,7 @@ public final class HtmlContentSanitizer {
                 .escapeMode(Entities.EscapeMode.base);
         Element body = clean.body();
 
-        Set<Long> imageIds = filterImages(body);
+        Set<Long> imageIds = allowImages ? filterImages(body) : removeAllImages(body);
         wrapTopLevelInline(body);
         for (Element block : leafBlocks(body)) {
             normalizeWhitespace(block);
@@ -120,6 +129,12 @@ public final class HtmlContentSanitizer {
             }
         }
         return ids;
+    }
+
+    /** 이미지를 지원하지 않는 콘텐츠용 — 모든 {@code img}를 지운다. */
+    private static Set<Long> removeAllImages(Element body) {
+        body.select("img").remove();
+        return new LinkedHashSet<>();
     }
 
     /** {@code /content-images/{id}} 형식이면 ID, 아니면 null. 19자리 중 {@code Long} 범위 밖은 null(R1-10). */
