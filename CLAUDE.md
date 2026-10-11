@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | 파일 위치 | 담긴 내용 |
 |---|---|
-| `com.cms.admin.board` | 범용 게시판 — 게시판 정의(ADMIN 전용·소프트 삭제는 살아 있는 게시글이 없을 때만)·게시글·첨부(게시판별 권한, 루트 스토리지)·게시판 행 잠금 규칙(생성 `FOR SHARE`/삭제 `FOR UPDATE`)·내 게시판 목록 API·통합 검색 게시글 섹션·**공지 게시판 흡수(시스템 게시판 `board_key='NOTICE'`, V31·V32, `/admin/notice/manage` 리다이렉트, 시험 이식)** |
+| `com.cms.admin.board` | 범용 게시판 — 게시판 정의(ADMIN 전용·소프트 삭제는 살아 있는 게시글이 없을 때만)·게시글·첨부(게시판별 권한, 루트 스토리지)·게시판 행 잠금 규칙(생성 `FOR SHARE`/삭제 `FOR UPDATE`)·내 게시판 목록 API·통합 검색 게시글 섹션·**공지 게시판 흡수(시스템 게시판 `board_key='NOTICE'`, V31·V32, `/admin/notice/manage` 리다이렉트, 시험 이식)**·**게시글 예약 게시(노출 기간 `[publishStart, publishEnd)`, V36 — `publishPeriod` 통째 교체 PATCH·엄격 서버 파싱·세터 기반 중복/오타 키 거부·`@JsonCreator(DISABLED)` 필수·공개 경로 다섯 곳이 한 쌍, 롤백 시 예약 글 공개 주의)** |
 | `com.cms.admin.banner` | 공개 메인 배너 관리 — **첫 기능 단위 위임(`DELEGABLE`) 기능 `BANNER`**(READ·CREATE·UPDATE·DELETE, `member_permission`)·생성/삭제/순서 저장을 직렬화하는 **가드 행 `banner_lock` 잠금**(빈 테이블에서도)·`banner` 네임스페이스 이미지(2MB·2560px·최대 10개)·`PUT` 전체 교체·노출 기간 `[start, end)` 분 단위 절단·롤백 후 권한 부활 주의·V33~V34 |
 | `com.cms.admin.contentimage` | 편집기 본문 이미지 — 업로드 권한(CREATE∨UPDATE 재판정, 게시판 업로드 진입점 하나 — 공지도 공지 게시판)·업로드 출처(BOARD, 옛 NOTICE는 V32가 이관)·카운터 행 잠금 상한·참조 교체·공개 판정·수동 회수 |
 | `com.cms.admin.log` | `@AdminActionLogged` 독립 트랜잭션(REQUIRES_NEW)·예외 격리 계약 |

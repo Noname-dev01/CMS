@@ -24,13 +24,17 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
 import java.io.ByteArrayInputStream;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,6 +59,9 @@ class PublicBoardServiceTest {
 
     private static final Long BOARD_ID = 7L;
 
+    /** 서비스가 쿼리에 넘기는 판정 시각 — 고정 Clock(KST 2026-10-09 12:00)의 값. 저장소 호출 인자로 단언해 "주입된 Clock으로 요청당 산출해 전달"을 고정한다. */
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 9, 12, 0);
+
     @Mock
     BoardRepository boardRepository;
 
@@ -66,6 +73,9 @@ class PublicBoardServiceTest {
 
     @Mock
     FileStorage fileStorage;
+
+    @Spy
+    Clock clock = Clock.fixed(Instant.parse("2026-10-09T03:00:00Z"), ZoneId.of("Asia/Seoul"));
 
     @InjectMocks
     PublicBoardService service;
@@ -109,7 +119,7 @@ class PublicBoardServiceTest {
     @DisplayName("목록은 공개 게시글 조회 결과를 요약 DTO로 반환한다(저장소 필터에 위임)")
     void list_returnsPublishedSummaries() {
         publicBoardExists();
-        given(postRepository.searchPublished(eq(BOARD_ID), eq(null), any())).willReturn(new PageImpl<>(List.of(post(1L))));
+        given(postRepository.searchPublished(eq(BOARD_ID), eq(null), eq(NOW), any())).willReturn(new PageImpl<>(List.of(post(1L))));
 
         PublicBoardListResult result = service.getPublishedPosts(BOARD_ID, 0, null).orElseThrow();
 
@@ -122,7 +132,7 @@ class PublicBoardServiceTest {
     @DisplayName("음수 page는 0으로 보정된다")
     void list_negativePage_clampedToZero() {
         publicBoardExists();
-        given(postRepository.searchPublished(any(), any(), any())).willReturn(new PageImpl<>(List.of()));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
 
         service.getPublishedPosts(BOARD_ID, -5, null);
 
@@ -133,7 +143,7 @@ class PublicBoardServiceTest {
     @DisplayName("MAX_PAGE(1000) 초과 page는 0으로 보정된다 — 대형 OFFSET 방어")
     void list_pageBeyondMax_clampedToZero() {
         publicBoardExists();
-        given(postRepository.searchPublished(any(), any(), any())).willReturn(new PageImpl<>(List.of()));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
 
         service.getPublishedPosts(BOARD_ID, Integer.MAX_VALUE, null);
 
@@ -144,7 +154,7 @@ class PublicBoardServiceTest {
     @DisplayName("페이지 크기는 항상 10, 정렬은 createDate desc → id desc로 고정된다")
     void list_sizeAndSortFixed() {
         publicBoardExists();
-        given(postRepository.searchPublished(any(), any(), any())).willReturn(new PageImpl<>(List.of()));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
 
         service.getPublishedPosts(BOARD_ID, 0, null);
 
@@ -156,7 +166,7 @@ class PublicBoardServiceTest {
 
     private Pageable capturedPageable(String keyword) {
         ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
-        verify(postRepository).searchPublished(eq(BOARD_ID), eq(keyword), captor.capture());
+        verify(postRepository).searchPublished(eq(BOARD_ID), eq(keyword), eq(NOW), captor.capture());
         return captor.getValue();
     }
 
@@ -168,19 +178,19 @@ class PublicBoardServiceTest {
     @DisplayName("키워드가 없거나 공백뿐이면 검색어 없이 조회하고 결과 키워드는 null이다")
     void list_blankKeyword_noKeyword(String keyword) {
         publicBoardExists();
-        given(postRepository.searchPublished(any(), any(), any())).willReturn(new PageImpl<>(List.of()));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
 
         PublicBoardListResult result = service.getPublishedPosts(BOARD_ID, 0, keyword).orElseThrow();
 
         assertNull(result.keyword());
-        verify(postRepository).searchPublished(eq(BOARD_ID), eq(null), any());
+        verify(postRepository).searchPublished(eq(BOARD_ID), eq(null), eq(NOW), any());
     }
 
     @Test
     @DisplayName("키워드는 앞뒤 공백을 제거해 검색으로 전달하고, 정규화한 값을 결과에 담는다")
     void list_keyword_strippedAndSearched() {
         publicBoardExists();
-        given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), any())).willReturn(new PageImpl<>(List.of(post(1L))));
+        given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), eq(NOW), any())).willReturn(new PageImpl<>(List.of(post(1L))));
 
         PublicBoardListResult result = service.getPublishedPosts(BOARD_ID, 0, "  점검\t").orElseThrow();
 
@@ -192,7 +202,7 @@ class PublicBoardServiceTest {
     @DisplayName("검색할 때도 page 보정·크기 10·정렬(createDate desc, id desc)이 같다")
     void list_keyword_sameRulesAsPlainList() {
         publicBoardExists();
-        given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), any())).willReturn(new PageImpl<>(List.of()));
+        given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), eq(NOW), any())).willReturn(new PageImpl<>(List.of()));
 
         service.getPublishedPosts(BOARD_ID, Integer.MAX_VALUE, "점검");
 
@@ -208,16 +218,16 @@ class PublicBoardServiceTest {
     void list_keywordLengthBoundary() {
         publicBoardExists();
         String max = "가".repeat(100);
-        given(postRepository.searchPublished(eq(BOARD_ID), eq(max), any())).willReturn(new PageImpl<>(List.of()));
+        given(postRepository.searchPublished(eq(BOARD_ID), eq(max), eq(NOW), any())).willReturn(new PageImpl<>(List.of()));
 
         service.getPublishedPosts(BOARD_ID, 0, max);
-        verify(postRepository).searchPublished(eq(BOARD_ID), eq(max), any());
+        verify(postRepository).searchPublished(eq(BOARD_ID), eq(max), eq(NOW), any());
 
         PublicBoardListResult tooLong = service.getPublishedPosts(BOARD_ID, 0, max + "가").orElseThrow();
         assertTrue(tooLong.page().isEmpty());
         assertEquals(0, tooLong.page().getTotalElements());
         assertEquals(max + "가", tooLong.keyword());
-        verify(postRepository, never()).searchPublished(eq(BOARD_ID), eq(max + "가"), any());
+        verify(postRepository, never()).searchPublished(eq(BOARD_ID), eq(max + "가"), eq(NOW), any());
     }
 
     @Test
@@ -226,13 +236,13 @@ class PublicBoardServiceTest {
         publicBoardExists();
         String fifty = "😀".repeat(50);
         String fiftyOne = "😀".repeat(51);
-        given(postRepository.searchPublished(eq(BOARD_ID), eq(fifty), any())).willReturn(new PageImpl<>(List.of()));
+        given(postRepository.searchPublished(eq(BOARD_ID), eq(fifty), eq(NOW), any())).willReturn(new PageImpl<>(List.of()));
 
         service.getPublishedPosts(BOARD_ID, 0, fifty);
         service.getPublishedPosts(BOARD_ID, 0, fiftyOne);
 
-        verify(postRepository).searchPublished(eq(BOARD_ID), eq(fifty), any());
-        verify(postRepository, never()).searchPublished(eq(BOARD_ID), eq(fiftyOne), any());
+        verify(postRepository).searchPublished(eq(BOARD_ID), eq(fifty), eq(NOW), any());
+        verify(postRepository, never()).searchPublished(eq(BOARD_ID), eq(fiftyOne), eq(NOW), any());
     }
 
     // ===================== 상세 =====================
@@ -251,7 +261,7 @@ class PublicBoardServiceTest {
     @DisplayName("상세: 미노출·삭제·다른 게시판 글이면 empty이고 첨부 저장소를 호출하지 않는다")
     void detail_postAbsent_emptyAndNoAttachmentQuery() {
         publicBoardExists();
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(999L, BOARD_ID)).willReturn(Optional.empty());
+        given(postRepository.findPublishedById(999L, BOARD_ID, NOW)).willReturn(Optional.empty());
 
         assertTrue(service.findPublishedPost(BOARD_ID, 999L).isEmpty());
 
@@ -262,9 +272,9 @@ class PublicBoardServiceTest {
     @DisplayName("상세: 공개 글을 DTO로 반환하고 첨부를 id 오름차순으로 조립하며 첨부가 없으면 빈 리스트다(null 아님)")
     void detail_assemblesAttachmentsInIdOrder_orEmptyList() {
         publicBoardExists();
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(1L, BOARD_ID)).willReturn(Optional.of(post(1L)));
+        given(postRepository.findPublishedById(1L, BOARD_ID, NOW)).willReturn(Optional.of(post(1L)));
         given(postAttachmentRepository.findByPostIdOrderByIdAsc(1L)).willReturn(List.of(attachment(5L, 1L), attachment(7L, 1L)));
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(2L, BOARD_ID)).willReturn(Optional.of(post(2L)));
+        given(postRepository.findPublishedById(2L, BOARD_ID, NOW)).willReturn(Optional.of(post(2L)));
         given(postAttachmentRepository.findByPostIdOrderByIdAsc(2L)).willReturn(List.of());
 
         PublicPostDetail withAttachments = service.findPublishedPost(BOARD_ID, 1L).orElseThrow();
@@ -281,7 +291,7 @@ class PublicBoardServiceTest {
     @DisplayName("공개 첨부 조회 성공 — 파일명·storageKey를 담은 참조를 반환하고 파일 스토리지는 건드리지 않는다")
     void findPublishedAttachment_success() {
         publicBoardExists();
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(1L, BOARD_ID)).willReturn(Optional.of(post(1L)));
+        given(postRepository.findPublishedById(1L, BOARD_ID, NOW)).willReturn(Optional.of(post(1L)));
         given(postAttachmentRepository.findByIdAndPostId(5L, 1L)).willReturn(Optional.of(attachment(5L, 1L)));
 
         Optional<PublicPostAttachmentRef> result = service.findPublishedAttachment(BOARD_ID, 1L, 5L);
@@ -296,7 +306,7 @@ class PublicBoardServiceTest {
     @DisplayName("TOCTOU: 게시글이 비공개/삭제면 empty를 반환하고 첨부 저장소·파일 스토리지는 호출하지 않는다")
     void findPublishedAttachment_postNotPublished_emptyAndNoFurtherCalls() {
         publicBoardExists();
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(1L, BOARD_ID)).willReturn(Optional.empty());
+        given(postRepository.findPublishedById(1L, BOARD_ID, NOW)).willReturn(Optional.empty());
 
         assertTrue(service.findPublishedAttachment(BOARD_ID, 1L, 5L).isEmpty());
 
@@ -307,7 +317,7 @@ class PublicBoardServiceTest {
     @DisplayName("IDOR: 다른 게시글의 attachmentId면 empty를 반환하고 파일 스토리지는 호출하지 않는다")
     void findPublishedAttachment_wrongPost_emptyAndNoFileStorageCall() {
         publicBoardExists();
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(1L, BOARD_ID)).willReturn(Optional.of(post(1L)));
+        given(postRepository.findPublishedById(1L, BOARD_ID, NOW)).willReturn(Optional.of(post(1L)));
         given(postAttachmentRepository.findByIdAndPostId(5L, 1L)).willReturn(Optional.empty());
 
         assertTrue(service.findPublishedAttachment(BOARD_ID, 1L, 5L).isEmpty());
@@ -319,7 +329,7 @@ class PublicBoardServiceTest {
     @DisplayName("호출 순서: 게시판 → 게시글 재검증 → 첨부 조회(조회 단계), 그 뒤 별도 호출로 파일 open")
     void downloadCallOrder_verifyThenLookupThenOpen() {
         publicBoardExists();
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(1L, BOARD_ID)).willReturn(Optional.of(post(1L)));
+        given(postRepository.findPublishedById(1L, BOARD_ID, NOW)).willReturn(Optional.of(post(1L)));
         given(postAttachmentRepository.findByIdAndPostId(5L, 1L)).willReturn(Optional.of(attachment(5L, 1L)));
         given(fileStorage.open("2026/08/03/5.pdf")).willReturn(storedStream("content"));
 
@@ -328,7 +338,7 @@ class PublicBoardServiceTest {
 
         InOrder order = inOrder(boardRepository, postRepository, postAttachmentRepository, fileStorage);
         order.verify(boardRepository).findByIdAndDeletedFalseAndPublicYnTrue(BOARD_ID);
-        order.verify(postRepository).findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(1L, BOARD_ID);
+        order.verify(postRepository).findPublishedById(1L, BOARD_ID, NOW);
         order.verify(postAttachmentRepository).findByIdAndPostId(5L, 1L);
         order.verify(fileStorage).open("2026/08/03/5.pdf");
     }

@@ -2,6 +2,7 @@ package com.cms.admin.board.service;
 
 import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.dto.request.PostCreateRequest;
+import com.cms.admin.board.dto.request.PostPublishPeriodRequest;
 import com.cms.admin.board.dto.request.PostSearchRequest;
 import com.cms.admin.board.dto.request.PostUpdateRequest;
 import com.cms.admin.board.dto.response.PostPageResponse;
@@ -61,6 +62,9 @@ public class PostService {
         String title = requireNonBlank(request.getTitle(), "제목은 공백일 수 없습니다.");
         SanitizedHtml content = ContentBodyPolicy.sanitize(request.getContent(), request.getContentFormat());
         boolean useYn = request.getUseYn() == null || request.getUseYn();
+        PostPublishPeriodRequest.Period period = request.getPublishPeriod() != null
+                ? request.getPublishPeriod().toPeriod()
+                : new PostPublishPeriodRequest.Period(null, null);
 
         // 게시판 행 공유 잠금 — 삭제된 게시판이면 404, 이 트랜잭션이 끝날 때까지 게시판 삭제(FOR UPDATE)가 기다린다
         boardRepository.findByIdAndDeletedFalseForShare(boardId)
@@ -77,20 +81,27 @@ public class PostService {
                         .authorId(authorId)
                         .createDate(now)
                         .updateDate(now)
+                        .publishStart(period.start())
+                        .publishEnd(period.end())
                         .build()
         );
         contentImageService.replaceRefs(ContentImageService.OWNER_POST, saved.getId(),
                 ContentImageService.SCOPE_BOARD, boardId, content.imageIds());
 
-        return PostResponse.from(saved);
+        return PostResponse.from(saved, now);
     }
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.POST_UPDATE, targetType = "POST", targetIdExpression = "id")
     public PostResponse updatePost(Long boardId, Long postId, PostUpdateRequest request) {
-        if (request.getTitle() == null && request.getContent() == null && request.getUseYn() == null) {
+        if (request.getTitle() == null && request.getContent() == null && request.getUseYn() == null
+                && request.getPublishPeriod() == null) {
             throw new InvalidRequestException("변경할 필드가 없습니다.");
         }
+        // 기간 검증은 잠금 전에 — 400이 행 잠금을 쥔 채 나가지 않게 한다. 객체가 있으면 시작·종료를 통째로 교체한다(null = 그쪽 열림).
+        PostPublishPeriodRequest.Period period = request.getPublishPeriod() != null
+                ? request.getPublishPeriod().toPeriod()
+                : null;
 
         Post target = lockPost(boardId, postId);
 
@@ -101,14 +112,18 @@ public class PostService {
                 ? ContentBodyPolicy.sanitize(request.getContent(), request.getContentFormat())
                 : null;
 
-        target.update(title, content != null ? content.html() : null, request.getUseYn(), LocalDateTime.now(clock));
+        LocalDateTime now = LocalDateTime.now(clock);
+        target.update(title, content != null ? content.html() : null, request.getUseYn(), now);
+        if (period != null) {
+            target.changePublishPeriod(period.start(), period.end());
+        }
         if (content != null) {
             // 게시글 행 잠금 안에서 본문과 참조를 함께 바꾼다 — 같은 게시글의 동시 저장이 직렬화된다
             contentImageService.replaceRefs(ContentImageService.OWNER_POST, target.getId(),
                     ContentImageService.SCOPE_BOARD, boardId, content.imageIds());
         }
 
-        return PostResponse.from(target);
+        return PostResponse.from(target, now);
     }
 
     @Transactional
@@ -122,9 +137,10 @@ public class PostService {
             throw new ConflictException("첨부파일이 남아있어 삭제할 수 없습니다. 첨부를 먼저 삭제해주세요.");
         }
 
-        target.softDelete(LocalDateTime.now(clock));
+        LocalDateTime now = LocalDateTime.now(clock);
+        target.softDelete(now);
 
-        return PostResponse.from(target);
+        return PostResponse.from(target, now);
     }
 
     @Transactional(readOnly = true)
@@ -132,7 +148,7 @@ public class PostService {
         requireBoard(boardId);
         Post post = postRepository.findByIdAndBoardIdAndDeletedFalse(postId, boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(POST_NOT_FOUND));
-        return PostResponse.from(post);
+        return PostResponse.from(post, LocalDateTime.now(clock));
     }
 
     @Transactional(readOnly = true)
@@ -143,9 +159,10 @@ public class PostService {
                 : pageable;
 
         Page<Post> page = postRepository.searchPosts(boardId, request, effectivePageable);
+        LocalDateTime now = LocalDateTime.now(clock);
 
         return PostPageResponse.builder()
-                .content(page.getContent().stream().map(PostSummaryResponse::from).toList())
+                .content(page.getContent().stream().map(post -> PostSummaryResponse.from(post, now)).toList())
                 .page(page.getNumber())
                 .size(page.getSize())
                 .totalElements(page.getTotalElements())

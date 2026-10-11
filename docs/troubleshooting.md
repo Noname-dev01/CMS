@@ -1181,3 +1181,52 @@ $ curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/css/error.css;js
 
 - 세션 추적 모드를 명시하지 않으면 URL 재작성이 켜진다. 쿠키로만 세션을 쓰는 앱은 `tracking-modes: cookie`를 명시해 세션 ID가 HTML·로그·Referer에 남을 구성을 없앤다.
 - 쿠키 상태가 다른 요청(없음·만료·유효)을 나눠 실측하면 영향 범위를 좁힐 수 있다.
+
+### 요청 DTO의 중복 키 거부 세터가 동작하지 않음 — Jackson 3가 생성자를 creator로 자동 인식 (2026-10-11, 게시글 예약 게시)
+
+#### 오류 메시지
+
+```
+{"publishPeriod":{"start":"2090-02-30T10:00","start":null}}  → 201 (400이어야 한다)
+{"publishPeriod":{"start":"2090-02-30T10:00"},"publishPeriod":{}} → 201
+# 같은 요청 DTO의 알 수 없는 키({"publishStart":…})는 정상적으로 400이다
+```
+
+#### 원인
+
+- 같은 JSON 키가 두 번 오면 Jackson은 뒤 값이 앞 값을 덮어쓴다. 앞 값이 잘못된 날짜여도 뒤 값이 `null`(= 기간 열림)이면 서버 검증이 나쁜 값을 보지 못하고 기간이 지워져 글이 즉시 공개될 수 있다. 그래서 세터에서 "두 번째 호출이면 예외"로 거부하려 했다.
+- 그런데 `@Builder`용 전 필드 생성자가 있으면 **Jackson 3가 매개변수 이름으로 그 생성자를 properties-based creator로 자동 인식**한다. creator 경로에서는 같은 키의 마지막 값이 이겨 **세터가 호출되지 않는다.** `@JsonAnySetter`는 creator 경로에서도 동작해 "오타 키 거부만 통과하는" 부분 동작이 원인 추적의 단서였다.
+- 계획 리뷰 단계에서 리뷰어가 세터만 있는 최소 객체로 "중복 키가 거부된다"고 재현했지만 생성자가 있는 실제 DTO는 달랐다 — 실제 요청 바인딩 시험이 처음 잡았다.
+
+#### 해결 방법
+
+- 해당 생성자(`PostPublishPeriodRequest`·`PostCreateRequest`·`PostUpdateRequest`)에 `@JsonCreator(mode = JsonCreator.Mode.DISABLED)`를 붙여 creator 후보에서 뺀다(디버그 시험으로 세터가 호출되는 것을 확인). 지우면 `PostPublishPeriodApiIntegrationTest`의 중복 키 6건이 실패한다.
+
+#### 교훈
+
+- Jackson 3의 요청 DTO에 생성자를 두면 creator 경로가 켜져 세터 기반 검증(중복 키·세터의 사전 처리)이 우회된다. 세터에 의존하는 DTO의 생성자에는 `@JsonCreator(DISABLED)`를 붙이거나 생성자를 두지 않는다.
+- JSON 입력 계약(중복 키·빈 문자열·오프셋·날짜 보정)은 Java에서 DTO를 직접 만드는 시험이나 최소 재현 객체가 아니라 실제 MVC 바인딩으로 검증한다.
+
+### 전체 테스트에서만 `Too many connections` — 캐시된 스프링 컨텍스트가 늘어 테스트 컨테이너 `max_connections` 한도 초과 (2026-10-11)
+
+#### 오류 메시지
+
+```
+java.sql.SQLException: Too many connections          (LockWaitObserverTest 5건, 전체 ./gradlew test에서만)
+AssertionFailedError: 실제 DB row-lock 대기를 관측하지 못함: holder=570
+```
+
+단독 실행(`--tests '*LockWaitObserverTest'`)은 통과했다.
+
+#### 원인
+
+- 테스트는 JVM(워커)당 MariaDB 컨테이너 1개를 공유하고 컨텍스트 캐시(최대 32)에 있는 스프링 컨텍스트마다 Hikari 풀(최대 10)이 연결을 쥔다. 컨테이너 기본 `max_connections`는 151이라 컨텍스트 수 × 10이 한도에 근접해 있었고, 새 시험(`MutableClock`을 `@Primary`로 올린 컨텍스트)이 컨텍스트를 하나 더 늘리자 넘었다. 연결을 새로 여는 시험(`LockWaitObserverTest`)이 먼저 거부됐다.
+- "락 관측 실패"로 보이는 메시지는 2차 증상이다 — 관측용 연결을 못 열어 대기를 못 본 것이다. 같은 모양의 과거 간헐 실패(#119)와는 원인이 다르다(그쪽은 `information_schema` 캐시).
+
+#### 해결 방법
+
+- `MariaDbContainerSupport`의 컨테이너에 `.withCommand("--max-connections=500")`. 전체 재실행 통과(기본·UTC 시간대 모두).
+
+#### 교훈
+
+- 새 `@SpringBootTest` 설정(다른 `@Primary` 빈·`@Import`·프로퍼티)은 컨텍스트 캐시를 하나 더 만든다 — 한도 근처에서는 무관한 시험이 전체 실행에서만 깨진다. 단독 통과·전체 실패 패턴이면 연결 수(`SHOW STATUS LIKE 'Max_used_connections'`)를 먼저 의심한다.

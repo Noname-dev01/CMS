@@ -51,6 +51,14 @@ public class Post {
 
     private LocalDateTime updateDate;
 
+    /** 공개 노출 시작 시각(포함). null이면 시작 제한 없음. 구간은 [publishStart, publishEnd) — PLAN-post-publish-period.md. */
+    @Column(name = "publish_start")
+    private LocalDateTime publishStart;
+
+    /** 공개 노출 종료 시각(미포함). null이면 종료 제한 없음. */
+    @Column(name = "publish_end")
+    private LocalDateTime publishEnd;
+
     /**
      * 부분 수정. 각 파라미터가 null이 아닐 때만 반영한다(null=기존값 유지). 공백 거부·전체 null 거부는 서비스 책임이다.
      *
@@ -67,6 +75,15 @@ public class Post {
             this.useYn = useYn;
         }
         this.updateDate = now;
+    }
+
+    /**
+     * 노출 기간을 통째로 교체한다(null은 그쪽 열림). 값은 호출자(서비스)가 범위 검사·분 절단·순서 검사를 마친 것이어야 한다.
+     * {@code updateDate}는 {@link #update}가 갱신하므로 같은 트랜잭션에서 함께 호출한다.
+     */
+    public void changePublishPeriod(LocalDateTime publishStart, LocalDateTime publishEnd) {
+        this.publishStart = publishStart;
+        this.publishEnd = publishEnd;
     }
 
     /** 소프트 삭제. deleted=true 처리 후 수정 시각을 갱신한다. */

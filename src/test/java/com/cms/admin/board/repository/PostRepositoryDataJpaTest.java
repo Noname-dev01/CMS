@@ -3,6 +3,7 @@ package com.cms.admin.board.repository;
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.dto.request.PostSearchRequest;
+import com.cms.common.display.DisplayPeriod;
 import com.cms.config.QuerydslConfig;
 import com.cms.support.MariaDbContainerSupport;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +35,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(QuerydslConfig.class)
 @ActiveProfiles("dev")
 class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
+
+    /** 기간이 없는 글만 다루는 기존 시험의 판정 시각 — 아무 값이어도 결과가 같다(기간 NULL = 제한 없음). 기간 경계는 아래 별도 시험이 다룬다. */
+    private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 11, 12, 0);
 
     private static final PageRequest PUBLIC_PAGE = PageRequest.of(0, 10, Sort.by(Sort.Order.desc("createDate"), Sort.Order.desc("id")));
 
@@ -153,10 +157,10 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         Post deleted = savePost("공개상세삭제검증" + System.nanoTime(), true, true);
         Post published = savePost("공개상세노출검증" + System.nanoTime(), true, false);
 
-        assertThat(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(hidden.getId(), boardId)).isEmpty();
-        assertThat(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(deleted.getId(), boardId)).isEmpty();
-        assertThat(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(published.getId(), otherBoardId)).isEmpty();
-        assertThat(postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(published.getId(), boardId)).isPresent();
+        assertThat(postRepository.findPublishedById(hidden.getId(), boardId, NOW)).isEmpty();
+        assertThat(postRepository.findPublishedById(deleted.getId(), boardId, NOW)).isEmpty();
+        assertThat(postRepository.findPublishedById(published.getId(), otherBoardId, NOW)).isEmpty();
+        assertThat(postRepository.findPublishedById(published.getId(), boardId, NOW)).isPresent();
     }
 
     // ===================== searchPublished (공개 목록·제목 검색 — PLAN-public-notice-search.md 쟁점 2·3·7) =====================
@@ -172,7 +176,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(marker + "-deleted", true, true);
         savePost(otherBoardId, marker + "-other", true, false);
 
-        Page<Post> result = postRepository.searchPublished(boardId, null, PageRequest.of(0, 50, PUBLIC_PAGE.getSort()));
+        Page<Post> result = postRepository.searchPublished(boardId, null, NOW, PageRequest.of(0, 50, PUBLIC_PAGE.getSort()));
 
         assertThat(result.getContent()).extracting(Post::getTitle)
                 .noneMatch(title -> title.endsWith("-hidden") || title.endsWith("-deleted") || title.endsWith("-other"));
@@ -192,7 +196,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(otherBoardId, marker + "-타게시판", true, false);
         savePost("불일치" + System.nanoTime(), true, false);
 
-        Page<Post> result = postRepository.searchPublished(boardId, marker, PUBLIC_PAGE);
+        Page<Post> result = postRepository.searchPublished(boardId, marker, NOW, PUBLIC_PAGE);
 
         assertThat(result.getTotalElements()).isEqualTo(11);
         assertThat(result.getTotalPages()).isEqualTo(2);
@@ -209,7 +213,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(marker + "-비노출", false, false);
         savePost(marker + "-삭제", true, true);
 
-        Page<Post> result = postRepository.searchPublished(boardId, marker, PUBLIC_PAGE);
+        Page<Post> result = postRepository.searchPublished(boardId, marker, NOW, PUBLIC_PAGE);
 
         assertThat(result.getContent()).isEmpty();
         assertThat(result.getTotalElements()).isZero();
@@ -226,13 +230,13 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(marker + "-cZd", true, false);
         Post bang = savePost(marker + "-e!f", true, false);
 
-        assertThat(postRepository.searchPublished(boardId, marker + "-a%b", PUBLIC_PAGE).getContent())
+        assertThat(postRepository.searchPublished(boardId, marker + "-a%b", NOW, PUBLIC_PAGE).getContent())
                 .extracting(Post::getId).containsExactly(percent.getId());
-        assertThat(postRepository.searchPublished(boardId, marker + "-c_d", PUBLIC_PAGE).getContent())
+        assertThat(postRepository.searchPublished(boardId, marker + "-c_d", NOW, PUBLIC_PAGE).getContent())
                 .extracting(Post::getId).containsExactly(underscore.getId());
-        assertThat(postRepository.searchPublished(boardId, marker + "-e!f", PUBLIC_PAGE).getContent())
+        assertThat(postRepository.searchPublished(boardId, marker + "-e!f", NOW, PUBLIC_PAGE).getContent())
                 .extracting(Post::getId).containsExactly(bang.getId());
-        assertThat(postRepository.searchPublished(boardId, marker + "-%", PUBLIC_PAGE).getContent()).isEmpty();
+        assertThat(postRepository.searchPublished(boardId, marker + "-%", NOW, PUBLIC_PAGE).getContent()).isEmpty();
     }
 
     @Test
@@ -241,7 +245,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         String marker = "대소문자" + System.nanoTime();
         Post upper = savePost(marker + "-NOTICE", true, false);
 
-        assertThat(postRepository.searchPublished(boardId, marker + "-notice", PUBLIC_PAGE).getContent())
+        assertThat(postRepository.searchPublished(boardId, marker + "-notice", NOW, PUBLIC_PAGE).getContent())
                 .extracting(Post::getId).containsExactly(upper.getId());
     }
 
@@ -254,7 +258,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         Post tieFirst = savePostAt(marker + "-tie1", base);
         Post tieSecond = savePostAt(marker + "-tie2", base);
 
-        assertThat(postRepository.searchPublished(boardId, marker, PUBLIC_PAGE).getContent())
+        assertThat(postRepository.searchPublished(boardId, marker, NOW, PUBLIC_PAGE).getContent())
                 .extracting(Post::getId)
                 .containsExactly(tieSecond.getId(), tieFirst.getId(), older.getId());
     }
@@ -271,11 +275,11 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost("hidden", false, false);                     // 미노출
         savePost("deleted", true, true);                      // 삭제
 
-        var rows = postRepository.findLatestPublished(boardId, null, 10);
+        var rows = postRepository.findLatestPublished(boardId, null, NOW, 10);
 
         assertThat(rows).extracting(PublishedPostRow::id).containsExactly(tieSecond.getId(), tieFirst.getId(), older.getId());
         assertThat(rows).extracting(PublishedPostRow::boardName).containsOnly("시험 게시판");
-        assertThat(postRepository.findLatestPublished(boardId, null, 2)).hasSize(2);
+        assertThat(postRepository.findLatestPublished(boardId, null, NOW, 2)).hasSize(2);
     }
 
     @Test
@@ -287,12 +291,12 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(deletedBoard, "삭제된 게시판 글", true, false);
         Post visible = savePost(boardId, "공개 글", true, false);
 
-        assertThat(postRepository.findLatestPublished(null, null, 100))
+        assertThat(postRepository.findLatestPublished(null, null, NOW, 100))
                 .extracting(PublishedPostRow::id).contains(visible.getId());
-        assertThat(postRepository.findLatestPublished(null, null, 100))
+        assertThat(postRepository.findLatestPublished(null, null, NOW, 100))
                 .extracting(PublishedPostRow::title).doesNotContain("비공개 게시판 글", "삭제된 게시판 글");
-        assertThat(postRepository.findLatestPublished(privateBoard, null, 10)).isEmpty();
-        assertThat(postRepository.findLatestPublished(deletedBoard, null, 10)).isEmpty();
+        assertThat(postRepository.findLatestPublished(privateBoard, null, NOW, 10)).isEmpty();
+        assertThat(postRepository.findLatestPublished(deletedBoard, null, NOW, 10)).isEmpty();
     }
 
     @Test
@@ -301,9 +305,115 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         Post inBoard = savePost(boardId, "A 게시판 글", true, false);
         Post inOther = savePost(otherBoardId, "B 게시판 글", true, false);
 
-        assertThat(postRepository.findLatestPublished(null, boardId, 100))
+        assertThat(postRepository.findLatestPublished(null, boardId, NOW, 100))
                 .extracting(PublishedPostRow::id).contains(inOther.getId()).doesNotContain(inBoard.getId());
-        assertThat(postRepository.findLatestPublished(null, null, 100))
+        assertThat(postRepository.findLatestPublished(null, null, NOW, 100))
                 .extracting(PublishedPostRow::id).contains(inOther.getId(), inBoard.getId());
+    }
+
+    // ===================== 노출 기간 [publishStart, publishEnd) (PLAN-post-publish-period.md 쟁점 3·9) =====================
+    // 공개 조회 네 표현(QueryDSL 목록·COUNT, QueryDSL 메인, JPQL 상세)이 DisplayPeriod.isActive와 같은 의미임을 경계값으로 대조한다.
+    // 저장 → flush → 영속성 컨텍스트 초기화 → 재조회로 datetime(6) 왕복까지 포함한다.
+
+    private static final LocalDateTime P_START = LocalDateTime.of(2026, 10, 12, 9, 0);
+    private static final LocalDateTime P_END = LocalDateTime.of(2026, 10, 20, 0, 0);
+    /** datetime(6)의 최소 단위 — "직전"을 마이크로초 하나 앞으로 잡는다(나노초는 DB에서 반올림될 수 있다). */
+    private static final long MICRO = 1_000L;
+
+    @Autowired
+    jakarta.persistence.EntityManager em;
+
+    private Post savePostWithPeriod(String title, boolean useYn, LocalDateTime start, LocalDateTime end) {
+        LocalDateTime created = LocalDateTime.of(2026, 10, 1, 0, 0);
+        Post saved = postRepository.save(Post.builder()
+                .boardId(boardId).title(title).content("본문").useYn(useYn).deleted(false)
+                .authorId("admin01").createDate(created).updateDate(created)
+                .publishStart(start).publishEnd(end).build());
+        em.flush();
+        em.clear();
+        return saved;
+    }
+
+    private static LocalDateTime[] boundaryNows() {
+        return new LocalDateTime[]{
+                P_START.minusNanos(MICRO), P_START, P_START.plusNanos(MICRO),
+                P_END.minusNanos(MICRO), P_END, P_END.plusNanos(MICRO),
+                LocalDateTime.of(2000, 1, 1, 0, 0), LocalDateTime.of(2099, 12, 31, 23, 59)};
+    }
+
+    /** 한 글에 대해 네 공개 조회가 모두 {@code expected}와 같은 결과인지 단언한다. */
+    private void assertPublishedEverywhere(Post post, String marker, LocalDateTime now, boolean expected) {
+        String ctx = "now=" + now + " period=[" + post.getPublishStart() + ", " + post.getPublishEnd() + ")";
+
+        assertThat(postRepository.findPublishedById(post.getId(), boardId, now).isPresent()).as("상세 " + ctx).isEqualTo(expected);
+
+        Page<Post> list = postRepository.searchPublished(boardId, marker, now, PUBLIC_PAGE);
+        assertThat(list.getContent().stream().map(Post::getId).toList().contains(post.getId())).as("목록 " + ctx).isEqualTo(expected);
+        assertThat(list.getTotalElements()).as("COUNT " + ctx).isEqualTo(expected ? 1L : 0L);
+
+        assertThat(postRepository.findLatestPublished(boardId, null, now, 100).stream().anyMatch(r -> r.id().equals(post.getId())))
+                .as("메인 " + ctx).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("기간 [start, end): 시작 직전·시작·종료 직전·종료 경계에서 상세·목록·COUNT·메인이 DisplayPeriod.isActive와 일치한다")
+    void period_boundaries_matchIsActive() {
+        String marker = "기간경계" + System.nanoTime();
+        Post post = savePostWithPeriod(marker, true, P_START, P_END);
+
+        for (LocalDateTime now : boundaryNows()) {
+            assertPublishedEverywhere(post, marker, now, DisplayPeriod.isActive(P_START, P_END, now));
+        }
+    }
+
+    @Test
+    @DisplayName("기간 형태: 시작만·종료만·양끝 null 각각이 네 쿼리에서 isActive와 일치한다 (null = 그쪽 열림)")
+    void period_openEnded_matchIsActive() {
+        String marker = "기간열림" + System.nanoTime();
+        Post onlyStart = savePostWithPeriod(marker + "-시작만", true, P_START, null);
+        Post onlyEnd = savePostWithPeriod(marker + "-종료만", true, null, P_END);
+        Post none = savePostWithPeriod(marker + "-없음", true, null, null);
+
+        for (LocalDateTime now : boundaryNows()) {
+            assertPublishedEverywhere(onlyStart, marker + "-시작만", now, DisplayPeriod.isActive(P_START, null, now));
+            assertPublishedEverywhere(onlyEnd, marker + "-종료만", now, DisplayPeriod.isActive(null, P_END, now));
+            assertPublishedEverywhere(none, marker + "-없음", now, true);
+        }
+    }
+
+    @Test
+    @DisplayName("useYn=false는 기간 안이어도 공개되지 않는다 (둘 다 만족해야 노출)")
+    void period_useYnFalse_neverPublished() {
+        String marker = "기간비노출" + System.nanoTime();
+        Post post = savePostWithPeriod(marker, false, P_START, P_END);
+
+        assertPublishedEverywhere(post, marker, P_START.plusDays(1), false);
+        assertPublishedEverywhere(post, marker, P_START.minusDays(1), false);
+    }
+
+    @Test
+    @DisplayName("COUNT는 기간 밖 글을 세지 않는다 — 예약 글의 존재가 총건수·페이지 수로 새지 않는다")
+    void period_countExcludesScheduledAndExpired() {
+        String marker = "기간COUNT" + System.nanoTime();
+        LocalDateTime now = P_START.plusDays(1);
+        savePostWithPeriod(marker + "-노출", true, P_START, P_END);
+        savePostWithPeriod(marker + "-예약", true, now.plusDays(1), null);
+        savePostWithPeriod(marker + "-만료", true, null, now.minusDays(1));
+
+        Page<Post> result = postRepository.searchPublished(boardId, marker, now, PUBLIC_PAGE);
+
+        assertThat(result.getTotalElements()).isEqualTo(1);
+        assertThat(result.getContent()).extracting(Post::getTitle).containsExactly(marker + "-노출");
+    }
+
+    @Test
+    @DisplayName("저장한 기간은 datetime(6)로 왕복한다 — 분 단위 값이 그대로 돌아온다")
+    void period_roundTrip() {
+        Post saved = savePostWithPeriod("기간왕복" + System.nanoTime(), true, P_START, P_END);
+
+        Post reloaded = postRepository.findById(saved.getId()).orElseThrow();
+
+        assertThat(reloaded.getPublishStart()).isEqualTo(P_START);
+        assertThat(reloaded.getPublishEnd()).isEqualTo(P_END);
     }
 }

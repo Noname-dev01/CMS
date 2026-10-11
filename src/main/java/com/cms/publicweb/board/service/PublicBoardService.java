@@ -21,13 +21,16 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
  * 공개(비로그인) 게시판 조회 전용 Service. 관리 서비스와 별도 클래스로 두는 이유는 공지와 같다 — 공개 불변식이 선택적 필터가 아니라 이 클래스가
  * 반환하는 모든 것의 조건이 되도록 타입 단위로 격리한다(PLAN-board.md 쟁점 10).
  *
- * <p><b>불변식</b>: 게시판 {@code publicYn=true ∧ deleted=false} ∧ 게시글 {@code useYn=true ∧ deleted=false} ∧ 게시글이 그 게시판 소속.
+ * <p><b>불변식</b>: 게시판 {@code publicYn=true ∧ deleted=false} ∧ 게시글 {@code useYn=true ∧ deleted=false} ∧ 게시글의 노출 기간
+ * {@code [publishStart, publishEnd)} 안(한쪽 null이면 그쪽 열림) ∧ 게시글이 그 게시판 소속. 판정 시각은 주입된 KST {@code Clock}으로 요청(메서드 호출)당 1회 산출한다.
  * 위반·없음은 모두 empty이고 컨트롤러가 같은 404로 흡수한다(존재 여부 비노출).
  *
  * <p>{@code page} 원시 파싱(문자열 → int)은 컨트롤러의 책임이고, 이 서비스는 그 위의 규칙(음수 보정·상한·고정 크기·고정 정렬)만 책임진다.
@@ -48,6 +51,7 @@ public class PublicBoardService {
     private final PostRepository postRepository;
     private final PostAttachmentRepository postAttachmentRepository;
     private final FileStorage fileStorage;
+    private final Clock clock;
 
     /**
      * 공개 목록. 공개 게시판이 아니면 empty. {@code rawKeyword}가 비어 있으면(공백만 포함) 전체 목록, 있으면 제목 검색이며 앞뒤 공백을 제거한다.
@@ -55,6 +59,7 @@ public class PublicBoardService {
      */
     @Transactional(readOnly = true)
     public Optional<PublicBoardListResult> getPublishedPosts(Long boardId, int page, String rawKeyword) {
+        LocalDateTime now = LocalDateTime.now(clock);
         return boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(boardId).map(board -> {
             Pageable pageable = PageRequest.of(normalizePage(page), PAGE_SIZE,
                     Sort.by(Sort.Order.desc("createDate"), Sort.Order.desc("id")));
@@ -62,20 +67,21 @@ public class PublicBoardService {
 
             if (keyword.isEmpty()) {
                 return new PublicBoardListResult(board.getId(), board.getName(),
-                        postRepository.searchPublished(board.getId(), null, pageable).map(PublicPostSummary::from), null);
+                        postRepository.searchPublished(board.getId(), null, now, pageable).map(PublicPostSummary::from), null);
             }
             if (keyword.length() > MAX_KEYWORD_LENGTH) {
                 return new PublicBoardListResult(board.getId(), board.getName(), Page.empty(pageable), keyword);
             }
             return new PublicBoardListResult(board.getId(), board.getName(),
-                    postRepository.searchPublished(board.getId(), keyword, pageable).map(PublicPostSummary::from), keyword);
+                    postRepository.searchPublished(board.getId(), keyword, now, pageable).map(PublicPostSummary::from), keyword);
         });
     }
 
     @Transactional(readOnly = true)
     public Optional<PublicPostDetail> findPublishedPost(Long boardId, Long postId) {
+        LocalDateTime now = LocalDateTime.now(clock);
         return boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(boardId)
-                .flatMap(board -> postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(postId, board.getId())
+                .flatMap(board -> postRepository.findPublishedById(postId, board.getId(), now)
                         .map(post -> toDetail(board, post)));
     }
 
@@ -86,8 +92,9 @@ public class PublicBoardService {
      */
     @Transactional(readOnly = true)
     public Optional<PublicPostAttachmentRef> findPublishedAttachment(Long boardId, Long postId, Long attachmentId) {
+        LocalDateTime now = LocalDateTime.now(clock);
         Optional<Board> board = boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(boardId);
-        if (board.isEmpty() || postRepository.findByIdAndBoardIdAndDeletedFalseAndUseYnTrue(postId, board.get().getId()).isEmpty()) {
+        if (board.isEmpty() || postRepository.findPublishedById(postId, board.get().getId(), now).isEmpty()) {
             return Optional.empty();
         }
         return postAttachmentRepository.findByIdAndPostId(attachmentId, postId)

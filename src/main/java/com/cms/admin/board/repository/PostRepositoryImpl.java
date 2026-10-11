@@ -7,6 +7,7 @@ import com.cms.admin.board.dto.request.PostSearchRequest;
 import com.querydsl.core.BooleanBuilder;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.Projections;
+import com.querydsl.core.types.dsl.BooleanExpression;
 import com.querydsl.jpa.impl.JPAQueryFactory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -15,6 +16,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -47,13 +49,13 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
     }
 
     @Override
-    public Page<Post> searchPublished(Long boardId, String keyword, Pageable pageable) {
+    public Page<Post> searchPublished(Long boardId, String keyword, LocalDateTime now, Pageable pageable) {
         QPost post = QPost.post;
 
         BooleanBuilder condition = new BooleanBuilder()
                 .and(post.boardId.eq(boardId))
                 .and(post.deleted.isFalse())
-                .and(post.useYn.isTrue());
+                .and(isPublished(post, now));
         if (keyword != null) {
             condition.and(post.title.contains(keyword));
         }
@@ -96,7 +98,7 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
     }
 
     @Override
-    public List<PublishedPostRow> findLatestPublished(Long boardId, Long excludeBoardId, int limit) {
+    public List<PublishedPostRow> findLatestPublished(Long boardId, Long excludeBoardId, LocalDateTime now, int limit) {
         QPost post = QPost.post;
         QBoard board = QBoard.board;
 
@@ -104,7 +106,7 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
                 .and(board.publicYn.isTrue())
                 .and(board.deleted.isFalse())
                 .and(post.deleted.isFalse())
-                .and(post.useYn.isTrue());
+                .and(isPublished(post, now));
         if (boardId != null) {
             condition.and(post.boardId.eq(boardId));
         }
@@ -121,6 +123,17 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
                 .orderBy(post.createDate.desc(), post.id.desc())
                 .limit(limit)
                 .fetch();
+    }
+
+    /**
+     * 게시글 자체의 공개 조건 — 노출 여부 ∧ 노출 기간 {@code [publishStart, publishEnd)}(시작 포함·종료 미포함, 한쪽이 null이면 그쪽은 열림).
+     * 목록·COUNT·메인이 이 한 조건을 공유한다. {@code PostRepository.findPublishedById}(JPQL)와 {@code ContentImageRefRepository.existsPublishedPostRef}
+     * (JPQL)가 같은 의미를 따로 표현하므로 한 곳을 바꾸면 모두 바꾼다 — {@code PostRepositoryDataJpaTest}가 경계값으로 대조한다.
+     */
+    private BooleanExpression isPublished(QPost post, LocalDateTime now) {
+        return post.useYn.isTrue()
+                .and(post.publishStart.isNull().or(post.publishStart.loe(now)))
+                .and(post.publishEnd.isNull().or(post.publishEnd.gt(now)));
     }
 
     private Page<Post> page(BooleanBuilder condition, Pageable pageable) {

@@ -7,6 +7,21 @@
 <link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
 <link rel="stylesheet" th:href="@{/vendor/quill/quill.snow.css}">
 <style>
+    /* 예약 게시 상태 배지 — 공용 admin-manage.css에는 없는 두 상태만 이 화면에서 정의한다(예약됨=파랑, 만료=회색). */
+    .badge-status-scheduled {
+        color: #17316b;
+        background: linear-gradient(135deg, #dbe7ff 0%, #b9cdfd 100%);
+        border: 1px solid rgba(34, 74, 190, 0.18);
+    }
+    /* 상태 배지는 한 줄로 — 좁은 폭에서 배지 글자가 접히지 않게 한다. 기간은 " ~ "에서 자연스럽게 줄바꿈되게 두어 제목 열이 눌리지 않는다. */
+    #postTableBody .badge-status {
+        white-space: nowrap;
+    }
+    .badge-status-expired {
+        color: #495057;
+        background: linear-gradient(135deg, #eceff1 0%, #dde1e4 100%);
+        border: 1px solid rgba(73, 80, 87, 0.18);
+    }
     /* 본문은 서버가 정리한 HTML이다. 표시 규칙은 Quill 편집 영역(.ql-editor)과 같게 맞춘다 —
        pre-wrap(연속 공백·빈 줄 보존) + 문단 여백 0(PLAN-html-editor.md 쟁점 12). */
     .post-content-view {
@@ -181,14 +196,15 @@
                                             <th>ID</th>
                                             <th>제목</th>
                                             <th>작성자</th>
-                                            <th>노출 여부</th>
+                                            <th>노출 상태</th>
+                                            <th>노출 기간</th>
                                             <th>작성일</th>
                                             <th class="text-center">상세</th>
                                         </tr>
                                         </thead>
                                         <tbody id="postTableBody">
                                         <tr>
-                                            <td colspan="6" class="text-center text-muted py-4">조회 중입니다.</td>
+                                            <td colspan="7" class="text-center text-muted py-4">조회 중입니다.</td>
                                         </tr>
                                         </tbody>
                                     </table>
@@ -247,6 +263,14 @@
                         <div class="value" id="viewUseYn"></div>
                     </div>
                     <div class="detail-item">
+                        <span class="label">노출 상태</span>
+                        <div class="value" id="viewStatus"></div>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">노출 기간</span>
+                        <div class="value" id="viewPeriod"></div>
+                    </div>
+                    <div class="detail-item">
                         <span class="label">작성일</span>
                         <div class="value" id="viewCreateDate"></div>
                     </div>
@@ -275,6 +299,22 @@
                             <input type="checkbox" class="custom-control-input" id="formUseYn">
                             <label class="custom-control-label" for="formUseYn">노출</label>
                         </div>
+                        <small class="form-text text-muted">노출 여부와 아래 노출 기간을 <strong>둘 다</strong> 만족해야 공개됩니다.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="formStartDate">노출 시작 (선택, 비우면 바로 시작 · 시·분을 비우면 00:00)</label>
+                        <div class="form-row">
+                            <div class="col-7"><input type="date" class="form-control" id="formStartDate" aria-label="노출 시작 날짜"></div>
+                            <div class="col-5 d-flex"><select class="form-control mr-1" id="formStartHour" aria-label="노출 시작 시"></select><select class="form-control" id="formStartMinute" aria-label="노출 시작 분"></select></div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="formEndDate">노출 종료 (선택, 비우면 계속 노출 · 이 시각 전까지 노출 · 시·분을 비우면 00:00)</label>
+                        <div class="form-row">
+                            <div class="col-7"><input type="date" class="form-control" id="formEndDate" aria-label="노출 종료 날짜"></div>
+                            <div class="col-5 d-flex"><select class="form-control mr-1" id="formEndHour" aria-label="노출 종료 시"></select><select class="form-control" id="formEndMinute" aria-label="노출 종료 분"></select></div>
+                        </div>
+                        <small class="form-text text-muted">한국 시간 기준이며 분 단위입니다. 시작과 종료를 모두 비우면 기간 제한이 없습니다.</small>
                     </div>
                 </form>
 
@@ -362,6 +402,15 @@
 
     const formTitle = document.getElementById("formTitle");
     const formUseYn = document.getElementById("formUseYn");
+    const viewStatus = document.getElementById("viewStatus");
+    const viewPeriod = document.getElementById("viewPeriod");
+    // 노출 시작·종료는 날짜(date)와 시간(시·분 select)을 나눠 받는다 — datetime-local 달력은 날짜를 골라도 바깥을 클릭할 때까지 열려 있다(배너 화면과 같은 방식).
+    const formStartDate = document.getElementById("formStartDate");
+    const formStartHour = document.getElementById("formStartHour");
+    const formStartMinute = document.getElementById("formStartMinute");
+    const formEndDate = document.getElementById("formEndDate");
+    const formEndHour = document.getElementById("formEndHour");
+    const formEndMinute = document.getElementById("formEndMinute");
     const editorBusy = document.getElementById("editorBusy");
     // 진행 중인 저장 요청의 identity 토큰(없으면 null) — 이미지 업로드가 끝났을 때 저장 버튼을 다시 켜도 되는지 판단한다.
     // 불리언이 아니라 토큰인 이유: 저장 중 다른 게시글로 전환하면 이전 요청의 finally가 해제를 건너뛰므로, 그 요청의 것일 때만 지운다.
@@ -506,6 +555,72 @@
         }).format(date);
     }
 
+    // 노출 상태는 서버가 Clock 기준으로 계산해 내려준다(브라우저 시계에 의존하지 않음) — HIDDEN > SCHEDULED > EXPIRED > ACTIVE.
+    const STATUS_LABELS = { ACTIVE: "노출 중", SCHEDULED: "예약됨", EXPIRED: "만료", HIDDEN: "비노출" };
+    const STATUS_CLASSES = { ACTIVE: "badge-status-active", SCHEDULED: "badge-status-scheduled", EXPIRED: "badge-status-expired", HIDDEN: "badge-status-disabled" };
+
+    function statusBadge(status) {
+        const label = STATUS_LABELS[status] || String(status || "-");
+        const cls = STATUS_CLASSES[status] || "badge-status-disabled";
+        return "<span class=\"badge-status " + cls + "\">" + escapeHtml(label) + "</span>";
+    }
+
+    /** 서버 값("yyyy-MM-ddTHH:mm:ss") → "yyyy-MM-dd HH:mm". 값이 없으면 "". */
+    function minuteText(value) {
+        return value ? String(value).replace("T", " ").substring(0, 16) : "";
+    }
+
+    function periodText(start, end) {
+        if (!start && !end) {
+            return "제한 없음";
+        }
+        return (minuteText(start) || "…") + " ~ " + (minuteText(end) || "…");
+    }
+
+    function fillTimeOptions(select, count, placeholder) {
+        select.replaceChildren();
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = placeholder;
+        select.appendChild(empty);
+        for (let i = 0; i < count; i++) {
+            const option = document.createElement("option");
+            option.value = String(i).padStart(2, "0");
+            option.textContent = option.value;
+            select.appendChild(option);
+        }
+    }
+    fillTimeOptions(formStartHour, 24, "시");
+    fillTimeOptions(formStartMinute, 60, "분");
+    fillTimeOptions(formEndHour, 24, "시");
+    fillTimeOptions(formEndMinute, 60, "분");
+
+    /** 날짜가 비면 null(그쪽 열림). 시·분만 고르고 날짜를 비우면 오류 — 조용히 무시하면 기간이 의도와 다르게 저장된다. */
+    function readDateTime(dateInput, hourSelect, minuteSelect, label) {
+        if (dateInput.value === "") {
+            if (hourSelect.value !== "" || minuteSelect.value !== "") {
+                throw new Error(label + " 날짜를 선택해 주세요.");
+            }
+            return null;
+        }
+        return dateInput.value + "T" + (hourSelect.value || "00") + ":" + (minuteSelect.value || "00");
+    }
+
+    function writeDateTime(dateInput, hourSelect, minuteSelect, serverValue) {
+        const text = minuteText(serverValue);
+        dateInput.value = text === "" ? "" : text.substring(0, 10);
+        hourSelect.value = text === "" ? "" : text.substring(11, 13);
+        minuteSelect.value = text === "" ? "" : text.substring(14, 16);
+    }
+
+    /** 폼의 기간 입력 → {start, end}(각각 "yyyy-MM-ddTHH:mm" 또는 null). */
+    function readPeriodFromForm() {
+        return {
+            start: readDateTime(formStartDate, formStartHour, formStartMinute, "노출 시작"),
+            end: readDateTime(formEndDate, formEndHour, formEndMinute, "노출 종료")
+        };
+    }
+
     function buildQueryString(page) {
         const params = new URLSearchParams();
         const formData = new FormData(searchForm);
@@ -543,7 +658,8 @@
                 "<td>" + escapeHtml(item.id) + "</td>" +
                 "<td><button type=\"button\" class=\"btn btn-link p-0 cell-link js-detail\" data-id=\"" + escapeHtml(item.id) + "\">" + escapeHtml(item.title) + "</button></td>" +
                 "<td>" + escapeHtml(item.authorId || "-") + "</td>" +
-                "<td>" + (item.useYn ? "<span class=\"badge-status badge-status-active\">노출</span>" : "<span class=\"badge-status badge-status-disabled\">비노출</span>") + "</td>" +
+                "<td>" + statusBadge(item.status) + "</td>" +
+                "<td>" + escapeHtml(periodText(item.publishStart, item.publishEnd)) + "</td>" +
                 "<td>" + escapeHtml(formatDate(item.createDate)) + "</td>" +
                 "<td class=\"text-center\"><button type=\"button\" class=\"btn btn-outline-primary btn-sm js-detail\" data-id=\"" + escapeHtml(item.id) + "\">상세</button></td>" +
                 "</tr>";
@@ -580,7 +696,7 @@
 
     function setLoadingRow() {
         emptyState.classList.add("d-none");
-        tableBody.innerHTML = "<tr><td colspan=\"6\" class=\"text-center text-muted py-4\">조회 중입니다.</td></tr>";
+        tableBody.innerHTML = "<tr><td colspan=\"7\" class=\"text-center text-muted py-4\">조회 중입니다.</td></tr>";
     }
 
     async function loadPosts(page) {
@@ -626,7 +742,7 @@
                 // 사용자가 새 요청(검색·페이지 이동·게시판 전환)을 트리거해 이전 요청을 취소한 것 — 정상 동작이므로 오류로 표시하지 않는다.
                 return;
             }
-            tableBody.innerHTML = "<tr><td colspan=\"6\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
+            tableBody.innerHTML = "<tr><td colspan=\"7\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
             pagination.innerHTML = "";
             showPageError(getRequestErrorMessage(error, "게시글 목록 조회 중 오류가 발생했습니다."));
         }
@@ -667,6 +783,8 @@
         viewTitle.textContent = data.title || "-";
         viewAuthor.textContent = data.authorId || "-";
         viewUseYn.textContent = data.useYn ? "노출" : "비노출";
+        viewStatus.textContent = STATUS_LABELS[data.status] || "-";
+        viewPeriod.textContent = periodText(data.publishStart, data.publishEnd);
         viewCreateDate.textContent = formatDate(data.createDate);
         viewUpdateDate.textContent = formatDate(data.updateDate);
         viewContent.innerHTML = data.content || "";
@@ -677,6 +795,8 @@
         formTitle.value = data ? (data.title || "") : "";
         editor.setHtml(data ? (data.content || "") : "");
         formUseYn.checked = data ? !!data.useYn : true;
+        writeDateTime(formStartDate, formStartHour, formStartMinute, data ? data.publishStart : null);
+        writeDateTime(formEndDate, formEndHour, formEndMinute, data ? data.publishEnd : null);
     }
 
     function abortPendingDetailRequest() {
@@ -893,6 +1013,11 @@
             contentFormat: "HTML",
             useYn: formUseYn.checked
         };
+        // 기간을 하나도 고르지 않았으면 publishPeriod 자체를 보내지 않는다(기간 제한 없음).
+        const period = readPeriodFromForm();
+        if (period.start !== null || period.end !== null) {
+            payload.publishPeriod = period;
+        }
 
         const response = await fetch(postsUrl(modalBoard), {
             method: "POST",
@@ -920,6 +1045,14 @@
         }
         if (formUseYn.checked !== !!currentDetail.useYn) {
             payload.useYn = formUseYn.checked;
+        }
+        // 기간은 시작·종료 중 하나라도 달라졌을 때만 보낸다 — 서버가 통째로 교체하므로 둘 다 현재 폼 값으로 보낸다(null = 그쪽 열림).
+        // 변경이 없으면 보내지 않아, 다른 관리자가 이미 바꾼 기간을 낡은 화면이 되돌리는 일을 줄인다.
+        const period = readPeriodFromForm();
+        const sameStart = minuteText(period.start) === minuteText(currentDetail.publishStart);
+        const sameEnd = minuteText(period.end) === minuteText(currentDetail.publishEnd);
+        if (!sameStart || !sameEnd) {
+            payload.publishPeriod = period;
         }
         return payload;
     }

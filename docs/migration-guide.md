@@ -110,6 +110,12 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다(`BannerMigrationTest.rollbackToAppWithoutBanner_startsAgainstLatestDatabase`). 이전 앱으로 롤백했다가 다시 배포할 때의 **권한 정리**와 **수동 회수 ⑤의 `banner/` 제외**는 `docs/deployment.md` "공개 메인(`/`)과 배너".
 - **시험**: `BannerMigrationTest`(테이블·가드 행 1개·메뉴 최상위 맨 끝 1개, 시드 멱등, 컬럼 제약·`datetime(6)`, V32 이하 앱 롤백 기동 호환).
 
+## V36 — 게시글 노출 기간 컬럼 (2026-10-11, `adversarial-review/plan/PLAN-post-publish-period.md`)
+
+- **V36**은 `ALTER TABLE post ADD COLUMN publish_start, publish_end`(둘 다 `datetime(6) NULL`) 한 문이다. 기존 행은 NULL이라 기존 공개 동작이 그대로다. 되돌릴 때는 **이전 앱이 예약·만료 글을 공개한다** — 반드시 `docs/deployment.md` "게시글 예약 게시"의 롤백 순서(쓰기 동결·백업·비노출·잔여 0건 검증)를 따른다.
+- **실패 복구**: DDL 커밋 후 이력 기록 전에 프로세스가 끊기면 "컬럼은 있고 성공 이력은 없는" 상태나 `success=0` 이력이 남는다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version = '36';`와 `SHOW COLUMNS FROM post LIKE 'publish_%';` ③ **`success=1`이면 컬럼을 건드리지 않는다**(기간이 든 실제 데이터가 있을 수 있다). 이력이 없거나 `success=0`인데 컬럼만 있으면 이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 값이 모두 NULL이므로 `ALTER TABLE post DROP COLUMN publish_end, DROP COLUMN publish_start;`(이미 있는 쪽만) ④ `flyway repair` ⑤ 재기동.
+- **시험**: `PostPublishPeriodMigrationTest`(V35 → 최신: 기존 행 NULL·use_yn/삭제 상태 불변·기존 공개 조건이 그대로 노출 글 하나만 고름, 컬럼이 `datetime(6)` NULL 허용, 저장 범위 왕복). 이전 앱 코드로 기동하는 호환은 코드가 없어 시험하지 못한다 — `ddl-auto: validate`가 여분 컬럼을 허용한다는 점에 의존한다.
+
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.
 - **기존 DB (Flyway 도입 전부터 데이터가 있는 환경)**: 아래 전환 절차를 따라 **일회성 baseline**을 수행한다. baseline 후 V1은 건너뛰고 V2부터 적용된다.
