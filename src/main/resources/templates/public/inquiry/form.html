@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>문의하기</title>
+    <link rel="stylesheet" th:href="@{/css/public/inquiry.css}">
+</head>
+<body>
+<div class="public-inquiry-container">
+    <h1 class="inquiry-title">문의하기</h1>
+
+    <!--/* 방문자 입력은 모두 th:value/th:text(자동 이스케이프)로만 되돌린다. 이스케이프 없는 출력은 이 템플릿에 없다
+         (PublicInquiryTemplateConventionTest가 고정). 파서 수준 주석이라 응답에 나가지 않는다. */-->
+    <p class="inquiry-sent" th:if="${sent}" role="status">문의가 접수되었습니다. 담당자가 확인한 뒤 입력하신 이메일로 연락드립니다.</p>
+
+    <p class="inquiry-error" th:if="${formError != null}" th:text="${formError}" role="alert"></p>
+
+    <form th:action="@{/inquiry}" method="post" class="inquiry-form" th:unless="${sent}">
+        <p class="inquiry-hint">짧은 시간에 여러 번 제출하면 잠시 제한될 수 있습니다. 제출한 내용이 사라지지 않도록 오래 비워 두지 말고 작성해 주세요.</p>
+
+        <div class="inquiry-field">
+            <label for="inquiry-name">이름</label>
+            <input type="text" id="inquiry-name" name="name" maxlength="50" required th:value="${form.name}" autocomplete="name">
+            <p class="inquiry-field-error" th:if="${errors['name'] != null}" th:text="${errors['name']}"></p>
+        </div>
+
+        <div class="inquiry-field">
+            <label for="inquiry-email">이메일</label>
+            <input type="email" id="inquiry-email" name="email" maxlength="100" required th:value="${form.email}" autocomplete="email">
+            <p class="inquiry-field-error" th:if="${errors['email'] != null}" th:text="${errors['email']}"></p>
+        </div>
+
+        <div class="inquiry-field">
+            <label for="inquiry-title">제목</label>
+            <input type="text" id="inquiry-title" name="title" maxlength="100" required th:value="${form.title}">
+            <p class="inquiry-field-error" th:if="${errors['title'] != null}" th:text="${errors['title']}"></p>
+        </div>
+
+        <div class="inquiry-field">
+            <label for="inquiry-body">문의 내용</label>
+            <textarea id="inquiry-body" name="body" rows="8" maxlength="2000" required th:text="${form.body}"></textarea>
+            <p class="inquiry-field-error" th:if="${errors['body'] != null}" th:text="${errors['body']}"></p>
+        </div>
+
+        <div class="inquiry-consent">
+            <p class="inquiry-consent-text">
+                <strong>개인정보 수집·이용 안내</strong><br>
+                수집 항목: 이름, 이메일, 문의 내용 · 이용 목적: 문의 확인 및 답변 · 보관: 처리가 끝나 관리자가 삭제할 때까지 보관합니다.
+                동의를 거부할 수 있으나, 거부하면 문의를 보낼 수 없습니다.
+            </p>
+            <label>
+                <input type="checkbox" name="consent" value="true" th:checked="${form.consent}">
+                개인정보 수집·이용에 동의합니다.
+            </label>
+            <p class="inquiry-field-error" th:if="${errors['consent'] != null}" th:text="${errors['consent']}"></p>
+        </div>
+
+        <div class="inquiry-captcha">
+            <!--/* Turnstile 위젯이 폼 안에 hidden cf-turnstile-response 필드를 넣어 준다. 사이트 키는 공개 값이다. */-->
+            <div class="cf-turnstile" th:attr="data-sitekey=${siteKey}"></div>
+            <p class="inquiry-field-error" th:if="${errors['captcha'] != null}" th:text="${errors['captcha']}"></p>
+        </div>
+
+        <button type="submit" class="inquiry-submit">문의 보내기</button>
+    </form>
+
+    <p class="inquiry-links"><a th:href="@{/faq}">자주 묻는 질문</a> · <a th:href="@{/}">홈으로</a></p>
+</div>
+<!--/* 외부 스크립트는 Turnstile 하나뿐이다(PLAN-inquiry.md 쟁점 12). 자체 스크립트는 없다. */-->
+<script th:unless="${sent}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</body>
+</html>

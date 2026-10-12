@@ -102,6 +102,15 @@ public enum AdminFeature {
             List.of("/admin/media/manage"),
             List.of("/admin/media/manage", "/admin/api/media", "/admin/api/media/**")),
 
+    /**
+     * 문의함(공개 문의 폼으로 들어온 문의의 조회·처리, 기능 단위 위임, PLAN-inquiry.md 쟁점 2) — 여섯 번째 {@code DELEGABLE} 기능. 게이트는 기능 단위 READ이고
+     * 동작별 판정은 핸들러의 {@link RequirePermission}이 한다: 목록·상세 = READ, 상태 변경 = UPDATE, 삭제 = DELETE. 관리자가 문의를 만들지 않으므로 CREATE는 없다.
+     * 방문자 이름·이메일이 담겨 있어 신규 MANAGER의 기본값은 권한 없음이다. 새 문의 알림 수신자도 이 READ 허용 행으로 정해진다.
+     */
+    INQUIRY(DELEGABLE, "문의", EnumSet.of(READ, UPDATE, DELETE),
+            List.of("/admin/inquiry/manage"),
+            List.of("/admin/inquiry/manage", "/admin/api/inquiries", "/admin/api/inquiries/**")),
+
     MEMBER(ADMIN_ONLY, "회원 관리", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/member/manage", "/admin/member/new"), List.of()),
 

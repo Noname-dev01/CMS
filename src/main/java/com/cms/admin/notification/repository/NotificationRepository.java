@@ -8,9 +8,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long>, NotificationRepositoryCustom {
+
+    /** 후보 회원 중 이미 미읽음 알림(해당 종류)을 가진 회원 ID — 새 문의 알림을 병합(중복 생성 안 함)하기 위한 잠금 없는 SELECT. */
+    @Query("select distinct n.memberId from Notification n where n.type = :type and n.readAt is null and n.memberId in :memberIds")
+    List<Long> findMemberIdsWithUnread(@Param("type") NotificationType type, @Param("memberIds") Collection<Long> memberIds);
 
     /** 소유 확인용 단건 조회 — 남의 알림이면 비어 있다(호출자가 404로 숨긴다). */
     Optional<Notification> findByIdAndMemberId(Long id, Long memberId);

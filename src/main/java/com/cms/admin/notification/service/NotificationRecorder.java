@@ -10,13 +10,16 @@ import com.cms.config.auth.PasswordExpiryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 알림 생성(PLAN-admin-notification.md §5-C). 커밋 뒤 리스너가 호출하므로 원 트랜잭션과 격리된 {@code REQUIRES_NEW}로 저장한다 —
@@ -32,10 +35,54 @@ public class NotificationRecorder {
     /** 읽은 알림 보관 일수(D7) — 이 일수가 지나면 로그인 성공 시 정리된다. */
     static final int READ_RETENTION_DAYS = 90;
 
+    /** 새 문의 알림이 가리키는 문의함 목록(관리자 화면 경로). */
+    static final String INQUIRY_LINK = "/admin/inquiry/manage";
+
     private final NotificationRepository notificationRepository;
     private final MemberRepository memberRepository;
     private final JdbcTemplate jdbcTemplate;
     private final Clock clock;
+
+    /** 새 문의 알림의 INSERT 한 문장에 거는 대기 상한(초) — 문장 전체와 개별 락 대기 각각. 검사 지점에서 중단하는 방식이라 엄밀한 벽시계 상한은 아니다. */
+    static final int INQUIRY_STATEMENT_MAX_SECONDS = 3;
+    static final int INQUIRY_LOCK_WAIT_SECONDS = 1;
+
+    /**
+     * 새 문의 알림(PLAN-inquiry.md 쟁점 9) — 수신자(ACTIVE ADMIN + 문의 조회 권한 MANAGER) 중 <b>이미 미읽음 문의 알림이 있는 회원은 건너뛰고</b>
+     * 나머지에게 상수 문장을 다중 행 INSERT 한 문장으로 저장한다(벨에 회원당 미읽음 최대 1건 — 스팸이 와도 벨이 넘치지 않는다). 경합으로 중복 1건이 생겨도 무해하다.
+     *
+     * <p><b>호출자는 트랜잭션 밖이어야 한다</b>({@code InquiryNotifier}) — {@code REQUIRES_NEW}가 아니라 REQUIRED라 새 트랜잭션 하나만 열고, 요청당 커넥션이
+     * 2개가 되지 않는다(R4-1). {@code READ_COMMITTED}는 갭 락을 없앤다. 수신자 회원 행을 다른 트랜잭션이 수정 중이면 FK 검사가 대기하므로 INSERT 한 문장에
+     * {@code max_statement_time}·{@code innodb_lock_wait_timeout}을 걸어 응답 지연을 제한한다(R3-1·R5-1) — 초과하면 예외가 나고 호출자가 삼킨다.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public void recordInquiryReceived() {
+        List<Long> candidates = memberRepository.findInquiryNotificationRecipientIds();
+        if (candidates.isEmpty()) {
+            return;
+        }
+        Set<Long> alreadyNotified = new HashSet<>(notificationRepository.findMemberIdsWithUnread(NotificationType.INQUIRY_RECEIVED, candidates));
+        List<Long> recipients = candidates.stream().filter(id -> !alreadyNotified.contains(id)).toList();
+        if (recipients.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now(clock);
+        String message = NotificationMessages.inquiryReceived();
+
+        StringBuilder sql = new StringBuilder("SET STATEMENT max_statement_time=" + INQUIRY_STATEMENT_MAX_SECONDS
+                + ", innodb_lock_wait_timeout=" + INQUIRY_LOCK_WAIT_SECONDS
+                + " FOR INSERT INTO notification (member_id, type, message, link_url, create_date) VALUES ");
+        List<Object> args = new ArrayList<>();
+        for (int i = 0; i < recipients.size(); i++) {
+            sql.append(i == 0 ? "(?, ?, ?, ?, ?)" : ", (?, ?, ?, ?, ?)");
+            args.add(recipients.get(i));
+            args.add(NotificationType.INQUIRY_RECEIVED.name());
+            args.add(message);
+            args.add(INQUIRY_LINK);
+            args.add(now);
+        }
+        jdbcTemplate.update(sql.toString(), args.toArray());
+    }
 
     /** E1·E2 — 한 건 저장. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)

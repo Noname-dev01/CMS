@@ -77,7 +77,7 @@ class AdminSidebarAdviceSnapshotTest {
     }
 
     @Test
-    @DisplayName("ADMIN: 캐시를 호출하지 않고 myPermissions는 기능 단위 위임 기능(BANNER·SITE_PAGE·POPUP·FAQ·MEDIA)의 전 동작을 담는다 — 게시글 화면은 내 게시판 API의 동작 목록을 쓴다")
+    @DisplayName("ADMIN: 캐시를 호출하지 않고 myPermissions는 기능 단위 위임 기능(BANNER·SITE_PAGE·POPUP·FAQ·MEDIA·INQUIRY)의 전 동작을 담는다 — 게시글 화면은 내 게시판 API의 동작 목록을 쓴다")
     void admin_neverTouchesCache() {
         login("ROLE_ADMIN");
         when(menuService.getSidebarMenus(any())).thenReturn(List.of());
@@ -91,7 +91,8 @@ class AdminSidebarAdviceSnapshotTest {
                         "SITE_PAGE:READ", "SITE_PAGE:CREATE", "SITE_PAGE:UPDATE", "SITE_PAGE:DELETE",
                         "POPUP:READ", "POPUP:CREATE", "POPUP:UPDATE", "POPUP:DELETE",
                         "FAQ:READ", "FAQ:CREATE", "FAQ:UPDATE", "FAQ:DELETE",
-                        "MEDIA:READ", "MEDIA:CREATE", "MEDIA:DELETE"));
+                        "MEDIA:READ", "MEDIA:CREATE", "MEDIA:DELETE",
+                        "INQUIRY:READ", "INQUIRY:UPDATE", "INQUIRY:DELETE"));
     }
 
     @Test

@@ -99,6 +99,13 @@ cms:
   content-image:
     max-total-bytes: ${CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES:1073741824}
     max-count: ${CMS_CONTENT_IMAGE_MAX_COUNT:10000}
+  # 공개 문의 폼의 Cloudflare Turnstile 캡차(PLAN-inquiry.md 쟁점 4). enabled 기본값 false = "문의 기능 닫힘"(GET·POST /inquiry 모두 503) —
+  # 캡차 없이 제출을 받는 상태는 만들 수 없다. 운영에서 열려면 enabled=true와 실제 키가 모두 필요하고, prod 프로파일은 Cloudflare 공개 테스트 키를 기동 실패로 거부한다.
+  inquiry:
+    turnstile:
+      enabled: ${CMS_INQUIRY_TURNSTILE_ENABLED:false}
+      site-key: ${CMS_INQUIRY_TURNSTILE_SITE_KEY:}
+      secret-key: ${CMS_INQUIRY_TURNSTILE_SECRET_KEY:}
   rate-limit:
     # 무인증 공개 엔드포인트(/notices/**, 비밀번호 재설정 API)의 최소 방어 —
     # 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단"하는 목적이다.
@@ -163,6 +170,18 @@ cms:
       # 팝업 이미지 — 메인 1회에 보이기로 한 팝업(최대 5개)의 이미지만 받고(숨겨진 팝업은 요청하지 않는다) 배너(240)의 절반. PLAN-popup.md 쟁점 10
       - id: popup-image
         pattern: /popups/*/image
+        methods: [GET, HEAD]
+        capacity: 120
+        refill-period-seconds: 60
+      # 공개 문의 폼 — 제출(POST)은 입력 오류 재시도까지 흡수하도록 시간당 10회(토큰 버킷이라 연속 10회 소진 후 약 6분마다 1회 재시도 가능, 정확한
+      # "시간당 10회"는 아니다), 폼 조회(GET·HEAD)는 다른 공개 페이지와 같은 값. 429는 필터가 끝내므로 입력이 보존되지 않는다. PLAN-inquiry.md 쟁점 4
+      - id: inquiry-submit
+        pattern: /inquiry
+        methods: [POST]
+        capacity: 10
+        refill-period-seconds: 3600
+      - id: public-inquiry
+        pattern: /inquiry
         methods: [GET, HEAD]
         capacity: 120
         refill-period-seconds: 60
