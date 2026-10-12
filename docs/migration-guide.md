@@ -47,6 +47,10 @@
 | V40 | `V40__seed_popup_menu.sql` | 팝업 관리 메뉴 시드(멱등 DML) |
 | V41 | `V41__create_faq.sql` | FAQ 카테고리 `faq_category`·FAQ `faq`·동시성 가드 `faq_lock`(DDL 3문 — 실패 복구는 아래 "V41~V42") |
 | V42 | `V42__seed_faq_menu.sql` | FAQ 가드 행(id=1)·FAQ 관리 메뉴 시드(멱등 DML) |
+| V43 | `V43__media_library_columns.sql` | 미디어 라이브러리 — `content_image`에 `namespace`(빈 문자열 = 루트)·`original_name` 추가, 단독 `storage_key` UNIQUE를 `UNIQUE(namespace, storage_key)`로 교체(ALTER 1문, 실패 복구는 아래 "V43~V46") |
+| V44 | `V44__media_library_backfill.sql` | 기존 배너·이미지형 팝업을 이미지 행+`content_image_ref`로 등록하고 카운터를 `content_image` 원본에서 재계산(문장별 독립 멱등 DML) |
+| V45 | `V45__media_library_relax_banner_copy.sql` | `banner.storage_key/content_type/file_size` NULL 허용(ALTER 1문) |
+| V46 | `V46__seed_media_menu.sql` | 미디어 라이브러리 메뉴 시드(멱등 DML) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -144,6 +148,18 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **V42**는 순수 DML이다. ① **가드 행**(`faq_lock` id=1, version 0, `WHERE NOT EXISTS`로 멱등) — 앱이 모든 FAQ·카테고리 쓰기의 첫 조회로 `FOR UPDATE` 하는 대상이라 **없으면 FAQ 쓰기가 전부 500(`IllegalStateException`)** 이다. ② 메뉴 'FAQ 관리' 최상위 맨 끝(멱등). 재실행해도 가드 버전을 되돌리지 않는다(`FaqMigrationTest.seedIsIdempotent`).
 - **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다(`FaqMigrationTest`가 V40 이하 앱 validate·migrate 호환을 고정). 롤백 후 재배포 시 **권한 정리**는 `docs/deployment.md` "FAQ".
 - **시험**: `FaqMigrationTest`(V40→V42 테이블·가드 행·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(필수 컬럼·FK RESTRICT·가드 version 기본 0), V40 이하 앱 롤백 기동 호환).
+
+## V43~V46 — 미디어 라이브러리 (2026-10-12, `adversarial-review/plan/PLAN-media-library.md`)
+
+배너·팝업·본문 이미지를 `content_image` 한 테이블로 모은다. **파일은 옮기지 않는다** — `namespace`에 위치만 기록한다. DDL(V43·V45)과 DML(V44·V46)을 섞지 않는다(DDL은 문마다 암묵 커밋이라 단계별 부분 실패 지점을 분명히 하기 위해).
+
+- **배포 전 백업 필수**(`make prod-backup`). 이 마이그레이션 묶음은 기존 두 테이블의 제약을 바꾸고(`content_image` UNIQUE 교체, `banner` 사본 컬럼 NULL 허용) 대량 DML을 포함한다. **V43 이전 앱으로의 롤백은 지원하지 않는다**(roll-forward만 — 구버전은 배너·팝업 삭제 때 `storage_key`로 파일을 지우는데 새 행은 그 컬럼이 NULL이고 공유 이미지를 모른다).
+- **V43**(ALTER 1문: 컬럼 2개 추가 + `DROP INDEX uk_content_image_storage_key` + `ADD UNIQUE KEY uk_content_image_ns_storage_key (namespace, storage_key)`): 한 문장이지만 MariaDB는 DDL을 암묵 커밋하므로 실패하면 Flyway 이력과 어긋날 수 있다. 복구: ① 앱 정지·원인 제거 ② `SELECT version, success FROM flyway_schema_history WHERE version = '43';`와 `SHOW CREATE TABLE content_image;` ③ **이력이 없거나 `success=0`이고 컬럼이 이미 생겼다면**(문 일부만 적용된 경우) `namespace`·`original_name` 컬럼과 새 UNIQUE를 지우고 옛 `UNIQUE KEY uk_content_image_storage_key (storage_key)`를 되돌려 V43 이전 상태로 맞춘다 ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. **`success=1`이면 아무것도 지우지 않는다**.
+- **V44**(순수 DML 5문): Flyway는 DML 마이그레이션을 한 트랜잭션으로 감싸므로 정상 실행은 원자적이다. 그래도 **문장별로 독립 멱등**이라(① 이미지 행은 `(namespace, storage_key)`가 같은 행이 없을 때만, ② 참조 행은 소유자의 키로 그 이미지를 찾아 참조가 없을 때만, ③ 카운터는 덧셈이 아니라 `COALESCE(SUM(file_size), 0)`/`COUNT(*)` 원본 재계산) 어느 지점에서 끊겨도 SQL을 그대로 다시 실행하면 수렴한다 — 수동 복구는 `V44__media_library_backfill.sql`의 문장을 순서대로 다시 실행하면 된다(`MediaMigrationTest`가 완료 상태·참조만 사라진 부분 상태·이미지와 참조가 모두 사라진 부분 상태에서 재실행해 중복 없이 수렴함을 고정). 확인: `SELECT COUNT(*) FROM banner` = `SELECT COUNT(*) FROM content_image_ref WHERE owner_type = 'BANNER'`(이미지형 팝업도 같은 식).
+- **V45**(ALTER 1문): V44가 이미 커밋돼 있으므로 이 문이 실패하면 **V45만 다시 실행**하면 된다(`ALTER TABLE banner MODIFY COLUMN …` 3개 컬럼 NULL 허용). 이력에 `success=0`이 남았다면 상태(`SHOW COLUMNS FROM banner`)를 확인하고 `flyway repair` 뒤 재기동한다.
+- **V46**은 순수 DML(멱등 메뉴 시드)이다.
+- **되돌리기**: 위 롤백 불가 설명 참조(roll-forward — 수정 버전을 배포한다).
+- **시험**: `MediaMigrationTest`(V42 데이터 — 배너 2·이미지형/HTML형 팝업·**같은 키 문자열을 세 네임스페이스가 가진 경우** — 업그레이드, 빈 DB·이미지 없는 V42의 카운터 (0, 0), V44 부분 상태 재실행 수렴, `(namespace, storage_key)` 유일성과 배너 사본 컬럼 NULL 허용, 메뉴 시드 멱등).
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

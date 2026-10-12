@@ -430,6 +430,7 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **팝업 이미지 저장**: 같은 파일 볼륨의 **`popup/` 하위 디렉터리**(네임스페이스, `banner/`·`profile/`과 같은 방식)에 저장된다. 볼륨 백업·복구는 기존 절차에 그대로 포함된다. 이미지형만 파일이 있고 HTML형은 본문이 DB(`popup.content_html`)에만 있다.
 - **수동 회수(위 절차) 주의**: ⑤는 `popup/`도 제외하고 **⑤-4가 `popup` 테이블 대조로 따로 회수**한다(비노출·만료 팝업도 행이 있으면 보존). 이 제외가 없는 이전 판의 ⑤를 그대로 실행하면 **정상 팝업 이미지가 전부 삭제**된다.
 - **롤백 중에는 구버전 문서의 수동 회수 ⑤를 실행하지 않는다**: 팝업 도입 전 앱(V38 이하)으로 되돌려도 `popup` 테이블과 `popup/` 파일은 DB·볼륨에 남는다. 구버전 ⑤는 `content_image`·`post_attachment`만 보존하고 `profile/`·`banner/`만 제외하므로 `popup/`의 모든 파일을 고아로 삭제하고, 신버전으로 재전진해도 복구되지 않는다(`ready` 가드는 V32 성공만 확인해 막지 못한다). 롤백 기간에 회수가 필요하면 이 문서의 신버전 절차(⑤에 `popup/` 제외, ⑤-4 포함)만 쓴다.
+- **미디어 라이브러리 도입 후 수동 회수(2026-10-12)**: 위 ②·⑤·⑤-3·⑤-4는 `content_image`(namespace별) 기준으로 개정됐다. 이 개정이 없는 이전 판 ⑤-3·⑤-4를 그대로 실행하면 **배너·팝업이 지워졌지만 게시글이 아직 참조하는 이미지 파일이 고아로 분류돼 삭제**된다(상세는 아래 "미디어 라이브러리").
 - **롤백(팝업 도입 전 앱으로)**: V39·V40은 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `PopupMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `POPUP` 행을 모르고 "전체 회수"가 그 행을 남기므로, 재배포 시 되살아날 수 있다. 앱 정지 후 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'POPUP'; UPDATE member SET permission_version = permission_version + 1;`을 실행하고(전원의 버전을 올려 정리 전 화면의 오래된 PUT이 과거 권한을 복원하지 못하게 한다) 기동한다 — 위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL(`DELETE FROM member_permission; …`)을 이미 실행했다면 별도 조치는 필요 없다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다.
 - **팝업 삭제**: 행을 지운 뒤 커밋 후 파일을 지운다. 파일 삭제가 실패하면 "행 없는 파일"이 남고 ⑤-4가 다음 회수 때 정리한다.
 - **수정과 "오늘 하루 보지 않기"**: 방문자 브라우저의 숨김 상태(`localStorage`)는 서버가 모른다. 팝업을 수정하면 `popup.revision`이 올라가 이전에 숨긴 방문자에게도 다시 표시된다. DB를 직접 고쳐 내용을 바꿀 때는 `revision`도 함께 올려야 같은 효과가 난다.
@@ -449,7 +450,7 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **배포 시**: V25가 기존 공지 본문을 HTML로 일괄 변환한다 — 배포 전 `make prod-backup`. 구버전으로 롤백하면 **공지 쓰기를 동결**해야 한다(`docs/migration-guide.md` "V25 이후 구버전 롤백").
 - **업로드 출처(V27, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = `NOTICE` 또는 게시판 `BOARD` + `scope_id`)이 기록된다. 게시글 본문에는 같은 게시판 출처 이미지만 넣을 수 있다(다른 출처면 저장 400). **V32(2026-10-09) 이후** 공지도 공지 게시판의 게시글이라 `scope_type='NOTICE'` 행은 모두 `BOARD`+공지 게시판으로 바뀌었고 새 `NOTICE` 출처는 생기지 않는다(DB 기본값만 구버전 호환으로 남는다). 아래 롤백 하한 설명은 V27 이전 앱에 대한 것이다. **롤백 하한**: 게시판 이미지(`scope_type='BOARD'`)가 하나라도 생긴 뒤에는 V27 이전 앱(출처 판정 없음)으로 되돌리지 않는다 — 되돌리면 NOTICE 조회 권한자가 비공개 게시판 이미지를 볼 수 있다. roll-forward만 한다(`docs/migration-guide.md` "V26~V28").
 - **게시글 첨부·참조(V29, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 7)**: 게시글 첨부(`post_attachment`)도 공지 첨부와 같은 **스토리지 루트**에 저장된다(네임스페이스가 아님). 그래서 아래 회수 절차의 ② 대상 확정은 **살아 있는 게시글(`post.deleted=0`)이 참조하는 이미지를 제외**하고, ⑤ 행 없는 파일 정리는 **`post_attachment`의 키를 보존 목록에 포함**한다 — 이 두 조건이 빠진 절차를 쓰면 게시글 본문 이미지·첨부 파일이 지워진다. PR A 시점의 절차는 게시글 테이블이 있으면 중단하는 가드를 가졌고(이 문서의 이전 판), 지금 절차가 그 가드를 대체한다. PR B → PR A 앱 롤백은 허용되지만(`docs/migration-guide.md` "V29~V30"), 롤백한 상태에서는 **이 문서의 절차를 쓰지 않는다**(PR A 앱은 게시글을 모른다) — roll-forward 뒤에 실행한다.
-- **상한 도달(업로드 409)**: 저장하지 않은 편집 중 이미지·본문에서 지운 이미지·삭제된 공지의 이미지는 자동으로 정리되지 않는다(자동 정리는 로드맵 ⑧ 미디어 라이브러리). 상한에 도달하면 아래 수동 회수를 한다.
+- **상한 도달(업로드 409)**: 저장하지 않은 편집 중 이미지·본문에서 지운 이미지·삭제된 게시글의 이미지는 **자동으로 정리되지 않는다**. 다만 2026-10-12부터 ADMIN이 **미디어 라이브러리**(`/admin/media/manage`)에서 출처 "게시판 본문" + "사용 안 함만" 필터로 이런 이미지를 직접 지울 수 있다(사용 중이면 삭제가 409로 막히고 사용처가 보인다) — 아래 수동 회수는 앱을 정지하고 일괄로 정리해야 할 때 쓴다. 상한(전체 1GB·1만 개)은 배너·팝업·라이브러리 이미지까지 **하나의 카운터**로 센다.
 
 ### 수동 회수 절차 (dev에서 2026-10-07 실제 수행 검증)
 
@@ -480,14 +481,21 @@ SQL
 rm -f reclaim-backup.ok
 docker stop cms-app-prod && make prod-backup && touch reclaim-backup.ok
 
-# ② 회수 대상 확정: 참조가 없거나, 모든 참조가 삭제된 게시글(deleted=1)인 이미지 —
-#    살아 있는 게시글이 하나라도 참조하면 제외한다(게시글은 노출 여부·게시판 공개 여부와 무관 —
-#    비노출·비공개 게시판 글의 이미지도 운영자가 다시 켜면 쓰이므로 회수하지 않는다).
+# ② 회수 대상 확정(미디어 라이브러리 도입 후 개정 — PLAN-media-library.md R1-7): **살아 있는 어떤 소유자도 참조하지 않는** 이미지.
+#    소유자 = 삭제되지 않은 게시글(POST — 노출 여부·게시판 공개 여부와 무관, 비노출·비공개 게시판 글의 이미지도 운영자가 다시 켜면 쓰이므로 회수하지 않는다),
+#    존재하는 배너(BANNER)·팝업(POPUP). 배너·팝업이 직접 올렸다가 소유자가 사라진 이미지(BANNER/POPUP 출처)도 대상이다.
+#    **라이브러리 직접 업로드(scope_type='LIBRARY')는 일부러 참조 없이 쌓아 두는 자산이라 대상에서 제외한다** — 라이브러리 화면에서 직접 지운다.
 #    공지는 공지 게시판의 게시글이다 — V32가 공지 참조(owner_type='NOTICE')를 게시글 참조(POST)로 옮기고 지웠으므로 NOTICE 조건이 없다.
+#    출력은 "id <탭> 스토리지 루트 기준 상대 경로"다 — 루트 영역(namespace='')은 키 그대로, banner/·popup/은 접두어를 붙인다(④가 이 경로를 지운다).
 db > reclaim-targets.tsv <<'SQL'
-SELECT i.id, i.storage_key FROM content_image i
-WHERE NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN post p ON r.owner_type = 'POST' AND p.id = r.owner_id
+SELECT i.id, CONCAT(IF(i.namespace = '', '', CONCAT(i.namespace, '/')), i.storage_key) FROM content_image i
+WHERE i.scope_type <> 'LIBRARY'
+  AND NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN post p ON r.owner_type = 'POST' AND p.id = r.owner_id
                   WHERE r.image_id = i.id AND p.deleted = 0)
+  AND NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN banner b ON r.owner_type = 'BANNER' AND b.id = r.owner_id
+                  WHERE r.image_id = i.id)
+  AND NOT EXISTS (SELECT 1 FROM content_image_ref r JOIN popup pp ON r.owner_type = 'POPUP' AND pp.id = r.owner_id
+                  WHERE r.image_id = i.id)
 ORDER BY i.id;
 SQL
 IDS=$(cut -f1 reclaim-targets.tsv | paste -sd, -)   # 비어 있으면(조회 실패 포함) ③의 SQL이 실패해 ④까지 건너뛴다
@@ -509,7 +517,8 @@ docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20
 echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일을 지우지 않았다"
 
 # ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
-#    보존 대상 = content_image + post_attachment의 storage_key, profile/·banner/·popup/ 네임스페이스는 제외(⑤-2·⑤-3·⑤-4가 따로 다룬다 — 제외하지 않으면 정상 배너·팝업 이미지가 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1·PLAN-popup.md R3-1).
+#    보존 대상 = **루트 영역(namespace='')** content_image + post_attachment의 storage_key, profile/·banner/·popup/ 네임스페이스는 제외(⑤-2·⑤-3·⑤-4가 따로 다룬다 — 제외하지 않으면 정상 배너·팝업 이미지가 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1·PLAN-popup.md R3-1).
+#    banner/·popup/ 네임스페이스의 content_image 행은 보존 목록에 넣지 않는다 — 같은 키 문자열이 루트의 고아 파일을 우연히 보존하게 만들 수 있다(PLAN-media-library.md R4-1).
 #    notice_attachment는 V32 이후 이관 시점의 동결 스냅샷일 뿐 앱이 읽지 않으므로 보존 목록에 넣지 않는다 — 넣으면 삭제 실패로 남은
 #    "행 없는 파일"이 동결 행 때문에 영구 보존된다(PLAN-notice-to-board.md 리뷰 R3-1). 공지 첨부는 post_attachment로 이관됐다.
 #    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
@@ -517,7 +526,7 @@ echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일�
 rm -f keep-keys.txt disk-keys.txt orphan-files.txt
 ready &&
 db > keep-keys.txt <<'SQL' &&
-SELECT storage_key FROM content_image UNION SELECT storage_key FROM post_attachment;
+SELECT storage_key FROM content_image WHERE namespace = '' UNION SELECT storage_key FROM post_attachment;
 SQL
 sort -o keep-keys.txt keep-keys.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
@@ -549,12 +558,13 @@ ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work al
   while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/profile/$k";; esac; done < /work/profile-orphans.txt'
 
 # ⑤-3 배너 파일 대조(2026-10-10, PLAN-public-home-banner.md R4-1 — 일회용 스키마·볼륨에서 이 블록을 그대로 실행해 비노출·만료 배너 파일 보존과 행 없는 파일만 삭제됨을 확인): 배너 이미지는 banner/ 네임스페이스에 저장되어 위 ⑤가 제외하므로 여기서 따로 대조한다.
-#      보존 대상 = banner 테이블의 storage_key(네임스페이스 로컬 키 — **비노출·만료 배너도 행이 있으면 보존**), 디스크 = banner/ 아래 파일(접두어 제거).
+#      보존 대상 = content_image의 namespace='banner' 행의 storage_key(네임스페이스 로컬 키 — 미디어 라이브러리 도입(V44) 이후 배너와 이미지의 연결은 content_image_ref 한 곳이고 banner.storage_key는 새 행에서 NULL이다.
+#      **비노출·만료 배너도, 배너가 지워졌어도 게시글이 아직 참조하는 이미지도 행이 있으면 보존**), 디스크 = banner/ 아래 파일(접두어 제거).
 #      차이만 고아 목록이 된다. 앞 단계와 같은 ready 가드 + && 체인 — 조회가 실패하면 목록이 만들어지지 않고 아래 삭제는 아무것도 지우지 않는다.
 rm -f banner-keep.txt banner-disk.txt banner-orphans.txt
 ready &&
 db > banner-keep.txt <<'SQL' &&
-SELECT storage_key FROM banner;
+SELECT storage_key FROM content_image WHERE namespace = 'banner';
 SQL
 sort -o banner-keep.txt banner-keep.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
@@ -567,12 +577,12 @@ ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work al
   while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/banner/$k";; esac; done < /work/banner-orphans.txt'
 
 # ⑤-4 팝업 파일 대조(2026-10-12, PLAN-popup.md R3-1 — 일회용 MariaDB·볼륨에서 이 블록 전체를 실행해 활성·비노출·만료 팝업 파일 보존과 행 없는 파일만 삭제됨을 확인): 팝업 이미지는 popup/ 네임스페이스에 저장되어 위 ⑤가 제외하므로 여기서 따로 대조한다.
-#      보존 대상 = popup 테이블의 storage_key(이미지형만 값이 있다 — **비노출·만료 팝업도 행이 있으면 보존**, HTML형은 NULL이라 제외), 디스크 = popup/ 아래 파일(접두어 제거).
+#      보존 대상 = content_image의 namespace='popup' 행의 storage_key(이미지형만 이미지가 있다 — **비노출·만료 팝업도, 팝업이 지워졌어도 게시글이 아직 참조하는 이미지도 행이 있으면 보존**, HTML형은 이미지가 없다), 디스크 = popup/ 아래 파일(접두어 제거).
 #      차이만 고아 목록이 된다. 앞 단계와 같은 ready 가드 + && 체인 — 조회가 실패하면 목록이 만들어지지 않고 아래 삭제는 아무것도 지우지 않는다.
 rm -f popup-keep.txt popup-disk.txt popup-orphans.txt
 ready &&
 db > popup-keep.txt <<'SQL' &&
-SELECT storage_key FROM popup WHERE storage_key IS NOT NULL;
+SELECT storage_key FROM content_image WHERE namespace = 'popup';
 SQL
 sort -o popup-keep.txt popup-keep.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
@@ -589,6 +599,27 @@ docker start cms-app-prod
 ```
 
 파일을 DB보다 나중에 지우므로 중간에 실패해도 남는 것은 "행 없는 파일"뿐이고, 다음 회수의 ⑤가 정리한다. ⑤는 공지 첨부·게시글 첨부의 잔존 파일(같은 원인)도 함께 회수하고, ⑤-2는 프로필 파일의 잔존분을 회수한다. 삭제된 공지는 API로 복원할 수 없으므로 그 이미지를 회수해도 사용자 기능 손실은 없다.
+
+## 미디어 라이브러리 (2026-10-12, adversarial-review/plan/PLAN-media-library.md)
+
+배너·팝업·편집기 본문 이미지를 `content_image` 한 테이블로 모았다(`/admin/media/manage`, 위임 기능 `MEDIA`). 파일은 옮기지 않는다 — 기존 파일은 `banner/`·`popup/`·루트에 그대로 있고 `content_image.namespace`(빈 문자열 = 루트)에 위치만 기록된다. 공개 URL(`/content-images/{id}`·`/banners/{id}/image`·`/popups/{id}/image`)과 `SecurityConfig`는 바뀌지 않았다.
+
+- **배포 시**: V43(DDL: `content_image` 컬럼 2개 + `UNIQUE(namespace, storage_key)` 교체) → V44(백필 DML, 멱등: 기존 배너·이미지형 팝업을 이미지 행+참조 행으로 등록하고 **카운터를 `content_image` 원본에서 재계산**) → V45(DDL: `banner.storage_key/content_type/file_size` NULL 허용) → V46(메뉴 시드). 배포 전 `make prod-backup`. 중간 실패 복구는 `docs/migration-guide.md` "V43~V46". 이 마이그레이션에는 파일 이동이 없어 볼륨 작업이 필요 없다.
+- **롤백은 지원하지 않는다(roll-forward만)**: V43 이전 앱은 배너·팝업 삭제 때 `banner.storage_key`/`popup.storage_key`로 파일을 지우는데, 새 행은 그 컬럼이 NULL이고 같은 이미지를 여러 소유자(배너·팝업·게시글)가 함께 쓸 수 있다. 되돌리면 파일이 남거나(NULL 키) 공유 중인 파일을 지울 수 있다. 롤백이 불가피하면 먼저 신버전에서 `SELECT COUNT(*) FROM content_image_ref WHERE owner_type IN ('BANNER','POPUP')`와 배너·팝업 행 수를 대조해 두고, 구버전 기동 중에는 배너·팝업 쓰기를 동결한다.
+- **권한 정리(롤백 후 재배포 시)**: 이전 앱의 권한관리는 카탈로그에 없는 `MEDIA` 행을 모르고 "전체 회수"가 그 행을 남기므로 되살아날 수 있다. 앱 정지 후 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'MEDIA'; UPDATE member SET permission_version = permission_version + 1;`을 실행하고 기동한다(전체 정리 SQL을 이미 실행했다면 불필요). 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다.
+- **위임 규칙**: `MEDIA` 읽기가 있는 MANAGER는 라이브러리 계열(라이브러리 업로드·배너·팝업 출처) 이미지만 보고 고를 수 있다. **게시판 본문 이미지(`BOARD` 출처)는 ADMIN만 목록·삭제할 수 있다**(다른 게시판의 비공개 이미지가 권한 밖으로 새지 않게). 배너·팝업·게시글에서 라이브러리 이미지를 **고르는 것**은 저장 시점에 현재 `MEDIA` 읽기 권한을 다시 판정한다 — 회수하면 새로 고를 수 없지만 이미 쓰고 있는 이미지는 유지된다.
+- **삭제 규칙**: 사용 중인 이미지는 삭제할 수 없다(409, 메시지에 사용처 요약). 배너·팝업을 지우면 그 배너·팝업이 직접 올린(`BANNER`/`POPUP` 출처) 이미지는 다른 소유자가 없을 때 이미지 행·파일·카운터까지 함께 정리되고, 라이브러리에 올린(`LIBRARY` 출처) 이미지는 남는다.
+- **운영 확인 SQL**(읽기 전용):
+  ```sql
+  -- 카운터가 원본과 일치하는지(어긋나면 앱이 정지된 상태에서 재계산: V44의 ③ 문장)
+  SELECT u.total_bytes, u.total_count, COALESCE(SUM(i.file_size), 0) AS real_bytes, COUNT(i.id) AS real_count
+  FROM content_image_usage u LEFT JOIN content_image i ON 1 = 1 WHERE u.id = 1;
+  -- 이미지형인데 참조가 없는 배너·팝업(공개에서 제외되고 관리 화면에 이미지가 비어 보인다)
+  SELECT 'BANNER', b.id FROM banner b WHERE NOT EXISTS (SELECT 1 FROM content_image_ref r WHERE r.owner_type = 'BANNER' AND r.owner_id = b.id)
+  UNION ALL
+  SELECT 'POPUP', p.id FROM popup p WHERE p.popup_type = 'IMAGE' AND NOT EXISTS (SELECT 1 FROM content_image_ref r WHERE r.owner_type = 'POPUP' AND r.owner_id = p.id);
+  ```
+- **수동 회수 개정(위 "수동 회수 절차")**: ②는 "살아 있는 어떤 소유자(게시글·배너·팝업)도 참조하지 않는" 이미지만(라이브러리 직접 업로드 제외), ⑤는 루트 영역(`namespace = ''`)의 `content_image` 키 + `post_attachment` 키를 보존하고, ⑤-3·⑤-4는 `content_image`의 `namespace = 'banner'`/`'popup'` 키를 보존한다. 일회용 MariaDB·볼륨에서 이 블록을 그대로 실행해 (a) 배너를 지운 뒤 게시글만 참조하는 이미지 파일 보존, (b) 소유자 없는 배너·팝업 출처 이미지 회수, (c) 라이브러리 업로드 미참조 이미지 보존, (d) 행 없는 파일만 삭제됨을 확인했다(`PLAN-media-library.md` 구현·검증 결과).
 
 ## 알려진 제약
 
