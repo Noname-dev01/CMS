@@ -434,6 +434,14 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **팝업 삭제**: 행을 지운 뒤 커밋 후 파일을 지운다. 파일 삭제가 실패하면 "행 없는 파일"이 남고 ⑤-4가 다음 회수 때 정리한다.
 - **수정과 "오늘 하루 보지 않기"**: 방문자 브라우저의 숨김 상태(`localStorage`)는 서버가 모른다. 팝업을 수정하면 `popup.revision`이 올라가 이전에 숨긴 방문자에게도 다시 표시된다. DB를 직접 고쳐 내용을 바꿀 때는 `revision`도 함께 올려야 같은 효과가 난다.
 
+## FAQ (V41~V42, 2026-10-12, adversarial-review/plan/PLAN-faq.md)
+
+- **새 공개 경로**: `GET·HEAD /faq`가 무인증이다(`SecurityConfig` 승인 2026-10-12, **정확 경로 1개**). `/faq`의 그 외 메서드와 `/faq/**` 하위 경로는 `denyAll`이다(비인증은 로그인 302, 인증은 403). 리버스 프록시·ingress가 경로를 허용 목록으로 관리한다면 `/faq`를 추가한다. 레이트리밋 규칙 `public-faq`(120/60초). 노출 중인 카테고리·FAQ만 보이고 답변은 출력 시 한 번 더 정리된다. 공개 스크립트는 정적 파일 `/js/public/faq.js`(기존 `/js/**` 공개 범위)다.
+- **파일 저장 없음**: FAQ는 DB 행뿐이고 이미지(답변에 이미지 불가)·첨부가 없어 파일 볼륨·수동 회수 절차에 영향이 없다. 백업·복구는 DB 덤프에 그대로 포함된다.
+- **가드 행(`faq_lock`)**: V42가 시드하는 id=1 행이 없으면 FAQ·카테고리 쓰기가 모두 서버 오류가 된다. DB를 수동으로 복구·정리할 때 이 행을 지우지 않는다(지웠다면 `INSERT INTO faq_lock (id, version) VALUES (1, 0);`). `version`은 구조(등록·삭제·카테고리 이동·순서)가 바뀔 때만 올라가므로 **SQL로 FAQ 순서나 소속을 직접 바꿀 때는 `UPDATE faq_lock SET version = version + 1;`도 함께 실행**해야 순서 초안을 만든 열린 관리 화면이 낡았음을 알 수 있다(안 올려도 데이터는 안전하고, 낡은 화면이 409 없이 순서를 덮을 수 있을 뿐이다).
+- **롤백(FAQ 도입 전 앱으로)**: V41·V42는 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `FaqMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `FAQ` 행을 모르고 "전체 회수"가 그 행을 남기므로, 재배포 시 되살아날 수 있다. 앱 정지 후 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'FAQ'; UPDATE member SET permission_version = permission_version + 1;`을 실행하고 기동한다 — 위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL(`DELETE FROM member_permission; …`)을 이미 실행했다면 별도 조치는 필요 없다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다.
+- **상한**: 카테고리 30개·FAQ 200개(초과 시 관리 API 409). 공개 페이지가 노출 중인 FAQ 전체를 한 번에 내려주므로 총량을 묶은 값이다(답변 하나는 정리 후 30KB 이하, 최악 ≈ 6MB).
+
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
 공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 게시글이 참조하는지 — `owner_type` = `POST`; 공지 흡수(V32, 2026-10-09) 이전에는 공지 참조 `NOTICE`도 있었다)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.

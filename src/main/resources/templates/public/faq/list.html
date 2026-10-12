@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>자주 묻는 질문</title>
+    <link rel="stylesheet" th:href="@{/css/public/faq.css}">
+</head>
+<body>
+<div class="public-faq-container">
+    <h1 class="faq-title">자주 묻는 질문</h1>
+
+    <!--/* 즉시 필터 입력은 서버가 hidden으로 내보내고 스크립트가 실행되면 보인다 — 스크립트가 꺼져 있으면 동작하지 않는 입력란이 보이지 않는다. */-->
+    <div class="faq-search" id="faq-search-box" hidden>
+        <input type="search" id="faq-search" class="faq-search-input" placeholder="질문 또는 답변에서 검색" autocomplete="off" aria-label="FAQ 검색">
+    </div>
+
+    <p class="faq-empty" th:if="${#lists.isEmpty(categories)}">등록된 질문이 없습니다.</p>
+
+    <section class="faq-category" th:each="category : ${categories}" data-faq-category>
+        <h2 class="faq-category-name" th:text="${category.name}"></h2>
+        <!--/* 답변은 PublicFaqService가 이미지 불허 규칙으로 다시 정리한 HTML이다. 이스케이프 없는 출력은 이 한 곳만 허용된다
+             (PublicFaqTemplateConventionTest가 고정). 파서 수준 주석이라 응답에 나가지 않는다. */-->
+        <details class="faq-item" th:each="item : ${category.items}" data-faq-item>
+            <summary class="faq-question" th:text="${item.question}"></summary>
+            <div class="faq-answer" th:utext="${item.answerHtml}"></div>
+        </details>
+    </section>
+
+    <p class="faq-no-match" id="faq-no-match" hidden>일치하는 질문이 없습니다.</p>
+
+    <p class="faq-links"><a th:href="@{/}">홈으로</a></p>
+</div>
+<script th:src="@{/js/public/faq.js}"></script>
+</body>
+</html>

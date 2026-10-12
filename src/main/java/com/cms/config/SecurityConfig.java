@@ -136,6 +136,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/pages", "/pages/**").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/pages", "/pages/**").permitAll()
                         .requestMatchers("/pages", "/pages/**").denyAll()
+                        // 공개 FAQ 페이지: 정확 경로 /faq 1개만 GET/HEAD 공개, 그 외 메서드·하위 경로는 명시 차단(2026-10-12 승인, PLAN-faq.md 쟁점 10).
+                        // 노출 중인 카테고리·FAQ만 보이는 불변식은 PublicFaqService가 쿼리에 고정한다. 하위 경로는 라우트가 없고 여기서 거부된다.
+                        .requestMatchers(HttpMethod.GET, "/faq").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/faq").permitAll()
+                        .requestMatchers("/faq", "/faq/**").denyAll()
                         // 편집기 본문 이미지: GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-07 승인, PLAN-html-editor.md).
                         // 공개 여부(공개 게시글이 참조하거나 그 게시판 조회 권한자)는 PublicContentImageService가 판정한다.
                         .requestMatchers(HttpMethod.GET, "/content-images/*").permitAll()

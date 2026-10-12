@@ -83,6 +83,16 @@ public enum AdminFeature {
             List.of("/admin/popup/manage"),
             List.of("/admin/popup/manage", "/admin/api/popups", "/admin/api/popups/**")),
 
+    /**
+     * FAQ 관리(카테고리 + FAQ, 기능 단위 위임, PLAN-faq.md 쟁점 2) — 네 번째 {@code DELEGABLE} 기능. 게이트는 기능 단위 READ이고 동작별 판정은 핸들러의
+     * {@link RequirePermission}이 한다: 목록·상세 = READ, 카테고리·FAQ 등록 = CREATE, 수정·순서 반영 = UPDATE, 삭제 = DELETE. 카테고리와 FAQ가 한 기능이다
+     * (같은 화면·같은 위임 주체). 게이트 패턴이 둘이다 — {@code /admin/api/faqs}와 {@code /admin/api/faq-categories}.
+     */
+    FAQ(DELEGABLE, "FAQ", EnumSet.of(READ, CREATE, UPDATE, DELETE),
+            List.of("/admin/faq/manage"),
+            List.of("/admin/faq/manage", "/admin/api/faqs", "/admin/api/faqs/**",
+                    "/admin/api/faq-categories", "/admin/api/faq-categories/**")),
+
     MEMBER(ADMIN_ONLY, "회원 관리", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/member/manage", "/admin/member/new"), List.of()),
 

@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>FAQ 관리</title>
+</head>
+<body id="page-top">
+<!--/* 페이지 전용 CSS는 body 시작 지점에 둔다(banner/manage.html 컨벤션 — th:replace가 head를 통째로 치환한다). PLAN-faq.md 쟁점 13. */-->
+<link rel="stylesheet" th:href="@{/vendor/quill/quill.snow.css}">
+<style>
+    .faq-card {
+        background: white;
+        border-radius: 0.35rem;
+        box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+        border: 1px solid #4e73df;
+    }
+    .faq-cat { border: 1px solid #d1d3e2; border-radius: 0.35rem; margin-bottom: 0.75rem; background: #fff; }
+    .faq-cat-head { background: #f8f9fc; padding: 0.5rem 0.75rem; display: flex; align-items: center; border-radius: 0.35rem 0.35rem 0 0; }
+    .faq-cat-name { flex: 1; font-weight: bold; cursor: pointer; overflow-wrap: anywhere; }
+    .faq-row { display: flex; align-items: center; padding: 0.4rem 0.75rem; border-top: 1px solid #eaecf4; }
+    .faq-row-question { flex: 1; cursor: pointer; overflow-wrap: anywhere; }
+    .faq-row.is-editing, .faq-cat.is-editing > .faq-cat-head { background: #e8efff; }
+    .faq-handle { cursor: grab; color: #858796; padding: 0 0.5rem; user-select: none; }
+    .faq-handle[aria-disabled="true"] { cursor: not-allowed; opacity: 0.4; }
+    .faq-move-btn { padding: 0 0.4rem; line-height: 1.4; }
+    .faq-drop-before { box-shadow: inset 0 3px 0 0 #4e73df; }
+    .faq-drop-after { box-shadow: inset 0 -3px 0 0 #4e73df; }
+    .faq-empty-cat { padding: 0.5rem 0.75rem; color: #858796; border-top: 1px solid #eaecf4; font-size: 0.9rem; }
+    .faq-editor .ql-editor { min-height: 200px; font-size: 1rem; }
+</style>
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">FAQ 관리</h1>
+                </div>
+
+                <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
+
+                <p class="text-muted small">
+                    공개 <code>/faq</code>에 카테고리별 아코디언으로 노출할 질문과 답변을 관리합니다. 카테고리는 <strong>30개</strong>, FAQ는 <strong>200개</strong>까지 등록할 수 있습니다.
+                    <strong>카테고리를 숨기면 그 안의 FAQ가 모두 공개되지 않습니다.</strong> 순서는 왼쪽 손잡이(⠿)를 끌거나 ▲▼ 버튼으로 바꾼 뒤 <strong>[순서 반영]</strong>을 눌러야 저장됩니다
+                    (같은 카테고리 안에서만 끌 수 있고, 다른 카테고리로 옮기려면 FAQ를 수정해 카테고리를 바꾸세요). 답변에는 이미지를 넣을 수 없습니다.
+                </p>
+
+                <div class="row">
+                    <div class="col-lg-7 mb-4">
+                        <div class="faq-card">
+                            <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                                <h6 class="m-0 font-weight-bold text-primary">카테고리·FAQ <small class="text-muted" id="faqCount"></small></h6>
+                                <div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="draftBar" class="alert alert-warning d-none align-items-center justify-content-between" role="status">
+                                    <span>순서가 변경되었습니다. 아직 저장되지 않았습니다.</span>
+                                    <span>
+                                        <button type="button" class="btn btn-sm btn-primary" id="btnApplyOrder">순서 반영</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCancelOrder">취소</button>
+                                    </span>
+                                </div>
+                                <div id="faqTree"><p class="text-muted mb-0">불러오는 중...</p></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-5 mb-4">
+                        <div class="faq-card mb-4">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary" id="catFormTitle">새 카테고리</h6>
+                            </div>
+                            <div class="card-body">
+                                <form id="catForm">
+                                    <fieldset id="catFieldset">
+                                        <div class="form-group">
+                                            <label for="catName">이름</label>
+                                            <input type="text" class="form-control" id="catName" maxlength="50" required>
+                                        </div>
+                                        <div class="form-group form-check">
+                                            <input type="checkbox" class="form-check-input" id="catUse" checked>
+                                            <label class="form-check-label" for="catUse">노출 (끄면 이 카테고리의 FAQ가 모두 공개되지 않음)</label>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary" id="btnCatSave">등록</button>
+                                        <button type="button" class="btn btn-outline-secondary d-none" id="btnCatNew">새 카테고리 작성</button>
+                                        <button type="button" class="btn btn-outline-danger d-none" id="btnCatDelete">삭제</button>
+                                    </fieldset>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="faq-card">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary" id="faqFormTitle">새 FAQ</h6>
+                            </div>
+                            <div class="card-body">
+                                <form id="faqForm">
+                                    <fieldset id="faqFieldset">
+                                        <div class="form-group">
+                                            <label for="faqCategory">카테고리</label>
+                                            <select class="form-control" id="faqCategory" required></select>
+                                            <small class="form-text text-muted" id="faqCategoryHint">수정에서 카테고리를 바꾸면 선택한 카테고리의 맨 끝으로 이동합니다.</small>
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="faqQuestion">질문</label>
+                                            <input type="text" class="form-control" id="faqQuestion" maxlength="300" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label>답변</label>
+                                            <div class="faq-editor"><div id="faqAnswerEditor"></div></div>
+                                            <small class="form-text text-muted">보이는 글자 5,000자 이하. 이미지는 넣을 수 없습니다.</small>
+                                        </div>
+                                        <div class="form-group form-check">
+                                            <input type="checkbox" class="form-check-input" id="faqUse" checked>
+                                            <label class="form-check-label" for="faqUse">노출</label>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary" id="btnFaqSave">등록</button>
+                                        <button type="button" class="btn btn-outline-secondary d-none" id="btnFaqNew">새 FAQ 작성</button>
+                                        <button type="button" class="btn btn-outline-danger d-none" id="btnFaqDelete">삭제</button>
+                                    </fieldset>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+<script src="/vendor/quill/quill.js"></script>
+<script src="/js/admin/notice-editor.js"></script>
+
+<script th:inline="javascript">
+    // 서버가 렌더링한 내 위임 권한 키("FAQ:CREATE" 등). 버튼 표시용일 뿐 서버 판정(403)이 최종이다.
+    const MY_PERMISSIONS = new Set(/*[[${myPermissions}]]*/ []);
+</script>
+<script>
+    const FAQS_URL = "/admin/api/faqs";
+    const CATEGORIES_URL = "/admin/api/faq-categories";
+    const UNKNOWN_RESULT_MESSAGE = "저장 여부를 확인할 수 없습니다. [새로고침]으로 목록을 다시 불러온 뒤 반영되었는지 직접 확인하세요.";
+
+    const canCreate = MY_PERMISSIONS.has("FAQ:CREATE");
+    const canUpdate = MY_PERMISSIONS.has("FAQ:UPDATE");
+    const canDelete = MY_PERMISSIONS.has("FAQ:DELETE");
+
+    const treeEl = document.getElementById("faqTree");
+    const pageAlert = document.getElementById("pageAlert");
+    const pageSuccess = document.getElementById("pageSuccess");
+    const draftBar = document.getElementById("draftBar");
+    const btnApplyOrder = document.getElementById("btnApplyOrder");
+    const btnCancelOrder = document.getElementById("btnCancelOrder");
+    const btnReload = document.getElementById("btnReload");
+    const faqCount = document.getElementById("faqCount");
+
+    const catForm = document.getElementById("catForm");
+    const catFieldset = document.getElementById("catFieldset");
+    const catFormTitle = document.getElementById("catFormTitle");
+    const fCatName = document.getElementById("catName");
+    const fCatUse = document.getElementById("catUse");
+    const btnCatSave = document.getElementById("btnCatSave");
+    const btnCatNew = document.getElementById("btnCatNew");
+    const btnCatDelete = document.getElementById("btnCatDelete");
+
+    const faqForm = document.getElementById("faqForm");
+    const faqFieldset = document.getElementById("faqFieldset");
+    const faqFormTitle = document.getElementById("faqFormTitle");
+    const fFaqCategory = document.getElementById("faqCategory");
+    const fFaqQuestion = document.getElementById("faqQuestion");
+    const fFaqUse = document.getElementById("faqUse");
+    const btnFaqSave = document.getElementById("btnFaqSave");
+    const btnFaqNew = document.getElementById("btnFaqNew");
+    const btnFaqDelete = document.getElementById("btnFaqDelete");
+
+    // 이미지 없는 편집기(PLAN-faq.md 쟁점 7) — 서버도 저장·출력 시 img를 제거한다
+    const editor = NoticeEditor.create(document.getElementById("faqAnswerEditor"), {
+        allowImages: false,
+        onError: function (message) { showError(message); }
+    });
+
+    let server = null;          // 마지막으로 읽은 서버 트리 {version, categories:[{id,name,ord,useYn,faqs:[{id,categoryId,question,ord,useYn}]}]}
+    let order = [];             // 순서 초안: [{id, faqIds:[...]}] — 서버 순서와 다르면 "초안이 있음"
+    let categoryById = new Map();
+    let faqById = new Map();
+    let busy = false;           // 쓰기 요청부터 후속 목록 갱신 완료까지, 목록 조회 중
+    let loadingDetail = false;  // FAQ 상세(답변) 조회 중
+    let syncFailed = false;     // 쓰기 결과와 화면이 어긋났을 수 있음 — [새로고침]만 허용(R4-1)
+    let loadSeq = 0;            // 늦게 도착한 이전 목록 응답이 초안을 덮지 않게 하는 세대(R3-1)
+    let detailSeq = 0;          // 늦게 도착한 이전 상세 응답이 지금 편집 중인 폼을 덮지 않게 하는 세대
+    let editingCategoryId = null;
+    let editingFaq = null;      // 상세 응답(null이면 새 FAQ)
+    let dragState = null;
+
+    // ===================== 공통 =====================
+
+    function csrfHeaders(json) {
+        const token = document.querySelector('meta[name="_csrf"]');
+        const header = document.querySelector('meta[name="_csrf_header"]');
+        const headers = {};
+        if (json) {
+            headers["Content-Type"] = "application/json";
+        }
+        if (token && header) {
+            headers[header.content || "X-CSRF-TOKEN"] = token.content;
+        }
+        return headers;
+    }
+
+    async function errorMessage(response, fallback) {
+        if (response.status === 403) {
+            return "이 작업을 수행할 권한이 없습니다.";   // 메서드 보안 403의 message는 영문이라 고정 문구를 쓴다
+        }
+        try {
+            const body = await response.json();
+            return body.message || fallback;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function showError(message) {
+        pageSuccess.classList.add("d-none");
+        pageAlert.textContent = message;
+        pageAlert.classList.remove("d-none");
+    }
+
+    /** 성공 응답의 본문을 읽지 못해(null) 항목 ID를 모를 때도 성공 처리가 예외 없이 끝나게 한다. */
+    function idLabel(saved) {
+        return saved && saved.id ? ": #" + saved.id : "";
+    }
+
+    function showSuccess(message) {
+        pageAlert.classList.add("d-none");
+        pageSuccess.textContent = message;
+        pageSuccess.classList.remove("d-none");
+    }
+
+    function serverOrder() {
+        return server.categories.map(function (c) { return { id: c.id, faqIds: c.faqs.map(function (f) { return f.id; }) }; });
+    }
+
+    function isDirty() {
+        return server !== null && JSON.stringify(order) !== JSON.stringify(serverOrder());
+    }
+
+    /** 드래그·▲▼·순서 반영 등 목록 조작이 막히는 상태. */
+    function interactionLocked() {
+        return busy || loadingDetail || syncFailed;
+    }
+
+    /** 폼 입력과 쓰기 버튼이 막히는 상태 — 초안이 있는 동안에도 막는다(목록 재조회가 초안을 지우므로). */
+    function formLocked() {
+        return interactionLocked() || isDirty();
+    }
+
+    /**
+     * busy·loadingDetail·syncFailed 같은 잠금 상태가 바뀌면 호출한다. 손잡이(draggable)와 ▲▼의 활성 여부가 렌더링 시점의 잠금 상태로 정해지므로
+     * 목록을 다시 그려야 한다 — 목록 조회 중에 그려진 화면이 조회가 끝난 뒤에도 잠긴 채 남는 결함을 브라우저 시험이 잡았다.
+     */
+    function sync() {
+        if (server) {
+            render();
+        } else {
+            applyLock();
+        }
+    }
+
+    function applyLock() {
+        const locked = formLocked();
+        catFieldset.disabled = locked;
+        faqFieldset.disabled = locked;
+        editor.quill.enable(!locked);                      // 편집기는 fieldset으로 잠기지 않는다(R4-2)
+        btnReload.disabled = busy || loadingDetail || isDirty();
+        const dirty = isDirty();
+        draftBar.classList.toggle("d-none", !dirty);
+        draftBar.classList.toggle("d-flex", dirty);
+        btnApplyOrder.disabled = busy || syncFailed;
+        btnCancelOrder.disabled = busy;
+        refreshFormButtons();
+    }
+
+    function refreshFormButtons() {
+        btnCatSave.classList.toggle("d-none", editingCategoryId === null ? !canCreate : !canUpdate);
+        btnCatDelete.classList.toggle("d-none", editingCategoryId === null || !canDelete);
+        btnCatNew.classList.toggle("d-none", editingCategoryId === null);
+        btnFaqSave.classList.toggle("d-none", editingFaq === null ? !canCreate : !canUpdate);
+        btnFaqDelete.classList.toggle("d-none", editingFaq === null || !canDelete);
+        btnFaqNew.classList.toggle("d-none", editingFaq === null);
+    }
+
+    window.addEventListener("beforeunload", function (event) {
+        if (isDirty()) {
+            event.preventDefault();
+            event.returnValue = "";
+        }
+    });
+
+    // ===================== 서버 상태 읽기 =====================
+
+    /** 목록을 읽어 서버 상태와 초안을 새로 만든다. busy 상태는 호출자가 관리한다. 성공 여부를 돌려준다. */
+    async function fetchTree() {
+        const seq = ++loadSeq;
+        try {
+            const response = await fetch(FAQS_URL, { headers: { "Accept": "application/json" } });
+            if (!response.ok) {
+                showError(await errorMessage(response, "목록을 불러오지 못했습니다."));
+                return false;
+            }
+            const body = await response.json();
+            if (seq !== loadSeq) {
+                return true;                                // 더 새로운 요청이 있다 — 이 응답은 버린다
+            }
+            setServer(body);
+            return true;
+        } catch (e) {
+            showError("목록을 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+            return false;
+        }
+    }
+
+    function setServer(tree) {
+        server = tree;
+        categoryById = new Map();
+        faqById = new Map();
+        server.categories.forEach(function (category) {
+            categoryById.set(category.id, category);
+            category.faqs.forEach(function (faq) { faqById.set(faq.id, faq); });
+        });
+        order = serverOrder();
+        if (editingCategoryId !== null && !categoryById.has(editingCategoryId)) {
+            startCategoryCreate();
+        }
+        if (editingFaq !== null && !faqById.has(editingFaq.id)) {
+            startFaqCreate();
+        }
+        render();
+    }
+
+    async function reload() {
+        if (busy || loadingDetail || isDirty()) {
+            return;
+        }
+        busy = true;
+        sync();
+        const ok = await fetchTree();
+        busy = false;
+        if (ok) {
+            syncFailed = false;
+            if (!pageAlert.classList.contains("d-none") && server) {
+                pageAlert.classList.add("d-none");
+            }
+        } else {
+            syncFailed = true;
+        }
+        render();
+        sync();
+    }
+
+    /**
+     * 쓰기 요청 → 성공하면 목록 재조회. 쓰기 결과와 목록 동기화를 분리한다(R4-1): 요청이 실패하면 폼을 그대로 두고, 쓰기는 성공했는데 재조회가 실패하면
+     * syncFailed로 [새로고침]만 허용하며, 응답을 잃으면(네트워크 오류) 결과를 모르는 상태로 보고 자동 재전송하지 않는다.
+     * 돌려주는 값: {ok:boolean, body}.
+     */
+    async function write(url, request, successMessage, onSuccess) {
+        busy = true;
+        sync();
+        let response;
+        try {
+            response = await fetch(url, request);
+        } catch (e) {
+            busy = false;
+            syncFailed = true;
+            showError(UNKNOWN_RESULT_MESSAGE);
+            render();
+            sync();
+            return { ok: false, body: null };
+        }
+        if (!response.ok) {
+            const message = await errorMessage(response, "저장에 실패했습니다.");
+            busy = false;
+            showError(message);
+            if (response.status === 409) {
+                // 낡은 화면·상한·자식 있는 카테고리 등 — 서버 상태가 바뀌었을 수 있어 목록을 다시 읽는다(초안은 버려진다)
+                const status = response.status;
+                busy = true;
+                sync();
+                const loaded = await fetchTree();
+                busy = false;
+                syncFailed = !loaded;
+                showError(message + (loaded ? " (서버의 최신 목록으로 새로고침했습니다.)" : ""));
+                render();
+                sync();
+                return { ok: false, body: null, status: status };
+            }
+            render();
+            sync();
+            return { ok: false, body: null, status: response.status };
+        }
+        let body = null;
+        if (response.status !== 204) {
+            try { body = await response.json(); } catch (e) { body = null; }   // 2xx 헤더 뒤 본문이 끊겨도 쓰기는 성공한 것이다 — 아래에서 목록을 다시 읽는다
+        }
+        try {
+            showSuccess(typeof successMessage === "function" ? successMessage(body) : successMessage);
+            if (onSuccess) {
+                onSuccess(body);
+            }
+        } catch (e) {
+            // 성공 처리 중 예외가 나도 busy가 풀리지 않는 영구 잠금이 되면 안 된다(코드 리뷰 R1-2) — 목록 재조회로 계속한다
+        }
+        const loaded = await fetchTree();
+        busy = false;
+        if (!loaded) {
+            syncFailed = true;
+            showError("저장은 완료됐지만 목록을 불러오지 못했습니다. [새로고침]을 눌러 목록을 다시 불러오세요.");
+        }
+        render();
+        sync();
+        return { ok: true, body: body };
+    }
+
+    // ===================== 렌더링 =====================
+
+    function el(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) { node.className = className; }
+        if (text !== undefined) { node.textContent = text; }   // 이름·질문은 사용자 입력 — textContent만 쓴다
+        return node;
+    }
+
+    function moveButton(label, glyph, disabled, handler) {
+        const button = el("button", "btn btn-sm btn-outline-secondary faq-move-btn", glyph);
+        button.type = "button";
+        button.setAttribute("aria-label", label);
+        button.disabled = disabled;
+        button.addEventListener("click", handler);
+        return button;
+    }
+
+    function handleEl(kind, catId, index) {
+        const handle = el("span", "faq-handle", "⠿");
+        handle.dataset.handle = kind;
+        handle.dataset.cat = String(catId);
+        handle.dataset.index = String(index);
+        const usable = canUpdate && !interactionLocked();
+        handle.draggable = usable;
+        handle.setAttribute("aria-disabled", usable ? "false" : "true");
+        handle.title = canUpdate ? "끌어서 순서 변경" : "순서를 바꿀 권한이 없습니다";
+        return handle;
+    }
+
+    function render() {
+        if (!server) {
+            return;
+        }
+        treeEl.replaceChildren();
+        faqCount.textContent = "(카테고리 " + server.categories.length + "개 · FAQ " + faqById.size + "개)";
+        if (order.length === 0) {
+            treeEl.appendChild(el("p", "text-muted mb-0", "등록된 카테고리가 없습니다. 오른쪽에서 카테고리를 먼저 등록하세요."));
+        }
+        const locked = interactionLocked() || !canUpdate;
+        order.forEach(function (group, catIndex) {
+            const category = categoryById.get(group.id);
+            const card = el("div", "faq-cat" + (editingCategoryId === category.id ? " is-editing" : ""));
+            card.dataset.drop = "category";
+            card.dataset.index = String(catIndex);
+            card.dataset.catId = String(category.id);
+
+            const head = el("div", "faq-cat-head");
+            head.appendChild(handleEl("category", category.id, catIndex));
+            const name = el("span", "faq-cat-name", category.name);
+            name.addEventListener("click", function () { startCategoryEdit(category.id); });
+            head.appendChild(name);
+            if (!category.useYn) {
+                head.appendChild(el("span", "badge badge-warning mr-2", "비노출"));
+            }
+            head.appendChild(moveButton("카테고리 위로", "▲", locked || catIndex === 0, function () { moveCategory(catIndex, catIndex - 1); }));
+            head.appendChild(moveButton("카테고리 아래로", "▼", locked || catIndex === order.length - 1, function () { moveCategory(catIndex, catIndex + 1); }));
+            card.appendChild(head);
+
+            if (group.faqIds.length === 0) {
+                card.appendChild(el("div", "faq-empty-cat", "FAQ가 없습니다."));
+            }
+            group.faqIds.forEach(function (faqId, faqIndex) {
+                const faq = faqById.get(faqId);
+                const row = el("div", "faq-row" + (editingFaq !== null && editingFaq.id === faq.id ? " is-editing" : ""));
+                row.dataset.drop = "faq";
+                row.dataset.cat = String(category.id);
+                row.dataset.index = String(faqIndex);
+                row.dataset.faqId = String(faq.id);
+                row.appendChild(handleEl("faq", category.id, faqIndex));
+                const question = el("span", "faq-row-question", faq.question);
+                question.addEventListener("click", function () { startFaqEdit(faq.id); });
+                row.appendChild(question);
+                if (!faq.useYn) {
+                    row.appendChild(el("span", "badge badge-warning mr-2", "비노출"));
+                } else if (!category.useYn) {
+                    row.appendChild(el("span", "badge badge-secondary mr-2", "카테고리 숨김"));
+                }
+                row.appendChild(moveButton("FAQ 위로", "▲", locked || faqIndex === 0, function () { moveFaq(category.id, faqIndex, faqIndex - 1); }));
+                row.appendChild(moveButton("FAQ 아래로", "▼", locked || faqIndex === group.faqIds.length - 1, function () { moveFaq(category.id, faqIndex, faqIndex + 1); }));
+                card.appendChild(row);
+            });
+            treeEl.appendChild(card);
+        });
+        renderCategorySelect();
+        applyLock();
+    }
+
+    function renderCategorySelect() {
+        const previous = fFaqCategory.value;
+        fFaqCategory.replaceChildren();
+        server.categories.forEach(function (category) {
+            const option = document.createElement("option");
+            option.value = String(category.id);
+            option.textContent = category.name + (category.useYn ? "" : " (비노출)");
+            fFaqCategory.appendChild(option);
+        });
+        // 현재 폼의 선택값을 보존한다 — 저장된 카테고리를 고르는 일은 상세를 채우는 시점(startFaqEdit)에만 한다. 렌더링마다 저장값으로 되돌리면
+        // 카테고리를 바꾼 채 저장했다가 400을 받은 폼이 원래 카테고리로 돌아가, 재시도에서 이동이 조용히 취소된다(코드 리뷰 R1-1).
+        if (previous !== "" && categoryById.has(Number(previous))) {
+            fFaqCategory.value = previous;
+        }
+    }
+
+    // ===================== 순서 초안 =====================
+
+    function onDraftChanged() {
+        loadSeq++;                                          // 진행 중인 이전 목록 응답이 초안을 덮지 못하게 폐기한다(R3-1)
+        render();
+    }
+
+    function moveCategory(from, to) {
+        if (interactionLocked() || !canUpdate || to < 0 || to >= order.length || from === to) {
+            return;
+        }
+        order.splice(to, 0, order.splice(from, 1)[0]);
+        onDraftChanged();
+    }
+
+    function moveFaq(catId, from, to) {
+        if (interactionLocked() || !canUpdate) {
+            return;
+        }
+        const group = order.find(function (g) { return g.id === catId; });
+        if (!group || to < 0 || to >= group.faqIds.length || from === to) {
+            return;
+        }
+        group.faqIds.splice(to, 0, group.faqIds.splice(from, 1)[0]);
+        onDraftChanged();
+    }
+
+    btnCancelOrder.addEventListener("click", function () {
+        if (busy) { return; }
+        order = serverOrder();
+        loadSeq++;
+        render();
+    });
+
+    btnApplyOrder.addEventListener("click", async function () {
+        if (busy || syncFailed || !isDirty()) {
+            return;
+        }
+        const body = JSON.stringify({ version: server.version, categories: order });
+        const result = await write(FAQS_URL + "/order", { method: "PUT", headers: csrfHeaders(true), body: body }, "순서를 반영했습니다.", null);
+        if (!result.ok && result.status === 400) {
+            // 구조 위반 — 초안은 남겨 고치거나 취소할 수 있게 한다(409는 write()가 최신 목록으로 되돌렸다)
+        }
+    });
+
+    // ===================== 네이티브 드래그 =====================
+
+    treeEl.addEventListener("dragstart", function (event) {
+        const handle = event.target.closest ? event.target.closest("[data-handle]") : null;
+        if (!handle || interactionLocked() || !canUpdate) {
+            event.preventDefault();
+            return;
+        }
+        dragState = { kind: handle.dataset.handle, cat: Number(handle.dataset.cat), index: Number(handle.dataset.index) };
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", "faq-order");   // Firefox는 데이터가 없으면 드래그를 시작하지 않는다
+    });
+
+    function dropTarget(event) {
+        if (!dragState || interactionLocked()) {
+            return null;
+        }
+        const target = event.target.closest ? event.target.closest('[data-drop="' + dragState.kind + '"]') : null;
+        if (!target) {
+            return null;
+        }
+        if (dragState.kind === "faq" && Number(target.dataset.cat) !== dragState.cat) {
+            return null;                                   // FAQ는 같은 카테고리 안에서만 끈다
+        }
+        return target;
+    }
+
+    function clearDropMarks() {
+        treeEl.querySelectorAll(".faq-drop-before, .faq-drop-after").forEach(function (node) {
+            node.classList.remove("faq-drop-before", "faq-drop-after");
+        });
+    }
+
+    treeEl.addEventListener("dragover", function (event) {
+        const target = dropTarget(event);
+        clearDropMarks();
+        if (!target) {
+            return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        target.classList.add(Number(target.dataset.index) < dragState.index ? "faq-drop-before" : "faq-drop-after");
+    });
+
+    treeEl.addEventListener("drop", function (event) {
+        const target = dropTarget(event);
+        clearDropMarks();
+        if (!target) {
+            return;
+        }
+        event.preventDefault();
+        const state = dragState;
+        dragState = null;
+        const to = Number(target.dataset.index);
+        if (state.kind === "category") {
+            moveCategory(state.index, to);
+        } else {
+            moveFaq(state.cat, state.index, to);
+        }
+    });
+
+    treeEl.addEventListener("dragend", function () {
+        dragState = null;
+        clearDropMarks();
+    });
+
+    // ===================== 카테고리 폼 =====================
+
+    function startCategoryCreate() {
+        editingCategoryId = null;
+        catFormTitle.textContent = "새 카테고리";
+        btnCatSave.textContent = "등록";
+        fCatName.value = "";
+        fCatUse.checked = true;
+        if (server) { render(); } else { refreshFormButtons(); }
+    }
+
+    function startCategoryEdit(id) {
+        if (formLocked() || !categoryById.has(id)) {
+            return;
+        }
+        const category = categoryById.get(id);
+        editingCategoryId = id;
+        catFormTitle.textContent = "카테고리 수정 #" + id;
+        btnCatSave.textContent = "저장";
+        fCatName.value = category.name;
+        fCatUse.checked = category.useYn;
+        render();
+    }
+
+    catForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        if (formLocked()) { return; }
+        const editingId = editingCategoryId;
+        const payload = JSON.stringify({ name: fCatName.value, useYn: fCatUse.checked });
+        const url = editingId === null ? CATEGORIES_URL : CATEGORIES_URL + "/" + encodeURIComponent(editingId);
+        const result = await write(url, { method: editingId === null ? "POST" : "PUT", headers: csrfHeaders(true), body: payload },
+            function (saved) { return (editingId === null ? "카테고리를 등록했습니다" : "카테고리를 저장했습니다") + idLabel(saved); }, null);
+        if (result.ok && editingId === null) {
+            startCategoryCreate();
+        }
+    });
+
+    btnCatDelete.addEventListener("click", async function () {
+        if (formLocked() || editingCategoryId === null) { return; }
+        const id = editingCategoryId;
+        if (!confirm("카테고리 #" + id + "을(를) 삭제하시겠습니까?\nFAQ가 남아 있으면 삭제되지 않습니다.")) { return; }
+        const result = await write(CATEGORIES_URL + "/" + encodeURIComponent(id), { method: "DELETE", headers: csrfHeaders(false) },
+            "카테고리를 삭제했습니다: #" + id, null);
+        if (result.ok) {
+            startCategoryCreate();
+        }
+    });
+
+    btnCatNew.addEventListener("click", function () { if (!formLocked()) { startCategoryCreate(); } });
+
+    // ===================== FAQ 폼 =====================
+
+    function startFaqCreate() {
+        editingFaq = null;
+        faqFormTitle.textContent = "새 FAQ";
+        btnFaqSave.textContent = "등록";
+        fFaqQuestion.value = "";
+        fFaqUse.checked = true;
+        editor.setHtml("");
+        if (server) { render(); } else { refreshFormButtons(); }
+    }
+
+    async function startFaqEdit(id) {
+        if (formLocked() || !faqById.has(id)) {
+            return;
+        }
+        const seq = ++detailSeq;
+        loadingDetail = true;                              // 상세를 가져오는 동안 폼과 편집기를 통째로 잠근다(R4-2)
+        sync();
+        try {
+            const response = await fetch(FAQS_URL + "/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } });
+            if (seq !== detailSeq) { return; }
+            if (!response.ok) {
+                showError(await errorMessage(response, "FAQ를 불러오지 못했습니다."));
+                if (response.status === 404) {
+                    loadingDetail = false;
+                    await reload();
+                }
+                return;
+            }
+            const detail = await response.json();
+            if (seq !== detailSeq) { return; }
+            editingFaq = detail;
+            faqFormTitle.textContent = "FAQ 수정 #" + detail.id;
+            btnFaqSave.textContent = "저장";
+            fFaqQuestion.value = detail.question;
+            fFaqUse.checked = detail.useYn;
+            editor.setHtml(detail.answerHtml);
+            render();
+            if (categoryById.has(detail.categoryId)) {
+                fFaqCategory.value = String(detail.categoryId);   // 상세를 처음 채울 때만 저장된 카테고리를 고른다
+            }
+        } catch (e) {
+            if (seq === detailSeq) {
+                showError("FAQ를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+            }
+        } finally {
+            if (seq === detailSeq) {
+                loadingDetail = false;
+                sync();
+            }
+        }
+    }
+
+    faqForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        if (formLocked()) { return; }
+        if (editor.isBusy()) {
+            showError("편집기가 아직 처리 중입니다. 잠시 후 다시 시도해 주세요.");
+            return;
+        }
+        const target = editingFaq;                         // 요청 시작 시점의 대상을 고정한다
+        const payload = JSON.stringify({
+            categoryId: Number(fFaqCategory.value),
+            question: fFaqQuestion.value,
+            answer: editor.getHtml(),
+            contentFormat: "HTML",
+            useYn: fFaqUse.checked
+        });
+        const url = target === null ? FAQS_URL : FAQS_URL + "/" + encodeURIComponent(target.id);
+        const result = await write(url, { method: target === null ? "POST" : "PUT", headers: csrfHeaders(true), body: payload },
+            function (saved) { return (target === null ? "FAQ를 등록했습니다" : "FAQ를 저장했습니다") + idLabel(saved); },
+            function (saved) { if (target !== null && saved) { editingFaq = saved; } });
+        if (result.ok && target === null) {
+            const keepCategory = fFaqCategory.value;
+            startFaqCreate();
+            fFaqCategory.value = keepCategory;
+        }
+    });
+
+    btnFaqDelete.addEventListener("click", async function () {
+        if (formLocked() || editingFaq === null) { return; }
+        const id = editingFaq.id;
+        if (!confirm("FAQ #" + id + "을(를) 삭제하시겠습니까?\n복구할 수 없습니다.")) { return; }
+        const result = await write(FAQS_URL + "/" + encodeURIComponent(id), { method: "DELETE", headers: csrfHeaders(false) },
+            "FAQ를 삭제했습니다: #" + id, null);
+        if (result.ok) {
+            startFaqCreate();
+        }
+    });
+
+    btnFaqNew.addEventListener("click", function () { if (!formLocked()) { startFaqCreate(); } });
+    btnReload.addEventListener("click", reload);
+
+    (async function init() {
+        busy = true;
+        refreshFormButtons();
+        sync();
+        const ok = await fetchTree();
+        busy = false;
+        syncFailed = !ok;
+        if (!ok) {
+            treeEl.replaceChildren(el("p", "text-muted mb-0", "목록을 불러오지 못했습니다. [새로고침]을 눌러 다시 시도하세요."));
+            btnReload.disabled = false;
+        }
+        sync();
+    })();
+</script>
+</body>
+</html>

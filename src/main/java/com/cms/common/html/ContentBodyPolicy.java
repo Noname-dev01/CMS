@@ -37,6 +37,14 @@ public final class ContentBodyPolicy {
     public static final int POPUP_MAX_CONTENT_BYTES = 50_000;
     public static final int POPUP_MAX_RAW_BYTES = 100_000;
 
+    /**
+     * FAQ 답변 상한(PLAN-faq.md 쟁점 7) — 보이는 글자 5,000자(+ 마지막 문단 종료 1자), 정리 후 30,000바이트. 공개 페이지가 노출 중 FAQ를 한 번에
+     * 내려주므로 총량을 묶는다. 요청 DTO의 원문 상한은 {@link #FAQ_MAX_RAW_BYTES}로 sanitizer가 원문을 파싱하기 전에 거른다.
+     */
+    public static final int FAQ_MAX_TEXT_LENGTH = 5_001;
+    public static final int FAQ_MAX_CONTENT_BYTES = 30_000;
+    public static final int FAQ_MAX_RAW_BYTES = 60_000;
+
     private ContentBodyPolicy() {
     }
 
@@ -72,6 +80,22 @@ public final class ContentBodyPolicy {
     /** 팝업 본문의 출력 시 정리 — 저장 시와 같은 이미지 불허 규칙(DB 직접 수정으로 들어온 {@code script}·{@code img}도 렌더하지 않는다). */
     public static String sanitizeForPopupOutput(String storedContent) {
         return HtmlContentSanitizer.sanitize(storedContent, false).html();
+    }
+
+    /**
+     * FAQ 답변 규칙(PLAN-faq.md 쟁점 7) — 정적 페이지·팝업처럼 <b>이미지를 허용하지 않는다</b>(본문 이미지 공개 판정에 FAQ를 끌어들이지 않기 위해).
+     * 출력 시 정리는 {@link #sanitizeForFaqOutput}가 같은 규칙으로 한다.
+     */
+    public static SanitizedHtml sanitizeFaq(String rawContent, String contentFormat) {
+        return sanitize(rawContent, contentFormat, false, FAQ_MAX_TEXT_LENGTH, "5,000", FAQ_MAX_CONTENT_BYTES);
+    }
+
+    /**
+     * FAQ 답변의 출력 시 정리 — 저장 시와 같은 이미지 불허 규칙이다(DB 직접 수정으로 들어온 {@code script}·{@code img}도 렌더하지 않는다).
+     * 결과의 {@link SanitizedHtml#blank()}가 참이면 보이는 내용이 없으니 호출자가 그 FAQ를 건너뛴다(문자열 {@code isBlank}는 {@code <p><br></p>}를 못 잡는다).
+     */
+    public static SanitizedHtml sanitizeForFaqOutput(String storedContent) {
+        return HtmlContentSanitizer.sanitize(storedContent, false);
     }
 
     private static SanitizedHtml sanitize(String rawContent, String contentFormat, boolean allowImages,

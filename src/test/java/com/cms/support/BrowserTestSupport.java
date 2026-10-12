@@ -46,7 +46,12 @@ public abstract class BrowserTestSupport extends MariaDbContainerSupport {
 
     /** 쿠키·저장소가 분리된 새 브라우저 컨텍스트. 기본 대기 시간은 CI가 느려도 견디도록 넉넉히 둔다. */
     protected static BrowserContext newContext() {
-        BrowserContext context = browser.newContext();
+        return newContext(new Browser.NewContextOptions());
+    }
+
+    /** 옵션을 지정한 새 브라우저 컨텍스트(예: 스크립트를 끈 공개 화면 시험). */
+    protected static BrowserContext newContext(Browser.NewContextOptions options) {
+        BrowserContext context = browser.newContext(options);
         context.setDefaultTimeout(15_000);
         return context;
     }
