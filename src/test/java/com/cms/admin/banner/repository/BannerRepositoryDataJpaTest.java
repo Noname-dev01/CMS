@@ -1,6 +1,8 @@
 package com.cms.admin.banner.repository;
 
 import com.cms.admin.banner.domain.Banner;
+import com.cms.admin.contentimage.domain.ContentImage;
+import com.cms.admin.contentimage.domain.ContentImageRef;
 import com.cms.support.MariaDbContainerSupport;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
@@ -37,10 +39,22 @@ class BannerRepositoryDataJpaTest extends MariaDbContainerSupport {
     private int keySeq;
 
     private Banner save(String title, boolean useYn, LocalDateTime start, LocalDateTime end, int ord) {
+        return save(title, useYn, start, end, ord, true);
+    }
+
+    /** @param withImage false면 이미지 연결(content_image_ref) 없이 저장한다 — 공개 조회에서 제외되어야 하는 불완전 배너 */
+    private Banner save(String title, boolean useYn, LocalDateTime start, LocalDateTime end, int ord, boolean withImage) {
         Banner saved = bannerRepository.save(Banner.builder()
-                .title(title).storageKey("test/" + System.nanoTime() + "-" + (++keySeq) + ".png").contentType("image/png").fileSize(10L)
+                .title(title)
                 .displayStart(start).displayEnd(end).useYn(useYn).ord(ord)
                 .createDate(START).updateDate(START).build());
+        if (withImage) {
+            ContentImage image = ContentImage.builder()
+                    .storageKey("test/" + System.nanoTime() + "-" + (++keySeq) + ".png").contentType("image/png").fileSize(10L)
+                    .uploaderId("t").scopeType("BANNER").namespace("banner").createDate(START).build();
+            em.persist(image);
+            em.persist(new ContentImageRef("BANNER", saved.getId(), image.getId()));
+        }
         em.flush();
         em.clear();                       // 이후 조회는 DB에서 다시 읽는다
         return saved;
@@ -48,6 +62,17 @@ class BannerRepositoryDataJpaTest extends MariaDbContainerSupport {
 
     private List<String> displayableTitles(LocalDateTime now) {
         return bannerRepository.findDisplayable(now).stream().map(Banner::getTitle).toList();
+    }
+
+    @Test
+    @DisplayName("이미지 연결(content_image_ref)이 없는 배너는 공개 조회와 이미지 조회에서 제외된다 — 적격성은 소유자 쿼리가 판정한다(PLAN-media-library.md R3-2)")
+    void bannerWithoutImageLink_isNotDisplayable() {
+        Banner linked = save("linked", true, null, null, 0);
+        Banner orphan = save("orphan", true, null, null, 1, false);
+
+        assertThat(displayableTitles(START)).containsExactly("linked");
+        assertThat(bannerRepository.findDisplayableById(linked.getId(), START)).isPresent();
+        assertThat(bannerRepository.findDisplayableById(orphan.getId(), START)).isEmpty();
     }
 
     @Test

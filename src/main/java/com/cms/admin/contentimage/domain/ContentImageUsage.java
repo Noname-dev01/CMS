@@ -36,12 +36,18 @@ public class ContentImageUsage {
      */
     public void reserve(long bytes, long maxTotalBytes, long maxCount) {
         if (totalCount + 1 > maxCount) {
-            throw new ConflictException("본문 이미지 개수 상한에 도달했습니다. 관리자에게 문의해주세요.");
+            throw new ConflictException("이미지 개수 상한에 도달했습니다. 관리자에게 문의해주세요.");
         }
         if (totalBytes + bytes > maxTotalBytes) {
-            throw new ConflictException("본문 이미지 저장 용량 상한에 도달했습니다. 관리자에게 문의해주세요.");
+            throw new ConflictException("이미지 저장 용량 상한에 도달했습니다. 관리자에게 문의해주세요.");
         }
         totalBytes += bytes;
         totalCount += 1;
+    }
+
+    /** 이미지 행을 지울 때 카운터를 되돌린다. 호출자는 이 행을 비관적 락으로 잡은 상태여야 하며, 음수로 내려가지 않게 0에서 멈춘다. */
+    public void release(long bytes) {
+        totalBytes = Math.max(0L, totalBytes - bytes);
+        totalCount = Math.max(0L, totalCount - 1);
     }
 }

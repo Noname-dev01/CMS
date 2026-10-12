@@ -1282,3 +1282,49 @@ FAQ 관리 화면(`templates/admin/faq/manage.html`)이 열린 뒤 ▲▼ 버튼
 
 - "그리는 시점의 상태로 속성이 정해지는" 화면은 그 상태가 바뀔 때 **다시 그려야** 한다. 상태를 바꾼 뒤 일부 컨트롤만 갱신하는 보조 함수로는 이미 그려진 요소가 남는다.
 - 화면 JS는 MockMvc가 재현하지 못한다 — 이 결함은 서버 시험 전부 통과 뒤에도 실제 브라우저 시험(`FaqAdminOrderBrowserTest`)이 처음 잡았다. 같은 이유로 Playwright의 `isDisabled()`는 `<fieldset disabled>` 자체를 폼 컨트롤로 보지 않아 `false`를 돌려준다 — fieldset의 잠금은 `document.getElementById(id).disabled`로 직접 읽는다.
+
+### 참조를 벌크 삭제한 뒤 `saveAll`이 INSERT를 건너뛰어 게시글 저장 후 이미지 참조가 사라진다 — 영속성 컨텍스트에 남은 참조 엔티티 (2026-10-12, 미디어 라이브러리 `MediaLibraryApiIntegrationTest`)
+
+#### 증상
+
+라이브러리 이미지를 넣은 게시글을 **수정**(PATCH)하면 200으로 성공하는데 `content_image_ref`에 그 게시글의 참조 행이 0개가 됐다. 같은 코드의 생성 경로(참조가 처음 만들어지는 경우)는 정상이었다.
+
+#### 원인
+
+- `ContentImageService.replaceRefs`가 "이 콘텐츠가 이미 참조 중인 이미지"를 알려고 `findByOwnerTypeAndOwnerIdOrderByImageIdAsc`로 **참조 엔티티를 읽었다** → 엔티티가 영속성 컨텍스트에 올라갔다.
+- 이어서 `deleteByOwner`(`@Modifying` 벌크 삭제, 컨텍스트를 비우면 호출한 게시글 저장의 더티 체킹이 사라지므로 `clearAutomatically`를 쓰지 않는다)가 DB 행만 지웠다. 컨텍스트에는 같은 키의 엔티티가 그대로 남았다.
+- 마지막 `saveAll`은 복합 키(`@IdClass`) 엔티티를 "신규가 아님"으로 보고 `merge`를 부르는데, 같은 키가 이미 관리 중이라 **INSERT 없이** 끝났다.
+
+#### 해결 방법
+
+- 현재 참조는 엔티티가 아니라 **이미지 ID 투영**(`findImageIdsByOwner`, `select r.imageId …`)으로 읽는다. 엔티티를 컨텍스트에 올리지 않으므로 이후 벌크 삭제 → `saveAll`이 정상 INSERT한다.
+
+#### 교훈
+
+- 벌크 `@Modifying` 삭제를 쓰는 코드(컨텍스트를 비우지 않는 것이 계약인 곳)에서는 **같은 트랜잭션의 앞쪽에서 그 엔티티를 읽지 않는다.** 읽어야 하면 투영으로 읽는다. 복합 키 엔티티의 `save`는 존재 확인 때문에 `merge`로 동작해 이 함정이 조용히 드러난다(예외 없음).
+
+### REPEATABLE READ에서 "빈 범위" 잠금 읽기가 다른 행의 INSERT를 막는다 / 참조 INSERT의 FK 검사가 부모 행을 공유 잠금한다 (2026-10-12, 미디어 라이브러리 잠금 계약)
+
+#### 증상 (동시성 시험으로 재현, 변이 실험)
+
+- 이미지 삭제가 `SELECT … FROM content_image_ref WHERE image_id = ? FOR UPDATE`로 참조 존재를 확인하는 동안(결과 0행), **다른 이미지에 대한 참조 INSERT**가 삭제 트랜잭션이 끝날 때까지 막혔다. 삭제가 카운터 행을 기다리는 쪽, 업로드가 카운터를 쥔 채 INSERT를 기다리는 쪽이면 교착이 된다.
+- 게시글 저장이 `findAllById`로 이미지 존재를 확인한 뒤 참조를 INSERT하는 사이에 삭제가 커밋되면, INSERT가 FK 위반으로 실패해 **게시글 저장 전체가 롤백**됐다.
+- 공유 이미지를 쓰는 소유자 둘이 "자기 참조 삭제 → 이미지 잠금" 순서로 동시에 지우면 `Deadlock found when trying to get lock`.
+
+#### 원인
+
+- `content_image_ref.image_id`는 **비고유 인덱스**다. MariaDB 기본 격리 수준(REPEATABLE READ)에서 비고유 인덱스의 잠금 읽기는 결과가 비어도 **갭(다음 키) 잠금**을 건다. READ COMMITTED는 갭 잠금이 없다.
+- 자식(참조) 행 INSERT는 FK 검사로 부모(이미지) 행에 **공유 잠금**을 건다. 존재 확인을 잠금 없이 하면 그 사이 삭제가 끼어든다.
+- 같은 이미지를 두 트랜잭션이 각자 "자기 참조 먼저 삭제 → 이미지 잠금"으로 잠그면 서로의 참조 행을 기다린다.
+
+#### 해결 방법
+
+- 이미지를 지우는 최상위 진입점(`MediaService.delete`·`BannerService.deleteBanner`·`PopupService.deletePopup`)은 `@Transactional(isolation = READ_COMMITTED)`. 격리 수준은 `REQUIRED`로 외부 트랜잭션에 참여하면 무시되므로 공통 제거 컴포넌트에는 선언하지 않는다.
+- 참조를 지우기 **전에 이미지 행을 먼저 `FOR UPDATE`**로 잠근다(상대는 자기 참조를 지우기 전에 이미지 잠금에서 대기).
+- `replaceRefs`는 대상 이미지를 id 오름차순 `FOR SHARE`로 읽는다(존재 확인과 삭제 방지를 한 문장으로).
+- 시험 `MediaConcurrencyIntegrationTest`: 격리 수준 단언, 삭제 중 다른 이미지의 참조 INSERT가 막히지 않음, 존재 확인과 INSERT 사이에 삭제가 끼지 못함, 공유 이미지 동시 삭제 반복. **변이 실험으로 확인**: `READ_COMMITTED` 제거 → 2건 실패(갭 락 실증 포함), `FOR SHARE` 제거 → FK 위반으로 저장 롤백 재현, 이미지 잠금 순서를 참조 삭제 뒤로 → 교착 재현.
+
+#### 교훈
+
+- 잠금 계약은 **격리 수준과 실제 SQL(인덱스의 유일성)까지** 포함해야 완성된다. "행을 이 순서로 잠근다"만으로는 갭 잠금 순환을 막지 못한다.
+- 동시성 시험은 `@MockitoSpyBean`으로 협력 객체를 감싸 "원하는 지점"(예: 존재 확인 직후)에 다른 스레드를 끼워 넣으면 결정적으로 만들 수 있다 — 단순히 스레드를 동시에 출발시키는 시험은 FK의 암묵적 공유 잠금 때문에 `FOR SHARE` 제거 변이를 못 잡았다.

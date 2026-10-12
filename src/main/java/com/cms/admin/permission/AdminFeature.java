@@ -93,6 +93,15 @@ public enum AdminFeature {
             List.of("/admin/faq/manage", "/admin/api/faqs", "/admin/api/faqs/**",
                     "/admin/api/faq-categories", "/admin/api/faq-categories/**")),
 
+    /**
+     * 미디어 라이브러리(기능 단위 위임, PLAN-media-library.md D6) — 다섯 번째 {@code DELEGABLE} 기능. 게이트는 기능 단위 READ이고 동작별 판정은 핸들러의
+     * {@link RequirePermission}이 한다: 목록·상세·파일 보기 = READ, 업로드 = CREATE, 삭제 = DELETE. 수정 동작은 없다(이름 변경·교체를 만들지 않는다).
+     * 라이브러리 이미지를 배너·팝업·게시글 본문에서 <b>고르는 것</b>도 READ를 요구한다(서비스가 저장 시점에 판정).
+     */
+    MEDIA(DELEGABLE, "미디어 라이브러리", EnumSet.of(READ, CREATE, DELETE),
+            List.of("/admin/media/manage"),
+            List.of("/admin/media/manage", "/admin/api/media", "/admin/api/media/**")),
+
     MEMBER(ADMIN_ONLY, "회원 관리", EnumSet.noneOf(PermissionAction.class),
             List.of("/admin/member/manage", "/admin/member/new"), List.of()),
 

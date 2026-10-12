@@ -1,5 +1,7 @@
 package com.cms.admin.popup.repository;
 
+import com.cms.admin.contentimage.domain.ContentImage;
+import com.cms.admin.contentimage.domain.ContentImageRef;
 import com.cms.admin.popup.domain.Popup;
 import com.cms.admin.popup.domain.PopupType;
 import com.cms.config.QuerydslConfig;
@@ -40,17 +42,27 @@ class PopupRepositoryDataJpaTest extends MariaDbContainerSupport {
     private int keySeq;
 
     private Popup save(String title, PopupType type, boolean useYn, LocalDateTime start, LocalDateTime end) {
+        return save(title, type, useYn, start, end, true);
+    }
+
+    /** @param withImage 이미지형에서 false면 이미지 연결(content_image_ref) 없이 저장한다 — 공개 조회에서 제외되어야 하는 불완전 팝업 */
+    private Popup save(String title, PopupType type, boolean useYn, LocalDateTime start, LocalDateTime end, boolean withImage) {
         Popup.PopupBuilder builder = Popup.builder()
                 .title(title).revision(0).popupType(type)
                 .posX(10).posY(10).width(300)
                 .displayStart(start).displayEnd(end).useYn(useYn)
                 .createDate(START).updateDate(START);
-        if (type == PopupType.IMAGE) {
-            builder.storageKey("test/" + System.nanoTime() + "-" + (++keySeq) + ".png").contentType("image/png").fileSize(10L);
-        } else {
+        if (type == PopupType.HTML) {
             builder.contentHtml("<p>x</p>");
         }
         Popup saved = popupRepository.save(builder.build());
+        if (type == PopupType.IMAGE && withImage) {
+            ContentImage image = ContentImage.builder()
+                    .storageKey("test/" + System.nanoTime() + "-" + (++keySeq) + ".png").contentType("image/png").fileSize(10L)
+                    .uploaderId("t").scopeType("POPUP").namespace("popup").createDate(START).build();
+            em.persist(image);
+            em.persist(new ContentImageRef("POPUP", saved.getId(), image.getId()));
+        }
         em.flush();
         em.clear();                       // 이후 조회는 DB에서 다시 읽는다
         return saved;
@@ -151,7 +163,6 @@ class PopupRepositoryDataJpaTest extends MariaDbContainerSupport {
     void replaceBumpsRevisionOnly() {
         Popup saved = save("rev", true, null, null);
         Popup loaded = popupRepository.findById(saved.getId()).orElseThrow();
-        String key = loaded.getStorageKey();
 
         loaded.replace("새 제목", "/boards/1", null, 20, 30, 400, null, null, null, true, START);
         em.flush();
@@ -161,6 +172,20 @@ class PopupRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(reloaded.getRevision()).isEqualTo(1);
         assertThat(reloaded.getTitle()).isEqualTo("새 제목");
         assertThat(reloaded.getPopupType()).isEqualTo(PopupType.IMAGE);
-        assertThat(reloaded.getStorageKey()).isEqualTo(key);
+    }
+
+    @Test
+    @DisplayName("적격성(HTML형이거나 이미지 연결이 있는 이미지형)은 LIMIT 전에 판정된다 — 이미지 연결 없는 이미지형이 슬롯을 차지하지 않고 HTML형은 사라지지 않는다(R3-2)")
+    void eligibilityIsDecidedBeforeLimit() {
+        for (int i = 0; i < 5; i++) {
+            save("orphan" + i, PopupType.IMAGE, true, null, null, false);   // 가장 앞 id 5개가 모두 불완전
+        }
+        save("html", PopupType.HTML, true, null, null);
+        Popup linked = save("linked", PopupType.IMAGE, true, null, null);
+
+        List<String> shown = popupRepository.findDisplayable(START, PageRequest.of(0, 5)).stream().map(Popup::getTitle).toList();
+
+        assertThat(shown).containsExactly("html", "linked");
+        assertThat(popupRepository.findDisplayableImageById(linked.getId(), START)).isPresent();
     }
 }

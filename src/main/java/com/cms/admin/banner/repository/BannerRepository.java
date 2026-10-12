@@ -36,12 +36,15 @@ public interface BannerRepository extends JpaRepository<Banner, Long> {
     /**
      * 공개 메인용 — 노출 여부와 기간 {@code [start, end)}이 조건에 고정돼 있다. 이 조건은 {@code DisplayPeriod.isActive}와 같은 의미이고
      * 두 표현의 일치는 DB 시험이 고정한다. 판정 시각은 호출자(공개 서비스)가 주입된 {@code Clock}으로 1회 산출해 넘긴다.
+     * <b>이미지 연결이 없는 배너는 제외한다</b>(PLAN-media-library.md R3-2 — 적격성은 소유자 쿼리에서 판정하고 이미지는 호출자가 일괄 조회로 붙인다).
      */
     @Query("""
             select b from Banner b
             where b.useYn = true
               and (b.displayStart is null or b.displayStart <= :now)
               and (b.displayEnd is null or b.displayEnd > :now)
+              and exists (select 1 from ContentImageRef r, ContentImage i
+                          where r.ownerType = 'BANNER' and r.ownerId = b.id and i.id = r.imageId)
             order by b.ord asc, b.id asc
             """)
     List<Banner> findDisplayable(@Param("now") LocalDateTime now);
@@ -53,6 +56,8 @@ public interface BannerRepository extends JpaRepository<Banner, Long> {
               and b.useYn = true
               and (b.displayStart is null or b.displayStart <= :now)
               and (b.displayEnd is null or b.displayEnd > :now)
+              and exists (select 1 from ContentImageRef r, ContentImage i
+                          where r.ownerType = 'BANNER' and r.ownerId = b.id and i.id = r.imageId)
             """)
     Optional<Banner> findDisplayableById(@Param("id") Long id, @Param("now") LocalDateTime now);
 }

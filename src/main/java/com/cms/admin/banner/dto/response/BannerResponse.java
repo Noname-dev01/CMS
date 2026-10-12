@@ -1,6 +1,7 @@
 package com.cms.admin.banner.dto.response;
 
 import com.cms.admin.banner.domain.Banner;
+import com.cms.admin.media.service.MediaImageInfo;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,6 +24,8 @@ public class BannerResponse {
     private Long id;
     private String title;
     private String linkUrl;
+    /** 연결된 라이브러리 이미지 ID(없으면 null — 불변식 위반 데이터). 이미지 메타는 소유자 테이블이 아니라 이미지 행의 값이다. */
+    private Long imageId;
     private String contentType;
     private Long fileSize;
     private LocalDateTime displayStart;
@@ -33,13 +36,15 @@ public class BannerResponse {
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
 
-    public static BannerResponse from(Banner banner, LocalDateTime now) {
+    /** @param image 연결된 이미지(없으면 null) */
+    public static BannerResponse from(Banner banner, LocalDateTime now, MediaImageInfo image) {
         return BannerResponse.builder()
                 .id(banner.getId())
                 .title(banner.getTitle())
                 .linkUrl(banner.getLinkUrl())
-                .contentType(banner.getContentType())
-                .fileSize(banner.getFileSize())
+                .imageId(image == null ? null : image.imageId())
+                .contentType(image == null ? null : image.contentType())
+                .fileSize(image == null ? null : image.fileSize())
                 .displayStart(banner.getDisplayStart())
                 .displayEnd(banner.getDisplayEnd())
                 .useYn(banner.getUseYn())

@@ -53,4 +53,21 @@ public class ContentImage {
     private Long scopeId;
 
     private LocalDateTime createDate;
+
+    /**
+     * 파일이 있는 {@code FileStorage} 네임스페이스(V43). 빈 문자열 = 루트(본문 이미지·라이브러리 업로드), {@code banner}·{@code popup} = 이관되거나
+     * 배너·팝업에서 직접 올린 이미지. NULL이 아니라 빈 문자열인 이유는 UNIQUE가 NULL 중복을 허용하기 때문이다(PLAN-media-library.md R4-1).
+     */
+    @Builder.Default
+    @Column(name = "namespace", nullable = false, length = 30)
+    private String namespace = "";
+
+    /** 검색·표시용 원본 파일명(V43, 서버가 정리한 값). 이관된 행은 배너·팝업 제목, 본문 이미지는 NULL일 수 있다. */
+    @Column(name = "original_name", length = 200)
+    private String originalName;
+
+    /** 루트 영역 파일인지(네임스페이스 API가 아니라 루트 API로 읽고 지워야 하는지). */
+    public boolean isRootNamespace() {
+        return namespace == null || namespace.isEmpty();
+    }
 }

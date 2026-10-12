@@ -7,6 +7,7 @@ import com.cms.admin.popup.service.PopupService;
 import com.cms.common.image.ImageFileValidatorTest;
 import com.cms.common.storage.FileStorage;
 import com.cms.support.BrowserTestSupport;
+import com.cms.support.MediaTestSupport;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.TestMembers;
 import com.microsoft.playwright.BrowserContext;
@@ -64,10 +65,8 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
     }
 
     private void cleanPopups() {
-        for (String key : jdbc.queryForList("SELECT storage_key FROM popup WHERE storage_key IS NOT NULL", String.class)) {
-            fileStorage.delete(key, PopupService.STORAGE_NAMESPACE);
-        }
         jdbc.update("DELETE FROM popup");
+        MediaTestSupport.cleanLibrary(jdbc, fileStorage);
     }
 
     private void openManage() {

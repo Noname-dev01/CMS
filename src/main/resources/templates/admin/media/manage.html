@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>미디어 라이브러리</title>
+</head>
+<body id="page-top">
+<!-- 페이지 전용 CSS는 body 시작 지점에 둔다(menu/manage.html 컨벤션 — th:replace가 head를 통째로 치환한다). -->
+<style>
+    .media-card {
+        background: white;
+        border-radius: 0.35rem;
+        box-shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
+        border: 1px solid #4e73df;
+    }
+    .media-tile { cursor: pointer; }
+    .media-tile img { width: 100%; height: 110px; object-fit: cover; background: #eaecf4; }
+    .media-detail-preview { max-width: 100%; max-height: 360px; background: #eaecf4; }
+</style>
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">미디어 라이브러리</h1>
+                </div>
+
+                <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
+
+                <p class="text-muted small">
+                    배너·팝업·게시글에 쓰는 이미지를 한곳에서 관리합니다. 사용 중인 이미지는 삭제할 수 없고 사용처가 표시됩니다.
+                    이미지는 png·jpeg·gif, 5MB 이하만 올릴 수 있습니다(배너·팝업에는 2MB 이하만 쓸 수 있습니다).
+                </p>
+
+                <div class="media-card mb-4">
+                    <div class="card-header py-3 d-flex flex-wrap justify-content-between align-items-center">
+                        <h6 class="m-0 font-weight-bold text-primary">이미지 <span class="text-muted small" id="capacityText"></span></h6>
+                        <form id="uploadForm" class="form-inline d-none" data-permission="MEDIA:CREATE">
+                            <input type="file" class="form-control-file mr-2" id="uploadFile" accept="image/png,image/jpeg,image/gif" aria-label="업로드할 이미지">
+                            <button type="submit" class="btn btn-sm btn-primary" id="btnUpload">업로드</button>
+                        </form>
+                    </div>
+                    <div class="card-body">
+                        <form id="searchForm" class="form-inline mb-3">
+                            <input type="search" class="form-control mr-2 mb-2" id="searchKeyword" maxlength="200" placeholder="파일명 또는 번호" aria-label="이미지 검색">
+                            <select class="form-control mr-2 mb-2" id="searchOrigin" aria-label="출처">
+                                <option value="ALL">전체 출처</option>
+                                <option value="LIBRARY">라이브러리 업로드</option>
+                                <option value="BANNER">배너</option>
+                                <option value="POPUP">팝업</option>
+                                <option value="BOARD">게시판 본문 (관리자만)</option>
+                            </select>
+                            <div class="form-check mr-3 mb-2">
+                                <input type="checkbox" class="form-check-input" id="searchUnused">
+                                <label class="form-check-label" for="searchUnused">사용 안 함만</label>
+                            </div>
+                            <button type="submit" class="btn btn-outline-primary mb-2">검색</button>
+                        </form>
+
+                        <div class="row" id="mediaGrid">
+                            <div class="col-12 text-muted">불러오는 중...</div>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnPrev">이전</button>
+                            <span class="text-muted small" id="pageInfo"></span>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnNext">다음</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<!-- 상세 모달 -->
+<div class="modal fade" id="detailModal" tabindex="-1" role="dialog" aria-labelledby="detailTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="detailTitle">이미지 상세</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="닫기"><span aria-hidden="true">&times;</span></button>
+            </div>
+            <div class="modal-body">
+                <div id="detailAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <img id="detailPreview" class="media-detail-preview border" alt="이미지 미리보기">
+                    </div>
+                    <div class="col-md-6">
+                        <dl class="mb-3">
+                            <dt>파일명</dt><dd id="detailName"></dd>
+                            <dt>형식 · 크기</dt><dd id="detailMeta"></dd>
+                            <dt>출처</dt><dd id="detailOrigin"></dd>
+                            <dt>올린 사람 · 시각</dt><dd id="detailUploader"></dd>
+                        </dl>
+                        <h6 class="font-weight-bold">사용처</h6>
+                        <ul id="detailUsages" class="pl-3 mb-0"></ul>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-danger d-none" id="btnDelete" data-permission="MEDIA:DELETE">삭제</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+
+<script th:inline="javascript">
+    // 서버가 렌더링한 내 위임 권한 키("MEDIA:CREATE" 등). 버튼 표시용일 뿐 서버 판정(403)이 최종이다.
+    const MY_PERMISSIONS = new Set(/*[[${myPermissions}]]*/ []);
+</script>
+<script>
+    const MEDIA_URL = "/admin/api/media";
+    const PAGE_SIZE = 24;
+    const ORIGIN_LABELS = { LIBRARY: "라이브러리", BANNER: "배너", POPUP: "팝업", BOARD: "게시판 본문" };
+
+    const canUpload = MY_PERMISSIONS.has("MEDIA:CREATE");
+    const canDelete = MY_PERMISSIONS.has("MEDIA:DELETE");
+
+    const pageAlert = document.getElementById("pageAlert");
+    const pageSuccess = document.getElementById("pageSuccess");
+    const grid = document.getElementById("mediaGrid");
+    const capacityText = document.getElementById("capacityText");
+    const pageInfo = document.getElementById("pageInfo");
+    const btnPrev = document.getElementById("btnPrev");
+    const btnNext = document.getElementById("btnNext");
+    const uploadForm = document.getElementById("uploadForm");
+    const uploadFile = document.getElementById("uploadFile");
+    const btnUpload = document.getElementById("btnUpload");
+    const searchForm = document.getElementById("searchForm");
+    const searchKeyword = document.getElementById("searchKeyword");
+    const searchOrigin = document.getElementById("searchOrigin");
+    const searchUnused = document.getElementById("searchUnused");
+    const detailAlert = document.getElementById("detailAlert");
+    const btnDelete = document.getElementById("btnDelete");
+
+    let currentPage = 0;
+    let listSeq = 0;
+    let detailSeq = 0;
+    let detailTarget = null;     // 상세 모달에 열린 항목
+    let busy = false;
+
+    uploadForm.classList.toggle("d-none", !canUpload);
+
+    function csrfHeaders() {
+        const token = document.querySelector('meta[name="_csrf"]');
+        const header = document.querySelector('meta[name="_csrf_header"]');
+        const headers = {};
+        if (token && header) {
+            headers[header.content || "X-CSRF-TOKEN"] = token.content;
+        }
+        return headers;
+    }
+
+    async function errorMessage(response, fallback) {
+        if (response.status === 403) {
+            return "이 작업을 할 권한이 없습니다.";
+        }
+        try {
+            const body = await response.json();
+            return body.message || fallback;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function showError(message) {
+        pageAlert.textContent = message;
+        pageAlert.classList.remove("d-none");
+        pageSuccess.classList.add("d-none");
+    }
+
+    function showSuccess(message) {
+        pageSuccess.textContent = message;
+        pageSuccess.classList.remove("d-none");
+        pageAlert.classList.add("d-none");
+    }
+
+    function formatSize(bytes) {
+        if (bytes <= 0) {
+            return "0KB";
+        }
+        if (bytes >= 1024 * 1024 * 1024) {
+            return (bytes / (1024 * 1024 * 1024)).toFixed(2) + "GB";
+        }
+        if (bytes >= 1024 * 1024) {
+            return (bytes / (1024 * 1024)).toFixed(1) + "MB";
+        }
+        return Math.max(1, Math.round(bytes / 1024)) + "KB";
+    }
+
+    function displayName(item) {
+        return item.originalName || ("이미지 #" + item.id);
+    }
+
+    function render(page) {
+        grid.textContent = "";
+        capacityText.textContent = "· 사용 " + formatSize(page.usedBytes) + " / " + formatSize(page.maxBytes)
+            + " · " + page.usedCount + " / " + page.maxCount + "개";
+        if (page.content.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "col-12 text-muted";
+            empty.textContent = "조건에 맞는 이미지가 없습니다.";
+            grid.appendChild(empty);
+        }
+        page.content.forEach(function (item) {
+            const col = document.createElement("div");
+            col.className = "col-6 col-md-3 col-xl-2 mb-3";
+            const tile = document.createElement("div");
+            tile.className = "media-tile card h-100";
+            tile.tabIndex = 0;
+            tile.setAttribute("role", "button");
+            const thumb = document.createElement("img");
+            thumb.className = "card-img-top";
+            thumb.loading = "lazy";
+            thumb.alt = "";
+            thumb.src = item.previewUrl;
+            const body = document.createElement("div");
+            body.className = "card-body p-2";
+            const name = document.createElement("div");
+            name.className = "small font-weight-bold text-truncate";
+            name.textContent = displayName(item);
+            const meta = document.createElement("div");
+            meta.className = "small text-muted";
+            meta.textContent = formatSize(item.fileSize) + " · " + (ORIGIN_LABELS[item.origin] || item.origin);
+            const usage = document.createElement("span");
+            usage.className = "badge " + (item.usageCount > 0 ? "badge-success" : "badge-secondary");
+            usage.textContent = item.usageCount > 0 ? "사용 중 " + item.usageCount : "사용 안 함";
+            body.appendChild(name);
+            body.appendChild(meta);
+            body.appendChild(usage);
+            tile.appendChild(thumb);
+            tile.appendChild(body);
+            const open = function () { openDetail(item); };
+            tile.addEventListener("click", open);
+            tile.addEventListener("keydown", function (event) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    open();
+                }
+            });
+            col.appendChild(tile);
+            grid.appendChild(col);
+        });
+        btnPrev.disabled = page.page <= 0;
+        btnNext.disabled = page.last;
+        pageInfo.textContent = page.totalElements === 0 ? "" : (page.page + 1) + " / " + Math.max(page.totalPages, 1)
+            + " 페이지 · 총 " + page.totalElements + "개";
+    }
+
+    async function loadList(pageNumber) {
+        const seq = ++listSeq;
+        const params = new URLSearchParams({ page: String(pageNumber), size: String(PAGE_SIZE), origin: searchOrigin.value });
+        if (searchKeyword.value.trim() !== "") {
+            params.set("keyword", searchKeyword.value.trim());
+        }
+        if (searchUnused.checked) {
+            params.set("unused", "true");
+        }
+        try {
+            const response = await fetch(MEDIA_URL + "?" + params.toString(), { headers: { "Accept": "application/json" } });
+            if (seq !== listSeq) {
+                return;
+            }
+            if (!response.ok) {
+                showError(await errorMessage(response, "이미지 목록을 불러오지 못했습니다."));
+                return;
+            }
+            const page = await response.json();
+            if (seq !== listSeq) {
+                return;
+            }
+            currentPage = page.page;
+            render(page);
+        } catch (e) {
+            if (seq === listSeq) {
+                showError("이미지 목록을 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+            }
+        }
+    }
+
+    function setDetailError(message) {
+        detailAlert.textContent = message || "";
+        detailAlert.classList.toggle("d-none", !message);
+    }
+
+    async function openDetail(item) {
+        const seq = ++detailSeq;
+        detailTarget = item;
+        setDetailError("");
+        document.getElementById("detailTitle").textContent = "이미지 상세";
+        document.getElementById("detailName").textContent = displayName(item);
+        document.getElementById("detailMeta").textContent = item.contentType + " · " + formatSize(item.fileSize);
+        document.getElementById("detailOrigin").textContent = ORIGIN_LABELS[item.origin] || item.origin;
+        document.getElementById("detailUploader").textContent = (item.uploaderId || "-") + " · " + (item.createDate ? item.createDate.replace("T", " ").slice(0, 16) : "-");
+        document.getElementById("detailPreview").src = item.previewUrl;
+        const usages = document.getElementById("detailUsages");
+        usages.textContent = "";
+        const loading = document.createElement("li");
+        loading.className = "text-muted";
+        loading.textContent = "불러오는 중...";
+        usages.appendChild(loading);
+        btnDelete.classList.add("d-none");
+        window.jQuery("#detailModal").modal("show");
+        try {
+            const response = await fetch(MEDIA_URL + "/" + encodeURIComponent(item.id), { headers: { "Accept": "application/json" } });
+            if (seq !== detailSeq) {
+                return;
+            }
+            if (!response.ok) {
+                usages.textContent = "";
+                setDetailError(await errorMessage(response, "사용처를 불러오지 못했습니다."));
+                return;
+            }
+            const detail = await response.json();
+            if (seq !== detailSeq) {
+                return;
+            }
+            usages.textContent = "";
+            if (detail.usages.length === 0) {
+                const none = document.createElement("li");
+                none.className = "text-muted";
+                none.textContent = "사용 중인 곳이 없습니다.";
+                usages.appendChild(none);
+            }
+            detail.usages.forEach(function (usage) {
+                const li = document.createElement("li");
+                li.textContent = usage.label;           // 제목 등 사용자 입력은 textContent로만
+                usages.appendChild(li);
+            });
+            // 사용 중이면 서버가 어차피 409로 막지만, 화면에서도 처음부터 보이지 않게 한다
+            btnDelete.classList.toggle("d-none", !(canDelete && detail.usages.length === 0));
+        } catch (e) {
+            if (seq === detailSeq) {
+                usages.textContent = "";
+                setDetailError("사용처를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+            }
+        }
+    }
+
+    searchForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        loadList(0);
+    });
+    btnPrev.addEventListener("click", function () { loadList(currentPage - 1); });
+    btnNext.addEventListener("click", function () { loadList(currentPage + 1); });
+
+    uploadForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        if (busy) {
+            return;
+        }
+        if (!uploadFile.files || uploadFile.files.length === 0) {
+            showError("업로드할 이미지를 선택해 주세요.");
+            return;
+        }
+        busy = true;
+        btnUpload.disabled = true;
+        try {
+            const form = new FormData();
+            form.append("file", uploadFile.files[0]);
+            const response = await fetch(MEDIA_URL, { method: "POST", headers: csrfHeaders(), body: form });
+            if (response.ok) {
+                const saved = await response.json();
+                uploadFile.value = "";
+                showSuccess("이미지를 올렸습니다: #" + saved.id);
+                await loadList(0);
+            } else {
+                showError(await errorMessage(response, "업로드에 실패했습니다."));
+            }
+        } catch (e) {
+            showError("업로드에 실패했습니다. 네트워크 상태를 확인해 주세요.");
+        } finally {
+            busy = false;
+            btnUpload.disabled = false;
+        }
+    });
+
+    btnDelete.addEventListener("click", async function () {
+        if (busy || !detailTarget) {
+            return;
+        }
+        if (!window.confirm("이 이미지를 삭제할까요? 복구할 수 없습니다.")) {
+            return;
+        }
+        busy = true;
+        btnDelete.disabled = true;
+        const target = detailTarget;
+        try {
+            const response = await fetch(MEDIA_URL + "/" + encodeURIComponent(target.id), { method: "DELETE", headers: csrfHeaders() });
+            if (response.ok) {
+                window.jQuery("#detailModal").modal("hide");
+                showSuccess("이미지를 삭제했습니다: #" + target.id);
+                await loadList(currentPage);
+            } else {
+                setDetailError(await errorMessage(response, "삭제에 실패했습니다."));
+            }
+        } catch (e) {
+            setDetailError("삭제에 실패했습니다. 네트워크 상태를 확인해 주세요.");
+        } finally {
+            busy = false;
+            btnDelete.disabled = false;
+        }
+    });
+
+    loadList(0);
+</script>
+</body>
+</html>

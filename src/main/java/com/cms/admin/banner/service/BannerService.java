@@ -9,18 +9,29 @@ import com.cms.admin.banner.dto.response.BannerImageDownload;
 import com.cms.admin.banner.dto.response.BannerResponse;
 import com.cms.admin.banner.repository.BannerLockRepository;
 import com.cms.admin.banner.repository.BannerRepository;
+import com.cms.admin.contentimage.domain.ContentImage;
+import com.cms.admin.contentimage.domain.ContentImageRef;
+import com.cms.admin.contentimage.repository.ContentImageRefRepository;
+import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
+import com.cms.admin.media.service.MediaImageInfo;
+import com.cms.admin.media.service.MediaImageLookup;
+import com.cms.admin.media.service.MediaImageRegistrar;
+import com.cms.admin.media.service.MediaImageRemover;
+import com.cms.admin.media.service.MediaImageSelector;
 import com.cms.common.display.DisplayPeriod;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.common.image.ImageFileValidator;
 import com.cms.common.storage.FileStorage;
-import com.cms.common.storage.FileStorageTransactionSupport;
 import com.cms.common.storage.StorageFileNotFoundException;
+import com.cms.config.auth.AdminSecurityService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -35,13 +46,16 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 배너 관리(PLAN-public-home-banner.md). 권한은 컨트롤러의 {@code @RequirePermission(BANNER, …)}가 판정하고 서비스는 대상의 존재·상태만 본다.
+ * 배너 관리(PLAN-public-home-banner.md, 이미지 연결은 PLAN-media-library.md). 권한은 컨트롤러의 {@code @RequirePermission(BANNER, …)}가
+ * 판정하고 서비스는 대상의 존재·상태만 본다.
  *
  * <p><b>잠금</b>: 생성·삭제·순서 저장은 가드 행 {@code banner_lock}을 {@code FOR UPDATE}로 먼저 잡는다(첫 DB 조회) — 배너 행이 없어도
- * 직렬화되고(R1-1), 단건 수정은 가드 없이 대상 행만 잡는다. 잠금 순서는 항상 가드 → 행이다. 가드를 잡은 <b>뒤에</b> 비잠금 읽기를 해
- * 스냅샷이 잠금 이후에 확정되게 한다.
+ * 직렬화되고(R1-1), 단건 수정은 가드 없이 대상 행만 잡는다. 잠금 순서는 가드 → 소유자 행 → 이미지 행 → 참조 → 카운터다(D5). 가드를 잡은
+ * <b>뒤에</b> 비잠금 읽기를 해 스냅샷이 잠금 이후에 확정되게 한다.
  *
- * <p><b>파일</b>: {@code banner} 네임스페이스. 생성은 롤백 시 정리, 삭제는 커밋 후 정리({@code FileStorageTransactionSupport}).
+ * <p><b>이미지</b>: 배너와 이미지의 연결은 {@code content_image_ref(BANNER)} 한 곳이다. 직접 올리면 {@code banner} 네임스페이스·{@code BANNER}
+ * 출처로 라이브러리에 함께 등록되고, 라이브러리에서 고르면 {@link MediaImageSelector}가 권한·출처·용도 한도를 검증한다. 삭제는 커밋 후 파일 정리
+ * ({@link MediaImageRemover}).
  */
 @Service
 @RequiredArgsConstructor
@@ -50,7 +64,7 @@ public class BannerService {
     /** 공개 메인이 활성 배너 전부의 이미지를 매번 내려받으므로 전체 개수를 제한한다(쟁점 5). */
     public static final int MAX_BANNERS = 10;
 
-    /** 이미지 네임스페이스. {@code LocalDiskFileStorage}의 예약 네임스페이스라 루트 API로는 닿지 않는다. */
+    /** 직접 올린 배너 이미지의 네임스페이스. {@code LocalDiskFileStorage}의 예약 네임스페이스라 루트 API로는 닿지 않는다. */
     public static final String STORAGE_NAMESPACE = "banner";
 
     static final long MAX_FILE_SIZE = 2L * 1024 * 1024;
@@ -62,22 +76,26 @@ public class BannerService {
 
     private final BannerRepository bannerRepository;
     private final BannerLockRepository bannerLockRepository;
+    private final ContentImageRefRepository refRepository;
+    private final MediaImageLookup imageLookup;
+    private final MediaImageRegistrar imageRegistrar;
+    private final MediaImageSelector imageSelector;
+    private final MediaImageRemover imageRemover;
+    private final AdminSecurityService adminSecurityService;
     private final FileStorage fileStorage;
     private final Clock clock;
 
     @Transactional(readOnly = true)
     public List<BannerResponse> getBanners() {
         LocalDateTime now = LocalDateTime.now(clock);
-        return bannerRepository.findAllByOrderByOrdAscIdAsc().stream()
-                .map(banner -> BannerResponse.from(banner, now))
-                .toList();
+        return toResponses(bannerRepository.findAllByOrderByOrdAscIdAsc(), now);
     }
 
     @Transactional(readOnly = true)
     public BannerResponse getBanner(Long id) {
         Banner banner = bannerRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(BANNER_NOT_FOUND));
-        return BannerResponse.from(banner, LocalDateTime.now(clock));
+        return toResponse(banner, LocalDateTime.now(clock));
     }
 
     @Transactional
@@ -91,21 +109,29 @@ public class BannerService {
         DisplayPeriod.requireValid(start, end);
         boolean useYn = request.getUseYn() == null || request.getUseYn();
 
-        MultipartFile image = request.getImage();
-        if (image == null || image.isEmpty()) {
+        MultipartFile upload = request.getImage();
+        boolean hasUpload = upload != null && !upload.isEmpty();
+        Long selectedImageId = request.getImageId();
+        if (hasUpload && selectedImageId != null) {
+            throw new InvalidRequestException("이미지 파일과 라이브러리 이미지 중 하나만 지정해주세요.");
+        }
+        if (!hasUpload && selectedImageId == null) {
             throw new InvalidRequestException("배너 이미지를 선택해주세요.");
         }
-        if (image.getSize() > MAX_FILE_SIZE) {
-            throw new InvalidRequestException("배너 이미지는 2MB 이하만 업로드할 수 있습니다.");
+        byte[] content = null;
+        String contentType = null;
+        if (hasUpload) {
+            if (upload.getSize() > MAX_FILE_SIZE) {
+                throw new InvalidRequestException("배너 이미지는 2MB 이하만 업로드할 수 있습니다.");
+            }
+            try {
+                content = upload.getBytes();
+            } catch (IOException e) {
+                throw new InvalidRequestException("파일을 읽을 수 없습니다.");
+            }
+            contentType = upload.getContentType();
+            ImageFileValidator.validate(content, contentType, LIMITS);
         }
-        byte[] content;
-        try {
-            content = image.getBytes();
-        } catch (IOException e) {
-            throw new InvalidRequestException("파일을 읽을 수 없습니다.");
-        }
-        String contentType = image.getContentType();
-        ImageFileValidator.validate(content, contentType, LIMITS);
 
         lockGuard();
         if (bannerRepository.count() >= MAX_BANNERS) {
@@ -113,16 +139,22 @@ public class BannerService {
         }
         int ord = bannerRepository.findMaxOrd() + 1;
 
-        String storageKey = fileStorage.store(content, "banner." + extensionFor(contentType), STORAGE_NAMESPACE);
-        FileStorageTransactionSupport.deleteOnRollback(fileStorage, storageKey, STORAGE_NAMESPACE, "banner");
+        ContentImage image;
+        if (hasUpload) {
+            String uploaderId = adminSecurityService.getCurrentAdminUserId();
+            if (uploaderId == null) {
+                throw new AccessDeniedException("인증 정보를 확인할 수 없습니다.");
+            }
+            image = imageRegistrar.register(content, contentType, upload.getOriginalFilename(), uploaderId,
+                    ContentImageService.SCOPE_BANNER, null, STORAGE_NAMESPACE);
+        } else {
+            image = imageSelector.select(selectedImageId, MAX_FILE_SIZE, LIMITS, "배너");
+        }
 
         LocalDateTime now = LocalDateTime.now(clock);
         Banner saved = bannerRepository.save(Banner.builder()
                 .title(title)
                 .linkUrl(linkUrl)
-                .storageKey(storageKey)
-                .contentType(contentType)
-                .fileSize((long) content.length)
                 .displayStart(start)
                 .displayEnd(end)
                 .useYn(useYn)
@@ -130,7 +162,8 @@ public class BannerService {
                 .createDate(now)
                 .updateDate(now)
                 .build());
-        return BannerResponse.from(saved, now);
+        refRepository.save(new ContentImageRef(ContentImageService.OWNER_BANNER, saved.getId(), image.getId()));
+        return BannerResponse.from(saved, now, MediaImageInfo.from(image));
     }
 
     @Transactional
@@ -146,22 +179,27 @@ public class BannerService {
                 .orElseThrow(() -> new ResourceNotFoundException(BANNER_NOT_FOUND));
         LocalDateTime now = LocalDateTime.now(clock);
         target.replaceMetadata(title, linkUrl, start, end, request.getUseYn(), now);
-        return BannerResponse.from(target, now);
+        return toResponse(target, now);
     }
 
-    @Transactional
+    /**
+     * 격리 수준을 READ_COMMITTED로 고정한다 — 이미지 삭제 경로의 참조 잠금 읽기가 REPEATABLE READ에서 비고유 인덱스 갭 잠금으로 다른 이미지의
+     * 참조 INSERT(직접 업로드)를 막는 순환을 피한다(PLAN-media-library.md D5·R3-1·R4-2). 이 메서드는 최상위 진입점이라 새 트랜잭션에서 적용된다.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.BANNER_DELETE, targetType = "BANNER", targetIdExpression = "id")
     public BannerResponse deleteBanner(Long id) {
         lockGuard();
         Banner target = bannerRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException(BANNER_NOT_FOUND));
         // 행이 사라진 뒤에는 응답을 만들 수 없으므로 삭제 전에 스냅샷을 만든다
-        BannerResponse snapshot = BannerResponse.from(target, LocalDateTime.now(clock));
-        String storageKey = target.getStorageKey();
+        BannerResponse snapshot = toResponse(target, LocalDateTime.now(clock));
 
         bannerRepository.delete(target);
-        // 커밋된 뒤에만 파일을 지운다 — 롤백되면 행과 파일이 모두 남는다
-        FileStorageTransactionSupport.deleteAfterCommit(fileStorage, storageKey, STORAGE_NAMESPACE, "banner id=" + id);
+        // 이미지 행을 먼저 잠그고 자기 참조를 지운 뒤, 직접 업로드 출처이고 다른 참조가 없으면 이미지·파일(커밋 후)까지 정리한다
+        if (snapshot.getImageId() != null) {
+            imageRemover.detachOwner(ContentImageService.OWNER_BANNER, id, snapshot.getImageId());
+        }
         return snapshot;
     }
 
@@ -192,22 +230,40 @@ public class BannerService {
                 banner.changeOrder(index, now);
             }
         }
-        return current.values().stream()
+        List<Banner> ordered = current.values().stream()
                 .sorted(java.util.Comparator.comparing(Banner::getOrd).thenComparing(Banner::getId))
-                .map(banner -> BannerResponse.from(banner, now))
                 .toList();
+        return toResponses(ordered, now);
     }
 
-    /** 관리자 미리보기 — 노출 여부·기간과 무관하게 행의 파일을 읽는다(공개 경로는 비노출을 404로 막으므로 따로 둔다, 쟁점 10). */
+    /** 관리자 미리보기 — 노출 여부·기간과 무관하게 연결된 이미지 파일을 읽는다(공개 경로는 비노출을 404로 막으므로 따로 둔다, 쟁점 10). */
     @Transactional(readOnly = true)
     public BannerImageDownload getImage(Long id) {
-        Banner banner = bannerRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException(BANNER_NOT_FOUND));
+        bannerRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException(BANNER_NOT_FOUND));
+        MediaImageInfo image = imageLookup.forOwner(ContentImageService.OWNER_BANNER, id)
+                .orElseThrow(() -> new ResourceNotFoundException("배너 이미지를 찾을 수 없습니다."));
         try {
-            return new BannerImageDownload(banner.getContentType(), fileStorage.load(banner.getStorageKey(), STORAGE_NAMESPACE));
+            byte[] content = image.isRootNamespace()
+                    ? fileStorage.load(image.storageKey())
+                    : fileStorage.load(image.storageKey(), image.namespace());
+            return new BannerImageDownload(image.contentType(), content);
         } catch (StorageFileNotFoundException e) {
             throw new ResourceNotFoundException("배너 이미지 파일을 찾을 수 없습니다.");
         }
+    }
+
+    private BannerResponse toResponse(Banner banner, LocalDateTime now) {
+        MediaImageInfo image = imageLookup.forOwner(ContentImageService.OWNER_BANNER, banner.getId()).orElse(null);
+        return BannerResponse.from(banner, now, image);
+    }
+
+    /** 목록용 — 소유자 ID 집합의 이미지를 한 번에 읽는다(N+1 없음). */
+    private List<BannerResponse> toResponses(List<Banner> banners, LocalDateTime now) {
+        Map<Long, MediaImageInfo> images = imageLookup.forOwners(ContentImageService.OWNER_BANNER,
+                banners.stream().map(Banner::getId).toList());
+        return banners.stream()
+                .map(banner -> BannerResponse.from(banner, now, images.get(banner.getId())))
+                .toList();
     }
 
     private void lockGuard() {
@@ -234,14 +290,5 @@ public class BannerService {
     /** 빈 문자열·공백은 링크 없음(null)으로 정규화한다. 형식 검증은 요청 DTO의 {@code @SafeLinkUrl}이 이미 했다. */
     private static String normalizeLink(String linkUrl) {
         return linkUrl == null || linkUrl.isBlank() ? null : linkUrl.strip();
-    }
-
-    private static String extensionFor(String contentType) {
-        return switch (contentType) {
-            case "image/png" -> "png";
-            case "image/jpeg" -> "jpg";
-            case "image/gif" -> "gif";
-            default -> throw new InvalidRequestException("이미지 파일만 업로드할 수 있습니다.");
-        };
     }
 }

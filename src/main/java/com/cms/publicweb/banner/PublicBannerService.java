@@ -1,7 +1,8 @@
 package com.cms.publicweb.banner;
 
 import com.cms.admin.banner.repository.BannerRepository;
-import com.cms.admin.banner.service.BannerService;
+import com.cms.admin.contentimage.service.ContentImageService;
+import com.cms.admin.media.service.MediaImageLookup;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.common.storage.StoredFileStream;
@@ -26,6 +27,7 @@ import java.util.Optional;
 public class PublicBannerService {
 
     private final BannerRepository bannerRepository;
+    private final MediaImageLookup imageLookup;
     private final FileStorage fileStorage;
     private final Clock clock;
 
@@ -44,7 +46,8 @@ public class PublicBannerService {
     @Transactional(readOnly = true)
     public Optional<PublicBannerImageRef> findDisplayableImage(Long id) {
         return bannerRepository.findDisplayableById(id, LocalDateTime.now(clock))
-                .map(banner -> new PublicBannerImageRef(banner.getStorageKey(), banner.getContentType()));
+                .flatMap(banner -> imageLookup.forOwner(ContentImageService.OWNER_BANNER, banner.getId()))
+                .map(image -> new PublicBannerImageRef(image.storageKey(), image.namespace(), image.contentType()));
     }
 
     /**
@@ -52,7 +55,9 @@ public class PublicBannerService {
      */
     public Optional<StoredFileStream> open(PublicBannerImageRef ref) {
         try {
-            return Optional.of(fileStorage.open(ref.storageKey(), BannerService.STORAGE_NAMESPACE));
+            return Optional.of(ref.namespace().isEmpty()
+                    ? fileStorage.open(ref.storageKey())
+                    : fileStorage.open(ref.storageKey(), ref.namespace()));
         } catch (StorageFileNotFoundException e) {
             return Optional.empty();
         }

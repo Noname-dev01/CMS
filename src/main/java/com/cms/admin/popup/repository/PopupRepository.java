@@ -28,12 +28,17 @@ public interface PopupRepository extends JpaRepository<Popup, Long> {
     /**
      * 공개 메인용 — 노출 여부와 기간 {@code [start, end)}이 조건에 고정돼 있다. 이 조건은 {@code DisplayPeriod.isActive}와 같은 의미이고
      * 두 표현의 일치는 DB 시험이 고정한다. 판정 시각은 호출자(공개 서비스)가 주입된 {@code Clock}으로 1회 산출해 넘기고, 건수는 {@code pageable}로 자른다.
+     * <b>적격성(HTML형이거나 이미지 연결이 있는 이미지형)을 {@code LIMIT} 전에 판정</b>한다 — 이미지 연결이 없는 불완전한 이미지형이 5개 슬롯을 차지해
+     * 정상 팝업이 밀려나지 않게 한다(PLAN-media-library.md R3-2).
      */
     @Query("""
             select p from Popup p
             where p.useYn = true
               and (p.displayStart is null or p.displayStart <= :now)
               and (p.displayEnd is null or p.displayEnd > :now)
+              and (p.popupType = com.cms.admin.popup.domain.PopupType.HTML
+                   or exists (select 1 from ContentImageRef r, ContentImage i
+                              where r.ownerType = 'POPUP' and r.ownerId = p.id and i.id = r.imageId))
             order by p.id asc
             """)
     List<Popup> findDisplayable(@Param("now") LocalDateTime now, Pageable pageable);
@@ -49,6 +54,8 @@ public interface PopupRepository extends JpaRepository<Popup, Long> {
               and p.useYn = true
               and (p.displayStart is null or p.displayStart <= :now)
               and (p.displayEnd is null or p.displayEnd > :now)
+              and exists (select 1 from ContentImageRef r, ContentImage i
+                          where r.ownerType = 'POPUP' and r.ownerId = p.id and i.id = r.imageId)
             """)
     Optional<Popup> findDisplayableImageById(@Param("id") Long id, @Param("now") LocalDateTime now);
 }

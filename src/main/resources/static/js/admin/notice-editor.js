@@ -12,6 +12,9 @@
  *   진행 중인 업로드를 무효화한 뒤 URL만 교체하므로 이전 게시판 출처로 늦게 올라가는 이미지가 없다(PLAN-board.md 쟁점 9·R3-4).
  * - options.allowImages(기본 true): false면 이미지 서식·툴바 버튼·파일 붙여넣기/끌어놓기 업로드·붙여넣은 img를 모두 끈다.
  *   이미지를 지원하지 않는 콘텐츠(정적 페이지, PLAN-static-page.md 쟁점 7)가 쓰며 서버 sanitizer의 allowImages=false와 짝이다.
+ * - options.pickLibraryImage(기본 없음): 함수를 주면 이미지 툴바 옆에 "라이브러리" 버튼이 생긴다(PLAN-media-library.md D10). 버튼을 누르면
+ *   pickLibraryImage(function (item) { ... })를 부르고, 호출 쪽이 선택 모달을 열어 고른 이미지를 콜백에 넘기면 /content-images/{id}로 삽입한다.
+ *   본문 src 계약·sanitizer 허용 목록·formats는 그대로다(라이브러리 이미지도 본문에서는 같은 경로다). allowImages가 false면 무시한다.
  * - 로딩: clipboard.convert는 서식 없는 마지막 개행을 버려 끝 빈 문단이 재편집마다 줄어든다 — Quill 자신의 초기 로딩처럼 빈 문단을
  *   하나 덧붙여 변환한다(R5-1).
  */
@@ -57,9 +60,13 @@
         let uploadUrl = options.uploadUrl || null;
         const allowImages = options.allowImages !== false;
         const formats = allowImages ? FORMATS : FORMATS.filter(function (format) { return format !== "image"; });
-        const toolbar = allowImages ? TOOLBAR : TOOLBAR.map(function (group) {
+        const pickLibraryImage = allowImages && typeof options.pickLibraryImage === "function" ? options.pickLibraryImage : null;
+        const baseToolbar = allowImages ? TOOLBAR : TOOLBAR.map(function (group) {
             return Array.isArray(group) ? group.filter(function (item) { return item !== "image"; }) : group;
         });
+        const toolbar = pickLibraryImage
+            ? baseToolbar.map(function (group) { return Array.isArray(group) && group.indexOf("image") >= 0 ? group.concat(["library-image"]) : group; })
+            : baseToolbar;
         const Delta = global.Quill.import("delta");
         // 링크 프로토콜을 서버 sanitizer(http/https/mailto)와 맞춘다 — Quill 기본값은 tel·sms도 허용해 편집기에선 링크로 보이다가 저장 후 href가 사라진다
         global.Quill.import("formats/link").PROTOCOL_WHITELIST = ["http", "https", "mailto"];
@@ -91,7 +98,7 @@
             theme: "snow",
             formats: formats,
             modules: {
-                toolbar: { container: toolbar, handlers: { image: pickImages } },
+                toolbar: { container: toolbar, handlers: pickLibraryImage ? { image: pickImages, "library-image": openLibrary } : { image: pickImages } },
                 uploader: {
                     mimetypes: allowImages ? IMAGE_MIME_TYPES : [],
                     handler: function (range, files) {
@@ -113,6 +120,17 @@
             }
         });
 
+        if (pickLibraryImage) {
+            const libraryButton = quill.getModule("toolbar").container.querySelector("button.ql-library-image");
+            if (libraryButton) {
+                libraryButton.textContent = "라이브러리";
+                libraryButton.title = "미디어 라이브러리에서 이미지 선택";
+                libraryButton.setAttribute("aria-label", "미디어 라이브러리에서 이미지 선택");
+                libraryButton.style.width = "auto";
+                libraryButton.style.padding = "0 6px";
+            }
+        }
+
         // 대기 중인 삽입 위치를 편집 내용 변화에 맞춰 옮긴다(업로드 중 앞쪽 입력·삭제에도 원래 자리에 들어가게)
         quill.on("text-change", function (delta) {
             pending.forEach(function (item) {
@@ -126,6 +144,19 @@
             if (wasBusy !== (busyCount > 0)) {
                 onBusyChange(busyCount > 0);
             }
+        }
+
+        /** 라이브러리 이미지를 지금 선택 위치에 /content-images/{id}로 넣는다(진행 중 업로드 세대가 바뀌었으면 호출 쪽이 버린다). */
+        function openLibrary() {
+            const myGeneration = generation;
+            const range = quill.getSelection(true);
+            const index = range ? range.index : quill.getLength() - 1;
+            pickLibraryImage(function (item) {
+                if (myGeneration !== generation || !item || !item.id) {
+                    return;     // 다른 글로 전환·닫힘 — 늦게 고른 이미지는 버린다
+                }
+                quill.insertEmbed(Math.min(index, quill.getLength() - 1), "image", "/content-images/" + item.id, "user");
+            });
         }
 
         function pickImages() {

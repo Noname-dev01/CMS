@@ -11,6 +11,8 @@ import com.cms.common.image.ImageFileValidatorTest;
 import com.cms.common.storage.FileStorage;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.MediaTestSupport;
+import com.cms.support.TestMembers;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -20,6 +22,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -53,13 +58,22 @@ class BannerConcurrencyIntegrationTest extends MariaDbContainerSupport {
     @Autowired PlatformTransactionManager transactionManager;
     @PersistenceContext EntityManager entityManager;
 
+    /** 등록은 업로더 아이디가 필요해 인증된 주체를 요구한다(운영에서는 항상 인증된 요청) — 시험 스레드마다 ADMIN을 심는다. */
+    private static void authenticate() {
+        var details = TestMembers.detached(1L, com.cms.admin.member.domain.Role.ROLE_ADMIN);
+        SecurityContextHolder.setContext(new SecurityContextImpl(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities())));
+    }
+
+    @BeforeEach
+    void authenticateMainThread() {
+        authenticate();
+    }
+
     @BeforeEach
     @AfterEach
     void cleanBanners() {
-        for (String key : jdbc.queryForList("SELECT storage_key FROM banner", String.class)) {
-            fileStorage.delete(key, BannerService.STORAGE_NAMESPACE);
-        }
         jdbc.update("DELETE FROM banner");
+        MediaTestSupport.cleanLibrary(jdbc, fileStorage);
     }
 
     private BannerCreateRequest request(String title) throws Exception {
@@ -78,6 +92,7 @@ class BannerConcurrencyIntegrationTest extends MariaDbContainerSupport {
         try {
             for (int i = 0; i < count; i++) {
                 futures.add(executor.submit(() -> {
+                    authenticate();
                     ready.countDown();
                     go.await(10, TimeUnit.SECONDS);
                     try {
@@ -161,7 +176,7 @@ class BannerConcurrencyIntegrationTest extends MariaDbContainerSupport {
         assertThat(conflicts).isEqualTo(2);
         assertThat(jdbc.queryForList("SELECT ord FROM banner ORDER BY ord", Integer.class))
                 .containsExactly(0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
-        for (String key : jdbc.queryForList("SELECT storage_key FROM banner", String.class)) {
+        for (String key : jdbc.queryForList("SELECT i.storage_key FROM content_image i JOIN content_image_ref r ON r.image_id = i.id WHERE r.owner_type = 'BANNER'", String.class)) {
             assertThat(fileStorage.load(key, BannerService.STORAGE_NAMESPACE)).isNotEmpty();
         }
     }

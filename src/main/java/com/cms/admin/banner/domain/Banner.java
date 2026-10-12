@@ -15,8 +15,9 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 공개 메인(/)의 배너(V33, PLAN-public-home-banner.md 쟁점 2). 이미지는 {@code FileStorage}의 {@code banner} 네임스페이스에 두고
- * {@link #storageKey}만 저장한다. 노출은 {@code useYn ∧ [displayStart, displayEnd)}를 둘 다 만족할 때다 — 기간이 비어 있으면 {@code useYn}만 본다.
+ * 공개 메인(/)의 배너(V33, PLAN-public-home-banner.md 쟁점 2). 이미지와의 연결은 이 테이블의 컬럼이 아니라
+ * {@code content_image_ref(owner_type='BANNER')}가 한 곳에서 가진다(V44, PLAN-media-library.md D4) — {@code banner.storage_key} 등 옛 사본 컬럼은
+ * 새 앱이 쓰지도 읽지도 않는다. 노출은 {@code useYn ∧ [displayStart, displayEnd)}를 둘 다 만족할 때다 — 기간이 비어 있으면 {@code useYn}만 본다.
  * 하드 삭제라 소프트 삭제 컬럼이 없다.
  */
 @Entity
@@ -37,15 +38,6 @@ public class Banner {
 
     @Column(name = "link_url", length = 500)
     private String linkUrl;
-
-    @Column(name = "storage_key", nullable = false, unique = true)
-    private String storageKey;
-
-    @Column(name = "content_type", nullable = false, length = 100)
-    private String contentType;
-
-    @Column(name = "file_size", nullable = false)
-    private Long fileSize;
 
     @Column(name = "display_start")
     private LocalDateTime displayStart;

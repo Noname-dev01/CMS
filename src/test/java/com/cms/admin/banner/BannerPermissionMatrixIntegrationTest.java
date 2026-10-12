@@ -10,6 +10,7 @@ import com.cms.common.image.ImageFileValidatorTest;
 import com.cms.common.storage.FileStorage;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.MediaTestSupport;
 import com.cms.support.TestMembers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,10 +73,8 @@ class BannerPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
     }
 
     private void cleanBanners() {
-        for (String key : jdbc.queryForList("SELECT storage_key FROM banner", String.class)) {
-            fileStorage.delete(key, BannerService.STORAGE_NAMESPACE);
-        }
         jdbc.update("DELETE FROM banner");
+        MediaTestSupport.cleanLibrary(jdbc, fileStorage);
     }
 
     private RequestPostProcessor asManager() {
@@ -92,9 +91,11 @@ class BannerPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
 
     private long fixtureBanner(String title, int ord) throws Exception {
         String key = fileStorage.store(ImageFileValidatorTest.png(20, 10), "b.png", BannerService.STORAGE_NAMESPACE);
-        jdbc.update("INSERT INTO banner (title, storage_key, content_type, file_size, use_yn, ord, create_date, update_date) VALUES (?, ?, 'image/png', 10, 1, ?, ?, ?)",
-                title, key, ord, LocalDateTime.now(), LocalDateTime.now());
-        return jdbc.queryForObject("SELECT MAX(id) FROM banner", Long.class);
+        jdbc.update("INSERT INTO banner (title, use_yn, ord, create_date, update_date) VALUES (?, 1, ?, ?, ?)",
+                title, ord, LocalDateTime.now(), LocalDateTime.now());
+        long id = jdbc.queryForObject("SELECT MAX(id) FROM banner", Long.class);
+        MediaTestSupport.attachImage(jdbc, "BANNER", id, key, 10);
+        return id;
     }
 
     private int bannerCount() {
