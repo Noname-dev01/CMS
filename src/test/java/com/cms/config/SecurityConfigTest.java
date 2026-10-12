@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, PublicSitePageStubController.class, AdminSitePageStubController.class, PublicPopupStubController.class, AdminPopupStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, PublicSitePageStubController.class, AdminSitePageStubController.class, PublicPopupStubController.class, AdminPopupStubController.class, PublicFaqStubController.class, AdminFaqStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
@@ -693,6 +693,70 @@ class SecurityConfigTest {
         mockMvc.perform(get("/admin/api/popups")).andExpect(status().isOk());
     }
 
+    // ==================== 공개 FAQ /faq (2026-10-12 승인, PLAN-faq.md 쟁점 10) ====================
+
+    @Test
+    @DisplayName("비인증 GET·HEAD /faq는 200 (permitAll, 정확 경로)")
+    void publicFaq_anonymousGetAndHead_ok() throws Exception {
+        mockMvc.perform(get("/faq")).andExpect(status().isOk());
+        mockMvc.perform(head("/faq")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("/faq의 쓰기 메서드와 하위 경로는 막힌다 — 비인증은 로그인으로(csrf 있음), csrf 없으면 403 (denyAll)")
+    void publicFaq_writesAndSubPaths_denied() throws Exception {
+        mockMvc.perform(post("/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(put("/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(delete("/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/faq")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/faq/1")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/faq/")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    @Test
+    @DisplayName("ADMIN도 /faq 쓰기는 denyAll로 403, 하위 경로도 403 (역할 불문)")
+    @WithMockUser(roles = "ADMIN")
+    void publicFaq_adminWriteAndSubPath_forbidden() throws Exception {
+        mockMvc.perform(post("/faq").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(get("/faq/1")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("/faq와 비슷한 접두사 경로(/faqs, /faqx)는 공개되지 않는다 (기본 거부)")
+    void publicFaq_lookalikePrefixes_notPublic() throws Exception {
+        mockMvc.perform(get("/faqs")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/faqx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    // ==================== FAQ 관리 게이트 (DELEGABLE FAQ — 카탈로그에서 자동 생성) ====================
+
+    @Test
+    @DisplayName("비인증 FAQ 관리 페이지·API는 로그인으로 보낸다(페이지 302, API JSON 401)")
+    void adminFaq_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/faq/manage")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/admin/api/faqs")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/admin/api/faq-categories")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("FAQ 권한(member_permission FAQ)이 없는 MANAGER는 페이지·API 게이트에서 403 — 위임 전에는 열리지 않는다")
+    @WithManager
+    void adminFaq_managerWithoutGrant_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/faq/manage")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/faqs")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/faqs/1")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/faq-categories")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("ADMIN은 FAQ 관리 페이지·API 게이트를 통과한다")
+    @WithMockUser(roles = "ADMIN")
+    void adminFaq_admin_ok() throws Exception {
+        mockMvc.perform(get("/admin/faq/manage")).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/faqs")).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/faq-categories")).andExpect(status().isOk());
+    }
+
     // ==================== 공개 정적 페이지 /pages/** (2026-10-11 승인, PLAN-static-page.md 쟁점 12) ====================
 
     @Test
@@ -1161,5 +1225,48 @@ class AdminSitePageStubController {
     @GetMapping("/admin/api/site-pages/{id}")
     String detail() {
         return "{}";
+    }
+}
+
+@TestStubController
+class PublicFaqStubController {
+
+    @GetMapping("/faq")
+    String list() {
+        return "faq-list";
+    }
+
+    @PostMapping("/faq")
+    ResponseEntity<String> write() {
+        return ResponseEntity.ok("{}");
+    }
+
+    @GetMapping("/faq/{id}")
+    String detail() {
+        return "faq-detail";
+    }
+}
+
+@TestStubController
+class AdminFaqStubController {
+
+    @GetMapping("/admin/faq/manage")
+    String page() {
+        return "faq-manage";
+    }
+
+    @GetMapping("/admin/api/faqs")
+    String list() {
+        return "{}";
+    }
+
+    @GetMapping("/admin/api/faqs/{id}")
+    String detail() {
+        return "{}";
+    }
+
+    @GetMapping("/admin/api/faq-categories")
+    String categories() {
+        return "[]";
     }
 }
