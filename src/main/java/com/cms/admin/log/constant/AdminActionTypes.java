@@ -62,6 +62,16 @@ public final class AdminActionTypes {
     public static final String POPUP_CREATE = "POPUP_CREATE";
     public static final String POPUP_UPDATE = "POPUP_UPDATE";
     public static final String POPUP_DELETE = "POPUP_DELETE";
+    /** FAQ 등록·수정·삭제 — targetType = FAQ, targetId = FAQ ID. 질문·답변은 사용자 입력이라 targetLabel을 두지 않는다 */
+    public static final String FAQ_CREATE = "FAQ_CREATE";
+    public static final String FAQ_UPDATE = "FAQ_UPDATE";
+    public static final String FAQ_DELETE = "FAQ_DELETE";
+    /** FAQ 카테고리 등록·수정·삭제 — targetType = FAQ_CATEGORY, targetId = 카테고리 ID. 이름은 사용자 입력이라 targetLabel을 두지 않는다 */
+    public static final String FAQ_CATEGORY_CREATE = "FAQ_CATEGORY_CREATE";
+    public static final String FAQ_CATEGORY_UPDATE = "FAQ_CATEGORY_UPDATE";
+    public static final String FAQ_CATEGORY_DELETE = "FAQ_CATEGORY_DELETE";
+    /** FAQ 카테고리·FAQ 표시 순서 일괄 반영 — targetType = FAQ, targetId 없음(순서 전체가 대상) */
+    public static final String FAQ_ORDER = "FAQ_ORDER";
     /** 세션 강제 만료(단일·회원 단위) — targetType = MEMBER, targetId = 세션 소유 회원 ID(성공 행만), targetLabel = "세션 n개 만료". 세션 ID·핸들은 기록하지 않는다 */
     public static final String SESSION_EXPIRE = "SESSION_EXPIRE";
 
@@ -75,7 +85,8 @@ public final class AdminActionTypes {
             BANNER_CREATE, BANNER_UPDATE, BANNER_DELETE, BANNER_ORDER,
             SESSION_EXPIRE,
             SITE_PAGE_CREATE, SITE_PAGE_UPDATE, SITE_PAGE_DELETE,
-            POPUP_CREATE, POPUP_UPDATE, POPUP_DELETE
+            POPUP_CREATE, POPUP_UPDATE, POPUP_DELETE,
+            FAQ_CREATE, FAQ_UPDATE, FAQ_DELETE, FAQ_CATEGORY_CREATE, FAQ_CATEGORY_UPDATE, FAQ_CATEGORY_DELETE, FAQ_ORDER
     );
 
     private AdminActionTypes() {}
