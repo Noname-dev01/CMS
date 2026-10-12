@@ -1,7 +1,16 @@
 package com.cms.admin.popup.service;
 
+import com.cms.admin.contentimage.domain.ContentImage;
+import com.cms.admin.contentimage.domain.ContentImageRef;
+import com.cms.admin.contentimage.repository.ContentImageRefRepository;
+import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
+import com.cms.admin.media.service.MediaImageInfo;
+import com.cms.admin.media.service.MediaImageLookup;
+import com.cms.admin.media.service.MediaImageRegistrar;
+import com.cms.admin.media.service.MediaImageRemover;
+import com.cms.admin.media.service.MediaImageSelector;
 import com.cms.admin.popup.domain.Popup;
 import com.cms.admin.popup.domain.PopupLimits;
 import com.cms.admin.popup.domain.PopupType;
@@ -18,10 +27,12 @@ import com.cms.common.html.ContentBodyPolicy;
 import com.cms.common.html.SanitizedHtml;
 import com.cms.common.image.ImageFileValidator;
 import com.cms.common.storage.FileStorage;
-import com.cms.common.storage.FileStorageTransactionSupport;
 import com.cms.common.storage.StorageFileNotFoundException;
+import com.cms.config.auth.AdminSecurityService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -29,6 +40,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 팝업 관리(PLAN-popup.md). 권한은 컨트롤러의 {@code @RequirePermission(POPUP, …)}가 판정하고 서비스는 대상의 존재·상태만 본다.
@@ -59,14 +71,22 @@ public class PopupService {
     static final String POPUP_NOT_FOUND = "팝업을 찾을 수 없습니다.";
 
     private final PopupRepository popupRepository;
+    private final ContentImageRefRepository refRepository;
+    private final MediaImageLookup imageLookup;
+    private final MediaImageRegistrar imageRegistrar;
+    private final MediaImageSelector imageSelector;
+    private final MediaImageRemover imageRemover;
+    private final AdminSecurityService adminSecurityService;
     private final FileStorage fileStorage;
     private final Clock clock;
 
     @Transactional(readOnly = true)
     public List<PopupResponse> getPopups() {
         LocalDateTime now = LocalDateTime.now(clock);
-        return popupRepository.findAllByOrderByIdDesc().stream()
-                .map(popup -> PopupResponse.summaryOf(popup, now))
+        List<Popup> popups = popupRepository.findAllByOrderByIdDesc();
+        Map<Long, MediaImageInfo> images = imageLookup.forOwners(ContentImageService.OWNER_POPUP, popups.stream().map(Popup::getId).toList());
+        return popups.stream()
+                .map(popup -> PopupResponse.summaryOf(popup, now, images.get(popup.getId())))
                 .toList();
     }
 
@@ -74,7 +94,7 @@ public class PopupService {
     public PopupResponse getPopup(Long id) {
         Popup popup = popupRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(POPUP_NOT_FOUND));
-        return PopupResponse.detailOf(popup, LocalDateTime.now(clock));
+        return PopupResponse.detailOf(popup, LocalDateTime.now(clock), imageOf(popup));
     }
 
     @Transactional
@@ -94,20 +114,26 @@ public class PopupService {
         String content = blankToNull(request.getContent());
         MultipartFile image = request.getImage();
         boolean hasImage = image != null && !image.isEmpty();
+        Long selectedImageId = request.getImageId();
 
         String contentHtml = null;
         byte[] imageBytes = null;
         String imageType = null;
         if (type == PopupType.IMAGE) {
             requireImageTypeFields(content, height);
-            if (!hasImage) {
+            if (hasImage && selectedImageId != null) {
+                throw new InvalidRequestException("이미지 파일과 라이브러리 이미지 중 하나만 지정해주세요.");
+            }
+            if (!hasImage && selectedImageId == null) {
                 throw new InvalidRequestException("팝업 이미지를 선택해주세요.");
             }
-            imageBytes = readImage(image);
-            imageType = image.getContentType();
-            ImageFileValidator.validate(imageBytes, imageType, LIMITS);
+            if (hasImage) {
+                imageBytes = readImage(image);
+                imageType = image.getContentType();
+                ImageFileValidator.validate(imageBytes, imageType, LIMITS);
+            }
         } else {
-            requireHtmlTypeFields(linkUrl, hasImage);
+            requireHtmlTypeFields(linkUrl, hasImage || selectedImageId != null);
             contentHtml = sanitizeBody(content, request.getContentFormat());
         }
 
@@ -115,10 +141,18 @@ public class PopupService {
             throw new ConflictException("팝업은 최대 " + MAX_POPUPS + "개까지 등록할 수 있습니다. 사용하지 않는 팝업을 삭제해주세요.");
         }
 
-        String storageKey = null;
+        ContentImage stored = null;
         if (type == PopupType.IMAGE) {
-            storageKey = fileStorage.store(imageBytes, "popup." + extensionFor(imageType), STORAGE_NAMESPACE);
-            FileStorageTransactionSupport.deleteOnRollback(fileStorage, storageKey, STORAGE_NAMESPACE, "popup");
+            if (hasImage) {
+                String uploaderId = adminSecurityService.getCurrentAdminUserId();
+                if (uploaderId == null) {
+                    throw new AccessDeniedException("인증 정보를 확인할 수 없습니다.");
+                }
+                stored = imageRegistrar.register(imageBytes, imageType, image.getOriginalFilename(), uploaderId,
+                        ContentImageService.SCOPE_POPUP, null, STORAGE_NAMESPACE);
+            } else {
+                stored = imageSelector.select(selectedImageId, MAX_FILE_SIZE, LIMITS, "팝업");
+            }
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
@@ -127,9 +161,6 @@ public class PopupService {
                 .revision(0)
                 .popupType(type)
                 .linkUrl(linkUrl)
-                .storageKey(storageKey)
-                .contentType(type == PopupType.IMAGE ? imageType : null)
-                .fileSize(type == PopupType.IMAGE ? (long) imageBytes.length : null)
                 .contentHtml(contentHtml)
                 .posX(posX)
                 .posY(posY)
@@ -141,7 +172,10 @@ public class PopupService {
                 .createDate(now)
                 .updateDate(now)
                 .build());
-        return PopupResponse.detailOf(saved, now);
+        if (stored != null) {
+            refRepository.save(new ContentImageRef(ContentImageService.OWNER_POPUP, saved.getId(), stored.getId()));
+        }
+        return PopupResponse.detailOf(saved, now, stored == null ? null : MediaImageInfo.from(stored));
     }
 
     @Transactional
@@ -173,23 +207,26 @@ public class PopupService {
         LocalDateTime now = LocalDateTime.now(clock);
         target.replace(title, linkUrl, sanitizedContent, posX, posY, width, height, period.start(), period.end(),
                 request.getUseYn(), now);
-        return PopupResponse.detailOf(target, now);
+        return PopupResponse.detailOf(target, now, imageOf(target));
     }
 
-    @Transactional
+    /**
+     * 격리 수준을 READ_COMMITTED로 고정한다 — 이미지 삭제 경로의 참조 잠금 읽기가 REPEATABLE READ에서 비고유 인덱스 갭 잠금으로 다른 이미지의
+     * 참조 INSERT(직접 업로드)를 막는 순환을 피한다(PLAN-media-library.md D5·R3-1·R4-2). 최상위 진입점이라 새 트랜잭션에서 적용된다.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.POPUP_DELETE, targetType = "POPUP", targetIdExpression = "id",
             safeErrorMessage = "팝업 삭제에 실패했습니다.")
     public PopupResponse deletePopup(Long id) {
         Popup target = popupRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException(POPUP_NOT_FOUND));
         // 행이 사라진 뒤에는 응답을 만들 수 없으므로 삭제 전에 스냅샷을 만든다
-        PopupResponse snapshot = PopupResponse.summaryOf(target, LocalDateTime.now(clock));
-        String storageKey = target.getStorageKey();
+        PopupResponse snapshot = PopupResponse.summaryOf(target, LocalDateTime.now(clock), imageOf(target));
 
         popupRepository.delete(target);
-        if (storageKey != null) {
-            // 커밋된 뒤에만 파일을 지운다 — 롤백되면 행과 파일이 모두 남는다
-            FileStorageTransactionSupport.deleteAfterCommit(fileStorage, storageKey, STORAGE_NAMESPACE, "popup id=" + id);
+        // 이미지 행을 먼저 잠그고 자기 참조를 지운 뒤, 직접 업로드 출처이고 다른 참조가 없으면 이미지·파일(커밋 후)까지 정리한다
+        if (snapshot.getImageId() != null) {
+            imageRemover.detachOwner(ContentImageService.OWNER_POPUP, id, snapshot.getImageId());
         }
         return snapshot;
     }
@@ -199,14 +236,24 @@ public class PopupService {
     public PopupImageDownload getImage(Long id) {
         Popup popup = popupRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(POPUP_NOT_FOUND));
-        if (popup.getStorageKey() == null) {
+        MediaImageInfo image = imageOf(popup);
+        if (image == null) {
             throw new ResourceNotFoundException("이미지가 없는 팝업입니다.");
         }
         try {
-            return new PopupImageDownload(popup.getContentType(), fileStorage.load(popup.getStorageKey(), STORAGE_NAMESPACE));
+            byte[] content = image.isRootNamespace()
+                    ? fileStorage.load(image.storageKey())
+                    : fileStorage.load(image.storageKey(), image.namespace());
+            return new PopupImageDownload(image.contentType(), content);
         } catch (StorageFileNotFoundException e) {
             throw new ResourceNotFoundException("팝업 이미지 파일을 찾을 수 없습니다.");
         }
+    }
+
+    private MediaImageInfo imageOf(Popup popup) {
+        return popup.getPopupType() == PopupType.IMAGE
+                ? imageLookup.forOwner(ContentImageService.OWNER_POPUP, popup.getId()).orElse(null)
+                : null;
     }
 
     // ===================== 검증 =====================
@@ -293,14 +340,5 @@ public class PopupService {
     /** 형식 검증은 요청 DTO의 {@code @SafeLinkUrl}이 이미 했다. */
     private static String normalizeLink(String linkUrl) {
         return linkUrl == null || linkUrl.isBlank() ? null : linkUrl.strip();
-    }
-
-    private static String extensionFor(String contentType) {
-        return switch (contentType) {
-            case "image/png" -> "png";
-            case "image/jpeg" -> "jpg";
-            case "image/gif" -> "gif";
-            default -> throw new InvalidRequestException("이미지 파일만 업로드할 수 있습니다.");
-        };
     }
 }

@@ -9,6 +9,7 @@ import com.cms.common.storage.FileStorage;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
 import com.cms.support.MutableClock;
+import com.cms.support.MediaTestSupport;
 import com.cms.support.TestMembers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -100,18 +101,20 @@ class PopupPublicPeriodBoundaryIntegrationTest extends MariaDbContainerSupport {
     }
 
     private void cleanPopups() {
-        for (String key : jdbc.queryForList("SELECT storage_key FROM popup WHERE storage_key IS NOT NULL", String.class)) {
-            fileStorage.delete(key, PopupService.STORAGE_NAMESPACE);
-        }
         jdbc.update("DELETE FROM popup");
+        MediaTestSupport.cleanLibrary(jdbc, fileStorage);
     }
 
     private long insertImage(String title, boolean useYn, LocalDateTime start, LocalDateTime end) throws Exception {
         String key = fileStorage.store(ImageFileValidatorTest.png(30, 12), "p.png", PopupService.STORAGE_NAMESPACE);
-        jdbc.update("INSERT INTO popup (title, revision, popup_type, storage_key, content_type, file_size, pos_x, pos_y, width, use_yn, display_start, display_end, create_date, update_date) "
-                        + "VALUES (?, 0, 'IMAGE', ?, 'image/png', 10, 10, 10, 300, ?, ?, ?, ?, ?)",
-                title, key, useYn, timestamp(start), timestamp(end), Timestamp.valueOf(START), Timestamp.valueOf(START));
-        return jdbc.queryForObject("SELECT MAX(id) FROM popup", Long.class);
+        jdbc.update("INSERT INTO popup (title, revision, popup_type, pos_x, pos_y, width, use_yn, display_start, display_end, create_date, update_date) "
+                        + "VALUES (?, 0, 'IMAGE', 10, 10, 300, ?, ?, ?, ?, ?)",
+                title, useYn, timestamp(start), timestamp(end), Timestamp.valueOf(START), Timestamp.valueOf(START));
+        long popupId = jdbc.queryForObject("SELECT MAX(id) FROM popup", Long.class);
+        jdbc.update("INSERT INTO content_image (storage_key, content_type, file_size, uploader_id, scope_type, namespace) VALUES (?, 'image/png', 10, 't', 'POPUP', 'popup')", key);
+        long imageId = jdbc.queryForObject("SELECT id FROM content_image WHERE storage_key = ? AND namespace = 'popup'", Long.class, key);
+        jdbc.update("INSERT INTO content_image_ref (owner_type, owner_id, image_id) VALUES ('POPUP', ?, ?)", popupId, imageId);
+        return popupId;
     }
 
     private long insertHtml(String title, boolean useYn, LocalDateTime start, LocalDateTime end) {

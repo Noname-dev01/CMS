@@ -10,6 +10,7 @@ import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.MediaTestSupport;
 import com.cms.support.TestMembers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,10 +83,8 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
     }
 
     private void cleanBanners() {
-        for (String key : jdbc.queryForList("SELECT storage_key FROM banner", String.class)) {
-            fileStorage.delete(key, BannerService.STORAGE_NAMESPACE);
-        }
         jdbc.update("DELETE FROM banner");
+        MediaTestSupport.cleanLibrary(jdbc, fileStorage);
     }
 
     private RequestPostProcessor asAdmin() {
@@ -142,7 +141,8 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(body.get("status").asText()).as("시작 전이면 예약됨").isEqualTo("SCHEDULED");
         assertThat(body.get("ord").asInt()).isZero();
 
-        String storageKey = jdbc.queryForObject("SELECT storage_key FROM banner WHERE id = ?", String.class, id);
+        String storageKey = jdbc.queryForObject("SELECT i.storage_key FROM content_image i JOIN content_image_ref r ON r.image_id = i.id"
+                + " WHERE r.owner_type = 'BANNER' AND r.owner_id = ?", String.class, id);
         assertThat(fileStorage.load(storageKey, BannerService.STORAGE_NAMESPACE)).isEqualTo(original);
 
         // 관리자 미리보기는 노출 여부와 무관하게 저장된 바이트를 그대로 준다
@@ -359,7 +359,8 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("공개 이미지: 행은 있는데 파일이 없으면 404(저장소 불일치를 500으로 드러내지 않는다)")
     void publicImage_missingFile_404() throws Exception {
         long id = createOk("파일없음", null, null, null, true);
-        String key = jdbc.queryForObject("SELECT storage_key FROM banner WHERE id = ?", String.class, id);
+        String key = jdbc.queryForObject("SELECT i.storage_key FROM content_image i JOIN content_image_ref r ON r.image_id = i.id"
+                + " WHERE r.owner_type = 'BANNER' AND r.owner_id = ?", String.class, id);
         fileStorage.delete(key, BannerService.STORAGE_NAMESPACE);
 
         assertThat(mockMvc.perform(get("/banners/{id}/image", id).with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(404);

@@ -3,6 +3,10 @@ package com.cms.publicweb.banner;
 import com.cms.admin.banner.domain.Banner;
 import com.cms.admin.banner.repository.BannerRepository;
 import com.cms.admin.banner.service.BannerService;
+import com.cms.admin.contentimage.domain.ContentImage;
+import com.cms.admin.contentimage.domain.ContentImageRef;
+import com.cms.admin.contentimage.repository.ContentImageRefRepository;
+import com.cms.admin.contentimage.repository.ContentImageRepository;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.StoredFileStream;
 import com.cms.support.CmsTestApplication;
@@ -49,25 +53,34 @@ class PublicBannerImageStreamingServerTest extends MariaDbContainerSupport {
 
     @LocalServerPort int port;
     @Autowired BannerRepository bannerRepository;
+    @Autowired ContentImageRepository imageRepository;
+    @Autowired ContentImageRefRepository refRepository;
     @Autowired DataSource dataSource;
     @MockitoSpyBean FileStorage fileStorage;
 
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     private Long bannerId;
+    private Long imageId;
 
     @BeforeEach
     void createBannerRowWithFakeFile() {
         LocalDateTime now = LocalDateTime.now();
         // 실파일 없이 행만 만든다 — 파일 내용은 매 시험에서 fileStorage.open 스파이로 주입한다.
         bannerId = bannerRepository.save(Banner.builder()
-                .title("스트리밍").storageKey(FAKE_KEY).contentType("image/png").fileSize((long) DECLARED_SIZE)
+                .title("스트리밍")
                 .useYn(true).ord(0).createDate(now).updateDate(now).build()).getId();
+        imageId = imageRepository.save(ContentImage.builder()
+                .storageKey(FAKE_KEY).contentType("image/png").fileSize((long) DECLARED_SIZE).uploaderId("t")
+                .scopeType("BANNER").namespace("banner").createDate(now).build()).getId();
+        refRepository.save(new ContentImageRef("BANNER", bannerId, imageId));
     }
 
     @AfterEach
     void cleanUp() {
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("DELETE FROM content_image_ref WHERE owner_type = 'BANNER' AND owner_id = ?", bannerId);
         bannerRepository.deleteById(bannerId);
+        imageRepository.deleteById(imageId);
     }
 
     private String url() {

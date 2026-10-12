@@ -8,6 +8,15 @@ import com.cms.admin.banner.dto.request.BannerUpdateRequest;
 import com.cms.admin.banner.dto.response.BannerResponse;
 import com.cms.admin.banner.repository.BannerLockRepository;
 import com.cms.admin.banner.repository.BannerRepository;
+import com.cms.admin.contentimage.domain.ContentImage;
+import com.cms.admin.contentimage.domain.ContentImageRef;
+import com.cms.admin.contentimage.repository.ContentImageRefRepository;
+import com.cms.admin.media.service.MediaImageInfo;
+import com.cms.admin.media.service.MediaImageLookup;
+import com.cms.admin.media.service.MediaImageRegistrar;
+import com.cms.admin.media.service.MediaImageRemover;
+import com.cms.admin.media.service.MediaImageSelector;
+import com.cms.config.auth.AdminSecurityService;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -42,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -58,6 +68,12 @@ class BannerServiceTest {
 
     @Mock BannerRepository bannerRepository;
     @Mock BannerLockRepository bannerLockRepository;
+    @Mock ContentImageRefRepository refRepository;
+    @Mock MediaImageLookup imageLookup;
+    @Mock MediaImageRegistrar imageRegistrar;
+    @Mock MediaImageSelector imageSelector;
+    @Mock MediaImageRemover imageRemover;
+    @Mock AdminSecurityService adminSecurityService;
     @Mock FileStorage fileStorage;
 
     /** UTC 2026-10-09 03:00 = KST 12:00 — 시스템 시각·기본 시간대와 무관하게 저장 시각을 단언한다. */
@@ -101,19 +117,25 @@ class BannerServiceTest {
     }
 
     private static Banner banner(long id, int ord) {
-        return Banner.builder().id(id).title("b" + id).storageKey("k" + id).contentType("image/png").fileSize(1L)
+        return Banner.builder().id(id).title("b" + id)
                 .useYn(true).ord(ord).createDate(NOW).updateDate(NOW).build();
     }
 
     // ===== 등록 =====
 
     @Test
-    @DisplayName("등록: 가드 행을 잠근 뒤 개수·최대 ord를 읽고 ord = max+1, 제목은 strip, 기간은 분 단위로 절단되어 저장되며 파일은 banner 네임스페이스에 저장된다")
+    @DisplayName("등록: 가드 행을 잠근 뒤 개수·최대 ord를 읽고 ord = max+1, 제목은 strip, 기간은 분 단위로 절단되어 저장되며 파일은 banner 네임스페이스·BANNER 출처 이미지 행으로 등록되고 참조 행이 소유자와 이미지를 잇는다")
     void create_success() throws Exception {
         given(bannerRepository.count()).willReturn(3L);
         given(bannerRepository.findMaxOrd()).willReturn(6);
-        given(fileStorage.store(any(), anyString(), eq("banner"))).willReturn("2026/10/09/abc.png");
-        given(bannerRepository.save(any(Banner.class))).willAnswer(i -> i.getArgument(0));
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin");
+        given(imageRegistrar.register(any(), eq("image/png"), eq("b.png"), eq("admin"), eq("BANNER"), isNull(), eq("banner")))
+                .willReturn(ContentImage.builder().id(70L).storageKey("2026/10/09/abc.png").contentType("image/png").fileSize(5L).namespace("banner").build());
+        given(bannerRepository.save(any(Banner.class))).willAnswer(i -> {
+            Banner b = i.getArgument(0);
+            return Banner.builder().id(11L).title(b.getTitle()).linkUrl(b.getLinkUrl()).displayStart(b.getDisplayStart())
+                    .displayEnd(b.getDisplayEnd()).useYn(b.getUseYn()).ord(b.getOrd()).createDate(b.getCreateDate()).updateDate(b.getUpdateDate()).build();
+        });
         BannerCreateRequest request = createRequest(pngImage());
         request.setLinkUrl("   ");
         request.setDisplayStart(LocalDateTime.of(2026, 10, 10, 9, 0, 59, 500_000_000));
@@ -127,19 +149,23 @@ class BannerServiceTest {
         assertThat(banner.getTitle()).isEqualTo("가을 행사");
         assertThat(banner.getLinkUrl()).as("공백 링크는 링크 없음").isNull();
         assertThat(banner.getOrd()).isEqualTo(7);
-        assertThat(banner.getStorageKey()).isEqualTo("2026/10/09/abc.png");
         assertThat(banner.getDisplayStart()).isEqualTo(LocalDateTime.of(2026, 10, 10, 9, 0));
         assertThat(banner.getDisplayEnd()).isEqualTo(LocalDateTime.of(2026, 10, 11, 9, 0));
         assertThat(banner.getUseYn()).as("누락 시 노출").isTrue();
         assertThat(banner.getCreateDate()).isEqualTo(NOW);
         assertThat(response.getStatus()).isEqualTo(BannerResponse.Status.SCHEDULED);
+        assertThat(response.getImageId()).isEqualTo(70L);
+        ArgumentCaptor<ContentImageRef> ref = ArgumentCaptor.forClass(ContentImageRef.class);
+        verify(refRepository).save(ref.capture());
+        assertThat(ref.getValue().getOwnerType()).isEqualTo("BANNER");
+        assertThat(ref.getValue().getOwnerId()).isEqualTo(11L);
+        assertThat(ref.getValue().getImageId()).isEqualTo(70L);
 
-        InOrder order = inOrder(bannerLockRepository, bannerRepository, fileStorage);
+        InOrder order = inOrder(bannerLockRepository, bannerRepository, imageRegistrar);
         order.verify(bannerLockRepository).findByIdForUpdate(BannerLock.SINGLETON_ID);
         order.verify(bannerRepository).count();
         order.verify(bannerRepository).findMaxOrd();
-        order.verify(fileStorage).store(any(), eq("banner.png"), eq("banner"));
-        assertThat(TransactionSynchronizationManager.getSynchronizations()).as("롤백 시 파일 정리 콜백 등록").hasSize(1);
+        order.verify(imageRegistrar).register(any(), eq("image/png"), eq("b.png"), eq("admin"), eq("BANNER"), isNull(), eq("banner"));
     }
 
     @Test
@@ -171,7 +197,11 @@ class BannerServiceTest {
         blankTitle.setTitle("   ");
         assertThatThrownBy(() -> bannerService.createBanner(blankTitle)).isInstanceOf(InvalidRequestException.class);
 
-        verifyNoInteractions(bannerLockRepository, fileStorage);
+        BannerCreateRequest both = createRequest(pngImage());
+        both.setImageId(3L);
+        assertThatThrownBy(() -> bannerService.createBanner(both)).isInstanceOf(InvalidRequestException.class);
+
+        verifyNoInteractions(bannerLockRepository, imageRegistrar, imageSelector);
         verify(bannerRepository, never()).save(any());
     }
 
@@ -182,7 +212,7 @@ class BannerServiceTest {
 
         assertThatThrownBy(() -> bannerService.createBanner(createRequest(pngImage()))).isInstanceOf(ConflictException.class);
 
-        verify(fileStorage, never()).store(any(), anyString(), anyString());
+        verifyNoInteractions(imageRegistrar, imageSelector);
         verify(bannerRepository, never()).save(any());
     }
 
@@ -193,7 +223,32 @@ class BannerServiceTest {
 
         assertThatThrownBy(() -> bannerService.createBanner(createRequest(pngImage()))).isInstanceOf(IllegalStateException.class);
 
-        verify(fileStorage, never()).store(any(), anyString(), anyString());
+        verifyNoInteractions(imageRegistrar, imageSelector);
+    }
+
+    @Test
+    @DisplayName("등록: 라이브러리 이미지를 고르면 선택 검증(권한·출처·용도 한도)을 거쳐 참조 행만 만든다 — 새 이미지 행·파일은 만들지 않는다")
+    void create_selectingLibraryImage_usesSelector() {
+        given(bannerRepository.count()).willReturn(0L);
+        given(bannerRepository.findMaxOrd()).willReturn(-1);
+        given(imageSelector.select(eq(33L), eq(2L * 1024 * 1024), any(), eq("배너")))
+                .willReturn(ContentImage.builder().id(33L).storageKey("k").contentType("image/png").fileSize(7L).namespace("").build());
+        given(bannerRepository.save(any(Banner.class))).willAnswer(i -> {
+            Banner b = i.getArgument(0);
+            return Banner.builder().id(12L).title(b.getTitle()).useYn(true).ord(b.getOrd()).createDate(b.getCreateDate()).updateDate(b.getUpdateDate()).build();
+        });
+        BannerCreateRequest request = createRequest(null);
+        request.setImageId(33L);
+
+        BannerResponse response = bannerService.createBanner(request);
+
+        assertThat(response.getImageId()).isEqualTo(33L);
+        verify(imageRegistrar, never()).register(any(), any(), any(), any(), any(), any(), any());
+        InOrder order = inOrder(bannerLockRepository, imageSelector, bannerRepository, refRepository);
+        order.verify(bannerLockRepository).findByIdForUpdate(BannerLock.SINGLETON_ID);
+        order.verify(imageSelector).select(eq(33L), eq(2L * 1024 * 1024), any(), eq("배너"));
+        order.verify(bannerRepository).save(any(Banner.class));
+        order.verify(refRepository).save(any(ContentImageRef.class));
     }
 
     // ===== 수정 (PUT 전체 교체) =====
@@ -254,33 +309,32 @@ class BannerServiceTest {
     // ===== 삭제 =====
 
     @Test
-    @DisplayName("삭제: 가드 → 대상 행 순서로 잠그고 행을 지우며, 응답은 삭제 전 스냅샷이고 파일 삭제는 커밋 후 콜백으로 등록된다")
+    @DisplayName("삭제: 가드 → 대상 행 순서로 잠그고 행을 지우며, 응답은 삭제 전 스냅샷이고 이미지 정리는 공통 제거 작업자에 위임한다")
     void delete_locksGuardThenRow_registersAfterCommitFileDelete() {
         Banner target = banner(5, 2);
         given(bannerRepository.findByIdForUpdate(5L)).willReturn(Optional.of(target));
+        given(imageLookup.forOwner("BANNER", 5L)).willReturn(Optional.of(
+                new MediaImageInfo(70L, "k5", "banner", "image/png", 1L, "b5.png")));
 
         BannerResponse response = bannerService.deleteBanner(5L);
 
         assertThat(response.getId()).isEqualTo(5L);
-        InOrder order = inOrder(bannerLockRepository, bannerRepository);
+        InOrder order = inOrder(bannerLockRepository, bannerRepository, imageRemover);
         order.verify(bannerLockRepository).findByIdForUpdate(BannerLock.SINGLETON_ID);
         order.verify(bannerRepository).findByIdForUpdate(5L);
         order.verify(bannerRepository).delete(target);
-        verify(fileStorage, never()).delete(anyString(), anyString());   // 커밋 전에는 파일을 지우지 않는다
-        List<TransactionSynchronization> syncs = TransactionSynchronizationManager.getSynchronizations();
-        assertThat(syncs).hasSize(1);
-        syncs.get(0).afterCommit();
-        verify(fileStorage).delete("k5", "banner");
+        order.verify(imageRemover).detachOwner("BANNER", 5L, 70L);   // 이미지 정리(행 잠금·참조 삭제·커밋 후 파일 삭제)는 공통 제거 작업자가 한다
+        verify(fileStorage, never()).delete(anyString(), anyString());
     }
 
     @Test
-    @DisplayName("삭제: 없는 배너는 404이고 파일 정리 콜백도 등록하지 않는다")
+    @DisplayName("삭제: 없는 배너는 404이고 이미지 정리도 하지 않는다")
     void delete_notFound() {
         given(bannerRepository.findByIdForUpdate(9L)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> bannerService.deleteBanner(9L)).isInstanceOf(ResourceNotFoundException.class);
 
-        assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+        verifyNoInteractions(imageRemover);
         verify(bannerRepository, never()).delete(any());
     }
 
@@ -313,9 +367,9 @@ class BannerServiceTest {
     @DisplayName("순서 저장: 배열 순서대로 ord 0..n-1을 매기되 값이 같은 행은 쓰지 않는다(update_date 보존)")
     void saveOrder_assignsOrdAndSkipsUnchangedRows() {
         LocalDateTime old = LocalDateTime.of(2026, 1, 1, 0, 0);
-        Banner a = Banner.builder().id(1L).title("a").storageKey("ka").contentType("image/png").fileSize(1L).useYn(true).ord(0).updateDate(old).build();
-        Banner b = Banner.builder().id(2L).title("b").storageKey("kb").contentType("image/png").fileSize(1L).useYn(true).ord(5).updateDate(old).build();
-        Banner c = Banner.builder().id(3L).title("c").storageKey("kc").contentType("image/png").fileSize(1L).useYn(true).ord(9).updateDate(old).build();
+        Banner a = Banner.builder().id(1L).title("a").useYn(true).ord(0).updateDate(old).build();
+        Banner b = Banner.builder().id(2L).title("b").useYn(true).ord(5).updateDate(old).build();
+        Banner c = Banner.builder().id(3L).title("c").useYn(true).ord(9).updateDate(old).build();
         given(bannerRepository.findAllForUpdate()).willReturn(List.of(a, b, c));
 
         List<BannerResponse> result = bannerService.saveOrder(new BannerOrderRequest(List.of(1L, 3L, 2L)));
@@ -347,11 +401,11 @@ class BannerServiceTest {
         LocalDateTime end = LocalDateTime.of(2026, 10, 20, 0, 0);
         banner.replaceMetadata("t", null, start, end, true, NOW);
 
-        assertThat(BannerResponse.from(banner, start.minusMinutes(1)).getStatus()).isEqualTo(BannerResponse.Status.SCHEDULED);
-        assertThat(BannerResponse.from(banner, start).getStatus()).isEqualTo(BannerResponse.Status.ACTIVE);
-        assertThat(BannerResponse.from(banner, end.minusMinutes(1)).getStatus()).isEqualTo(BannerResponse.Status.ACTIVE);
-        assertThat(BannerResponse.from(banner, end).getStatus()).isEqualTo(BannerResponse.Status.EXPIRED);
+        assertThat(BannerResponse.from(banner, start.minusMinutes(1), null).getStatus()).isEqualTo(BannerResponse.Status.SCHEDULED);
+        assertThat(BannerResponse.from(banner, start, null).getStatus()).isEqualTo(BannerResponse.Status.ACTIVE);
+        assertThat(BannerResponse.from(banner, end.minusMinutes(1), null).getStatus()).isEqualTo(BannerResponse.Status.ACTIVE);
+        assertThat(BannerResponse.from(banner, end, null).getStatus()).isEqualTo(BannerResponse.Status.EXPIRED);
         banner.replaceMetadata("t", null, start, end, false, NOW);
-        assertThat(BannerResponse.from(banner, start.plusDays(1)).getStatus()).as("비노출이 기간보다 우선").isEqualTo(BannerResponse.Status.HIDDEN);
+        assertThat(BannerResponse.from(banner, start.plusDays(1), null).getStatus()).as("비노출이 기간보다 우선").isEqualTo(BannerResponse.Status.HIDDEN);
     }
 }

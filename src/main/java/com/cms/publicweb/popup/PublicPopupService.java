@@ -1,7 +1,8 @@
 package com.cms.publicweb.popup;
 
 import com.cms.admin.popup.repository.PopupRepository;
-import com.cms.admin.popup.service.PopupService;
+import com.cms.admin.contentimage.service.ContentImageService;
+import com.cms.admin.media.service.MediaImageLookup;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.common.storage.StoredFileStream;
@@ -30,6 +31,7 @@ public class PublicPopupService {
     public static final int MAX_DISPLAYED = 5;
 
     private final PopupRepository popupRepository;
+    private final MediaImageLookup imageLookup;
     private final FileStorage fileStorage;
     private final Clock clock;
 
@@ -49,13 +51,16 @@ public class PublicPopupService {
     @Transactional(readOnly = true)
     public Optional<PublicPopupImageRef> findDisplayableImage(Long id) {
         return popupRepository.findDisplayableImageById(id, LocalDateTime.now(clock))
-                .map(popup -> new PublicPopupImageRef(popup.getStorageKey(), popup.getContentType()));
+                .flatMap(popup -> imageLookup.forOwner(ContentImageService.OWNER_POPUP, popup.getId()))
+                .map(image -> new PublicPopupImageRef(image.storageKey(), image.namespace(), image.contentType()));
     }
 
     /** 파일을 스트림으로 연다. <b>트랜잭션 없음</b>(의도). 파일이 없으면 empty(404), 그 외 실패는 전파(500). 반환 스트림은 받은 쪽이 닫는다. */
     public Optional<StoredFileStream> open(PublicPopupImageRef ref) {
         try {
-            return Optional.of(fileStorage.open(ref.storageKey(), PopupService.STORAGE_NAMESPACE));
+            return Optional.of(ref.namespace().isEmpty()
+                    ? fileStorage.open(ref.storageKey())
+                    : fileStorage.open(ref.storageKey(), ref.namespace()));
         } catch (StorageFileNotFoundException e) {
             return Optional.empty();
         }

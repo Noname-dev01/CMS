@@ -10,6 +10,7 @@ import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.FileStorageProperties;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.MediaTestSupport;
 import com.cms.support.TestMembers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,10 +73,8 @@ class PopupFileCleanupIntegrationTest extends MariaDbContainerSupport {
     }
 
     private void cleanPopups() {
-        for (String key : jdbc.queryForList("SELECT storage_key FROM popup WHERE storage_key IS NOT NULL", String.class)) {
-            fileStorage.delete(key, PopupService.STORAGE_NAMESPACE);
-        }
         jdbc.update("DELETE FROM popup");
+        MediaTestSupport.cleanLibrary(jdbc, fileStorage);
     }
 
     /** popup 네임스페이스 디렉터리 아래 일반 파일 수. 디렉터리가 아직 없으면 0. */
@@ -100,6 +99,8 @@ class PopupFileCleanupIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("등록: 파일을 쓴 뒤 행 저장이 DB 예외로 실패하면 트랜잭션이 롤백되고 방금 쓴 파일도 지워진다(행 없는 파일을 남기지 않는다)")
     void createRollback_removesStoredFile() throws Exception {
         long filesBefore = storedFileCount();
+        long imagesBefore = jdbc.queryForObject("SELECT COUNT(*) FROM content_image", Long.class);
+        long[] counterBefore = jdbc.queryForObject("SELECT total_bytes, total_count FROM content_image_usage WHERE id = 1", (rs, n) -> new long[]{rs.getLong(1), rs.getLong(2)});
         Mockito.doThrow(new DataAccessResourceFailureException("주입된 저장 실패")).when(popupRepository).save(Mockito.any());
 
         MvcResult result = createImage();
@@ -108,6 +109,13 @@ class PopupFileCleanupIntegrationTest extends MariaDbContainerSupport {
         Mockito.verify(popupRepository).save(Mockito.any());
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM popup", Integer.class)).as("행 없음").isZero();
         assertThat(storedFileCount()).as("롤백된 등록의 파일이 남지 않는다").isEqualTo(filesBefore);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM content_image", Long.class)).as("이미지 행도 롤백된다").isEqualTo(imagesBefore);
+        long[] counterAfter = jdbc.queryForObject("SELECT total_bytes, total_count FROM content_image_usage WHERE id = 1", (rs, n) -> new long[]{rs.getLong(1), rs.getLong(2)});
+        assertThat(counterAfter).as("카운터 증가도 같은 트랜잭션이라 함께 롤백된다").containsExactly(counterBefore);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM admin_action_log WHERE id > ? AND action_type = 'MEDIA_UPLOAD'", Integer.class, auditBaseline))
+                .as("공통 등록 작업자는 감사하지 않는다 — 최상위 진입점(팝업 등록)의 실패 한 건만 남는다").isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM admin_action_log WHERE id > ? AND action_type = 'POPUP_CREATE' AND action_result = 'FAIL'", Integer.class, auditBaseline))
+                .isEqualTo(1);
     }
 
     @Test

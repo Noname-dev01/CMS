@@ -75,6 +75,10 @@ public final class AdminActionTypes {
     /** 세션 강제 만료(단일·회원 단위) — targetType = MEMBER, targetId = 세션 소유 회원 ID(성공 행만), targetLabel = "세션 n개 만료". 세션 ID·핸들은 기록하지 않는다 */
     public static final String SESSION_EXPIRE = "SESSION_EXPIRE";
 
+    /** 미디어 라이브러리 업로드·삭제 — targetType = MEDIA, targetId = 이미지 ID. 파일명은 사용자 입력이라 targetLabel을 두지 않는다 */
+    public static final String MEDIA_UPLOAD = "MEDIA_UPLOAD";
+    public static final String MEDIA_DELETE = "MEDIA_DELETE";
+
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
             ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_DELETE, MENU_REORDER, MENU_MOVE, MENU_STRUCTURE_APPLY,
@@ -86,7 +90,8 @@ public final class AdminActionTypes {
             SESSION_EXPIRE,
             SITE_PAGE_CREATE, SITE_PAGE_UPDATE, SITE_PAGE_DELETE,
             POPUP_CREATE, POPUP_UPDATE, POPUP_DELETE,
-            FAQ_CREATE, FAQ_UPDATE, FAQ_DELETE, FAQ_CATEGORY_CREATE, FAQ_CATEGORY_UPDATE, FAQ_CATEGORY_DELETE, FAQ_ORDER
+            FAQ_CREATE, FAQ_UPDATE, FAQ_DELETE, FAQ_CATEGORY_CREATE, FAQ_CATEGORY_UPDATE, FAQ_CATEGORY_DELETE, FAQ_ORDER,
+            MEDIA_UPLOAD, MEDIA_DELETE
     );
 
     private AdminActionTypes() {}

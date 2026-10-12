@@ -40,6 +40,9 @@ public class BannerCreateRequest {
     @Schema(description = "노출 여부. 누락 시 true", example = "true")
     private Boolean useYn;
 
-    @Schema(description = "배너 이미지(png·jpeg·gif, 2MB 이하, 한 변 2560px 이하, 애니메이션 불가)")
+    @Schema(description = "배너 이미지(png·jpeg·gif, 2MB 이하, 한 변 2560px 이하, 애니메이션 불가). imageId와 둘 중 하나만 보낸다")
     private MultipartFile image;
+
+    @Schema(description = "미디어 라이브러리에서 고른 이미지 ID(라이브러리 읽기 권한 필요, 2MB 이하만). image와 둘 중 하나만 보낸다", example = "12")
+    private Long imageId;
 }

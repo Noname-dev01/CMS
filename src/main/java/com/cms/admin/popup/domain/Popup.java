@@ -17,8 +17,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 공개 메인(/)의 레이어 팝업(V39, PLAN-popup.md). 종류는 {@link PopupType}이고 생성 후 바뀌지 않는다 — 이미지형은 {@link #storageKey}(+ 링크),
- * HTML형은 {@link #contentHtml}만 채운다. 노출은 {@code useYn ∧ [displayStart, displayEnd)}를 둘 다 만족할 때다 — 기간이 비어 있으면
+ * 공개 메인(/)의 레이어 팝업(V39, PLAN-popup.md). 종류는 {@link PopupType}이고 생성 후 바뀌지 않는다 — 이미지형은 링크와 이미지(연결은 {@code content_image_ref(owner_type=POPUP)} 한 곳 —
+ * PLAN-media-library.md D4, {@code popup.storage_key} 등 옛 사본 컬럼은 새 앱이 쓰지도 읽지도 않는다), HTML형은 {@link #contentHtml}만 채운다. 노출은 {@code useYn ∧ [displayStart, displayEnd)}를 둘 다 만족할 때다 — 기간이 비어 있으면
  * {@code useYn}만 본다. 하드 삭제라 소프트 삭제 컬럼이 없다.
  */
 @Entity
@@ -51,15 +51,6 @@ public class Popup {
     /** 이미지형만. HTML형은 본문 안의 링크를 쓴다. */
     @Column(name = "link_url", length = 500)
     private String linkUrl;
-
-    @Column(name = "storage_key", unique = true)
-    private String storageKey;
-
-    @Column(name = "content_type", length = 100)
-    private String contentType;
-
-    @Column(name = "file_size")
-    private Long fileSize;
 
     /** HTML형만. 저장 시 정리된 HTML이고 출력 시에도 한 번 더 정리한다. */
     @Column(name = "content_html", columnDefinition = "MEDIUMTEXT")

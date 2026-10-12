@@ -41,6 +41,9 @@ public class PopupCreateRequest {
     @Schema(description = "이미지형만 — 팝업 이미지(png·jpeg·gif, 2MB 이하, 한 변 2560px 이하, 애니메이션 불가)")
     private MultipartFile image;
 
+    @Schema(description = "이미지형만 — 미디어 라이브러리에서 고른 이미지 ID(라이브러리 읽기 권한 필요, 2MB 이하만). image와 둘 중 하나만 보낸다", example = "12")
+    private Long imageId;
+
     // 원문 상한은 sanitizer가 원문을 파싱하기 전에 거른다(PLAN-popup.md 쟁점 5)
     @MaxUtf8Bytes(value = ContentBodyPolicy.POPUP_MAX_RAW_BYTES, message = "본문이 너무 깁니다.")
     @Schema(description = "HTML형만 — 본문 HTML(편집기 출력). 이미지는 지원하지 않는다. 보이는 글자 2,000자 이하")

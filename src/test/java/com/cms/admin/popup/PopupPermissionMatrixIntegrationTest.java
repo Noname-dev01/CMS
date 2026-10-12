@@ -10,6 +10,7 @@ import com.cms.common.image.ImageFileValidatorTest;
 import com.cms.common.storage.FileStorage;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.MediaTestSupport;
 import com.cms.support.TestMembers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,9 +97,11 @@ class PopupPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
 
     private long fixturePopup(String title) throws Exception {
         String key = fileStorage.store(ImageFileValidatorTest.png(20, 10), "p.png", PopupService.STORAGE_NAMESPACE);
-        jdbc.update("INSERT INTO popup (title, revision, popup_type, storage_key, content_type, file_size, pos_x, pos_y, width, use_yn, create_date, update_date) "
-                + "VALUES (?, 0, 'IMAGE', ?, 'image/png', 10, 10, 10, 300, 1, ?, ?)", title, key, LocalDateTime.now(), LocalDateTime.now());
-        return jdbc.queryForObject("SELECT MAX(id) FROM popup", Long.class);
+        jdbc.update("INSERT INTO popup (title, revision, popup_type, pos_x, pos_y, width, use_yn, create_date, update_date) "
+                + "VALUES (?, 0, 'IMAGE', 10, 10, 300, 1, ?, ?)", title, LocalDateTime.now(), LocalDateTime.now());
+        long id = jdbc.queryForObject("SELECT MAX(id) FROM popup", Long.class);
+        MediaTestSupport.attachImage(jdbc, "POPUP", id, key, 10);
+        return id;
     }
 
     private int popupCount() {

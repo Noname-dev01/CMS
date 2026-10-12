@@ -1,5 +1,6 @@
 package com.cms.admin.popup.dto.response;
 
+import com.cms.admin.media.service.MediaImageInfo;
 import com.cms.admin.popup.domain.Popup;
 import com.cms.admin.popup.domain.PopupType;
 import com.cms.common.display.DisplayPeriod;
@@ -28,6 +29,8 @@ public class PopupResponse {
     private PopupType popupType;
     private Integer revision;
     private String linkUrl;
+    /** 연결된 라이브러리 이미지 ID(이미지형만, 없으면 null). 이미지 메타는 소유자 테이블이 아니라 이미지 행의 값이다. */
+    private Long imageId;
     private String contentType;
     private Long fileSize;
     @Schema(description = "HTML형 본문. 목록 응답에서는 null(상세에서만 채운다)", nullable = true)
@@ -43,23 +46,25 @@ public class PopupResponse {
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
 
-    public static PopupResponse summaryOf(Popup popup, LocalDateTime now) {
-        return builderOf(popup, now).build();
+    /** @param image 연결된 이미지(HTML형이거나 연결이 없으면 null) */
+    public static PopupResponse summaryOf(Popup popup, LocalDateTime now, MediaImageInfo image) {
+        return builderOf(popup, now, image).build();
     }
 
-    public static PopupResponse detailOf(Popup popup, LocalDateTime now) {
-        return builderOf(popup, now).contentHtml(popup.getContentHtml()).build();
+    public static PopupResponse detailOf(Popup popup, LocalDateTime now, MediaImageInfo image) {
+        return builderOf(popup, now, image).contentHtml(popup.getContentHtml()).build();
     }
 
-    private static PopupResponseBuilder builderOf(Popup popup, LocalDateTime now) {
+    private static PopupResponseBuilder builderOf(Popup popup, LocalDateTime now, MediaImageInfo image) {
         return PopupResponse.builder()
                 .id(popup.getId())
                 .title(popup.getTitle())
                 .popupType(popup.getPopupType())
                 .revision(popup.getRevision())
                 .linkUrl(popup.getLinkUrl())
-                .contentType(popup.getContentType())
-                .fileSize(popup.getFileSize())
+                .imageId(image == null ? null : image.imageId())
+                .contentType(image == null ? null : image.contentType())
+                .fileSize(image == null ? null : image.fileSize())
                 .posX(popup.getPosX())
                 .posY(popup.getPosY())
                 .width(popup.getWidth())

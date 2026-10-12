@@ -1,5 +1,9 @@
 package com.cms.publicweb.popup;
 
+import com.cms.admin.contentimage.domain.ContentImage;
+import com.cms.admin.contentimage.domain.ContentImageRef;
+import com.cms.admin.contentimage.repository.ContentImageRefRepository;
+import com.cms.admin.contentimage.repository.ContentImageRepository;
 import com.cms.admin.popup.domain.Popup;
 import com.cms.admin.popup.domain.PopupType;
 import com.cms.admin.popup.repository.PopupRepository;
@@ -50,12 +54,15 @@ class PublicPopupImageStreamingServerTest extends MariaDbContainerSupport {
 
     @LocalServerPort int port;
     @Autowired PopupRepository popupRepository;
+    @Autowired ContentImageRepository imageRepository;
+    @Autowired ContentImageRefRepository refRepository;
     @Autowired DataSource dataSource;
     @MockitoSpyBean FileStorage fileStorage;
 
     private final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     private Long popupId;
+    private Long imageId;
 
     @BeforeEach
     void createPopupRowWithFakeFile() {
@@ -63,13 +70,18 @@ class PublicPopupImageStreamingServerTest extends MariaDbContainerSupport {
         // 실파일 없이 행만 만든다 — 파일 내용은 매 시험에서 fileStorage.open 스파이로 주입한다.
         popupId = popupRepository.save(Popup.builder()
                 .title("스트리밍").revision(0).popupType(PopupType.IMAGE).posX(10).posY(10).width(300)
-                .storageKey(FAKE_KEY).contentType("image/png").fileSize((long) DECLARED_SIZE)
                 .useYn(true).createDate(now).updateDate(now).build()).getId();
+        imageId = imageRepository.save(ContentImage.builder()
+                .storageKey(FAKE_KEY).contentType("image/png").fileSize((long) DECLARED_SIZE).uploaderId("t")
+                .scopeType("POPUP").namespace("popup").createDate(now).build()).getId();
+        refRepository.save(new ContentImageRef("POPUP", popupId, imageId));
     }
 
     @AfterEach
     void cleanUp() {
+        new org.springframework.jdbc.core.JdbcTemplate(dataSource).update("DELETE FROM content_image_ref WHERE owner_type = 'POPUP' AND owner_id = ?", popupId);
         popupRepository.deleteById(popupId);
+        imageRepository.deleteById(imageId);
     }
 
     private String url() {
