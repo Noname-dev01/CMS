@@ -104,6 +104,11 @@
                                     <div class="form-group" id="imageGroup">
                                         <label for="bannerImage">이미지 (png·jpeg·gif, 2MB 이하)</label>
                                         <input type="file" class="form-control-file" id="bannerImage" accept="image/png,image/jpeg,image/gif">
+                                        <div class="mt-2 d-none" id="libraryPickGroup">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnPickLibrary">라이브러리에서 선택</button>
+                                            <span class="small ml-2" id="libraryPickName"></span>
+                                            <button type="button" class="btn btn-sm btn-link d-none" id="btnClearLibrary">선택 해제</button>
+                                        </div>
                                     </div>
                                     <div class="form-group d-none" id="previewGroup">
                                         <label>현재 이미지</label><br>
@@ -130,6 +135,7 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
+<script src="/js/admin/media-picker.js"></script>
 
 <script th:inline="javascript">
     // 서버가 렌더링한 내 위임 권한 키("BANNER:CREATE" 등). 버튼 표시용일 뿐 서버 판정(403)이 최종이다.
@@ -157,6 +163,38 @@
     const imageGroup = document.getElementById("imageGroup");
     const previewGroup = document.getElementById("previewGroup");
     const preview = document.getElementById("bannerPreview");
+
+    // 미디어 라이브러리에서 고른 이미지(등록 전용 — 파일 업로드와 둘 중 하나). 선택 모달은 /js/admin/media-picker.js.
+    const canPickLibrary = MY_PERMISSIONS.has("MEDIA:READ");
+    const libraryPickGroup = document.getElementById("libraryPickGroup");
+    const btnPickLibrary = document.getElementById("btnPickLibrary");
+    const btnClearLibrary = document.getElementById("btnClearLibrary");
+    const libraryPickName = document.getElementById("libraryPickName");
+    let pickedImage = null;
+    libraryPickGroup.classList.toggle("d-none", !canPickLibrary);
+
+    function setPickedImage(item) {
+        pickedImage = item;
+        libraryPickName.textContent = item ? "선택됨: " + (item.originalName || ("이미지 #" + item.id)) : "";
+        btnClearLibrary.classList.toggle("d-none", !item);
+    }
+
+    btnPickLibrary.addEventListener("click", function () {
+        window.MediaPicker.open({
+            title: "배너 이미지 선택",
+            maxBytes: 2 * 1024 * 1024,
+            onPick: function (item) {
+                fImage.value = "";
+                setPickedImage(item);
+            }
+        });
+    });
+    btnClearLibrary.addEventListener("click", function () { setPickedImage(null); });
+    fImage.addEventListener("change", function () {
+        if (fImage.files && fImage.files.length > 0) {
+            setPickedImage(null);
+        }
+    });
     const btnSave = document.getElementById("btnSave");
     const btnNew = document.getElementById("btnNew");
     const btnDelete = document.getElementById("btnDelete");
@@ -288,7 +326,7 @@
         btnReload.disabled = saving || orderDraft !== null;
         orderBar.classList.toggle("d-none", orderDraft === null);
         // 저장 중에는 입력도 잠근다 — 이미 전송된 요청에 담기지 않은 추가 입력이 성공 처리 뒤 조용히 사라지거나 저장된 것으로 오인되는 것을 막는다
-        [fTitle, fLink, fStartDate, fStartHour, fStartMinute, fEndDate, fEndHour, fEndMinute, fUse, fImage].forEach(function (field) {
+        [fTitle, fLink, fStartDate, fStartHour, fStartMinute, fEndDate, fEndHour, fEndMinute, fUse, fImage, btnPickLibrary, btnClearLibrary].forEach(function (field) {
             field.disabled = saving;
         });
         btnOrderSave.disabled = saving;
@@ -365,6 +403,7 @@
         formTitle.textContent = "새 배너";
         bannerForm.reset();
         fUse.checked = true;
+        setPickedImage(null);
         imageGroup.classList.remove("d-none");
         previewGroup.classList.add("d-none");
         btnSave.textContent = "등록";
@@ -465,7 +504,7 @@
                     })
                 });
             } else {
-                if (!fImage.files || fImage.files.length === 0) {
+                if ((!fImage.files || fImage.files.length === 0) && pickedImage === null) {
                     showError("배너 이미지를 선택해 주세요.");
                     return;
                 }
@@ -475,7 +514,11 @@
                 if (displayStart !== null) { form.append("displayStart", displayStart); }
                 if (displayEnd !== null) { form.append("displayEnd", displayEnd); }
                 form.append("useYn", fUse.checked ? "true" : "false");
-                form.append("image", fImage.files[0]);
+                if (pickedImage !== null) {
+                    form.append("imageId", String(pickedImage.id));
+                } else {
+                    form.append("image", fImage.files[0]);
+                }
                 response = await fetch(BANNERS_URL, { method: "POST", headers: csrfHeaders(false), body: form });
             }
             if (response.ok) {
@@ -484,6 +527,7 @@
                 if (!target) {
                     editing = null;
                     bannerForm.reset();
+                    setPickedImage(null);
                     fUse.checked = true;
                 }
                 await loadList();
