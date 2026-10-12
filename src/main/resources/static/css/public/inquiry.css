@@ -1,0 +1,110 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Noto Sans KR', sans-serif;
+    margin: 0;
+    background-color: #f5f7fa;
+    color: #2c3e50;
+}
+
+.public-inquiry-container {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem;
+}
+
+.inquiry-title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: 0 0 1.5rem;
+}
+
+.inquiry-hint {
+    font-size: 0.85rem;
+    color: #6b7785;
+    margin: 0 0 1.25rem;
+}
+
+.inquiry-field {
+    margin-bottom: 1.25rem;
+}
+
+.inquiry-field label {
+    display: block;
+    font-weight: 500;
+    margin-bottom: 0.4rem;
+}
+
+.inquiry-field input,
+.inquiry-field textarea {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid #cfd6de;
+    border-radius: 6px;
+    font: inherit;
+    background: #fff;
+}
+
+.inquiry-field textarea {
+    resize: vertical;
+}
+
+.inquiry-consent {
+    margin-bottom: 1.25rem;
+    padding: 1rem;
+    background: #fff;
+    border: 1px solid #e1e6ec;
+    border-radius: 6px;
+}
+
+.inquiry-consent-text {
+    margin: 0 0 0.75rem;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: #4a5663;
+}
+
+.inquiry-captcha {
+    margin-bottom: 1.25rem;
+}
+
+.inquiry-submit {
+    padding: 0.7rem 1.6rem;
+    border: 0;
+    border-radius: 6px;
+    background: #2c6bed;
+    color: #fff;
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.inquiry-sent {
+    padding: 1rem;
+    background: #e8f6ec;
+    border: 1px solid #b6e0c2;
+    border-radius: 6px;
+}
+
+.inquiry-error,
+.inquiry-field-error {
+    color: #b3261e;
+    font-size: 0.9rem;
+    margin: 0.4rem 0 0;
+}
+
+.inquiry-error {
+    padding: 1rem;
+    background: #fdecea;
+    border: 1px solid #f3c1bd;
+    border-radius: 6px;
+}
+
+.inquiry-links {
+    margin-top: 2rem;
+    font-size: 0.9rem;
+}

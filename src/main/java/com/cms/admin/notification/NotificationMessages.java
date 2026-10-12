@@ -63,6 +63,11 @@ public final class NotificationMessages {
         return fit("비밀번호가 " + expiresAt.format(MINUTE) + "에 만료됩니다. 내 설정에서 비밀번호를 변경해주세요.");
     }
 
+    /** 새 문의 접수 — 상수 문장이다(문의 내용·방문자 이름·이메일을 담지 않는다). */
+    public static String inquiryReceived() {
+        return "새 문의가 접수되었습니다. 문의함에서 확인해주세요.";
+    }
+
     /** 한글 라벨 뒤 조사 "으로/로" — 받침이 없거나 ㄹ 받침이면 "로", 그 밖에는 "으로"다. 한글 음절이 아니면 "(으)로"로 둔다. */
     static String euro(String label) {
         if (label == null || label.isEmpty()) {

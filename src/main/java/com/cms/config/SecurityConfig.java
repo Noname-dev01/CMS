@@ -141,6 +141,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/faq").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/faq").permitAll()
                         .requestMatchers("/faq", "/faq/**").denyAll()
+                        // 공개 문의 폼: 정확 경로 /inquiry 1개만 GET/HEAD/POST 공개, 그 외 메서드·하위 경로는 명시 차단(2026-10-12 승인, PLAN-inquiry.md 쟁점 1).
+                        // 두 번째 무인증 POST다(첫째는 비밀번호 재설정 API). CSRF는 그대로 활성(폼에 _csrf hidden), 남용은 Turnstile 캡차 + 레이트리밋 규칙
+                        // inquiry-submit이 막는다. 새 공개 쓰기 경로가 승인 없이 늘지 않도록 publicweb의 비-GET 매핑은 컨벤션 시험이 /inquiry 하나로 고정한다.
+                        .requestMatchers(HttpMethod.GET, "/inquiry").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/inquiry").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/inquiry").permitAll()
+                        .requestMatchers("/inquiry", "/inquiry/**").denyAll()
                         // 편집기 본문 이미지: GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-07 승인, PLAN-html-editor.md).
                         // 공개 여부(공개 게시글이 참조하거나 그 게시판 조회 권한자)는 PublicContentImageService가 판정한다.
                         .requestMatchers(HttpMethod.GET, "/content-images/*").permitAll()

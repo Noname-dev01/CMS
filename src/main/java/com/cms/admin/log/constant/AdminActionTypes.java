@@ -79,6 +79,10 @@ public final class AdminActionTypes {
     public static final String MEDIA_UPLOAD = "MEDIA_UPLOAD";
     public static final String MEDIA_DELETE = "MEDIA_DELETE";
 
+    /** 문의 상태 변경·삭제 — targetType = INQUIRY, targetId = 문의 ID. 이름·제목·본문은 방문자 입력이라 targetLabel을 두지 않는다 */
+    public static final String INQUIRY_STATUS = "INQUIRY_STATUS";
+    public static final String INQUIRY_DELETE = "INQUIRY_DELETE";
+
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
             ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_DELETE, MENU_REORDER, MENU_MOVE, MENU_STRUCTURE_APPLY,
@@ -91,7 +95,8 @@ public final class AdminActionTypes {
             SITE_PAGE_CREATE, SITE_PAGE_UPDATE, SITE_PAGE_DELETE,
             POPUP_CREATE, POPUP_UPDATE, POPUP_DELETE,
             FAQ_CREATE, FAQ_UPDATE, FAQ_DELETE, FAQ_CATEGORY_CREATE, FAQ_CATEGORY_UPDATE, FAQ_CATEGORY_DELETE, FAQ_ORDER,
-            MEDIA_UPLOAD, MEDIA_DELETE
+            MEDIA_UPLOAD, MEDIA_DELETE,
+            INQUIRY_STATUS, INQUIRY_DELETE
     );
 
     private AdminActionTypes() {}

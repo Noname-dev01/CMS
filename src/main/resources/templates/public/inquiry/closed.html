@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>문의하기</title>
+    <link rel="stylesheet" th:href="@{/css/public/inquiry.css}">
+</head>
+<body>
+<div class="public-inquiry-container">
+    <h1 class="inquiry-title">문의하기</h1>
+    <p class="inquiry-error" role="status">현재 문의를 받지 않습니다. 잠시 후 다시 시도해 주세요.</p>
+    <p class="inquiry-links"><a th:href="@{/faq}">자주 묻는 질문</a> · <a th:href="@{/}">홈으로</a></p>
+</div>
+</body>
+</html>

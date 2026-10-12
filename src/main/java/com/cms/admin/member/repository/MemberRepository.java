@@ -100,6 +100,18 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
     List<Long> findActiveAdminIdsExcluding(@Param("excludeMemberId") Long excludeMemberId);
 
     /**
+     * 새 문의 알림 수신자 — ACTIVE ADMIN 전원 + 문의 조회 권한({@code member_permission}의 {@code INQUIRY}/{@code READ})이 있는 ACTIVE MANAGER.
+     * <b>잠금 없는 일반 SELECT</b>다. feature·action 비교는 {@code utf8mb4_nopad_bin}(대소문자·후행 공백까지 정확 일치)이다 — 기본 콜레이션
+     * (general_ci, PAD SPACE)이면 {@code inquiry}·{@code "INQUIRY "} 같은 변형 행도 일치해, 판정기({@code PermissionCache}의 {@code Enum.valueOf})가
+     * 거부하는 회원에게 알림만 가는 불일치가 생긴다(PLAN-inquiry.md R1-4·R2-2).
+     */
+    @Query(value = "SELECT m.id FROM member m WHERE m.status = 'ACTIVE' AND (m.user_type = 'ROLE_ADMIN' OR (m.user_type = 'ROLE_MANAGER' "
+            + "AND EXISTS (SELECT 1 FROM member_permission p WHERE p.member_id = m.id "
+            + "AND p.feature = 'INQUIRY' COLLATE utf8mb4_nopad_bin AND p.action = 'READ' COLLATE utf8mb4_nopad_bin))) ORDER BY m.id",
+            nativeQuery = true)
+    List<Long> findInquiryNotificationRecipientIds();
+
+    /**
      * ACTIVE인 관리자(ADMIN/MANAGER) 계정의 로그인 실패 카운트를 DB에서 원자적으로 1 증가시킨다.
      * 엔티티 조회 후 +1 저장은 동시 실패 시 lost update가 나므로 벌크 UPDATE로 고정.
      * 상태 조건은 상태 변경과 경합해도 비ACTIVE 계정에 카운트가 숨어 누적되지 않게 하고,
