@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, PublicSitePageStubController.class, AdminSitePageStubController.class, PublicPopupStubController.class, AdminPopupStubController.class, PublicFaqStubController.class, AdminFaqStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
+@WebMvcTest(controllers = {OpenApiDocsTestController.class, AdminDashboardStubController.class, AdminMemberInfoStubController.class, AdminMessagePageStubController.class, AdminSearchApiStubController.class, AdminMembersApiStubController.class, AdminMemberManageStubController.class, AdminNoticeStubController.class, PublicNoticeStubController.class, PublicBoardStubController.class, HomeStubController.class, PublicBannerStubController.class, AdminBannerStubController.class, PublicSitePageStubController.class, AdminSitePageStubController.class, PublicPopupStubController.class, AdminPopupStubController.class, PublicFaqStubController.class, AdminFaqStubController.class, PublicInquiryStubController.class, AdminInquiryStubController.class, ActuatorHealthStubController.class, ActuatorEnvStubController.class})
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
@@ -757,6 +757,73 @@ class SecurityConfigTest {
         mockMvc.perform(get("/admin/api/faq-categories")).andExpect(status().isOk());
     }
 
+    // ==================== 공개 문의 폼 /inquiry (2026-10-12 승인, PLAN-inquiry.md 쟁점 1) ====================
+
+    @Test
+    @DisplayName("비인증 GET·HEAD·POST /inquiry는 통과한다 (permitAll, 정확 경로 — POST는 CSRF 토큰이 있을 때만)")
+    void publicInquiry_anonymousGetHeadPost_ok() throws Exception {
+        mockMvc.perform(get("/inquiry")).andExpect(status().isOk());
+        mockMvc.perform(head("/inquiry")).andExpect(status().isOk());
+        mockMvc.perform(post("/inquiry").with(csrf())).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비인증 POST /inquiry는 CSRF 토큰이 없으면 403 — 공개여도 CSRF는 그대로 활성이다")
+    void publicInquiry_postWithoutCsrf_forbidden() throws Exception {
+        mockMvc.perform(post("/inquiry")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("/inquiry의 PUT·PATCH·DELETE와 하위 경로는 막힌다 — 비인증은 로그인으로(csrf 있음) (denyAll)")
+    void publicInquiry_otherMethodsAndSubPaths_denied() throws Exception {
+        mockMvc.perform(put("/inquiry").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(delete("/inquiry").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/inquiry/1")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/inquiry/1").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/inquiry/")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    @Test
+    @DisplayName("ADMIN도 /inquiry 하위 경로·PUT은 denyAll로 403 (역할 불문)")
+    @WithMockUser(roles = "ADMIN")
+    void publicInquiry_adminSubPath_forbidden() throws Exception {
+        mockMvc.perform(get("/inquiry/1")).andExpect(status().isForbidden());
+        mockMvc.perform(put("/inquiry").with(csrf())).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("/inquiry와 비슷한 접두사 경로(/inquiries, /inquiryx)는 공개되지 않는다 (기본 거부)")
+    void publicInquiry_lookalikePrefixes_notPublic() throws Exception {
+        mockMvc.perform(get("/inquiries")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/inquiryx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    // ==================== 문의함 관리 게이트 (DELEGABLE INQUIRY — 카탈로그에서 자동 생성) ====================
+
+    @Test
+    @DisplayName("비인증 문의함 페이지·API는 로그인으로 보낸다(페이지 302, API JSON 401)")
+    void adminInquiry_unauthenticated() throws Exception {
+        mockMvc.perform(get("/admin/inquiry/manage")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/admin/api/inquiries")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("문의 권한(member_permission INQUIRY)이 없는 MANAGER는 페이지·API 게이트에서 403 — 위임 전에는 열리지 않는다")
+    @WithManager
+    void adminInquiry_managerWithoutGrant_forbidden() throws Exception {
+        mockMvc.perform(get("/admin/inquiry/manage")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/inquiries")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/api/inquiries/1")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("ADMIN은 문의함 페이지·API 게이트를 통과한다")
+    @WithMockUser(roles = "ADMIN")
+    void adminInquiry_admin_ok() throws Exception {
+        mockMvc.perform(get("/admin/inquiry/manage")).andExpect(status().isOk());
+        mockMvc.perform(get("/admin/api/inquiries")).andExpect(status().isOk());
+    }
+
     // ==================== 공개 정적 페이지 /pages/** (2026-10-11 승인, PLAN-static-page.md 쟁점 12) ====================
 
     @Test
@@ -1268,5 +1335,38 @@ class AdminFaqStubController {
     @GetMapping("/admin/api/faq-categories")
     String categories() {
         return "[]";
+    }
+}
+
+@TestStubController
+class PublicInquiryStubController {
+
+    @GetMapping("/inquiry")
+    String form() {
+        return "inquiry-form";
+    }
+
+    @PostMapping("/inquiry")
+    ResponseEntity<String> submit() {
+        return ResponseEntity.ok("{}");
+    }
+}
+
+@TestStubController
+class AdminInquiryStubController {
+
+    @GetMapping("/admin/inquiry/manage")
+    String page() {
+        return "inquiry-manage";
+    }
+
+    @GetMapping("/admin/api/inquiries")
+    String list() {
+        return "{}";
+    }
+
+    @GetMapping("/admin/api/inquiries/{id}")
+    String detail() {
+        return "{}";
     }
 }
