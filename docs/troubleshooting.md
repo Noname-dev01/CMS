@@ -1262,3 +1262,23 @@ AssertionFailedError: 실제 DB row-lock 대기를 관측하지 못함: holder=5
 #### 교훈
 
 - 새 `@SpringBootTest` 설정(다른 `@Primary` 빈·`@Import`·프로퍼티)은 컨텍스트 캐시를 하나 더 만든다 — 한도 근처에서는 무관한 시험이 전체 실행에서만 깨진다. 단독 통과·전체 실패 패턴이면 연결 수(`SHOW STATUS LIKE 'Max_used_connections'`)를 먼저 의심한다.
+
+### 목록 조회 중에 그려진 화면의 손잡이·▲▼가 조회가 끝난 뒤에도 잠긴 채 남는다 — 렌더링 시점의 잠금 상태 (2026-10-12, FAQ 관리 화면 브라우저 시험)
+
+#### 증상
+
+FAQ 관리 화면(`templates/admin/faq/manage.html`)이 열린 뒤 ▲▼ 버튼이 모두 `disabled`이고 손잡이(`draggable`)가 꺼져 있어 순서를 바꿀 수 없었다. 실제 브라우저 시험 8건이 전부 실패했고(`FaqAdminOrderBrowserTest` — `element is not enabled`, 드래그해도 초안이 생기지 않음), 서버 API 시험(MockMvc)은 모두 통과했다.
+
+#### 원인
+
+- 손잡이의 `draggable`과 ▲▼의 `disabled`는 **목록을 그리는 순간**의 잠금 상태(`busy`·`loadingDetail`·`syncFailed`)로 정해진다. 그런데 목록은 조회 응답을 받는 `fetchTree()` 안에서 그려지고, 그 시점에는 `busy = true`(조회 중)였다.
+- 조회가 끝나 `busy = false`가 된 뒤에는 `applyLock()`만 불렀다 — 이 함수는 폼 `fieldset`·편집기·버튼 몇 개의 활성 여부만 갱신하고 **이미 그려진 손잡이·▲▼는 건드리지 않는다**. 그래서 조회 중에 잠긴 채 그려진 목록이 그대로 남았다.
+
+#### 해결 방법
+
+- 잠금 상태가 바뀌는 모든 곳에서 `applyLock()` 대신 `sync()`를 부른다. `sync()`는 서버 상태가 있으면 `render()`(목록을 다시 그리고 마지막에 `applyLock()`)를, 없으면 `applyLock()`만 한다.
+
+#### 교훈
+
+- "그리는 시점의 상태로 속성이 정해지는" 화면은 그 상태가 바뀔 때 **다시 그려야** 한다. 상태를 바꾼 뒤 일부 컨트롤만 갱신하는 보조 함수로는 이미 그려진 요소가 남는다.
+- 화면 JS는 MockMvc가 재현하지 못한다 — 이 결함은 서버 시험 전부 통과 뒤에도 실제 브라우저 시험(`FaqAdminOrderBrowserTest`)이 처음 잡았다. 같은 이유로 Playwright의 `isDisabled()`는 `<fieldset disabled>` 자체를 폼 컨트롤로 보지 않아 `false`를 돌려준다 — fieldset의 잠금은 `document.getElementById(id).disabled`로 직접 읽는다.

@@ -45,6 +45,8 @@
 | V38 | `V38__seed_site_page_menu.sql` | 정적 페이지 관리 메뉴 시드(멱등 DML) |
 | V39 | `V39__create_popup.sql` | 공개 메인 팝업 `popup`(DDL 1문 — 실패 복구는 아래 "V39~V40") |
 | V40 | `V40__seed_popup_menu.sql` | 팝업 관리 메뉴 시드(멱등 DML) |
+| V41 | `V41__create_faq.sql` | FAQ 카테고리 `faq_category`·FAQ `faq`·동시성 가드 `faq_lock`(DDL 3문 — 실패 복구는 아래 "V41~V42") |
+| V42 | `V42__seed_faq_menu.sql` | FAQ 가드 행(id=1)·FAQ 관리 메뉴 시드(멱등 DML) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -135,6 +137,13 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **V40**은 순수 DML(메뉴 '팝업 관리' 최상위 맨 끝, `WHERE NOT EXISTS`로 멱등)이다. 가드 행·권한 행 시드는 없다(`popup_lock` 같은 가드 테이블이 없고 권한 행은 권한관리 화면이 만든다).
 - **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다. 롤백 후 재배포 시 **권한 정리와 수동 회수 주의**는 `docs/deployment.md` "공개 메인 팝업" — 특히 롤백 기간에는 구버전 문서의 수동 회수 ⑤를 실행하지 않는다(`popup/` 파일이 전부 고아로 삭제된다).
 - **시험**: `PopupMigrationTest`(V38→V40 테이블·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(이미지형·HTML형 NULL 허용, storage_key 유일, 필수 컬럼, revision 기본 0), V38 이하 앱 롤백 기동 호환).
+
+## V41~V42 — FAQ 관리 (2026-10-12, `adversarial-review/plan/PLAN-faq.md`)
+
+- **V41**(DDL 3문: `faq_category` → `faq`(카테고리 FK) → `faq_lock`)은 문마다 암묵 커밋이라 중간 실패 시 일부 테이블만 남은 부분 적용 상태가 생길 수 있다. 복구: ① 앱 정지·원인 제거 ② `SELECT version, success FROM flyway_schema_history WHERE version = '41';`와 `SHOW TABLES LIKE 'faq%';` ③ **이력이 없거나 `success=0`인 경우에만** `DROP TABLE IF EXISTS faq; DROP TABLE IF EXISTS faq_category; DROP TABLE IF EXISTS faq_lock;`(자식 `faq`를 먼저 — 이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 데이터가 없다) ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. **`success=1`인 버전의 테이블은 실제 FAQ 데이터일 수 있으므로 절대 건드리지 않는다**(V17~V19·V33·V37·V39 복구와 같은 원칙).
+- **V42**는 순수 DML이다. ① **가드 행**(`faq_lock` id=1, version 0, `WHERE NOT EXISTS`로 멱등) — 앱이 모든 FAQ·카테고리 쓰기의 첫 조회로 `FOR UPDATE` 하는 대상이라 **없으면 FAQ 쓰기가 전부 500(`IllegalStateException`)** 이다. ② 메뉴 'FAQ 관리' 최상위 맨 끝(멱등). 재실행해도 가드 버전을 되돌리지 않는다(`FaqMigrationTest.seedIsIdempotent`).
+- **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다(`FaqMigrationTest`가 V40 이하 앱 validate·migrate 호환을 고정). 롤백 후 재배포 시 **권한 정리**는 `docs/deployment.md` "FAQ".
+- **시험**: `FaqMigrationTest`(V40→V42 테이블·가드 행·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(필수 컬럼·FK RESTRICT·가드 version 기본 0), V40 이하 앱 롤백 기동 호환).
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.
