@@ -51,6 +51,8 @@
 | V44 | `V44__media_library_backfill.sql` | 기존 배너·이미지형 팝업을 이미지 행+`content_image_ref`로 등록하고 카운터를 `content_image` 원본에서 재계산(문장별 독립 멱등 DML) |
 | V45 | `V45__media_library_relax_banner_copy.sql` | `banner.storage_key/content_type/file_size` NULL 허용(ALTER 1문) |
 | V46 | `V46__seed_media_menu.sql` | 미디어 라이브러리 메뉴 시드(멱등 DML) |
+| V47 | `V47__create_inquiry.sql` | 문의 `inquiry` 테이블(DDL 1문 — 방문자 개인정보 포함, 실패 복구는 아래 "V47~V48") |
+| V48 | `V48__seed_inquiry_menu.sql` | 문의함 메뉴 시드(멱등 DML) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -160,6 +162,13 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **V46**은 순수 DML(멱등 메뉴 시드)이다.
 - **되돌리기**: 위 롤백 불가 설명 참조(roll-forward — 수정 버전을 배포한다).
 - **시험**: `MediaMigrationTest`(V42 데이터 — 배너 2·이미지형/HTML형 팝업·**같은 키 문자열을 세 네임스페이스가 가진 경우** — 업그레이드, 빈 DB·이미지 없는 V42의 카운터 (0, 0), V44 부분 상태 재실행 수렴, `(namespace, storage_key)` 유일성과 배너 사본 컬럼 NULL 허용, 메뉴 시드 멱등).
+
+## V47~V48 — 문의 (2026-10-12, `adversarial-review/plan/PLAN-inquiry.md`)
+
+- **V47**(DDL 1문: `inquiry`)은 암묵 커밋이라 **문 하나가 통째로 적용되거나 아니거나**다(부분 적용 없음). 실패해 `success=0` 이력이 남으면 `inquiry` 테이블이 없는지 확인한 뒤(`SHOW TABLES LIKE 'inquiry'`) 원인을 고치고 `flyway repair` → 재기동한다. 테이블이 이미 있고 이력만 실패로 남은 경우(드문 암묵 커밋 어긋남)에는 **테이블이 비어 있는지 확인한 뒤** `DROP TABLE inquiry`(방문자 개인정보가 있으면 지우기 전에 백업) → `flyway repair` → 재기동한다.
+- **V48**은 순수 DML(멱등 메뉴 시드, `WHERE NOT EXISTS`)이다. 실패하면 `flyway repair` 후 재기동하면 같은 결과로 수렴한다.
+- **되돌리기**: 이전 앱은 V47·V48이 적용된 DB에서도 기동한다(미사용 테이블·메뉴 행이 남는다). 단 **`INQUIRY_RECEIVED` 알림 행과 `INQUIRY` 권한 행 정리가 필요하다** — `docs/deployment.md` "문의 폼"의 롤백 절차 참조.
+- **시험**: `InquiryMigrationTest`(컬럼·NOT NULL·인덱스·IP/UA 컬럼 없음, 메뉴 최상위 1개·시드 멱등). 새 DB의 V1부터 전체 적용은 모든 통합 시험의 기동이 증명한다.
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

@@ -32,6 +32,7 @@
 | `APP_BASE_URL` | 필수 | 비밀번호 재설정 메일 링크 생성에 사용. 실제 접속 가능한 URL이어야 한다 |
 | `ADMIN_BOOTSTRAP_USER_ID`·`_PASSWORD`·`_EMAIL` | **선택** | 아래 "초기 관리자 계정" 참조 |
 | `CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES`·`CMS_CONTENT_IMAGE_MAX_COUNT` | **선택** | 편집기 본문 이미지 전체 상한(DB 등록 이미지 기준). 기본 1GB·10,000개. 아래 "편집기 본문 이미지" 참조 |
+| `CMS_INQUIRY_TURNSTILE_ENABLED`·`_SITE_KEY`·`_SECRET_KEY` | **선택** | 공개 문의 폼의 Cloudflare Turnstile 캡차. 기본 `false` = 문의 기능 닫힘(503). 아래 "문의 폼" 참조 |
 
 ## SMTP timeout (감사 M-02, remediation-plan.md PR 5)
 
@@ -442,6 +443,15 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **가드 행(`faq_lock`)**: V42가 시드하는 id=1 행이 없으면 FAQ·카테고리 쓰기가 모두 서버 오류가 된다. DB를 수동으로 복구·정리할 때 이 행을 지우지 않는다(지웠다면 `INSERT INTO faq_lock (id, version) VALUES (1, 0);`). `version`은 구조(등록·삭제·카테고리 이동·순서)가 바뀔 때만 올라가므로 **SQL로 FAQ 순서나 소속을 직접 바꿀 때는 `UPDATE faq_lock SET version = version + 1;`도 함께 실행**해야 순서 초안을 만든 열린 관리 화면이 낡았음을 알 수 있다(안 올려도 데이터는 안전하고, 낡은 화면이 409 없이 순서를 덮을 수 있을 뿐이다).
 - **롤백(FAQ 도입 전 앱으로)**: V41·V42는 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `FaqMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `FAQ` 행을 모르고 "전체 회수"가 그 행을 남기므로, 재배포 시 되살아날 수 있다. 앱 정지 후 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'FAQ'; UPDATE member SET permission_version = permission_version + 1;`을 실행하고 기동한다 — 위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL(`DELETE FROM member_permission; …`)을 이미 실행했다면 별도 조치는 필요 없다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다.
 - **상한**: 카테고리 30개·FAQ 200개(초과 시 관리 API 409). 공개 페이지가 노출 중인 FAQ 전체를 한 번에 내려주므로 총량을 묶은 값이다(답변 하나는 정리 후 30KB 이하, 최악 ≈ 6MB).
+
+## 문의 폼 (V47~V48, 2026-10-12, adversarial-review/plan/PLAN-inquiry.md)
+
+- **새 공개 경로 — 두 번째 무인증 POST**: `GET·HEAD·POST /inquiry`가 무인증이다(`SecurityConfig` 승인 2026-10-12, **정확 경로 1개**). `/inquiry`의 그 외 메서드와 `/inquiry/**`는 `denyAll`이다(비인증은 로그인 302, 인증은 403). CSRF는 그대로 활성이고 폼 GET이 방문자마다 세션을 만든다. 리버스 프록시·ingress가 경로·메서드를 허용 목록으로 관리한다면 `/inquiry`의 GET·POST를 추가한다. 레이트리밋 `inquiry-submit`(POST, 용량 10 / 3600초)·`public-inquiry`(GET·HEAD, 120/60초) — 키가 `getRemoteAddr()`라 프록시 뒤에서는 모든 방문자가 한 IP로 보이므로 ingress 도입 때 IP 해석(`ClientIpResolver`)을 함께 재검토한다.
+- **기본은 닫힘(안전한 기본값)**: `CMS_INQUIRY_TURNSTILE_ENABLED` 기본값이 `false`이고 이때 `GET·POST /inquiry`가 모두 503이다 — 캡차 없이 제출을 받는 상태는 만들 수 없다. 열려면 **`ENABLED=true`와 Cloudflare 대시보드에서 발급한 실제 사이트 키·시크릿 키(`0x4…`)** 가 모두 필요하다. 키가 비었거나 prod에서 Cloudflare **공개 테스트 키**(`1x0…`·`2x0…`·`3x0…`)이면 **앱이 기동 실패**한다(테스트 키를 복사해 넣으면 캡차가 무력화되므로). 세 변수는 `docker-compose.prod.yml`이 명시 매핑하고 `scripts/_prod-env-guard.sh`가 호스트 셸 값을 막는다. 시크릿 값은 `.env.prod`에만 둔다.
+- **Cloudflare 의존과 프라이버시**: 폼 페이지가 `challenges.cloudflare.com`의 스크립트를 로드하고, 서버가 방문자 IP와 토큰을 Cloudflare로 보내 검증한다(5초 상한, 실패·타임아웃은 **fail-closed** — Cloudflare 장애 시 문의가 일시 중단된다). **개인정보처리방침에 Cloudflare 전송(위탁/제3자) 고지가 필요하다** — 문구는 운영자가 정적 페이지로 관리한다(법률 판단은 이 문서의 범위 밖).
+- **수집 항목과 보존**: 이름·이메일·제목·본문과 동의 시각을 저장한다(방문자 IP·User-Agent는 저장하지 않는다). **스케줄러가 없어 자동 삭제가 없다** — 처리가 끝난 문의는 문의함에서 DELETE 권한자가 직접 삭제한다(하드 삭제가 유일한 파기 수단). 보존 기간은 개인정보처리방침에 맞춰 운영자가 정하고 주기적으로 삭제한다. 미처리(답변 완료가 아닌) 문의가 **1,000건**에 이르면 새 문의를 받지 않는다(503, 소프트 상한). **개인정보가 DB에 있으므로 `prod-backup.sh` 백업에도 포함된다** — 백업 보관·파기 정책도 처리방침과 맞춘다.
+- **새 문의 알림**: ADMIN 전원과 `INQUIRY` 조회 권한 MANAGER에게 상수 문장 알림이 간다(문의 내용 없음, 회원당 미읽음 최대 1건).
+- **롤백(문의 도입 전 앱으로)**: V47·V48은 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 `inquiry` 테이블·메뉴 행 1개가 남는다). **다만 두 가지 정리가 필요하다.** ① **알림 행**: `Notification.type`이 `@Enumerated(STRING)`이라 이전 앱이 `INQUIRY_RECEIVED` 행을 읽으면 enum 매핑 예외로 **알림 목록 조회가 실패**한다 — 롤백 전(또는 직후, 앱 정지 상태에서) `DELETE FROM notification WHERE type = 'INQUIRY_RECEIVED';`를 실행한다. ② **권한 행**: 이전 앱의 권한관리는 카탈로그에 없는 `INQUIRY` 행을 모르고 "전체 회수"가 그 행을 남겨 재배포 시 권한이 되살아날 수 있다 — 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'INQUIRY'; UPDATE member SET permission_version = permission_version + 1;`(위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL을 이미 실행했다면 불필요)를 실행하고 기동한다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다. `inquiry` 테이블에는 방문자 개인정보가 남으므로 롤백 때 테이블을 보존할지 삭제할지는 운영자가 결정한다.
 
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
