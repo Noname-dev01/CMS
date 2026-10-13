@@ -130,6 +130,58 @@
                     </div>
                 </div>
 
+                <!-- 콘텐츠 현황 (조회수·다운로드 수). contentStats가 null이면 조회 불가 — 방문자 카드와 폴백이 분리돼 있다 -->
+                <div class="row" id="contentStats">
+                    <div class="col-12">
+                        <div class="card shadow mb-4">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary">콘텐츠 현황</h6>
+                            </div>
+                            <div class="card-body">
+                                <p th:if="${contentStats == null}" class="text-center text-gray-500 my-3">콘텐츠 현황을 불러올 수 없습니다</p>
+                                <div th:unless="${contentStats == null}">
+                                    <div class="row mb-3">
+                                        <div class="col-md-6">
+                                            <div class="text-xs font-weight-bold text-uppercase mb-1">총 조회수</div>
+                                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="contentTotalViews"
+                                                 th:text="${contentStats.totalViews}">0</div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="text-xs font-weight-bold text-uppercase mb-1">총 다운로드 수</div>
+                                            <div class="h5 mb-0 font-weight-bold text-gray-800" id="contentTotalDownloads"
+                                                 th:text="${contentStats.totalDownloads}">0</div>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-lg-6 mb-3">
+                                            <h6 class="font-weight-bold">조회수 상위 게시글</h6>
+                                            <p th:if="${#lists.isEmpty(contentStats.topPosts)}" class="text-gray-500 mb-0">집계된 조회가 없습니다</p>
+                                            <ol th:unless="${#lists.isEmpty(contentStats.topPosts)}" class="pl-3 mb-0" id="topPosts">
+                                                <li th:each="p : ${contentStats.topPosts}">
+                                                    <a th:href="@{/admin/board/posts(boardId=${p.boardId}, id=${p.id})}" th:text="${p.title}">제목</a>
+                                                    <span class="text-gray-500 small">
+                                                        (<span th:text="${p.boardName}">게시판</span>) · <span th:text="${p.viewCount}">0</span>회</span>
+                                                </li>
+                                            </ol>
+                                        </div>
+                                        <div class="col-lg-6 mb-3">
+                                            <h6 class="font-weight-bold">다운로드 상위 첨부</h6>
+                                            <p th:if="${#lists.isEmpty(contentStats.topAttachments)}" class="text-gray-500 mb-0">집계된 다운로드가 없습니다</p>
+                                            <ol th:unless="${#lists.isEmpty(contentStats.topAttachments)}" class="pl-3 mb-0" id="topAttachments">
+                                                <li th:each="a : ${contentStats.topAttachments}">
+                                                    <a th:href="@{/admin/board/posts(boardId=${a.boardId}, id=${a.postId})}" th:text="${a.filename}">파일</a>
+                                                    <span class="text-gray-500 small">
+                                                        (<span th:text="${a.postTitle}">글</span> · <span th:text="${a.boardName}">게시판</span>) · <span th:text="${a.downloadCount}">0</span>회</span>
+                                                </li>
+                                            </ol>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
             <!-- /.container-fluid -->
 

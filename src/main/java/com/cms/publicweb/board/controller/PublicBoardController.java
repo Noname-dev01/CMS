@@ -6,6 +6,8 @@ import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
 import com.cms.publicweb.board.dto.PublicPostDetail;
 import com.cms.publicweb.board.dto.PublicPostSummary;
 import com.cms.publicweb.board.service.PublicBoardService;
+import com.cms.admin.board.service.ContentCounterService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -51,6 +53,7 @@ public class PublicBoardController {
     private static final int COPY_BUFFER_SIZE = 4096;
 
     private final PublicBoardService publicBoardService;
+    private final ContentCounterService contentCounterService;
 
     /** {@code keyword}는 문자열 그대로 서비스에 넘긴다 — 정규화(공백 제거·길이 상한)는 서비스 책임이다. */
     @GetMapping("/{boardId}")
@@ -69,14 +72,18 @@ public class PublicBoardController {
     }
 
     @GetMapping("/{boardId}/posts/{postId}")
-    public String detail(@PathVariable String boardId, @PathVariable String postId, Model model, HttpServletResponse response) {
+    public String detail(@PathVariable String boardId, @PathVariable String postId, Model model,
+                         HttpServletRequest request, HttpServletResponse response) {
         Long parsedBoardId = parseId(boardId);
         Long parsedPostId = parseId(postId);
         if (parsedBoardId == null || parsedPostId == null) {
             return notFound(response);
         }
         return publicBoardService.findPublishedPost(parsedBoardId, parsedPostId)
-                .map(post -> renderDetail(post, model))
+                .map(post -> {
+                    countViewIfGet(parsedPostId, request);
+                    return renderDetail(post, model);
+                })
                 .orElseGet(() -> notFound(response));
     }
 
@@ -92,12 +99,15 @@ public class PublicBoardController {
     public void attachment(@PathVariable String boardId,
                            @PathVariable String postId,
                            @PathVariable String attachmentId,
+                           HttpServletRequest request,
                            HttpServletResponse response) throws IOException {
         Optional<PublicPostAttachmentDownload> download = openDownload(boardId, postId, attachmentId, response);
         if (download.isEmpty()) {
             return;
         }
         try (PublicPostAttachmentDownload opened = download.get()) {
+            // 파일 열기에 성공한 GET만 센다(HEAD 제외). 예외를 던지지 않으므로 아래 전송 실패 처리에 영향이 없다.
+            contentCounterService.recordDownload(parseId(attachmentId), request.getRemoteAddr());
             writeBody(opened, response);
         } catch (IOException e) {
             resetIfUncommitted(response);
@@ -194,6 +204,13 @@ public class PublicBoardController {
         response.setHeader("X-Content-Type-Options", "nosniff");
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
         response.setContentLengthLong(download.contentLength());
+    }
+
+    /** HEAD는 같은 핸들러로 들어오지만 조회로 세지 않는다. 예외를 던지지 않는다. */
+    private void countViewIfGet(Long postId, HttpServletRequest request) {
+        if (!"HEAD".equals(request.getMethod())) {
+            contentCounterService.recordView(postId, request.getRemoteAddr());
+        }
     }
 
     private String renderList(PublicBoardListResult listResult, Model model) {

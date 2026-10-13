@@ -6,6 +6,8 @@ import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
 import com.cms.publicweb.board.dto.PublicPostDetail;
 import com.cms.publicweb.board.dto.PublicPostSummary;
 import com.cms.publicweb.notice.service.PublicNoticeService;
+import com.cms.admin.board.service.ContentCounterService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -57,6 +59,7 @@ public class PublicNoticeController {
     private static final int COPY_BUFFER_SIZE = 4096;
 
     private final PublicNoticeService publicNoticeService;
+    private final ContentCounterService contentCounterService;
 
     /**
      * {@code keyword}는 문자열 그대로 받아 서비스에 넘긴다 — 문자열 바인딩은 실패하지 않으므로 전역 JSON
@@ -85,7 +88,7 @@ public class PublicNoticeController {
     }
 
     @GetMapping("/{id}")
-    public String detail(@PathVariable String id, Model model, HttpServletResponse response) {
+    public String detail(@PathVariable String id, Model model, HttpServletRequest request, HttpServletResponse response) {
         Long noticeId = parseId(id);
         if (noticeId == null) {
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
@@ -93,7 +96,13 @@ public class PublicNoticeController {
         }
 
         return publicNoticeService.findPublishedNotice(noticeId)
-                .map(notice -> renderDetail(notice, model))
+                .map(notice -> {
+                    // HEAD는 같은 핸들러로 들어오지만 조회로 세지 않는다. 예외를 던지지 않는다.
+                    if (!"HEAD".equals(request.getMethod())) {
+                        contentCounterService.recordView(noticeId, request.getRemoteAddr());
+                    }
+                    return renderDetail(notice, model);
+                })
                 .orElseGet(() -> notFound(response));
     }
 
@@ -113,12 +122,15 @@ public class PublicNoticeController {
     @GetMapping("/{id}/attachments/{attachmentId}")
     public void attachment(@PathVariable String id,
                            @PathVariable String attachmentId,
+                           HttpServletRequest request,
                            HttpServletResponse response) throws IOException {
         Optional<PublicPostAttachmentDownload> download = openDownload(id, attachmentId, response);
         if (download.isEmpty()) {
             return;
         }
         try (PublicPostAttachmentDownload opened = download.get()) {
+            // 파일 열기에 성공한 GET만 센다(HEAD 제외). 예외를 던지지 않으므로 아래 전송 실패 처리에 영향이 없다.
+            contentCounterService.recordDownload(parseId(attachmentId), request.getRemoteAddr());
             writeBody(opened, response);
         } catch (IOException e) {
             resetIfUncommitted(response);

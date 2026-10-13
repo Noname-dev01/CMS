@@ -43,4 +43,9 @@ public class PostAttachment {
     private String storageKey;
 
     private LocalDateTime createDate;
+
+    /** 공개 다운로드 시작 누적 횟수(PLAN-view-download-count.md). {@code Post.viewCount}와 같은 이유로 {@code updatable=false}다. */
+    @Builder.Default
+    @Column(name = "download_count", nullable = false, updatable = false)
+    private long downloadCount = 0L;
 }

@@ -53,6 +53,7 @@
 | V46 | `V46__seed_media_menu.sql` | 미디어 라이브러리 메뉴 시드(멱등 DML) |
 | V47 | `V47__create_inquiry.sql` | 문의 `inquiry` 테이블(DDL 1문 — 방문자 개인정보 포함, 실패 복구는 아래 "V47~V48") |
 | V48 | `V48__seed_inquiry_menu.sql` | 문의함 메뉴 시드(멱등 DML) |
+| V49 | `V49__add_view_download_counts.sql` | `post.view_count`·`post_attachment.download_count` 누적 카운터 — DDL 2문(아래 "V49", 롤백 호환) |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -129,6 +130,12 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **V36**은 `ALTER TABLE post ADD COLUMN publish_start, publish_end`(둘 다 `datetime(6) NULL`) 한 문이다. 기존 행은 NULL이라 기존 공개 동작이 그대로다. 되돌릴 때는 **이전 앱이 예약·만료 글을 공개한다** — 반드시 `docs/deployment.md` "게시글 예약 게시"의 롤백 순서(쓰기 동결·백업·비노출·잔여 0건 검증)를 따른다.
 - **실패 복구**: DDL 커밋 후 이력 기록 전에 프로세스가 끊기면 "컬럼은 있고 성공 이력은 없는" 상태나 `success=0` 이력이 남는다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version = '36';`와 `SHOW COLUMNS FROM post LIKE 'publish_%';` ③ **`success=1`이면 컬럼을 건드리지 않는다**(기간이 든 실제 데이터가 있을 수 있다). 이력이 없거나 `success=0`인데 컬럼만 있으면 이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 값이 모두 NULL이므로 `ALTER TABLE post DROP COLUMN publish_end, DROP COLUMN publish_start;`(이미 있는 쪽만) ④ `flyway repair` ⑤ 재기동.
 - **시험**: `PostPublishPeriodMigrationTest`(V35 → 최신: 기존 행 NULL·use_yn/삭제 상태 불변·기존 공개 조건이 그대로 노출 글 하나만 고름, 컬럼이 `datetime(6)` NULL 허용, 저장 범위 왕복). 이전 앱 코드로 기동하는 호환은 코드가 없어 시험하지 못한다 — `ddl-auto: validate`가 여분 컬럼을 허용한다는 점에 의존한다.
+
+## V49 — 조회수·다운로드 수 카운터 컬럼 (2026-10-13, `adversarial-review/plan/PLAN-view-download-count.md`)
+
+- **V49**는 `ALTER TABLE post ADD COLUMN view_count bigint NOT NULL DEFAULT 0`과 `ALTER TABLE post_attachment ADD COLUMN download_count bigint NOT NULL DEFAULT 0` 두 문이다. 기존 행은 0으로 시작한다. **롤백 가능**: 이전 앱은 컬럼을 모르지만 DEFAULT 0이라 INSERT가 호환되고, 롤백 중에는 카운트만 멈추며 값은 보존된다(권한·공개 노출 변화 없음).
+- **실패 복구**: DDL 두 문은 각각 암묵 커밋이라 첫 문만 성공하고 끊기면 `post.view_count`만 있고 `success=0` 이력이 남는다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version = '49';`와 `SHOW COLUMNS FROM post LIKE 'view_count'; SHOW COLUMNS FROM post_attachment LIKE 'download_count';` ③ **`success=1`이면 컬럼을 건드리지 않는다**(집계된 값이 있다). 이력이 없거나 `success=0`이면 이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 값이 모두 0이므로 있는 쪽 컬럼만 `ALTER TABLE post DROP COLUMN view_count;` / `ALTER TABLE post_attachment DROP COLUMN download_count;` ④ `flyway repair` ⑤ 재기동.
+- **시험**: `ContentCountMigrationTest`(V48 → 최신: 기존 행 0·`NOT NULL`·새 컬럼을 모르는 INSERT가 0으로 들어가는 롤백 호환).
 
 ## V37~V38 — 정적 페이지 (2026-10-11, `adversarial-review/plan/PLAN-static-page.md`)
 
