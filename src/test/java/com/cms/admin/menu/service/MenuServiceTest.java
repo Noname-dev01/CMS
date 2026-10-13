@@ -259,15 +259,15 @@ class MenuServiceTest {
         menuService.updateMenu(1L, MenuUpdateRequest.builder().menuName("이름만").build());
         assertEquals("/admin/old", existing.getMenuUrl());
 
-        menuService.updateMenu(1L, MenuUpdateRequest.builder().menuUrl("https://example.com/x").build());
-        assertEquals("https://example.com/x", existing.getMenuUrl());
+        menuService.updateMenu(1L, MenuUpdateRequest.builder().menuUrl("/admin/new").build());
+        assertEquals("/admin/new", existing.getMenuUrl());
 
         menuService.updateMenu(1L, MenuUpdateRequest.builder().menuUrl("").build());
         assertNull(existing.getMenuUrl());
     }
 
     @Test
-    @DisplayName("사이드바 조회: 저장 검증 도입 전에 들어간 위험 URL은 null로 바뀌어 담기고, 외부 http(s)와 경로는 그대로 남는다")
+    @DisplayName("사이드바 조회: 저장 검증 도입 전에 들어간 위험 URL과 외부 http(s)(2026-10-13부터 메뉴 불가)는 null로 바뀌어 담기고, 경로만 그대로 남는다")
     void getSidebarMenus_unsafeStoredUrl_nulledOut() {
         given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(
                 urlMenu(1L, "js", null, "javascript:alert(1)", 0),
@@ -280,14 +280,10 @@ class MenuServiceTest {
         List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(url -> true);
 
         assertEquals(6, sidebar.size());
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 5; i++) {
             assertNull(sidebar.get(i).getMenuUrl(), sidebar.get(i).getMenuName());
-            assertFalse(sidebar.get(i).isExternal());
         }
-        assertEquals("https://example.com/x", sidebar.get(4).getMenuUrl());
-        assertTrue(sidebar.get(4).isExternal());
         assertEquals("/admin/x?a=1", sidebar.get(5).getMenuUrl());
-        assertFalse(sidebar.get(5).isExternal());
     }
 
     @Test

@@ -5,7 +5,7 @@ import java.util.regex.Pattern;
 /**
  * 화면에 링크로 내보낼 URL의 허용 규칙을 한 곳에 둔다(통합 검색·메뉴 저장 검증·사이드바 렌더링이 공유).
  *
- * <p>화면 쪽 정규식(topbar-search.js·topbar-notification.js·menu/manage.html)은 {@link #SAME_ORIGIN_PATH}와
+ * <p>화면 쪽 정규식(topbar-search.js·topbar-notification.js·menu/fragments/menu-tab.html)은 {@link #SAME_ORIGIN_PATH}와
  * 같은 규칙을 직접 복제한다 — 한쪽을 바꾸면 함께 바꾼다.
  */
 public final class SafeUrls {
@@ -34,8 +34,16 @@ public final class SafeUrls {
         return url != null && EXTERNAL_HTTP_URL.matcher(url).matches();
     }
 
-    /** 메뉴 URL로 쓸 수 있는 값인가 — 같은 출처 경로 또는 외부 http(s) 주소. */
+    /**
+     * 메뉴 URL로 쓸 수 있는 값인가 — <b>같은 출처 경로만</b>(2026-10-13, 외부 http(s) 불가). 메뉴는 위임받은 편집자가 만들고 방문자가
+     * 따라가는 링크라 외부 이동(피싱·opener)을 허용하지 않는다.
+     */
     public static boolean isSafeMenuUrl(String url) {
+        return isSameOriginPath(url);
+    }
+
+    /** 배너·팝업 링크로 쓸 수 있는 값인가 — 같은 출처 경로 또는 외부 http(s) 주소(메뉴와 규칙이 다르다). */
+    public static boolean isSafeLinkUrl(String url) {
         return isSameOriginPath(url) || isExternalHttpUrl(url);
     }
 }

@@ -57,7 +57,7 @@ class MenuUrlSidebarRenderingIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("DB에 위험한 URL이 있어도 /admin은 200이고 href는 '#'이며, 외부 http(s)는 새 탭·noopener로 그려진다")
+    @DisplayName("DB에 위험한 URL이 있어도 /admin은 200이고 href는 '#'이다 (외부 http(s)도 메뉴에서는 '#' — 2026-10-13)")
     void unsafeStoredUrls_neverReachHref() throws Exception {
         insertMenu("js", "javascript:alert(1)", 9001);
         insertMenu("slashes", "//evil.example/x", 9002);
@@ -71,13 +71,10 @@ class MenuUrlSidebarRenderingIntegrationTest extends MariaDbContainerSupport {
 
         assertThat(html).doesNotContain("javascript:alert").doesNotContain("evil.example")
                 .doesNotContain("data:text/html").doesNotContain("href=\"admin/rel\"");
-        for (String name : new String[]{"js", "slashes", "data", "relative"}) {
+        for (String name : new String[]{"js", "slashes", "data", "relative", "external"}) {
             assertThat(anchorOf(html, PREFIX + name)).contains("href=\"#\"").doesNotContain("target=");
         }
-        assertThat(anchorOf(html, PREFIX + "external"))
-                .contains("href=\"https://example.com/docs\"")
-                .contains("target=\"_blank\"")
-                .contains("rel=\"noopener noreferrer\"");
+        assertThat(html).doesNotContain("example.com/docs");
     }
 
     @Test
@@ -94,7 +91,7 @@ class MenuUrlSidebarRenderingIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("실제 스택에서 위험 URL로 메뉴를 만들 수 없다(400), 외부 http(s)와 경로는 201")
+    @DisplayName("실제 스택에서 위험 URL·외부 http(s)로 메뉴를 만들 수 없다(400), 경로와 빈 값은 201")
     void createApi_rejectsUnsafeUrl() throws Exception {
         mockMvc.perform(post("/admin/api/menus").with(admin()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -106,7 +103,9 @@ class MenuUrlSidebarRenderingIntegrationTest extends MariaDbContainerSupport {
         mockMvc.perform(post("/admin/api/menus").with(admin()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"menuName\":\"" + PREFIX + "ext\",\"menuUrl\":\"https://example.com/x\"}"))
-                .andExpect(status().isCreated());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM menu WHERE menu_name = ?", Integer.class, PREFIX + "ext")).isZero();
         mockMvc.perform(post("/admin/api/menus").with(admin()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"menuName\":\"" + PREFIX + "blank\",\"menuUrl\":\"  \"}"))

@@ -44,9 +44,9 @@ class SafeMenuUrlValidationTest {
     @ParameterizedTest
     @NullSource
     @ValueSource(strings = {
-            "", "   ", "/", "/admin/x", "/admin/notice/manage?page=2&sort=id,desc", "https://example.com/x", "http://example.com"
+            "", "   ", "/", "/admin/x", "/admin/notice/manage?page=2&sort=id,desc"
     })
-    @DisplayName("허용: null·빈 값(서비스가 null로 정규화)·경로(쿼리스트링 포함)·외부 http(s)")
+    @DisplayName("허용: null·빈 값(서비스가 null로 정규화)·경로(쿼리스트링 포함)")
     void allowed(String url) {
         assertEquals(0, createViolations(url));
         assertEquals(0, updateViolations(url));
@@ -54,10 +54,10 @@ class SafeMenuUrlValidationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "javascript:alert(1)", "data:text/html,x", "//evil.example", "https://evil@example.com", "admin/x",
+            "javascript:alert(1)", "data:text/html,x", "//evil.example", "https://evil@example.com", "https://example.com/x", "http://example.com", "admin/x",
             "/admin\\x", "/admin x", "/admin\u0000x", "/admin\nx"
     })
-    @DisplayName("거부: javascript:·data:·//host·userinfo·상대 경로·역슬래시·공백·제어문자")
+    @DisplayName("거부: 외부 http(s)(2026-10-13)·javascript:·data:·//host·userinfo·상대 경로·역슬래시·공백·제어문자")
     void rejected(String url) {
         assertEquals(1, createViolations(url));
         assertEquals(1, updateViolations(url));

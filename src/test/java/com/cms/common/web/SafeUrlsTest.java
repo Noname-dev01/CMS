@@ -18,6 +18,7 @@ class SafeUrlsTest {
     void sameOriginPath_allowed(String url) {
         assertTrue(SafeUrls.isSameOriginPath(url));
         assertTrue(SafeUrls.isSafeMenuUrl(url));
+        assertTrue(SafeUrls.isSafeLinkUrl(url));
         assertFalse(SafeUrls.isExternalHttpUrl(url));
     }
 
@@ -42,7 +43,8 @@ class SafeUrlsTest {
     @DisplayName("외부 http(s) 주소: 호스트가 있는 값은 허용 (경로 안의 @는 허용)")
     void externalHttpUrl_allowed(String url) {
         assertTrue(SafeUrls.isExternalHttpUrl(url));
-        assertTrue(SafeUrls.isSafeMenuUrl(url));
+        assertTrue(SafeUrls.isSafeLinkUrl(url));
+        assertFalse(SafeUrls.isSafeMenuUrl(url), "메뉴는 외부 http(s)를 허용하지 않는다");
         assertFalse(SafeUrls.isSameOriginPath(url));
     }
 
@@ -63,8 +65,9 @@ class SafeUrlsTest {
     @ValueSource(strings = {
             "javascript:alert(1)", "data:text/html,x", "//evil.example", "admin/x", "https://admin@evil.example", "/\\evil"
     })
-    @DisplayName("메뉴 URL: 위험 값은 경로·외부 어느 쪽으로도 허용되지 않는다")
+    @DisplayName("메뉴 URL·링크 URL: 위험 값은 경로·외부 어느 쪽으로도 허용되지 않는다")
     void safeMenuUrl_rejected(String url) {
         assertFalse(SafeUrls.isSafeMenuUrl(url));
+        assertFalse(SafeUrls.isSafeLinkUrl(url));
     }
 }
