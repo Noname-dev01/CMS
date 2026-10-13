@@ -1,5 +1,7 @@
 # CLAUDE.md — com.cms.publicweb.board
 
+> **경로 표기 주의(2026-10-13, PR ②)**: 이 문서의 `/notices`·`/boards`·`/pages`·`/faq`·`/inquiry`·`/`(공개 메인) 표기는 이전 경로다 — 공개 경로는 이제 `/{siteKey}/…` 아래(예: `/main/notices/1`)이고 `/`는 기본 공개 사이트로 302한다. 사이트 해석·404 계약·링크 접두어(`${sitePrefix}`)·시험은 `support/CLAUDE.md` 참조. 이미지(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`)는 사이트 무관 경로 그대로다.
+
 이 디렉터리(공개/비로그인 게시판 화면) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조. 관리자 측 게시판·게시글 도메인은 `com.cms.admin.board`의 `CLAUDE.md`, 설계 근거·적대적 리뷰 기록은 `adversarial-review/plan/PLAN-board.md`(쟁점 10). 공개 공지(`com.cms.publicweb.notice`)와 같은 격리·404 흡수·스트리밍 구조다 — 공지는 2026-10-09부터 공지 게시판의 게시글이라 `/notices/**`는 이 서비스(`PublicBoardService`)에 위임한다(`PublicNoticeService`는 얇은 어댑터).
 
 (필드 목록은 엔티티 코드가 원본이다. 여기에는 코드만 봐서는 알기 어려운 사실만 기록한다.)

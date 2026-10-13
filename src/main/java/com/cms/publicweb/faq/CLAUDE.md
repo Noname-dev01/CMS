@@ -1,5 +1,7 @@
 # CLAUDE.md — com.cms.publicweb.faq
 
+> **경로 표기 주의(2026-10-13, PR ②)**: 이 문서의 `/notices`·`/boards`·`/pages`·`/faq`·`/inquiry`·`/`(공개 메인) 표기는 이전 경로다 — 공개 경로는 이제 `/{siteKey}/…` 아래(예: `/main/notices/1`)이고 `/`는 기본 공개 사이트로 302한다. 사이트 해석·404 계약·링크 접두어(`${sitePrefix}`)·시험은 `support/CLAUDE.md` 참조. 이미지(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`)는 사이트 무관 경로 그대로다.
+
 이 디렉터리(공개 FAQ 페이지 `/faq`) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조. 관리 측·설계 결정은 `com.cms.admin.faq`의 `CLAUDE.md`와 `adversarial-review/plan/PLAN-faq.md`.
 
 - **인가(2026-10-12 승인)**: `SecurityConfig`가 `/faq` **정확 경로 1개**의 GET·HEAD만 무인증 공개하고 `/faq`·`/faq/**`의 그 외 메서드·하위 경로는 `denyAll`이다. 하위 경로는 라우트가 없고 MVC에 닿기 전에 거부된다 — 비인증은 로그인 302, 인증(관리자)은 403이며 **404가 아니다**(`PublicFaqIntegrationTest.methodsAndSubPaths`). 레이트리밋 규칙 `public-faq`(120/60초, `PublicFaqRateLimitIntegrationTest`). `@AdminPage` 미부착(공개 요청마다 사이드바 메뉴 조회가 나가지 않게).

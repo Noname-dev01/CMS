@@ -58,6 +58,8 @@
 | V50 | `V50__create_site.sql` | 사이트 `site` 테이블(DDL 1문, 아래 "V50~V52") |
 | V51 | `V51__seed_site.sql` | 시드 사이트 2행 — 관리자 `id=1 admin`·기본 공개 `id=2 main`(고정 ID, 멱등 DML) |
 | V52 | `V52__add_menu_site_id.sql` | `menu.site_id NOT NULL DEFAULT 1` + FK `ON DELETE RESTRICT`(DDL 1문 — 기존 메뉴는 전부 관리자 사이트가 된다) |
+| V53 | `V53__add_site_default.sql` | `site.default_yn bit(1) NOT NULL DEFAULT 0`(DDL 1문, 롤백 호환) |
+| V54 | `V54__seed_default_site.sql` | 시드 `main`(id=2)을 기본 공개 사이트로 지정 — 기본이 이미 있으면 건드리지 않는 멱등 DML |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -186,6 +188,12 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **배포**: V50(DDL) → V51(시드, 고정 ID) → V52(DDL). 배포 전 `make prod-backup`. 기존 메뉴 행은 `DEFAULT 1`로 전부 관리자 사이트가 되므로 데이터 이동이 없다.
 - **롤백 호환(조건부)**: 이전 앱은 `site_id`를 모르지만 `DEFAULT 1`이라 INSERT가 관리자 메뉴로 들어가 **관리자 사이트만 쓰는 동안은** 기동·동작한다(`SiteMigrationTest`). **공개 사이트(`site_id<>1`) 메뉴가 하나라도 생기면 V52 이전 앱으로 롤백하지 않는다** — 이전 앱은 모든 행을 한 트리로 읽고(구조 반영·비활성 포함 트리) 이동·재활성화도 허용한다. 비활성화로는 보호되지 않는다(공개 메뉴를 관리자 부모 아래로 옮기면 재배포 뒤 사이트 분리가 깨진다). 허용 절차: ① 공개 사이트 메뉴를 전부 영구삭제한 뒤 롤백 ② 또는 V52 이전 백업 복구. 구·신 앱을 동시에 띄우는 배포도 같은 이유로 금지다. V50~V52를 되돌리는 마이그레이션은 만들지 않는다(이전 앱은 엔티티에 없는 컬럼·테이블이 있어도 `ddl-auto: validate`로 기동한다).
 - **V52 실패 복구**: DDL 1문(ALTER 한 문에 컬럼 추가 + FK)이라 부분 적용은 드물지만, `success=0`이 남으면 ① 앱 정지 ② `SHOW COLUMNS FROM menu LIKE 'site_id';`·`SHOW CREATE TABLE menu`로 상태 확인 ③ 같은 마이그레이션 구성으로 `flyway repair` ④ 재기동. **V52는 멱등이다**(컬럼·FK 모두 `IF NOT EXISTS`) — 컬럼·FK가 이미 있어도 재실행이 실패하지 않으므로 수동으로 객체를 만들거나 지울 필요가 없다(`SiteMigrationTest`가 FK가 있는 상태의 재실행을 고정). V50이 `success=0`이면 `DROP TABLE IF EXISTS site;` 뒤 repair.
+
+## V53~V54 — 기본 공개 사이트 (2026-10-13, `adversarial-review/plan/PLAN-site-menu.md` PR ②)
+
+- **배포**: V53(DDL) → V54(DML). 배포 전 `make prod-backup`. 둘 다 멱등(`ADD COLUMN IF NOT EXISTS`, `WHERE NOT EXISTS`)이라 실패 뒤 `flyway repair`로 재실행해도 안전하다. V54는 기본 표시가 이미 있으면 건드리지 않는다.
+- **롤백 호환**: `default_yn`이 `NOT NULL DEFAULT 0`이라 이전 앱의 INSERT가 깨지지 않는다. 다만 이 마이그레이션과 함께 나간 앱은 공개 경로가 `/{siteKey}/…`로 바뀌므로 **앱 롤백은 일괄 교체로만** 한다(`docs/deployment.md` "공개 경로 `/{siteKey}/…` 이전").
+- **불변식 점검**: 기본 사이트는 정확히 1개의 활성 `PUBLIC` 행이어야 한다 — `SELECT id, site_key, use_yn, site_type FROM site WHERE default_yn = 1;`이 1행이 아니면 `/`가 404다. DB 제약은 없고 `SiteService`(모든 site 행 `FOR UPDATE`)와 시험이 지킨다.
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

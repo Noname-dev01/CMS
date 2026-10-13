@@ -1,0 +1,22 @@
+# CLAUDE.md — com.cms.publicweb.support
+
+이 디렉터리(공개 화면 공통부 — 사이트 해석·예외 advice·이미지 스트리밍) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조. 설계 근거·적대적 리뷰 4라운드 기록은 `adversarial-review/plan/PLAN-site-menu.md`의 "PR ② 상세 설계". 인가 정책 표는 `com.cms.config`의 `CLAUDE.md`.
+
+(필드 목록은 코드가 원본이다. 여기에는 코드만 봐서는 알기 어려운 사실만 기록한다.)
+
+## 사이트 범위 공개 경로 `/{siteKey}/…` (2026-10-13, PR ②)
+
+- **경로 문법은 `PublicSiteRoutes` 한 곳**(`KEY = {siteKey:[^.]+}`, `HOME`·`NOTICES`·`BOARDS`·`PAGES`·`FAQ`·`INQUIRY`)이고 컨트롤러 매핑·`SecurityConfig`·시험이 같은 상수를 쓴다. 키 자리는 **점이 없는 임의의 세그먼트**만 제한한다 — 사이트 키 형식(`SiteKey`) 정규식을 걸면 `/MAIN`·`/a_b`가 보안·MVC 계층에서 먼저 탈락해 404가 아니라 302/403이 된다. 문자 클래스에 `/`를 넣으면 PathPattern 파서가 `PatternParseException`으로 기동을 막는다(세그먼트 경계는 파서가 처리). 점이 있는 `favicon.ico`는 이 매핑에 걸리지 않아 정적 리소스를 가리지 않는다.
+- **사이트 해석은 `PublicSiteInterceptor`가 한다**(등록은 `PublicWebMvcConfig`). 적용 대상은 경로가 아니라 **핸들러 클래스의 `@SiteScopedPublic` 표지**다 — 경로 패턴 기반이면 `/error` 재디스패치와 정적 리소스까지 가로채 404 루프가 날 수 있다. 판정 순서는 형식(`SiteKey.isValid`) → 예약어 → DB(`PublicSiteService.findActive` = `type=PUBLIC ∧ use_yn=1`)이고 **어느 하나라도 실패하면 구분 없이 `sendError(404)`**(컨테이너 오류 재디스패치 → 공용 404 화면, 존재·비활성 여부를 드러내지 않는다). 성공하면 요청 속성 `PublicSiteRoutes.REQUEST_ATTRIBUTE`에 `PublicSite(id, key, name)`를 싣고 `PublicSiteModelAdvice`가 모델의 `publicSite`·`sitePrefix`(`/main`)로 옮긴다. 캐시는 없다(사이트 비활성화·기본 사이트 변경이 즉시 반영돼야 하고 레이트리밋이 요청 수를 제한한다). 인터셉터는 서비스를 `ObjectProvider`로 지연 조회한다 — `WebMvcConfigurer`가 `@WebMvcTest` 슬라이스에도 포함돼 서비스 빈이 없으면 컨텍스트가 깨지기 때문이다(실제 사이트 컨트롤러를 슬라이스로 시험할 때는 `PublicSiteService`를 mock 빈으로 두고 `findActive("main")`을 stub한다 — `PublicNoticeControllerTest`).
+- **새 사이트 범위 컨트롤러를 추가하려면**: 클래스에 `@SiteScopedPublic` + 매핑은 `PublicSiteRoutes` 상수, 템플릿 링크는 `@{|${sitePrefix}/…|}`, **동기 핸들러만**(`Callable`·`DeferredResult`·`StreamingResponseBody` 반환 금지 — ASYNC 재디스패치의 재검증 정책이 필요 없게), 쓰기 매핑은 `POST /{siteKey}/inquiry` 하나로 고정(`PublicInquiryTemplateConventionTest`), `SiteKey.RESERVED`에 둘째 세그먼트 이름 포함(`SiteKeyReservedConventionTest.siteScopedSecondSegmentsAreReserved`), 레이트리밋 규칙은 `*` 패턴으로 추가. 사이트 무관 경로(이미지)는 예약어 첫 세그먼트로 매핑하고 `PublicExposureInventoryTest.APPROVED_PUBLIC_PATTERNS`에 승인 이력과 함께 넣는다.
+- **공개 인벤토리 시험(`PublicExposureInventoryTest`)이 구조적 보장을 강제한다**: ① 첫 세그먼트가 변수인 매핑 ⇔ `@SiteScopedPublic` ② 사이트 범위가 아닌 모든 핸들러 매핑에 변수 자리를 탐침 값(둘째 세그먼트 이름 포함)의 조합으로 채운 URL로 **익명 GET·HEAD**를 보내, 로그인 302·401·403으로 막히지 않는 매핑이 승인 목록 안에 있다. 패턴 겹침이 아니라 **실제 응답**으로 판정하므로 규칙 순서(앞선 `/admin/**` 게이트·`/error` 거부)를 반영한다. 변이 확인: 다른 패키지에 `GET /reports/notices`를 추가하면 실패한다.
+- **링크 접두어화**: 모든 공개 내부 링크는 `${sitePrefix}`로 시작한다(사이트 무관 경로 제외). 루트 `@{/}`(홈)도 금지 — 두 번째 사이트에서 기본 사이트로 새기 때문이다. 사이트를 알 수 없는 **오류 템플릿 두 개**(`error/404.html`·`429.html`·`403.html`·`public/notice/error.html`)만 `@{/}`(→ 302로 기본 사이트)를 쓴다. `PublicSiteTemplateConventionTest`가 스캔하고 `PublicSiteRoutingIntegrationTest`가 두 번째 사이트의 렌더링 결과를 검사한다. 본문 HTML에는 내부 경로가 없다(sanitizer가 http/https/mailto 링크와 `/content-images/{id}`만 허용).
+- **기본 사이트 `/`**: `RootRedirectController`가 `PublicSiteService.findDefault()`로 `302 Location: /{defaultKey}`(GET·HEAD). `site.default_yn` 표시가 정확히 1개의 활성 공개 사이트가 아니면 오류 로그 + 404(fail-closed). 변경은 관리자 사이트 탭의 [기본으로 지정]/`PATCH /admin/api/sites/{id}`(`defaultSite=true`) — `com.cms.admin.site`의 `CLAUDE.md`.
+- **실서버 시험이 필요한 이유**: MockMvc는 `sendError(404)` 뒤의 ERROR 재디스패치를 실행하지 않아 "같은 404 화면"과 HEAD 본문 없음을 증명하지 못한다 — `PublicSiteRoutingServerTest`(없는·비활성·형식 위반·예약어 사이트가 옛 URL 404와 **같은 화면**, HEAD 404 본문 없음, 거부된 사이트가 공개 서비스에 도달하지 않음, `/error` 직접 요청 거부).
+- **롤백**: V53은 가산 컬럼이라 데이터 손상은 없지만 이전 앱은 옛 경로(`/notices` 등)를 되살리고 `/{key}/…`는 사라진다. **구·신 앱 혼합 운영(롤링·블루그린 겹침) 금지**, 전환·롤백 모두 일괄 교체(`docs/deployment.md`). 관리자가 저장해 둔 배너·팝업·메뉴의 **내부 링크 URL**(예: `/boards/2`)은 이전 경로라 404가 된다(실배포 전이라는 전제로 수용).
+- **PR ③~⑤**: 지금은 모든 공개 사이트가 같은 콘텐츠를 자기 접두어 아래에서 보여 준다(사이트별 콘텐츠·공지·공개 메뉴 렌더링은 미착수).
+
+## 기존 항목
+
+- `PublicWebExceptionAdvice`: `com.cms.publicweb` 한정 HTML 500(`public/notice/error` 뷰 공유). 렌더링 단계 예외는 이 advice가 못 잡는 기존 한계가 있다. 사이트 해석 전에 던져진 예외에서도 렌더링될 수 있어 모델 속성(`sitePrefix`)에 의존하지 않는다.
+- `PublicImageStreamer`: 배너·팝업 이미지 스트리밍 공통부 — `com.cms.publicweb.home`의 `CLAUDE.md` 참조.
