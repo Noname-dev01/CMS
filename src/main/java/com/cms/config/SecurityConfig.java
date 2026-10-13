@@ -11,6 +11,7 @@ import com.cms.config.ratelimit.RateLimitFilter;
 import com.cms.config.security.AdminSessionExpiredStrategy;
 import com.cms.config.security.ApiAccessDeniedHandler;
 import com.cms.config.security.ApiAuthenticationEntryPoint;
+import com.cms.publicweb.support.PublicSiteRoutes;
 import static com.cms.common.api.GlobalApiExceptionHandler.API_MATCHER;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -48,6 +49,23 @@ public class SecurityConfig {
 
     /** 무인증 공개 정적 리소스 경로. 테스트가 이 값과 static/ 디렉터리·컨트롤러 매핑의 일치를 검증한다. */
     static final String[] STATIC_PUBLIC_PATHS = {"/css/**", "/js/**", "/img/**", "/vendor/**", "/favicon.ico"};
+
+    /**
+     * 사이트 범위 공개 경로 중 GET·HEAD만 여는 것 — 사이트 홈, 공지·게시판·정적 페이지(하위 포함), FAQ, 문의 폼(GET·HEAD).
+     * 문의는 POST까지 열리므로 별도 규칙이다. 하위 경로가 없는 홈·FAQ는 정확 경로만 연다.
+     */
+    static final String[] SITE_GET_PATHS = {
+            PublicSiteRoutes.HOME,
+            PublicSiteRoutes.NOTICES, PublicSiteRoutes.NOTICES + "/**",
+            PublicSiteRoutes.BOARDS, PublicSiteRoutes.BOARDS + "/**",
+            PublicSiteRoutes.PAGES, PublicSiteRoutes.PAGES + "/**",
+            PublicSiteRoutes.FAQ,
+            PublicSiteRoutes.INQUIRY};
+
+    /** 종료된 접두어 없는 옛 공개 경로(PR ②) — GET·HEAD는 열어 두어 404로 답하고 그 외 메서드는 거부한다. */
+    static final String[] LEGACY_PUBLIC_PATHS = {
+            "/notices", "/notices/**", "/boards", "/boards/**", "/pages", "/pages/**",
+            "/faq", "/faq/**", "/inquiry", "/inquiry/**"};
 
     /**
      * 위임 가능 기능의 URL 게이트: ADMIN 또는 해당 기능의 READ 권한이 있는 MANAGER. 같은 {@link AdminPermissionEvaluator}가 메서드 계층
@@ -119,35 +137,13 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/popups/*/image").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/popups/*/image").permitAll()
                         .requestMatchers("/popups", "/popups/**").denyAll()
-                        // 공개 공지 페이지: GET/HEAD만 공개, 그 외 메서드는 명시적으로 차단
-                        // (2026-07-28 승인 — anyRequest().permitAll()에 기대지 않고 지금 당장
-                        // 비-GET/HEAD를 막는다. denyAll()은 인증 여부·역할과 무관하게 전부 거부한다)
-                        .requestMatchers(HttpMethod.GET, "/notices", "/notices/**").permitAll()
-                        .requestMatchers(HttpMethod.HEAD, "/notices", "/notices/**").permitAll()
-                        .requestMatchers("/notices", "/notices/**").denyAll()
-                        // 공개 게시판 페이지(목록·상세·첨부 다운로드): GET/HEAD만 공개, 그 외 메서드는 명시적으로 차단(2026-10-08 승인, PLAN-board.md 쟁점 10).
-                        // 공개 여부(공개 게시판 + 노출·미삭제 게시글)는 PublicBoardService가 판정하고 그 외는 404로 흡수한다.
-                        .requestMatchers(HttpMethod.GET, "/boards", "/boards/**").permitAll()
-                        .requestMatchers(HttpMethod.HEAD, "/boards", "/boards/**").permitAll()
-                        .requestMatchers("/boards", "/boards/**").denyAll()
-                        // 공개 정적 페이지(현재 버전·개정 목록·이전 개정): GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-11 승인, PLAN-static-page.md 쟁점 12).
-                        // 라우트는 /pages/{slug}, /pages/{slug}/revisions, /pages/{slug}/revisions/{no} 셋뿐이고 공개 여부(페이지 노출)는
-                        // PublicSitePageService가 판정하며 비노출·없는 슬러그·없는 개정은 모두 같은 404다.
-                        .requestMatchers(HttpMethod.GET, "/pages", "/pages/**").permitAll()
-                        .requestMatchers(HttpMethod.HEAD, "/pages", "/pages/**").permitAll()
-                        .requestMatchers("/pages", "/pages/**").denyAll()
-                        // 공개 FAQ 페이지: 정확 경로 /faq 1개만 GET/HEAD 공개, 그 외 메서드·하위 경로는 명시 차단(2026-10-12 승인, PLAN-faq.md 쟁점 10).
-                        // 노출 중인 카테고리·FAQ만 보이는 불변식은 PublicFaqService가 쿼리에 고정한다. 하위 경로는 라우트가 없고 여기서 거부된다.
-                        .requestMatchers(HttpMethod.GET, "/faq").permitAll()
-                        .requestMatchers(HttpMethod.HEAD, "/faq").permitAll()
-                        .requestMatchers("/faq", "/faq/**").denyAll()
-                        // 공개 문의 폼: 정확 경로 /inquiry 1개만 GET/HEAD/POST 공개, 그 외 메서드·하위 경로는 명시 차단(2026-10-12 승인, PLAN-inquiry.md 쟁점 1).
-                        // 두 번째 무인증 POST다(첫째는 비밀번호 재설정 API). CSRF는 그대로 활성(폼에 _csrf hidden), 남용은 Turnstile 캡차 + 레이트리밋 규칙
-                        // inquiry-submit이 막는다. 새 공개 쓰기 경로가 승인 없이 늘지 않도록 publicweb의 비-GET 매핑은 컨벤션 시험이 /inquiry 하나로 고정한다.
-                        .requestMatchers(HttpMethod.GET, "/inquiry").permitAll()
-                        .requestMatchers(HttpMethod.HEAD, "/inquiry").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/inquiry").permitAll()
-                        .requestMatchers("/inquiry", "/inquiry/**").denyAll()
+                        // 접두어 없는 옛 공개 경로(공지·게시판·정적 페이지·FAQ·문의)는 종료한다 — 공개 경로가 /{siteKey}/… 아래로 이전됐다(PR ②, 2026-10-13 승인,
+                        // PLAN-site-menu.md P2-3). 사용자 결정은 "404로 종료"라 기본 거부(비인증 302·인증 403)가 아니라 GET/HEAD를 열어 둔다: 이 경로들은
+                        // 매핑된 핸들러가 없거나(예: /notices/1) 사이트 키 자리에 걸려 인터셉터가 같은 404로 끝낸다(예: /notices는 키 'notices'가 예약어).
+                        // 그 외 메서드는 명시 차단이라 옛 POST /inquiry는 더 이상 접수되지 않는다.
+                        .requestMatchers(HttpMethod.GET, LEGACY_PUBLIC_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.HEAD, LEGACY_PUBLIC_PATHS).permitAll()
+                        .requestMatchers(LEGACY_PUBLIC_PATHS).denyAll()
                         // 편집기 본문 이미지: GET/HEAD만 공개, 그 외 메서드 명시 차단(2026-10-07 승인, PLAN-html-editor.md).
                         // 공개 여부(공개 게시글이 참조하거나 그 게시판 조회 권한자)는 PublicContentImageService가 판정한다.
                         .requestMatchers(HttpMethod.GET, "/content-images/*").permitAll()
@@ -165,6 +161,18 @@ public class SecurityConfig {
                         // 로그인 페이지 HTML을 아이콘으로 받아간다).
                         .requestMatchers(HttpMethod.GET, STATIC_PUBLIC_PATHS).permitAll()
                         .requestMatchers(HttpMethod.HEAD, STATIC_PUBLIC_PATHS).permitAll()
+                        // /error URL 직접 요청은 공개하지 않는다 — 아래 사이트 키 자리({siteKey:[^.]+})에 걸리기 때문에 명시 거부가 필요하다
+                        // (컨테이너 ERROR 디스패치는 맨 앞 dispatcherTypeMatchers 규칙이 따로 허용한다).
+                        .requestMatchers("/error").denyAll()
+                        // 사이트 범위 공개 경로 /{siteKey}/… (PR ②, 2026-10-13 승인 — 인가 정책 변경, PLAN-site-menu.md P2-3). 위의 모든 보호·정적·이미지 규칙
+                        // 뒤에 둬야 한다(첫 일치 규칙이 이긴다). 키 자리는 점이 없는 임의 세그먼트라 사이트 키 형식 위반·예약어·없는·비활성 사이트도 여기를 지나고,
+                        // @SiteScopedPublic 컨트롤러 앞의 PublicSiteInterceptor가 전부 같은 404로 끝낸다 — 이 영역의 모든 핸들러가 그 인터셉터를 지난다는 보장은
+                        // 공개 인벤토리 시험이 강제한다. 문의만 POST까지 열린다(옛 /inquiry의 두 번째 무인증 POST가 경로만 이동, CSRF 활성 유지).
+                        .requestMatchers(HttpMethod.GET, SITE_GET_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.HEAD, SITE_GET_PATHS).permitAll()
+                        .requestMatchers(HttpMethod.POST, PublicSiteRoutes.INQUIRY).permitAll()
+                        .requestMatchers(SITE_GET_PATHS).denyAll()
+                        .requestMatchers(PublicSiteRoutes.INQUIRY, PublicSiteRoutes.INQUIRY + "/**").denyAll()
                         // 기본 거부 — 위에서 명시적으로 열지 않은 경로는 인증·역할과 무관하게 전부 거부한다
                         // (2026-09-29 승인, 감사 M-08 — 규칙 누락이 조용히 공개되던 fail-open 제거).
                         // 새 엔드포인트는 반드시 위에 접근 규칙을 추가해야 한다.
