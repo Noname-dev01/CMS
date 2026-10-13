@@ -16,7 +16,7 @@
 
     <p class="inquiry-error" th:if="${formError != null}" th:text="${formError}" role="alert"></p>
 
-    <form th:action="@{/inquiry}" method="post" class="inquiry-form" th:unless="${sent}">
+    <form th:action="@{|${sitePrefix}/inquiry|}" method="post" class="inquiry-form" th:unless="${sent}">
         <p class="inquiry-hint">짧은 시간에 여러 번 제출하면 잠시 제한될 수 있습니다. 제출한 내용이 사라지지 않도록 오래 비워 두지 말고 작성해 주세요.</p>
 
         <div class="inquiry-field">
@@ -65,7 +65,7 @@
         <button type="submit" class="inquiry-submit">문의 보내기</button>
     </form>
 
-    <p class="inquiry-links"><a th:href="@{/faq}">자주 묻는 질문</a> · <a th:href="@{/}">홈으로</a></p>
+    <p class="inquiry-links"><a th:href="@{|${sitePrefix}/faq|}">자주 묻는 질문</a> · <a th:href="@{|${sitePrefix}|}">홈으로</a></p>
 </div>
 <!--/* 외부 스크립트는 Turnstile 하나뿐이다(PLAN-inquiry.md 쟁점 12). 자체 스크립트는 없다. */-->
 <script th:unless="${sent}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>

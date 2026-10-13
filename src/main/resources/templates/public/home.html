@@ -31,11 +31,11 @@
     <div class="home-sections">
         <section class="home-section" th:if="${not #lists.isEmpty(home.notices)}">
             <h2 class="home-section-title">
-                <a th:href="@{/notices}">공지사항</a>
+                <a th:href="@{|${sitePrefix}/notices|}">공지사항</a>
             </h2>
             <ul class="home-post-list">
                 <li class="home-post-item" th:each="post : ${home.notices}">
-                    <a th:href="@{/notices/{id}(id=${post.id})}">
+                    <a th:href="@{|${sitePrefix}/notices/{id}|(id=${post.id})}">
                         <span class="home-post-title" th:text="${post.title}"></span>
                         <span class="home-post-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
                     </a>
@@ -47,7 +47,7 @@
             <h2 class="home-section-title">새 글</h2>
             <ul class="home-post-list">
                 <li class="home-post-item" th:each="post : ${home.latestPosts}">
-                    <a th:href="@{/boards/{boardId}/posts/{postId}(boardId=${post.boardId}, postId=${post.id})}">
+                    <a th:href="@{|${sitePrefix}/boards/{boardId}/posts/{postId}|(boardId=${post.boardId}, postId=${post.id})}">
                         <span class="home-post-board" th:text="${post.boardName}"></span>
                         <span class="home-post-title" th:text="${post.title}"></span>
                         <span class="home-post-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
@@ -60,7 +60,7 @@
     <!--/* 푸터: 푸터로 지정된 노출 중 정적 페이지 링크. 제목은 th:text, 슬러그는 th:href 경로 변수라 이스케이프된다.
          조회 실패 시 컨트롤러가 빈 목록으로 대체하므로 푸터만 빠진다(PLAN-static-page.md R1-3). */-->
     <footer class="home-footer" th:if="${not #lists.isEmpty(footerLinks)}">
-        <a th:each="link : ${footerLinks}" th:href="@{/pages/{slug}(slug=${link.slug})}" th:text="${link.title}"></a>
+        <a th:each="link : ${footerLinks}" th:href="@{|${sitePrefix}/pages/{slug}|(slug=${link.slug})}" th:text="${link.title}"></a>
     </footer>
 
     <p class="home-empty"

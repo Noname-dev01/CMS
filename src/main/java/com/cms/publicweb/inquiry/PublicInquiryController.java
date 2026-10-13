@@ -5,6 +5,8 @@ import com.cms.admin.inquiry.service.InquiryInputPolicy;
 import com.cms.admin.inquiry.service.InquiryNotifier;
 import com.cms.admin.inquiry.service.InquiryService;
 import com.cms.common.web.ClientIpResolver;
+import com.cms.publicweb.support.PublicSiteRoutes;
+import com.cms.publicweb.support.SiteScopedPublic;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ import java.util.Map;
  * 레이트리밋(429)은 필터가 끝내므로 입력을 보존하지 못한다.
  */
 @Slf4j
+@SiteScopedPublic
 @Controller
 @RequiredArgsConstructor
 public class PublicInquiryController {
@@ -54,7 +57,7 @@ public class PublicInquiryController {
     private final InquiryService inquiryService;
     private final InquiryNotifier inquiryNotifier;
 
-    @GetMapping("/inquiry")
+    @GetMapping(PublicSiteRoutes.INQUIRY)
     public String form(@RequestParam(name = "sent", required = false) String sent, Model model, HttpServletResponse response) {
         // 접수 직후의 완료 안내(?sent)는 미처리 상한과 무관하다 — 방금 저장된 문의가 상한을 채웠어도 성공을 실패처럼 안내하지 않는다.
         // 기능 자체가 닫혀 있으면(enabled=false) 그대로 503이다.
@@ -69,7 +72,7 @@ public class PublicInquiryController {
         return "public/inquiry/form";
     }
 
-    @PostMapping("/inquiry")
+    @PostMapping(PublicSiteRoutes.INQUIRY)
     public Object submit(@ModelAttribute("form") InquiryForm form, BindingResult bindingResult,
                          @RequestParam(name = TOKEN_PARAM, required = false) String captchaToken,
                          HttpServletRequest request, HttpServletResponse response, Model model) {
@@ -121,7 +124,8 @@ public class PublicInquiryController {
         inquiryNotifier.notifyReceived();
 
         // 5) PRG — 새로고침이 문의를 중복 접수하지 않게 303으로 보낸다.
-        RedirectView redirect = new RedirectView("/inquiry?sent", true);
+        RedirectView redirect = new RedirectView(PublicSiteRoutes.current(request).prefix() + "/inquiry?sent", true);
+        redirect.setExposeModelAttributes(false);
         redirect.setStatusCode(HttpStatus.SEE_OTHER);
         return new ModelAndView(redirect);
     }

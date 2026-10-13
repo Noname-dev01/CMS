@@ -11,7 +11,7 @@
     <div class="page-detail">
         <!--/* 이전 개정을 보고 있을 때만 안내한다. 현재 개정 번호로 들어와도 current=true라 안내가 없다. */-->
         <p class="page-old-notice" th:unless="${page.current}">
-            이전 버전입니다. <a th:href="@{/pages/{slug}(slug=${page.slug})}">현재 버전 보기</a>
+            이전 버전입니다. <a th:href="@{|${sitePrefix}/pages/{slug}|(slug=${page.slug})}">현재 버전 보기</a>
         </p>
         <h1 class="page-title" th:text="${page.title}"></h1>
         <div class="page-meta">
@@ -24,8 +24,8 @@
     </div>
 
     <p class="page-links">
-        <a th:href="@{/pages/{slug}/revisions(slug=${page.slug})}">개정 이력</a>
-        <a th:href="@{/}">홈으로</a>
+        <a th:href="@{|${sitePrefix}/pages/{slug}/revisions|(slug=${page.slug})}">개정 이력</a>
+        <a th:href="@{|${sitePrefix}|}">홈으로</a>
     </p>
 </div>
 </body>

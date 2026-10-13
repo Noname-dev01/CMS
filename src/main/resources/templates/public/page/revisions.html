@@ -9,13 +9,13 @@
 <body>
 <div class="public-page-container">
     <h1 class="page-title">
-        <a th:href="@{/pages/{slug}(slug=${revisions.slug})}" th:text="${revisions.title}">페이지</a>
+        <a th:href="@{|${sitePrefix}/pages/{slug}|(slug=${revisions.slug})}" th:text="${revisions.title}">페이지</a>
         <span class="page-title-sub">개정 이력</span>
     </h1>
 
     <ul class="page-revision-list">
         <li class="page-revision-item" th:each="item : ${revisions.items}">
-            <a th:href="@{/pages/{slug}/revisions/{no}(slug=${revisions.slug}, no=${item.revisionNo})}">
+            <a th:href="@{|${sitePrefix}/pages/{slug}/revisions/{no}|(slug=${revisions.slug}, no=${item.revisionNo})}">
                 <span class="page-revision-no" th:text="${'개정 ' + item.revisionNo}"></span>
                 <span class="page-revision-title" th:text="${item.title}"></span>
                 <span class="page-revision-current" th:if="${item.current}">현재</span>
@@ -26,15 +26,15 @@
 
     <div class="page-pagination" th:if="${revisions.hasPrevious or revisions.hasNext}">
         <a th:if="${revisions.hasPrevious}"
-           th:href="@{/pages/{slug}/revisions(slug=${revisions.slug}, page=${revisions.page - 1})}">이전(더 최신)</a>
+           th:href="@{|${sitePrefix}/pages/{slug}/revisions|(slug=${revisions.slug}, page=${revisions.page - 1})}">이전(더 최신)</a>
         <span th:unless="${revisions.hasPrevious}" class="disabled">이전(더 최신)</span>
         <a th:if="${revisions.hasNext}"
-           th:href="@{/pages/{slug}/revisions(slug=${revisions.slug}, page=${revisions.page + 1})}">다음(더 오래된)</a>
+           th:href="@{|${sitePrefix}/pages/{slug}/revisions|(slug=${revisions.slug}, page=${revisions.page + 1})}">다음(더 오래된)</a>
         <span th:unless="${revisions.hasNext}" class="disabled">다음(더 오래된)</span>
     </div>
 
     <p class="page-links">
-        <a th:href="@{/pages/{slug}(slug=${revisions.slug})}">&larr; 현재 버전으로</a>
+        <a th:href="@{|${sitePrefix}/pages/{slug}|(slug=${revisions.slug})}">&larr; 현재 버전으로</a>
     </p>
 </div>
 </body>

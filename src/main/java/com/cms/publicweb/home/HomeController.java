@@ -4,6 +4,8 @@ import com.cms.publicweb.page.PublicSitePageService;
 import com.cms.publicweb.page.dto.PublicFooterLink;
 import com.cms.publicweb.popup.PublicPopupService;
 import com.cms.publicweb.popup.dto.PublicPopup;
+import com.cms.publicweb.support.PublicSiteRoutes;
+import com.cms.publicweb.support.SiteScopedPublic;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
@@ -18,6 +20,7 @@ import java.util.List;
  * 처리한다. 예외는 {@code PublicWebExceptionAdvice}가 HTML 500으로 처리한다.
  */
 @Slf4j
+@SiteScopedPublic
 @Controller
 @RequiredArgsConstructor
 public class HomeController {
@@ -26,7 +29,7 @@ public class HomeController {
     private final PublicSitePageService publicSitePageService;
     private final PublicPopupService publicPopupService;
 
-    @GetMapping("/")
+    @GetMapping(PublicSiteRoutes.HOME)
     public String home(Model model) {
         model.addAttribute("home", publicHomeService.getHome());
         model.addAttribute("footerLinks", findFooterLinksSafely());
