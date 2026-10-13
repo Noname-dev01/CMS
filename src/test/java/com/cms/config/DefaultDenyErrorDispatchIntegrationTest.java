@@ -65,7 +65,7 @@ class DefaultDenyErrorDispatchIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("(b) CSRF 없는 비인증 POST /notices — 403이며 403 오류 화면 본문이 렌더링된다 (302·빈 본문·컨테이너 기본 응답이면 실패, null 표시도 실패)")
     void csrfRejectedPost_rendersErrorViewWith403() throws Exception {
-        HttpResponse<String> res = send("POST", "/notices");
+        HttpResponse<String> res = send("POST", "/main/notices");
 
         assertThat(res.statusCode()).isEqualTo(403);
         assertThat(res.headers().firstValue("Location")).isEmpty();
@@ -87,7 +87,7 @@ class DefaultDenyErrorDispatchIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("(b3) 쿠키 없는 CSRF 거부 403 화면의 링크에 ;jsessionid가 붙지 않는다 — 붙으면 스타일시트·홈 버튼이 400 (이슈 #123)")
     void csrfRejectedPostWithoutCookie_linksAreNotRewrittenWithSessionId() throws Exception {
-        for (String path : List.of("/admin/login", "/notices")) {
+        for (String path : List.of("/admin/login", "/main/notices")) {
             HttpResponse<String> res = send("POST", path);
 
             assertThat(res.statusCode()).as(path).isEqualTo(403);
@@ -98,7 +98,7 @@ class DefaultDenyErrorDispatchIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("(c) 비인증 GET 미분류 경로 — 기본 거부로 /admin/login 302")
     void unclassifiedPath_redirectsToLogin() throws Exception {
-        HttpResponse<String> res = send("GET", "/foo-unclassified");
+        HttpResponse<String> res = send("GET", "/foo/unclassified");
 
         assertThat(res.statusCode()).isEqualTo(302);
         assertThat(res.headers().firstValue("Location").orElse("")).endsWith("/admin/login");

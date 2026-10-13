@@ -69,14 +69,14 @@ class PublicInquiryTemplateConventionTest {
     void formShape() throws IOException {
         String content = read(FORM);
 
-        assertThat(content).contains("th:action=\"@{/inquiry}\"").contains("method=\"post\"");
+        assertThat(content).contains("th:action=\"@{|${sitePrefix}/inquiry|}\"").contains("method=\"post\"");
         assertThat(content).contains("th:value=\"${form.name}\"").contains("th:value=\"${form.email}\"").contains("th:value=\"${form.title}\"")
                 .contains("th:text=\"${form.body}\"");
         assertThat(content).contains("data-sitekey");
     }
 
     @Test
-    @DisplayName("com.cms.publicweb 아래 쓰기 매핑은 POST /inquiry 하나뿐이다 — 새 공개 쓰기 경로는 인가 정책 승인과 이 시험의 일부러 된 수정이 필요하다")
+    @DisplayName("com.cms.publicweb 아래 쓰기 매핑은 POST /{siteKey}/inquiry 하나뿐이다 — 새 공개 쓰기 경로는 인가 정책 승인과 이 시험의 일부러 된 수정이 필요하다")
     void onlyOnePublicWriteMapping() throws ClassNotFoundException {
         ClassPathScanningCandidateComponentProvider scanner = new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(Controller.class));
@@ -101,7 +101,7 @@ class PublicInquiryTemplateConventionTest {
                 }
             }
         }
-        assertThat(writes).containsExactly("POST /inquiry");
+        assertThat(writes).containsExactly("POST /{siteKey:[^.]+}/inquiry");
     }
 
     private String read(String resource) throws IOException {

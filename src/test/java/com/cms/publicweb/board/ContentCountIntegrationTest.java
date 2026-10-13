@@ -191,13 +191,13 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
     void detailGet_countsOncePerIp() throws Exception {
         long post = insertPost(boardId, "cc-post", true, false);
 
-        assertThat(status(get("/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(post)).isEqualTo(1);
-        assertThat(status(get("/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(post)).as("같은 IP 반복").isEqualTo(1);
 
         nextIp();
-        assertThat(status(get("/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(post)).as("다른 IP").isEqualTo(2);
     }
 
@@ -209,12 +209,12 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
         long deleted = insertPost(boardId, "cc-deleted", true, true);
         long otherBoard = insertBoard("cc-다른-" + System.nanoTime());
 
-        assertThat(status(head("/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
-        assertThat(status(get("/boards/{b}", boardId).with(fromTestIp()))).isEqualTo(200);
-        assertThat(status(get("/boards/{b}/posts/{p}", boardId, hidden).with(fromTestIp()))).isEqualTo(404);
-        assertThat(status(get("/boards/{b}/posts/{p}", boardId, deleted).with(fromTestIp()))).isEqualTo(404);
-        assertThat(status(get("/boards/{b}/posts/{p}", otherBoard, post).with(fromTestIp()))).isEqualTo(404);
-        assertThat(status(get("/boards/{b}/posts/{p}", boardId, 999_999_999L).with(fromTestIp()))).isEqualTo(404);
+        assertThat(status(head("/main/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/{b}", boardId).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, hidden).with(fromTestIp()))).isEqualTo(404);
+        assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, deleted).with(fromTestIp()))).isEqualTo(404);
+        assertThat(status(get("/main/boards/{b}/posts/{p}", otherBoard, post).with(fromTestIp()))).isEqualTo(404);
+        assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, 999_999_999L).with(fromTestIp()))).isEqualTo(404);
 
         assertThat(views(post)).isZero();
         assertThat(views(hidden)).isZero();
@@ -226,11 +226,11 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
     void noticeDetail_counts() throws Exception {
         long notice = insertPost(noticeBoardId, "cc-notice-" + System.nanoTime(), true, false);
 
-        assertThat(status(head("/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(head("/main/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(notice)).as("HEAD").isZero();
-        assertThat(status(get("/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(notice)).isEqualTo(1);
-        assertThat(status(get("/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(notice)).as("같은 IP 반복").isEqualTo(1);
     }
 
@@ -244,16 +244,16 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
         long attachment = insertAttachment(post, "a.pdf", true);
         long missingFile = insertAttachment(post, "gone.pdf", false);
 
-        assertThat(status(head("/boards/{b}/posts/{p}/attachments/{a}", boardId, post, attachment).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(head("/main/boards/{b}/posts/{p}/attachments/{a}", boardId, post, attachment).with(fromTestIp()))).isEqualTo(200);
         assertThat(downloads(attachment)).as("HEAD").isZero();
-        assertThat(status(get("/boards/{b}/posts/{p}/attachments/{a}", boardId, otherPost, attachment).with(fromTestIp()))).isEqualTo(404);
-        assertThat(status(get("/boards/{b}/posts/{p}/attachments/{a}", boardId, post, missingFile).with(fromTestIp()))).isEqualTo(404);
+        assertThat(status(get("/main/boards/{b}/posts/{p}/attachments/{a}", boardId, otherPost, attachment).with(fromTestIp()))).isEqualTo(404);
+        assertThat(status(get("/main/boards/{b}/posts/{p}/attachments/{a}", boardId, post, missingFile).with(fromTestIp()))).isEqualTo(404);
         assertThat(downloads(attachment)).as("타 글 경로").isZero();
         assertThat(downloads(missingFile)).as("파일 없음").isZero();
 
-        assertThat(status(get("/boards/{b}/posts/{p}/attachments/{a}", boardId, post, attachment).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/{b}/posts/{p}/attachments/{a}", boardId, post, attachment).with(fromTestIp()))).isEqualTo(200);
         assertThat(downloads(attachment)).isEqualTo(1);
-        assertThat(status(get("/boards/{b}/posts/{p}/attachments/{a}", boardId, post, attachment).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/{b}/posts/{p}/attachments/{a}", boardId, post, attachment).with(fromTestIp()))).isEqualTo(200);
         assertThat(downloads(attachment)).as("같은 IP 반복").isEqualTo(1);
     }
 
@@ -263,7 +263,7 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
         long notice = insertPost(noticeBoardId, "cc-notice-" + System.nanoTime(), true, false);
         long attachment = insertAttachment(notice, "n.pdf", true);
 
-        assertThat(status(get("/notices/{id}/attachments/{a}", notice, attachment).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/notices/{id}/attachments/{a}", notice, attachment).with(fromTestIp()))).isEqualTo(200);
         assertThat(downloads(attachment)).isEqualTo(1);
     }
 
@@ -277,8 +277,8 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
         doThrow(new IllegalStateException("tx begin failed")).when(writer).incrementView(any());
         doThrow(new IllegalStateException("commit failed")).when(writer).incrementDownload(any());
 
-        assertThat(status(get("/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
-        var download = mockMvc.perform(get("/boards/{b}/posts/{p}/attachments/{a}", boardId, post, attachment).with(fromTestIp()))
+        assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
+        var download = mockMvc.perform(get("/main/boards/{b}/posts/{p}/attachments/{a}", boardId, post, attachment).with(fromTestIp()))
                 .andReturn().getResponse();
         assertThat(download.getStatus()).isEqualTo(200);
         assertThat(download.getContentAsByteArray()).isEqualTo("첨부 내용".getBytes());
@@ -296,7 +296,7 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
             try (Statement st = admin.createStatement()) {
                 st.execute("SELECT id FROM post WHERE id = " + post + " FOR UPDATE");
                 long started = System.nanoTime();
-                assertThat(status(get("/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
+                assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
                 long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
                 assertThat(elapsedMs).as("락 대기 상한(innodb_lock_wait_timeout=1s) 안에서 응답").isLessThan(8_000);
             } finally {
@@ -307,7 +307,7 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
 
         // 락이 풀린 뒤에는 (다른 IP가) 정상적으로 센다 — 풀의 커넥션이 반환됐다는 간접 증거
         nextIp();
-        assertThat(status(get("/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/{b}/posts/{p}", boardId, post).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(post)).isEqualTo(1);
     }
 
@@ -341,7 +341,7 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
         for (String address : ips) {
             results.add(pool.submit(() -> {
                 go.await();
-                return status(get("/boards/{b}/posts/{p}", boardId, post).with(from(address)));
+                return status(get("/main/boards/{b}/posts/{p}", boardId, post).with(from(address)));
             }));
         }
         go.countDown();

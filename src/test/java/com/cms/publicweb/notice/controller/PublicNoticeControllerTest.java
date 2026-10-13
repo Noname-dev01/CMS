@@ -91,6 +91,14 @@ class PublicNoticeControllerTest {
             return Mockito.mock(com.cms.admin.board.service.ContentCounterService.class);
         }
 
+        // 사이트 범위 컨트롤러라 인터셉터가 /main 을 해석한다(PR ②) — 활성 공개 사이트 main 으로 답한다.
+        @Bean
+        public com.cms.publicweb.support.PublicSiteService publicSiteService() {
+            com.cms.publicweb.support.PublicSiteService service = Mockito.mock(com.cms.publicweb.support.PublicSiteService.class);
+            given(service.findActive("main")).willReturn(Optional.of(new com.cms.publicweb.support.PublicSite(2L, "main", "기본 사이트")));
+            return service;
+        }
+
         @Bean
         public PublicNoticeService publicNoticeService() {
             return Mockito.mock(PublicNoticeService.class);
@@ -157,7 +165,7 @@ class PublicNoticeControllerTest {
     void list_noticeBoardNotPublic_returns404() throws Exception {
         given(publicNoticeService.getPublishedNotices(0, null)).willReturn(Optional.empty());
 
-        mockMvc.perform(get("/notices"))
+        mockMvc.perform(get("/main/notices"))
                 .andExpect(status().isNotFound())
                 .andExpect(view().name("error/404"));
     }
@@ -168,7 +176,7 @@ class PublicNoticeControllerTest {
     void list_noticeBoardNotPublic_headReturns404() throws Exception {
         given(publicNoticeService.getPublishedNotices(0, null)).willReturn(Optional.empty());
 
-        mockMvc.perform(head("/notices")).andExpect(status().isNotFound());
+        mockMvc.perform(head("/main/notices")).andExpect(status().isNotFound());
     }
 
     @Test
@@ -178,7 +186,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.getPublishedNotices(0, null))
                 .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "공지 제목")), PageRequest.of(0, 10), 1)));
 
-        mockMvc.perform(get("/notices"))
+        mockMvc.perform(get("/main/notices"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("public/notice/list"))
                 .andExpect(model().attributeExists("notices"))
@@ -192,7 +200,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.getPublishedNotices(0, null))
                 .willReturn(listOf(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0)));
 
-        mockMvc.perform(get("/notices"))
+        mockMvc.perform(get("/main/notices"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("등록된 공지사항이 없습니다")))
                 .andExpect(content().string(not(containsString("전체 보기"))));
@@ -204,7 +212,7 @@ class PublicNoticeControllerTest {
     void list_pageNonNumeric_zeroedAndOk() throws Exception {
         given(publicNoticeService.getPublishedNotices(0, null)).willReturn(listOf(new PageImpl<>(List.of())));
 
-        mockMvc.perform(get("/notices").param("page", "abc"))
+        mockMvc.perform(get("/main/notices").param("page", "abc"))
                 .andExpect(status().isOk());
 
         verify(publicNoticeService).getPublishedNotices(0, null);
@@ -216,7 +224,7 @@ class PublicNoticeControllerTest {
     void list_pageIntegerOverflow_zeroedAndOk() throws Exception {
         given(publicNoticeService.getPublishedNotices(0, null)).willReturn(listOf(new PageImpl<>(List.of())));
 
-        mockMvc.perform(get("/notices").param("page", "99999999999999"))
+        mockMvc.perform(get("/main/notices").param("page", "99999999999999"))
                 .andExpect(status().isOk());
 
         verify(publicNoticeService).getPublishedNotices(0, null);
@@ -228,7 +236,7 @@ class PublicNoticeControllerTest {
     void list_sizeParamIgnored() throws Exception {
         given(publicNoticeService.getPublishedNotices(anyInt(), any())).willReturn(listOf(new PageImpl<>(List.of())));
 
-        mockMvc.perform(get("/notices").param("size", "999"))
+        mockMvc.perform(get("/main/notices").param("size", "999"))
                 .andExpect(status().isOk());
     }
 
@@ -239,7 +247,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.getPublishedNotices(0, null))
                 .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "<script>alert(1)</script>")))));
 
-        mockMvc.perform(get("/notices"))
+        mockMvc.perform(get("/main/notices"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("<script>alert(1)</script>"))))
                 .andExpect(content().string(containsString("&lt;script&gt;")));
@@ -255,7 +263,7 @@ class PublicNoticeControllerTest {
                 .willReturn(listResult(
                         new PageImpl<>(List.of(summary(1L, "서버 점검 안내")), PageRequest.of(0, 10), 1), "점검"));
 
-        mockMvc.perform(get("/notices").param("keyword", "  점검 "))
+        mockMvc.perform(get("/main/notices").param("keyword", "  점검 "))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("keyword", "점검"))
                 .andExpect(content().string(containsString("value=\"점검\"")))
@@ -272,7 +280,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.getPublishedNotices(0, "없는말"))
                 .willReturn(listResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), "없는말"));
 
-        mockMvc.perform(get("/notices").param("keyword", "없는말"))
+        mockMvc.perform(get("/main/notices").param("keyword", "없는말"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("검색 결과가 없습니다")))
                 .andExpect(content().string(not(containsString("등록된 공지사항이 없습니다"))));
@@ -286,13 +294,13 @@ class PublicNoticeControllerTest {
                 .willReturn(listResult(
                         new PageImpl<>(List.of(summary(1L, "점검 & 공지 1")), PageRequest.of(1, 10), 25), "점검 & 공지"));
 
-        String html = mockMvc.perform(get("/notices").param("page", "1").param("keyword", "점검 & 공지"))
+        String html = mockMvc.perform(get("/main/notices").param("page", "1").param("keyword", "점검 & 공지"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
         String encoded = "keyword=%EC%A0%90%EA%B2%80%20%26%20%EA%B3%B5%EC%A7%80";
-        assertTrue(html.contains("/notices?page=0&amp;" + encoded), "이전 링크에 keyword가 없습니다:\n" + html);
-        assertTrue(html.contains("/notices?page=2&amp;" + encoded), "다음 링크에 keyword가 없습니다:\n" + html);
+        assertTrue(html.contains("/main/notices?page=0&amp;" + encoded), "이전 링크에 keyword가 없습니다:\n" + html);
+        assertTrue(html.contains("/main/notices?page=2&amp;" + encoded), "다음 링크에 keyword가 없습니다:\n" + html);
     }
 
     @Test
@@ -302,12 +310,12 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.getPublishedNotices(1, null))
                 .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "공지")), PageRequest.of(1, 10), 25)));
 
-        String html = mockMvc.perform(get("/notices").param("page", "1"))
+        String html = mockMvc.perform(get("/main/notices").param("page", "1"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
 
-        assertTrue(html.contains("href=\"/notices?page=0\""), html);
-        assertTrue(html.contains("href=\"/notices?page=2\""), html);
+        assertTrue(html.contains("href=\"/main/notices?page=0\""), html);
+        assertTrue(html.contains("href=\"/main/notices?page=2\""), html);
         assertFalse(html.contains("keyword="), "검색하지 않았는데 keyword 파라미터가 있습니다:\n" + html);
     }
 
@@ -321,7 +329,7 @@ class PublicNoticeControllerTest {
             given(publicNoticeService.getPublishedNotices(eq(0), eq(payload)))
                     .willReturn(listResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), payload));
 
-            String html = mockMvc.perform(get("/notices").param("keyword", payload))
+            String html = mockMvc.perform(get("/main/notices").param("keyword", payload))
                     .andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsString();
 
@@ -339,7 +347,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.findPublishedNotice(1L))
                 .willReturn(Optional.of(detail(1L, "공지 제목", "본문 내용")));
 
-        mockMvc.perform(get("/notices/1"))
+        mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("public/notice/detail"))
                 .andExpect(model().attributeExists("notice"))
@@ -352,7 +360,7 @@ class PublicNoticeControllerTest {
     void detail_notFound_returns404View() throws Exception {
         given(publicNoticeService.findPublishedNotice(99L)).willReturn(Optional.empty());
 
-        mockMvc.perform(get("/notices/99"))
+        mockMvc.perform(get("/main/notices/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(view().name("error/404"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
@@ -362,7 +370,7 @@ class PublicNoticeControllerTest {
     @DisplayName("비숫자 ID(/notices/abc)는 Service를 거치지 않고 404 + error/404 뷰(JSON 아님)")
     @WithMockUser
     void detail_nonNumericId_returns404NotJson() throws Exception {
-        mockMvc.perform(get("/notices/abc"))
+        mockMvc.perform(get("/main/notices/abc"))
                 .andExpect(status().isNotFound())
                 .andExpect(view().name("error/404"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
@@ -377,7 +385,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.findPublishedNotice(1L))
                 .willReturn(Optional.of(detail(1L, "공지 제목", "본문 내용")));
 
-        mockMvc.perform(get("/notices/1"))
+        mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("authorId"))))
                 .andExpect(content().string(not(containsString("admin01"))));
@@ -397,7 +405,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.findPublishedNotice(1L))
                 .willReturn(Optional.of(PublicPostDetail.from(board, post, java.util.List.of())));
 
-        mockMvc.perform(get("/notices/1"))
+        mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("<script>alert('xss')</script>"))))
                 .andExpect(content().string(not(containsString("onerror"))))
@@ -414,7 +422,7 @@ class PublicNoticeControllerTest {
     void detail_serviceThrows_returnsHtml500NotJson() throws Exception {
         given(publicNoticeService.findPublishedNotice(anyLong())).willThrow(new RuntimeException("DB 장애 시뮬레이션"));
 
-        mockMvc.perform(get("/notices/1"))
+        mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(view().name("public/notice/error"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
@@ -426,7 +434,7 @@ class PublicNoticeControllerTest {
     void list_serviceThrows_returnsHtml500NotJson() throws Exception {
         given(publicNoticeService.getPublishedNotices(eq(0), any())).willThrow(new RuntimeException("DB 장애 시뮬레이션"));
 
-        mockMvc.perform(get("/notices"))
+        mockMvc.perform(get("/main/notices"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(view().name("public/notice/error"));
     }
@@ -441,9 +449,9 @@ class PublicNoticeControllerTest {
                 .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
                         List.of(attachmentDto(7L, "report.pdf")))));
 
-        mockMvc.perform(get("/notices/1"))
+        mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("/notices/1/attachments/7")))
+                .andExpect(content().string(containsString("/main/notices/1/attachments/7")))
                 .andExpect(content().string(containsString("report.pdf")));
     }
 
@@ -454,7 +462,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.findPublishedNotice(1L))
                 .willReturn(Optional.of(detail(1L, "제목", "본문")));
 
-        mockMvc.perform(get("/notices/1"))
+        mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("첨부파일"))));
     }
@@ -467,7 +475,7 @@ class PublicNoticeControllerTest {
                 .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
                         List.of(attachmentDto(7L, "<script>alert(1)</script>.txt")))));
 
-        mockMvc.perform(get("/notices/1"))
+        mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("<script>alert(1)</script>"))))
                 .andExpect(content().string(containsString("&lt;script&gt;")));
@@ -481,7 +489,7 @@ class PublicNoticeControllerTest {
                 .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
                         List.of(attachmentDto(7L, "report.pdf")))));
 
-        mockMvc.perform(get("/notices/1"))
+        mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("storageKey"))));
     }
@@ -552,7 +560,7 @@ class PublicNoticeControllerTest {
     void attachment_success_returnsFileWithHeaders() throws Exception {
         TrackingInputStream stream = stubDownload("report.pdf", "content".getBytes(), -1);
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_OCTET_STREAM))
                 .andExpect(header().string("Content-Disposition", containsString("report.pdf")))
@@ -574,7 +582,7 @@ class PublicNoticeControllerTest {
         }
         TrackingInputStream stream = stubDownload("big.bin", big, -1);
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isOk())
                 .andExpect(header().longValue("Content-Length", 50_000L))
                 .andExpect(content().bytes(big));
@@ -588,7 +596,7 @@ class PublicNoticeControllerTest {
     void attachment_emptyFile_ok() throws Exception {
         TrackingInputStream stream = stubDownload("empty.txt", new byte[0], -1);
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isOk())
                 .andExpect(header().longValue("Content-Length", 0L));
 
@@ -601,7 +609,7 @@ class PublicNoticeControllerTest {
     void attachment_findReturnsEmpty_notFoundWithoutOpen() throws Exception {
         given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.empty());
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isNotFound());
 
         verify(publicNoticeService, never()).openAttachment(any());
@@ -614,7 +622,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
         given(publicNoticeService.openAttachment(REF)).willReturn(Optional.empty());
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isNotFound());
     }
 
@@ -622,9 +630,9 @@ class PublicNoticeControllerTest {
     @DisplayName("비숫자 id/attachmentId는 Service를 거치지 않고 404(JSON 아님)")
     @WithMockUser
     void attachment_nonNumericIds_notFoundWithoutServiceCall() throws Exception {
-        mockMvc.perform(get("/notices/abc/attachments/1")).andExpect(status().isNotFound());
-        mockMvc.perform(get("/notices/1/attachments/abc")).andExpect(status().isNotFound());
-        mockMvc.perform(head("/notices/abc/attachments/1")).andExpect(status().isNotFound());
+        mockMvc.perform(get("/main/notices/abc/attachments/1")).andExpect(status().isNotFound());
+        mockMvc.perform(get("/main/notices/1/attachments/abc")).andExpect(status().isNotFound());
+        mockMvc.perform(head("/main/notices/abc/attachments/1")).andExpect(status().isNotFound());
 
         Mockito.verifyNoInteractions(publicNoticeService);
     }
@@ -636,7 +644,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.findPublishedAttachment(anyLong(), anyLong()))
                 .willThrow(new RuntimeException("디스크 오류 시뮬레이션"));
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(view().name("public/notice/error"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML));
@@ -649,7 +657,7 @@ class PublicNoticeControllerTest {
         given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
         given(publicNoticeService.openAttachment(REF)).willThrow(new IllegalStateException("디스크 오류"));
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(view().name("public/notice/error"));
     }
@@ -660,7 +668,7 @@ class PublicNoticeControllerTest {
     void attachment_firstReadFails_html500AndClosed() throws Exception {
         TrackingInputStream stream = stubDownload("report.pdf", new byte[20_000], 0);
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(view().name("public/notice/error"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
@@ -677,7 +685,7 @@ class PublicNoticeControllerTest {
         java.util.Arrays.fill(data, (byte) 'A');
         TrackingInputStream stream = stubDownload("report.pdf", data, 4096);
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(view().name("public/notice/error"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
@@ -698,7 +706,7 @@ class PublicNoticeControllerTest {
         TrackingInputStream stream = stubDownload("report.pdf", data, 12288);
 
         Exception thrown = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
-                () -> mockMvc.perform(get("/notices/1/attachments/7")));
+                () -> mockMvc.perform(get("/main/notices/1/attachments/7")));
 
         Throwable root = thrown;
         while (root.getCause() != null) {
@@ -715,7 +723,7 @@ class PublicNoticeControllerTest {
         TrackingInputStream stream = stubDownload("report.pdf", "SECRETBODY".getBytes(), -1);
         stream.failOnClose = true;
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(view().name("public/notice/error"))
                 .andExpect(header().doesNotExist("Content-Disposition"))
@@ -732,7 +740,7 @@ class PublicNoticeControllerTest {
         TrackingInputStream stream = stubDownload("report.pdf", "content".getBytes(), -1);
         stream.failOnClose = true;
 
-        mockMvc.perform(head("/notices/1/attachments/7"))
+        mockMvc.perform(head("/main/notices/1/attachments/7"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(header().doesNotExist("Content-Disposition"))
                 .andExpect(header().doesNotExist("Content-Length"));
@@ -746,7 +754,7 @@ class PublicNoticeControllerTest {
     void attachment_head_headersOnlyAndNoBodyRead() throws Exception {
         TrackingInputStream stream = stubDownload("report.pdf", "content".getBytes(), -1);
 
-        mockMvc.perform(head("/notices/1/attachments/7"))
+        mockMvc.perform(head("/main/notices/1/attachments/7"))
                 .andExpect(status().isOk())
                 .andExpect(header().longValue("Content-Length", 7L))
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
@@ -765,7 +773,7 @@ class PublicNoticeControllerTest {
     void attachment_head_notFoundSameAsGet() throws Exception {
         given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.empty());
 
-        mockMvc.perform(head("/notices/1/attachments/7"))
+        mockMvc.perform(head("/main/notices/1/attachments/7"))
                 .andExpect(status().isNotFound());
 
         verify(publicNoticeService, never()).openAttachment(any());
@@ -778,7 +786,7 @@ class PublicNoticeControllerTest {
         String crlfFilename = "report\r\nX-Evil: injected.txt";
         stubDownload(crlfFilename, "content".getBytes(), -1);
 
-        mockMvc.perform(get("/notices/1/attachments/7"))
+        mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isOk())
                 .andExpect(header().doesNotExist("X-Evil"))
                 .andExpect(result -> {

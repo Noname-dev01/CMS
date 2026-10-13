@@ -374,28 +374,28 @@ class SecurityConfigTest {
     @Test
     @DisplayName("비인증 GET /notices는 200 (permitAll, 로그인 리다이렉트 아님)")
     void publicNotices_unauthenticatedGet_ok() throws Exception {
-        mockMvc.perform(get("/notices"))
+        mockMvc.perform(get("/main/notices"))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("비인증 HEAD /notices는 200 — v3에서 추가한 HEAD 허용 규칙의 회귀 테스트")
     void publicNotices_unauthenticatedHead_ok() throws Exception {
-        mockMvc.perform(head("/notices"))
+        mockMvc.perform(head("/main/notices"))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("CSRF 없는 비인증 POST /notices는 CsrfFilter가 먼저 차단해 403")
     void publicNotices_unauthenticatedPost_missingCsrf_forbidden() throws Exception {
-        mockMvc.perform(post("/notices"))
+        mockMvc.perform(post("/main/notices"))
                 .andExpect(status().isForbidden());
     }
 
     @Test
     @DisplayName("CSRF 포함 비인증 POST /notices는 denyAll+익명 판별로 /admin/login 302 리다이렉트 (405/401이 아님)")
     void publicNotices_unauthenticatedPost_withCsrf_redirectsToLogin() throws Exception {
-        mockMvc.perform(post("/notices").with(csrf()))
+        mockMvc.perform(post("/main/notices").with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/admin/login"));
     }
@@ -404,7 +404,7 @@ class SecurityConfigTest {
     @DisplayName("CSRF 포함 ADMIN POST /notices는 denyAll+인증 사용자 판별로 정확히 403 (denyAll이 역할 불문임을 확인)")
     @WithMockUser(roles = "ADMIN")
     void publicNotices_adminPost_withCsrf_forbidden() throws Exception {
-        mockMvc.perform(post("/notices").with(csrf()))
+        mockMvc.perform(post("/main/notices").with(csrf()))
                 .andExpect(status().isForbidden());
     }
 
@@ -415,21 +415,21 @@ class SecurityConfigTest {
     @Test
     @DisplayName("비인증 GET /notices/{id}/attachments/{attachmentId}는 200 (permitAll)")
     void publicNoticeAttachment_unauthenticatedGet_ok() throws Exception {
-        mockMvc.perform(get("/notices/1/attachments/1"))
+        mockMvc.perform(get("/main/notices/1/attachments/1"))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("비인증 HEAD /notices/{id}/attachments/{attachmentId}는 200 (permitAll)")
     void publicNoticeAttachment_unauthenticatedHead_ok() throws Exception {
-        mockMvc.perform(head("/notices/1/attachments/1"))
+        mockMvc.perform(head("/main/notices/1/attachments/1"))
                 .andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("CSRF 포함 비인증 POST /notices/{id}/attachments/{attachmentId}는 denyAll+익명 판별로 /admin/login 302 리다이렉트")
     void publicNoticeAttachment_unauthenticatedPost_withCsrf_redirectsToLogin() throws Exception {
-        mockMvc.perform(post("/notices/1/attachments/1").with(csrf()))
+        mockMvc.perform(post("/main/notices/1/attachments/1").with(csrf()))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/admin/login"));
     }
@@ -440,36 +440,36 @@ class SecurityConfigTest {
     @Test
     @DisplayName("비인증 GET /boards/{id}, /boards/{id}/posts/{postId}, 첨부 다운로드는 200 (permitAll, 로그인 리다이렉트 아님)")
     void publicBoards_unauthenticatedGet_ok() throws Exception {
-        mockMvc.perform(get("/boards/1")).andExpect(status().isOk());
-        mockMvc.perform(get("/boards/1/posts/2")).andExpect(status().isOk());
-        mockMvc.perform(get("/boards/1/posts/2/attachments/3")).andExpect(status().isOk());
+        mockMvc.perform(get("/main/boards/1")).andExpect(status().isOk());
+        mockMvc.perform(get("/main/boards/1/posts/2")).andExpect(status().isOk());
+        mockMvc.perform(get("/main/boards/1/posts/2/attachments/3")).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("비인증 HEAD /boards/{id}/posts/{postId}/attachments/{attachmentId}는 200 (permitAll)")
     void publicBoards_unauthenticatedHead_ok() throws Exception {
-        mockMvc.perform(head("/boards/1/posts/2/attachments/3")).andExpect(status().isOk());
+        mockMvc.perform(head("/main/boards/1/posts/2/attachments/3")).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("CSRF 없는 비인증 POST /boards/{id}는 CsrfFilter가 먼저 차단해 403")
     void publicBoards_unauthenticatedPost_missingCsrf_forbidden() throws Exception {
-        mockMvc.perform(post("/boards/1")).andExpect(status().isForbidden());
+        mockMvc.perform(post("/main/boards/1")).andExpect(status().isForbidden());
     }
 
     @Test
     @DisplayName("CSRF 포함 비인증 POST/PATCH/DELETE /boards/**는 denyAll+익명 판별로 /admin/login 302 리다이렉트 (405/401이 아님)")
     void publicBoards_unauthenticatedWrite_withCsrf_redirectsToLogin() throws Exception {
-        mockMvc.perform(post("/boards/1").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(post("/boards/1/posts/2/attachments/3").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(delete("/boards/1/posts/2").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/main/boards/1").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/main/boards/1/posts/2/attachments/3").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(delete("/main/boards/1/posts/2").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
     @DisplayName("CSRF 포함 ADMIN POST /boards/{id}는 denyAll+인증 사용자 판별로 정확히 403 (denyAll이 역할 불문임을 확인)")
     @WithMockUser(roles = "ADMIN")
     void publicBoards_adminPost_withCsrf_forbidden() throws Exception {
-        mockMvc.perform(post("/boards/1").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(post("/main/boards/1").with(csrf())).andExpect(status().isForbidden());
     }
 
     // ==================== actuator 인가 범위 검증 (PLAN-prod-profile.md 결정 3, 2026-07-29 승인) ====================
@@ -545,7 +545,7 @@ class SecurityConfigTest {
     @Test
     @DisplayName("비인증 GET 미분류 경로는 기본 거부 — 404가 아니라 로그인 페이지로 302")
     void defaultDeny_anonymousUnclassifiedPath_redirectsToLogin() throws Exception {
-        mockMvc.perform(get("/does-not-exist"))
+        mockMvc.perform(get("/does/not-exist"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/admin/login"));
     }
@@ -583,8 +583,8 @@ class SecurityConfigTest {
     @DisplayName("/ 를 열어도 하위·유사 경로는 기본 거부 그대로다 — 정확 경로 1개만 공개된다")
     void publicHome_doesNotOpenOtherPaths() throws Exception {
         mockMvc.perform(get("/index.html")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(get("/home")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(get("/does-not-exist")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/home/x")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/does/not-exist")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
@@ -698,34 +698,107 @@ class SecurityConfigTest {
     @Test
     @DisplayName("비인증 GET·HEAD /faq는 200 (permitAll, 정확 경로)")
     void publicFaq_anonymousGetAndHead_ok() throws Exception {
-        mockMvc.perform(get("/faq")).andExpect(status().isOk());
-        mockMvc.perform(head("/faq")).andExpect(status().isOk());
+        mockMvc.perform(get("/main/faq")).andExpect(status().isOk());
+        mockMvc.perform(head("/main/faq")).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("/faq의 쓰기 메서드와 하위 경로는 막힌다 — 비인증은 로그인으로(csrf 있음), csrf 없으면 403 (denyAll)")
     void publicFaq_writesAndSubPaths_denied() throws Exception {
-        mockMvc.perform(post("/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(put("/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(delete("/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(post("/faq")).andExpect(status().isForbidden());
-        mockMvc.perform(get("/faq/1")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(get("/faq/")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/main/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(put("/main/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(delete("/main/faq").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/main/faq")).andExpect(status().isForbidden());
+        mockMvc.perform(get("/main/faq/1")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/faq/")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
     @DisplayName("ADMIN도 /faq 쓰기는 denyAll로 403, 하위 경로도 403 (역할 불문)")
     @WithMockUser(roles = "ADMIN")
     void publicFaq_adminWriteAndSubPath_forbidden() throws Exception {
-        mockMvc.perform(post("/faq").with(csrf())).andExpect(status().isForbidden());
-        mockMvc.perform(get("/faq/1")).andExpect(status().isForbidden());
+        mockMvc.perform(post("/main/faq").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(get("/main/faq/1")).andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("/faq와 비슷한 접두사 경로(/faqs, /faqx)는 공개되지 않는다 (기본 거부)")
+    @DisplayName("사이트 범위 /faq와 비슷한 경로(/main/faqs, /main/faqx)는 공개되지 않는다 (기본 거부)")
     void publicFaq_lookalikePrefixes_notPublic() throws Exception {
-        mockMvc.perform(get("/faqs")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(get("/faqx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/faqs")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/faqx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    // ==================== 사이트 범위 공개 경로 /{siteKey}/… (PR ②, 2026-10-13 승인, PLAN-site-menu.md P2-3) ====================
+    // 이 슬라이스에는 사이트 해석 인터셉터가 없다 — 여기서는 "보안 계층이 어떤 경로를 핸들러까지 보내는가"만 고정한다(핸들러가 없으면 404가 '열림'의 증거).
+    // 사이트 해석·같은 404·예약어·공개 인벤토리는 PublicSiteRoutingIntegrationTest·PublicExposureInventoryTest가 맡는다.
+
+    @Test
+    @DisplayName("사이트 키 자리의 임의 단일 세그먼트(없는 키·대문자·밑줄)는 비인증 GET·HEAD가 보안을 통과한다 — 핸들러가 없으면 404이지 로그인 302가 아니다")
+    void siteScoped_anyKeyShapeReachesTheHandlerLayer() throws Exception {
+        for (String path : new String[] {"/nosuch", "/MAIN", "/a_b", "/nosuch/notices", "/MAIN/faq", "/a_b/notices/1", "/nosuch/boards/1/posts/2",
+                "/nosuch/pages/x/revisions"}) {
+            mockMvc.perform(get(path)).andExpect(status().isNotFound());
+            mockMvc.perform(head(path)).andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
+    @DisplayName("점이 든 경로와 사이트 범위 밖의 깊은 경로는 열리지 않는다 — 기본 거부 그대로 (302)")
+    void siteScoped_dottedAndUnrelatedPathsStayDenied() throws Exception {
+        for (String path : new String[] {"/robots.txt", "/foo.bar", "/nosuch/unknown", "/nosuch/faq/1", "/nosuch/inquiry/1", "/a/b/c/d"}) {
+            mockMvc.perform(get(path)).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        }
+    }
+
+    @Test
+    @DisplayName("사이트 범위 경로의 쓰기 메서드는 막힌다 — 문의 POST만 열려 있다 (CSRF 포함 비인증은 로그인 302, ADMIN은 403)")
+    @WithMockUser(roles = "ADMIN")
+    void siteScoped_writesDenied_exceptInquiryPost() throws Exception {
+        for (String path : new String[] {"/nosuch", "/main/notices", "/main/boards/1", "/main/pages/x", "/main/faq"}) {
+            mockMvc.perform(post(path).with(csrf())).andExpect(status().isForbidden());
+            mockMvc.perform(put(path).with(csrf())).andExpect(status().isForbidden());
+            mockMvc.perform(delete(path).with(csrf())).andExpect(status().isForbidden());
+        }
+        mockMvc.perform(put("/main/inquiry").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(post("/main/inquiry").with(csrf())).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("CSRF 포함 비인증 쓰기는 로그인 302다 — 사이트 범위 쓰기 거부는 익명에게도 막힘 (문의 POST만 예외)")
+    void siteScoped_unauthenticatedWrites() throws Exception {
+        mockMvc.perform(post("/nosuch/notices").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/nosuch").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/main/inquiry").with(csrf())).andExpect(status().isOk());
+        mockMvc.perform(post("/main/inquiry")).andExpect(status().isForbidden());   // CSRF 토큰 없음 — 문의 POST도 CSRF는 그대로 강제
+    }
+
+    @Test
+    @DisplayName("/error 직접 요청은 사이트 키 자리에 걸리지 않고 거부된다 (REQUEST 디스패치 — ERROR 디스패치만 공개)")
+    void siteScoped_directErrorRequest_denied() throws Exception {
+        mockMvc.perform(get("/error")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    @Test
+    @DisplayName("접두어 없는 옛 공개 경로는 GET·HEAD가 열려 핸들러 없는 404로 끝나고(종료), 쓰기는 막힌다 — 옛 POST /inquiry는 접수되지 않는다")
+    void legacyPrefixlessPaths_areGone() throws Exception {
+        for (String path : new String[] {"/notices", "/notices/1", "/notices/1/attachments/7", "/boards", "/boards/1/posts/2", "/pages/terms",
+                "/pages/terms/revisions", "/faq", "/faq/1", "/inquiry", "/inquiry/1"}) {
+            mockMvc.perform(get(path)).andExpect(status().isNotFound());
+            mockMvc.perform(head(path)).andExpect(status().isNotFound());
+        }
+        mockMvc.perform(post("/inquiry").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/notices").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+    }
+
+    @Test
+    @DisplayName("예약어 단일 세그먼트는 기존 규칙이 먼저 이긴다 — 관리자·액추에이터·swagger는 보호, 이미지·정적 경로는 기존 규칙 그대로 (공개 페이지가 되지 않는다)")
+    void siteScoped_reservedWordsKeepTheirOwnRules() throws Exception {
+        mockMvc.perform(get("/admin/notices")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/actuator/notices")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/swagger-ui/notices")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/banners/notices")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/popups/faq")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/content-images")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
     }
 
     // ==================== FAQ 관리 게이트 (DELEGABLE FAQ — 카탈로그에서 자동 생성) ====================
@@ -762,40 +835,40 @@ class SecurityConfigTest {
     @Test
     @DisplayName("비인증 GET·HEAD·POST /inquiry는 통과한다 (permitAll, 정확 경로 — POST는 CSRF 토큰이 있을 때만)")
     void publicInquiry_anonymousGetHeadPost_ok() throws Exception {
-        mockMvc.perform(get("/inquiry")).andExpect(status().isOk());
-        mockMvc.perform(head("/inquiry")).andExpect(status().isOk());
-        mockMvc.perform(post("/inquiry").with(csrf())).andExpect(status().isOk());
+        mockMvc.perform(get("/main/inquiry")).andExpect(status().isOk());
+        mockMvc.perform(head("/main/inquiry")).andExpect(status().isOk());
+        mockMvc.perform(post("/main/inquiry").with(csrf())).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("비인증 POST /inquiry는 CSRF 토큰이 없으면 403 — 공개여도 CSRF는 그대로 활성이다")
     void publicInquiry_postWithoutCsrf_forbidden() throws Exception {
-        mockMvc.perform(post("/inquiry")).andExpect(status().isForbidden());
+        mockMvc.perform(post("/main/inquiry")).andExpect(status().isForbidden());
     }
 
     @Test
     @DisplayName("/inquiry의 PUT·PATCH·DELETE와 하위 경로는 막힌다 — 비인증은 로그인으로(csrf 있음) (denyAll)")
     void publicInquiry_otherMethodsAndSubPaths_denied() throws Exception {
-        mockMvc.perform(put("/inquiry").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(delete("/inquiry").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(get("/inquiry/1")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(post("/inquiry/1").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(get("/inquiry/")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(put("/main/inquiry").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(delete("/main/inquiry").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/inquiry/1")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(post("/main/inquiry/1").with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/inquiry/")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
     }
 
     @Test
     @DisplayName("ADMIN도 /inquiry 하위 경로·PUT은 denyAll로 403 (역할 불문)")
     @WithMockUser(roles = "ADMIN")
     void publicInquiry_adminSubPath_forbidden() throws Exception {
-        mockMvc.perform(get("/inquiry/1")).andExpect(status().isForbidden());
-        mockMvc.perform(put("/inquiry").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(get("/main/inquiry/1")).andExpect(status().isForbidden());
+        mockMvc.perform(put("/main/inquiry").with(csrf())).andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("/inquiry와 비슷한 접두사 경로(/inquiries, /inquiryx)는 공개되지 않는다 (기본 거부)")
+    @DisplayName("사이트 범위 /inquiry와 비슷한 경로(/main/inquiries, /main/inquiryx)는 공개되지 않는다 (기본 거부)")
     void publicInquiry_lookalikePrefixes_notPublic() throws Exception {
-        mockMvc.perform(get("/inquiries")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(get("/inquiryx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/inquiries")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/inquiryx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
     }
 
     // ==================== 문의함 관리 게이트 (DELEGABLE INQUIRY — 카탈로그에서 자동 생성) ====================
@@ -829,16 +902,16 @@ class SecurityConfigTest {
     @Test
     @DisplayName("비인증 GET·HEAD /pages/{slug}·/revisions·/revisions/{no}는 200 (permitAll)")
     void publicPages_anonymousGetAndHead_ok() throws Exception {
-        for (String path : new String[]{"/pages/terms", "/pages/terms/revisions", "/pages/terms/revisions/2"}) {
+        for (String path : new String[]{"/main/pages/terms", "/main/pages/terms/revisions", "/main/pages/terms/revisions/2"}) {
             mockMvc.perform(get(path)).andExpect(status().isOk());
             mockMvc.perform(head(path)).andExpect(status().isOk());
         }
     }
 
     @Test
-    @DisplayName("/pages/** 의 쓰기 메서드는 막힌다 — 비인증은 로그인으로(csrf 있음), csrf 없으면 403 (denyAll)")
+    @DisplayName("/main/pages/** 의 쓰기 메서드는 막힌다 — 비인증은 로그인으로(csrf 있음), csrf 없으면 403 (denyAll)")
     void publicPages_writes_denied() throws Exception {
-        for (String path : new String[]{"/pages/terms", "/pages/terms/revisions/1"}) {
+        for (String path : new String[]{"/main/pages/terms", "/main/pages/terms/revisions/1"}) {
             mockMvc.perform(post(path).with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
             mockMvc.perform(put(path).with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
             mockMvc.perform(delete(path).with(csrf())).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
@@ -850,15 +923,15 @@ class SecurityConfigTest {
     @DisplayName("ADMIN도 /pages/** 쓰기는 denyAll로 403 (역할 불문)")
     @WithMockUser(roles = "ADMIN")
     void publicPages_adminWrite_forbidden() throws Exception {
-        mockMvc.perform(post("/pages/terms").with(csrf())).andExpect(status().isForbidden());
-        mockMvc.perform(delete("/pages/terms").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(post("/main/pages/terms").with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(delete("/main/pages/terms").with(csrf())).andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("/pages와 비슷한 접두사 경로(/pagesx, /page)는 공개되지 않는다 (기본 거부)")
+    @DisplayName("사이트 범위 /pages와 비슷한 경로(/main/pagesx, /main/page)는 공개되지 않는다 (기본 거부)")
     void publicPages_lookalikePrefixes_notPublic() throws Exception {
-        mockMvc.perform(get("/pagesx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
-        mockMvc.perform(get("/page/terms")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/pagesx")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
+        mockMvc.perform(get("/main/page/terms")).andExpect(status().is3xxRedirection()).andExpect(redirectedUrl("/admin/login"));
     }
 
     // ==================== 정적 페이지 관리 게이트 (DELEGABLE SITE_PAGE — 카탈로그에서 자동 생성) ====================
@@ -891,7 +964,7 @@ class SecurityConfigTest {
     @WithMockUser(roles = "ADMIN")
     @DisplayName("ADMIN도 미분류 경로는 403 (denyAll은 역할과 무관)")
     void defaultDeny_adminUnclassifiedPath_403() throws Exception {
-        mockMvc.perform(get("/does-not-exist"))
+        mockMvc.perform(get("/does/not-exist"))
                 .andExpect(status().isForbidden());
     }
 
@@ -899,7 +972,7 @@ class SecurityConfigTest {
     @WithMockUser(roles = "MANAGER")
     @DisplayName("MANAGER도 미분류 경로는 403")
     void defaultDeny_managerUnclassifiedPath_403() throws Exception {
-        mockMvc.perform(get("/does-not-exist"))
+        mockMvc.perform(get("/does/not-exist"))
                 .andExpect(status().isForbidden());
     }
 
@@ -1077,33 +1150,33 @@ class ActuatorEnvStubController {
 @TestStubController
 class PublicBoardStubController {
 
-    @GetMapping("/boards/{boardId}")
+    @GetMapping("/main/boards/{boardId}")
     String list() {
         return "public-board-list";
     }
 
-    @PostMapping("/boards/{boardId}")
+    @PostMapping("/main/boards/{boardId}")
     ResponseEntity<String> create() {
         // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
         return ResponseEntity.ok("{}");
     }
 
-    @GetMapping("/boards/{boardId}/posts/{postId}")
+    @GetMapping("/main/boards/{boardId}/posts/{postId}")
     String detail() {
         return "public-board-detail";
     }
 
-    @DeleteMapping("/boards/{boardId}/posts/{postId}")
+    @DeleteMapping("/main/boards/{boardId}/posts/{postId}")
     ResponseEntity<String> deletePost() {
         return ResponseEntity.ok("{}");
     }
 
-    @GetMapping("/boards/{boardId}/posts/{postId}/attachments/{attachmentId}")
+    @GetMapping("/main/boards/{boardId}/posts/{postId}/attachments/{attachmentId}")
     String attachment() {
         return "public-board-attachment";
     }
 
-    @PostMapping("/boards/{boardId}/posts/{postId}/attachments/{attachmentId}")
+    @PostMapping("/main/boards/{boardId}/posts/{postId}/attachments/{attachmentId}")
     ResponseEntity<String> attachmentCreate() {
         return ResponseEntity.ok("{}");
     }
@@ -1112,23 +1185,23 @@ class PublicBoardStubController {
 @TestStubController
 class PublicNoticeStubController {
 
-    @GetMapping("/notices")
+    @GetMapping("/main/notices")
     String list() {
         return "public-notices-list";
     }
 
-    @PostMapping("/notices")
+    @PostMapping("/main/notices")
     ResponseEntity<String> create() {
         // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
         return ResponseEntity.ok("{}");
     }
 
-    @GetMapping("/notices/{id}/attachments/{attachmentId}")
+    @GetMapping("/main/notices/{id}/attachments/{attachmentId}")
     String attachment() {
         return "public-notice-attachment";
     }
 
-    @PostMapping("/notices/{id}/attachments/{attachmentId}")
+    @PostMapping("/main/notices/{id}/attachments/{attachmentId}")
     ResponseEntity<String> attachmentCreate() {
         // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
         return ResponseEntity.ok("{}");
@@ -1254,22 +1327,22 @@ class AdminPopupStubController {
 @TestStubController
 class PublicSitePageStubController {
 
-    @GetMapping("/pages/{slug}")
+    @GetMapping("/main/pages/{slug}")
     String current() {
         return "page-current";
     }
 
-    @GetMapping("/pages/{slug}/revisions")
+    @GetMapping("/main/pages/{slug}/revisions")
     String revisions() {
         return "page-revisions";
     }
 
-    @GetMapping("/pages/{slug}/revisions/{no}")
+    @GetMapping("/main/pages/{slug}/revisions/{no}")
     String revision() {
         return "page-revision";
     }
 
-    @PostMapping("/pages/{slug}")
+    @PostMapping("/main/pages/{slug}")
     ResponseEntity<String> write() {
         // denyAll이 이 매핑 자체에 도달하지 못하게 막는지 검증하는 스텁 — 실제로는 존재하지 않는 엔드포인트.
         return ResponseEntity.ok("{}");
@@ -1298,17 +1371,17 @@ class AdminSitePageStubController {
 @TestStubController
 class PublicFaqStubController {
 
-    @GetMapping("/faq")
+    @GetMapping("/main/faq")
     String list() {
         return "faq-list";
     }
 
-    @PostMapping("/faq")
+    @PostMapping("/main/faq")
     ResponseEntity<String> write() {
         return ResponseEntity.ok("{}");
     }
 
-    @GetMapping("/faq/{id}")
+    @GetMapping("/main/faq/{id}")
     String detail() {
         return "faq-detail";
     }
@@ -1341,12 +1414,12 @@ class AdminFaqStubController {
 @TestStubController
 class PublicInquiryStubController {
 
-    @GetMapping("/inquiry")
+    @GetMapping("/main/inquiry")
     String form() {
         return "inquiry-form";
     }
 
-    @PostMapping("/inquiry")
+    @PostMapping("/main/inquiry")
     ResponseEntity<String> submit() {
         return ResponseEntity.ok("{}");
     }

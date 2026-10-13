@@ -81,7 +81,7 @@ class PublicInquirySmallPoolIntegrationTest extends MariaDbContainerSupport {
                 calls.add(() -> {
                     ready.countDown();
                     go.await();
-                    return mockMvc.perform(post("/inquiry").with(csrf())
+                    return mockMvc.perform(post("/main/inquiry").with(csrf())
                                     .param("name", "홍길동" + n).param("email", "visitor" + n + "@example.com").param("title", "제목 " + n)
                                     .param("body", "본문 " + n).param("consent", "true").param("cf-turnstile-response", "token"))
                             .andReturn().getResponse().getStatus();

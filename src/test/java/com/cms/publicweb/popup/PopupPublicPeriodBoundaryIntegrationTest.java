@@ -136,7 +136,7 @@ class PopupPublicPeriodBoundaryIntegrationTest extends MariaDbContainerSupport {
     }
 
     private boolean homeShows(long id) throws Exception {
-        String html = mockMvc.perform(get("/").with(fromTestIp())).andReturn().getResponse().getContentAsString();
+        String html = mockMvc.perform(get("/main").with(fromTestIp())).andReturn().getResponse().getContentAsString();
         return html.contains("data-popup-id=\"" + id + "\"");
     }
 

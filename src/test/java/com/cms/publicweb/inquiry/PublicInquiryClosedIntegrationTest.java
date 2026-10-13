@@ -38,8 +38,8 @@ class PublicInquiryClosedIntegrationTest extends MariaDbContainerSupport {
         jdbc.update("DELETE FROM inquiry");
         when(captchaVerifier.verify(any(), any())).thenReturn(true);
 
-        mockMvc.perform(get("/inquiry")).andExpect(status().isServiceUnavailable());
-        mockMvc.perform(post("/inquiry").with(csrf()).param("name", "홍길동").param("email", "a@b.co").param("title", "제목")
+        mockMvc.perform(get("/main/inquiry")).andExpect(status().isServiceUnavailable());
+        mockMvc.perform(post("/main/inquiry").with(csrf()).param("name", "홍길동").param("email", "a@b.co").param("title", "제목")
                         .param("body", "본문").param("consent", "true").param("cf-turnstile-response", "token"))
                 .andExpect(status().isServiceUnavailable());
 

@@ -253,26 +253,26 @@ class PostPublishPeriodPublicIntegrationTest extends MariaDbContainerSupport {
             int ok = expected ? 200 : 404;
 
             // /boards — 목록(제목 노출)·상세·첨부(GET·HEAD)·본문 이미지(GET·HEAD)
-            assertThat(bodyOf(get("/boards/{b}", board).with(fromTestIp())).contains(boardTitle)).as("boards 목록" + ctx).isEqualTo(expected);
-            assertThat(statusOf(get("/boards/{b}/posts/{p}", board, boardPost).with(fromTestIp()))).as("boards 상세" + ctx).isEqualTo(ok);
-            assertThat(statusOf(get("/boards/{b}/posts/{p}/attachments/{a}", board, boardPost, boardAttachment).with(fromTestIp())))
+            assertThat(bodyOf(get("/main/boards/{b}", board).with(fromTestIp())).contains(boardTitle)).as("boards 목록" + ctx).isEqualTo(expected);
+            assertThat(statusOf(get("/main/boards/{b}/posts/{p}", board, boardPost).with(fromTestIp()))).as("boards 상세" + ctx).isEqualTo(ok);
+            assertThat(statusOf(get("/main/boards/{b}/posts/{p}/attachments/{a}", board, boardPost, boardAttachment).with(fromTestIp())))
                     .as("boards 첨부 GET" + ctx).isEqualTo(ok);
-            assertThat(statusOf(head("/boards/{b}/posts/{p}/attachments/{a}", board, boardPost, boardAttachment).with(fromTestIp())))
+            assertThat(statusOf(head("/main/boards/{b}/posts/{p}/attachments/{a}", board, boardPost, boardAttachment).with(fromTestIp())))
                     .as("boards 첨부 HEAD" + ctx).isEqualTo(ok);
             assertThat(statusOf(get("/content-images/{i}", boardImage).with(fromTestIp()))).as("boards 이미지 GET" + ctx).isEqualTo(ok);
             assertThat(statusOf(head("/content-images/{i}", boardImage).with(fromTestIp()))).as("boards 이미지 HEAD" + ctx).isEqualTo(ok);
 
             // /notices — 공지는 공지 게시판의 글이라 같은 판정을 따라야 한다
-            assertThat(bodyOf(get("/notices").with(fromTestIp())).contains(noticeTitle)).as("notices 목록" + ctx).isEqualTo(expected);
-            assertThat(statusOf(get("/notices/{p}", noticePost).with(fromTestIp()))).as("notices 상세" + ctx).isEqualTo(ok);
-            assertThat(statusOf(get("/notices/{p}/attachments/{a}", noticePost, noticeAttachment).with(fromTestIp())))
+            assertThat(bodyOf(get("/main/notices").with(fromTestIp())).contains(noticeTitle)).as("notices 목록" + ctx).isEqualTo(expected);
+            assertThat(statusOf(get("/main/notices/{p}", noticePost).with(fromTestIp()))).as("notices 상세" + ctx).isEqualTo(ok);
+            assertThat(statusOf(get("/main/notices/{p}/attachments/{a}", noticePost, noticeAttachment).with(fromTestIp())))
                     .as("notices 첨부 GET" + ctx).isEqualTo(ok);
-            assertThat(statusOf(head("/notices/{p}/attachments/{a}", noticePost, noticeAttachment).with(fromTestIp())))
+            assertThat(statusOf(head("/main/notices/{p}/attachments/{a}", noticePost, noticeAttachment).with(fromTestIp())))
                     .as("notices 첨부 HEAD" + ctx).isEqualTo(ok);
             assertThat(statusOf(get("/content-images/{i}", noticeImage).with(fromTestIp()))).as("notices 이미지 GET" + ctx).isEqualTo(ok);
 
             // 공개 메인 — 공지 섹션(공지 게시판 글)과 새 글 섹션(그 밖의 공개 게시판 글)
-            String home = bodyOf(get("/").with(fromTestIp()));
+            String home = bodyOf(get("/main").with(fromTestIp()));
             assertThat(home.contains(noticeTitle)).as("메인 공지 섹션" + ctx).isEqualTo(expected);
             assertThat(home.contains(boardTitle)).as("메인 새 글 섹션" + ctx).isEqualTo(expected);
         }
@@ -289,16 +289,16 @@ class PostPublishPeriodPublicIntegrationTest extends MariaDbContainerSupport {
         for (LocalDateTime now : boundaries()) {
             at(now);
             String ctx = " now=" + now;
-            String list = bodyOf(get("/boards/{b}", board).with(fromTestIp()));
+            String list = bodyOf(get("/main/boards/{b}", board).with(fromTestIp()));
 
             assertThat(list.contains("pp-pub-시작만")).as("시작만 목록" + ctx).isEqualTo(DisplayPeriod.isActive(START, null, now));
             assertThat(list.contains("pp-pub-종료만")).as("종료만 목록" + ctx).isEqualTo(DisplayPeriod.isActive(null, END, now));
             assertThat(list.contains("pp-pub-없음")).as("없음 목록" + ctx).isTrue();
-            assertThat(statusOf(get("/boards/{b}/posts/{p}", board, onlyStart).with(fromTestIp())))
+            assertThat(statusOf(get("/main/boards/{b}/posts/{p}", board, onlyStart).with(fromTestIp())))
                     .as("시작만 상세" + ctx).isEqualTo(DisplayPeriod.isActive(START, null, now) ? 200 : 404);
-            assertThat(statusOf(get("/boards/{b}/posts/{p}", board, onlyEnd).with(fromTestIp())))
+            assertThat(statusOf(get("/main/boards/{b}/posts/{p}", board, onlyEnd).with(fromTestIp())))
                     .as("종료만 상세" + ctx).isEqualTo(DisplayPeriod.isActive(null, END, now) ? 200 : 404);
-            assertThat(statusOf(get("/boards/{b}/posts/{p}", board, none).with(fromTestIp()))).as("없음 상세" + ctx).isEqualTo(200);
+            assertThat(statusOf(get("/main/boards/{b}/posts/{p}", board, none).with(fromTestIp()))).as("없음 상세" + ctx).isEqualTo(200);
         }
     }
 
@@ -313,11 +313,11 @@ class PostPublishPeriodPublicIntegrationTest extends MariaDbContainerSupport {
         reference(post, image);
         at(START.plusDays(1));
 
-        assertThat(bodyOf(get("/boards/{b}", board).with(fromTestIp()))).doesNotContain(title);
-        assertThat(statusOf(get("/boards/{b}/posts/{p}", board, post).with(fromTestIp()))).isEqualTo(404);
-        assertThat(statusOf(get("/boards/{b}/posts/{p}/attachments/{a}", board, post, attachment).with(fromTestIp()))).isEqualTo(404);
+        assertThat(bodyOf(get("/main/boards/{b}", board).with(fromTestIp()))).doesNotContain(title);
+        assertThat(statusOf(get("/main/boards/{b}/posts/{p}", board, post).with(fromTestIp()))).isEqualTo(404);
+        assertThat(statusOf(get("/main/boards/{b}/posts/{p}/attachments/{a}", board, post, attachment).with(fromTestIp()))).isEqualTo(404);
         assertThat(statusOf(get("/content-images/{i}", image).with(fromTestIp()))).isEqualTo(404);
-        assertThat(bodyOf(get("/").with(fromTestIp()))).doesNotContain(title);
+        assertThat(bodyOf(get("/main").with(fromTestIp()))).doesNotContain(title);
     }
 
     @Test
@@ -332,11 +332,11 @@ class PostPublishPeriodPublicIntegrationTest extends MariaDbContainerSupport {
         }
 
         at(START.minusMinutes(1));
-        String before = bodyOf(get("/boards/{b}", board).with(fromTestIp()));
+        String before = bodyOf(get("/main/boards/{b}", board).with(fromTestIp()));
         assertThat(before).contains("1 / 2").doesNotContain("pp-pub-예약");
 
         at(START);
-        String after = bodyOf(get("/boards/{b}", board).with(fromTestIp()));
+        String after = bodyOf(get("/main/boards/{b}", board).with(fromTestIp()));
         assertThat(after).contains("1 / 4");   // 11 + 20 = 31건 → 4쪽
     }
 
