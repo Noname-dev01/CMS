@@ -6,6 +6,7 @@ import com.cms.publicweb.popup.PublicPopupService;
 import com.cms.publicweb.popup.dto.PublicPopup;
 import com.cms.publicweb.support.PublicSiteRoutes;
 import com.cms.publicweb.support.SiteScopedPublic;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
@@ -30,10 +31,11 @@ public class HomeController {
     private final PublicPopupService publicPopupService;
 
     @GetMapping(PublicSiteRoutes.HOME)
-    public String home(Model model) {
-        model.addAttribute("home", publicHomeService.getHome());
-        model.addAttribute("footerLinks", findFooterLinksSafely());
-        model.addAttribute("popups", findPopupsSafely());
+    public String home(HttpServletRequest request, Model model) {
+        Long siteId = PublicSiteRoutes.current(request).id();
+        model.addAttribute("home", publicHomeService.getHome(siteId));
+        model.addAttribute("footerLinks", findFooterLinksSafely(siteId));
+        model.addAttribute("popups", findPopupsSafely(siteId));
         return "public/home";
     }
 
@@ -41,9 +43,9 @@ public class HomeController {
      * 푸터 링크는 선택 섹션이라 조회 실패가 메인을 깨뜨리면 안 된다. {@code getHome()}과 별도 호출(각자 자체 읽기 트랜잭션)로 두고 예외를
      * 여기서 격리한다 — 메인 조회 트랜잭션 안에서 예외만 잡으면 rollback-only로 표시돼 반환 때 다시 실패할 수 있다(PLAN-static-page.md R1-3).
      */
-    private List<PublicFooterLink> findFooterLinksSafely() {
+    private List<PublicFooterLink> findFooterLinksSafely(Long siteId) {
         try {
-            return publicSitePageService.findFooterLinks();
+            return publicSitePageService.findFooterLinks(siteId);
         } catch (RuntimeException e) {
             log.warn("공개 메인 푸터 링크 조회 실패 — 푸터 없이 렌더링합니다: {}", e.getClass().getName());
             return List.of();
@@ -54,9 +56,9 @@ public class HomeController {
      * 팝업은 선택 섹션이라 조회 실패가 메인을 깨뜨리면 안 된다. 푸터와 같은 이유로 {@code getHome()}과 별도 호출로 두고 예외를 여기서 격리한다
      * (PLAN-popup.md 쟁점 8 — 실패 주입 시험 {@code PublicHomePopupIsolationIntegrationTest}).
      */
-    private List<PublicPopup> findPopupsSafely() {
+    private List<PublicPopup> findPopupsSafely(Long siteId) {
         try {
-            return publicPopupService.findDisplayablePopups();
+            return publicPopupService.findDisplayablePopups(siteId);
         } catch (RuntimeException e) {
             log.warn("공개 메인 팝업 조회 실패 — 팝업 없이 렌더링합니다: {}", e.getClass().getName());
             return List.of();

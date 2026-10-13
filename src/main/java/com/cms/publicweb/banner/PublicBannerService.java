@@ -8,6 +8,7 @@ import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.banner.dto.PublicBanner;
 import com.cms.publicweb.banner.dto.PublicBannerImageRef;
+import com.cms.publicweb.support.PublicSite;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,10 +32,10 @@ public class PublicBannerService {
     private final FileStorage fileStorage;
     private final Clock clock;
 
-    /** 공개 메인에 지금 노출할 배너를 표시 순서대로. */
+    /** 공개 메인에 지금 노출할 배너를 표시 순서대로 — 공통이거나 {@code siteId} 전용인 배너만. */
     @Transactional(readOnly = true)
-    public List<PublicBanner> findDisplayableBanners() {
-        return bannerRepository.findDisplayable(LocalDateTime.now(clock)).stream()
+    public List<PublicBanner> findDisplayableBanners(Long siteId) {
+        return bannerRepository.findDisplayable(LocalDateTime.now(clock), PublicSite.requireId(siteId)).stream()
                 .map(PublicBanner::from)
                 .toList();
     }

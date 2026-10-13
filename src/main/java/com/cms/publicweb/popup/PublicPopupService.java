@@ -8,6 +8,7 @@ import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.popup.dto.PublicPopup;
 import com.cms.publicweb.popup.dto.PublicPopupImageRef;
+import com.cms.publicweb.support.PublicSite;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -37,8 +38,8 @@ public class PublicPopupService {
 
     /** 공개 메인에 지금 노출할 팝업을 등록 순서대로 최대 {@value #MAX_DISPLAYED}건. */
     @Transactional(readOnly = true)
-    public List<PublicPopup> findDisplayablePopups() {
-        return popupRepository.findDisplayable(LocalDateTime.now(clock), PageRequest.of(0, MAX_DISPLAYED)).stream()
+    public List<PublicPopup> findDisplayablePopups(Long siteId) {
+        return popupRepository.findDisplayable(LocalDateTime.now(clock), PublicSite.requireId(siteId), PageRequest.of(0, MAX_DISPLAYED)).stream()
                 .map(PublicPopup::from)
                 .flatMap(Optional::stream)
                 .toList();

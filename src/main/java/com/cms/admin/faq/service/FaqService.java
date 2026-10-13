@@ -4,6 +4,7 @@ import com.cms.admin.faq.domain.Faq;
 import com.cms.admin.faq.domain.FaqCategory;
 import com.cms.admin.faq.domain.FaqLock;
 import com.cms.admin.faq.dto.request.FaqCategoryRequest;
+import com.cms.admin.faq.dto.request.FaqCategoryUpdateRequest;
 import com.cms.admin.faq.dto.request.FaqOrderRequest;
 import com.cms.admin.faq.dto.request.FaqRequest;
 import com.cms.admin.faq.dto.response.FaqCategoryResponse;
@@ -12,6 +13,8 @@ import com.cms.admin.faq.dto.response.FaqTreeResponse;
 import com.cms.admin.faq.repository.FaqCategoryRepository;
 import com.cms.admin.faq.repository.FaqLockRepository;
 import com.cms.admin.faq.repository.FaqRepository;
+import com.cms.admin.site.ContentSiteScope;
+import com.cms.admin.site.SiteScope;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.common.exception.ConflictException;
@@ -58,11 +61,14 @@ public class FaqService {
 
     static final String CATEGORY_NOT_FOUND = "FAQ 카테고리를 찾을 수 없습니다.";
     static final String FAQ_NOT_FOUND = "FAQ를 찾을 수 없습니다.";
+    static final String STALE_CATEGORY = "다른 관리자가 이 카테고리를 먼저 수정했습니다. 화면을 새로 고친 뒤 다시 시도해주세요.";
+    static final String STALE_FAQ_CATEGORY = "다른 관리자가 이 FAQ를 다른 카테고리로 옮겼습니다. 화면을 새로 고친 뒤 다시 시도해주세요.";
     static final String STALE_STRUCTURE = "FAQ 구조가 변경되었습니다. 화면을 새로 고친 뒤 다시 시도해주세요.";
 
     private final FaqCategoryRepository categoryRepository;
     private final FaqRepository faqRepository;
     private final FaqLockRepository lockRepository;
+    private final ContentSiteScope contentSiteScope;
     private final Clock clock;
 
     // ===================== 조회 =====================
@@ -93,16 +99,19 @@ public class FaqService {
             safeErrorMessage = "FAQ 카테고리 등록에 실패했습니다.")
     public FaqCategoryResponse createCategory(FaqCategoryRequest request) {
         String name = requireName(request.getName());
+        Long siteId = SiteScope.parse(request.getSiteScope());
 
         FaqLock lock = lockGuard();
         if (categoryRepository.count() >= MAX_CATEGORIES) {
             throw new ConflictException("FAQ 카테고리는 최대 " + MAX_CATEGORIES + "개까지 등록할 수 있습니다.");
         }
+        contentSiteScope.requireAssignable(siteId);
         LocalDateTime now = LocalDateTime.now(clock);
         FaqCategory saved = categoryRepository.save(FaqCategory.builder()
                 .name(name)
                 .ord(categoryRepository.findMaxOrd() + 1)
                 .useYn(request.getUseYn())
+                .siteId(siteId)
                 .createDate(now)
                 .updateDate(now)
                 .build());
@@ -113,13 +122,20 @@ public class FaqService {
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.FAQ_CATEGORY_UPDATE, targetType = "FAQ_CATEGORY", targetIdExpression = "id",
             safeErrorMessage = "FAQ 카테고리 수정에 실패했습니다.")
-    public FaqCategoryResponse updateCategory(Long id, FaqCategoryRequest request) {
+    public FaqCategoryResponse updateCategory(Long id, FaqCategoryUpdateRequest request) {
         String name = requireName(request.getName());
+        Long siteId = SiteScope.parseRequired(request.getSiteScope());
+        int version = SiteScope.requireVersion(request.getVersion(), 1);
 
         lockGuard();
         FaqCategory target = categoryRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(CATEGORY_NOT_FOUND));
-        target.replace(name, request.getUseYn(), LocalDateTime.now(clock));
+        // 가드 아래에서 낡은 화면을 거른다 — 다른 관리자가 방금 바꾼 표시 대상을 옛 값으로 되돌려 공개 범위를 넓히지 못하게(PLAN-site-menu.md S6b)
+        if (target.getVersion() != version) {
+            throw new ConflictException(STALE_CATEGORY);
+        }
+        contentSiteScope.requireAssignable(siteId);
+        target.replace(name, request.getUseYn(), siteId, LocalDateTime.now(clock));
         return FaqCategoryResponse.from(target);
     }
 
@@ -186,10 +202,17 @@ public class FaqService {
     public FaqResponse updateFaq(Long id, FaqRequest request) {
         String question = requireQuestion(request.getQuestion());
         String answer = ContentBodyPolicy.sanitizeFaq(request.getAnswer(), request.getContentFormat()).html();
+        if (request.getBaseCategoryId() == null) {
+            throw new InvalidRequestException("baseCategoryId가 필요합니다.");
+        }
 
         FaqLock lock = lockGuard();
         Faq target = faqRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException(FAQ_NOT_FOUND));
+        // 소속 카테고리가 곧 표시 대상이다 — 편집 시작 때와 소속이 달라졌으면 다른 관리자가 옮긴 것이므로 거부한다(S6b)
+        if (!target.getCategoryId().equals(request.getBaseCategoryId())) {
+            throw new ConflictException(STALE_FAQ_CATEGORY);
+        }
         LocalDateTime now = LocalDateTime.now(clock);
         target.replace(question, answer, request.getUseYn(), now);
 
@@ -319,7 +342,8 @@ public class FaqService {
         List<FaqTreeResponse.Category> tree = categories.stream()
                 .sorted(Comparator.comparing(FaqCategory::getOrd).thenComparing(FaqCategory::getId))
                 .map(category -> new FaqTreeResponse.Category(category.getId(), category.getName(), category.getOrd(),
-                        category.getUseYn(), itemsByCategory.getOrDefault(category.getId(), List.of())))
+                        category.getUseYn(), category.getSiteId(), category.getVersion(),
+                        itemsByCategory.getOrDefault(category.getId(), List.of())))
                 .toList();
         return new FaqTreeResponse(version, tree);
     }

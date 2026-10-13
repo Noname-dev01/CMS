@@ -5,7 +5,10 @@ import com.cms.common.html.ContentBodyPolicy;
 import com.cms.common.web.validation.SafeLinkUrl;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.cms.admin.site.SiteScope;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AccessLevel;
@@ -69,6 +72,16 @@ public class PopupUpdateRequest {
     @NotNull
     @Schema(description = "노출 여부", example = "true")
     private Boolean useYn;
+
+    @NotNull
+    @Pattern(regexp = SiteScope.PATTERN, message = "표시 대상은 COMMON 또는 사이트 ID여야 합니다.")
+    @Schema(description = "표시 대상 — COMMON(모든 공개 사이트 공통) 또는 공개 사이트 ID. 전체 교체라 필수(누락이 공통 공개가 되지 않게 400)", example = "COMMON")
+    private String siteScope;
+
+    @NotNull
+    @PositiveOrZero
+    @Schema(description = "편집을 시작할 때 응답으로 받은 revision(시작값 0). 다르면 409(낡은 화면)", example = "0")
+    private Integer revision;
 
     /** {@code null}과 정수만 받는다. 문자열(빈 문자열·공백 포함)·소수는 읽기 오류(400)다. */
     @JsonProperty("height")

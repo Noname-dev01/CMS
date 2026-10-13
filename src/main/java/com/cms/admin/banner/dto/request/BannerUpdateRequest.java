@@ -1,9 +1,12 @@
 package com.cms.admin.banner.dto.request;
 
+import com.cms.admin.site.SiteScope;
 import com.cms.common.web.validation.SafeLinkUrl;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -44,4 +47,14 @@ public class BannerUpdateRequest {
     @NotNull
     @Schema(description = "노출 여부", example = "true")
     private Boolean useYn;
+
+    @NotNull
+    @Pattern(regexp = SiteScope.PATTERN, message = "표시 대상은 COMMON 또는 사이트 ID여야 합니다.")
+    @Schema(description = "표시 대상 — COMMON(모든 공개 사이트 공통) 또는 공개 사이트 ID. 전체 교체라 필수(누락이 공통 공개가 되지 않게 400)", example = "COMMON")
+    private String siteScope;
+
+    @NotNull
+    @Positive
+    @Schema(description = "편집을 시작할 때 응답으로 받은 version. 다르면 409(낡은 화면)", example = "1")
+    private Integer version;
 }

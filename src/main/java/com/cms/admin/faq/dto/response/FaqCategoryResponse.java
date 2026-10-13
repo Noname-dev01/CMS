@@ -21,6 +21,10 @@ public class FaqCategoryResponse {
     private String name;
     private Integer ord;
     private Boolean useYn;
+    /** 소속 사이트 ID(null = 모든 공개 사이트 공통). */
+    private Long siteId;
+    /** 수정 요청의 낡은 화면 검사 값. */
+    private Integer version;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
 
@@ -30,6 +34,8 @@ public class FaqCategoryResponse {
                 .name(category.getName())
                 .ord(category.getOrd())
                 .useYn(category.getUseYn())
+                .siteId(category.getSiteId())
+                .version(category.getVersion())
                 .createDate(category.getCreateDate())
                 .updateDate(category.getUpdateDate())
                 .build();

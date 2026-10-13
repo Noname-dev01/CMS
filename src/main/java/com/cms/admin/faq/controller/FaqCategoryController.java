@@ -1,6 +1,7 @@
 package com.cms.admin.faq.controller;
 
 import com.cms.admin.faq.dto.request.FaqCategoryRequest;
+import com.cms.admin.faq.dto.request.FaqCategoryUpdateRequest;
 import com.cms.admin.faq.dto.response.FaqCategoryResponse;
 import com.cms.admin.faq.service.FaqService;
 import com.cms.admin.permission.AdminFeature;
@@ -50,12 +51,13 @@ public class FaqCategoryController {
         ).body(response);
     }
 
-    @Operation(summary = "FAQ 카테고리 수정", description = "이름·노출 전체 교체(PUT). 순서는 바꾸지 않는다")
+    @Operation(summary = "FAQ 카테고리 수정", description = "이름·노출·표시 대상 전체 교체(PUT, siteScope·version 필수). 순서는 바꾸지 않는다")
     @ApiResponse(responseCode = "400", description = "요청값 검증 실패")
     @ApiResponse(responseCode = "404", description = "카테고리 없음")
+    @ApiResponse(responseCode = "409", description = "낡은 화면(version 불일치)")
     @PutMapping("/{id}")
     @RequirePermission(feature = AdminFeature.FAQ, action = PermissionAction.UPDATE)
-    public ResponseEntity<FaqCategoryResponse> updateCategory(@PathVariable Long id, @Valid @RequestBody FaqCategoryRequest request) {
+    public ResponseEntity<FaqCategoryResponse> updateCategory(@PathVariable Long id, @Valid @RequestBody FaqCategoryUpdateRequest request) {
         return ResponseEntity.ok(faqService.updateCategory(id, request));
     }
 

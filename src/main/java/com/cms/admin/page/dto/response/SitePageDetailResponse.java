@@ -31,6 +31,8 @@ public class SitePageDetailResponse {
     private Integer version;
     private Boolean useYn;
     private Boolean footerYn;
+    /** 소속 사이트 ID(null = 모든 공개 사이트 공통). */
+    private Long siteId;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
 
@@ -54,6 +56,7 @@ public class SitePageDetailResponse {
                 .version(page.getVersion())
                 .useYn(page.getUseYn())
                 .footerYn(page.getFooterYn())
+                .siteId(page.getSiteId())
                 .createDate(page.getCreateDate())
                 .updateDate(page.getUpdateDate())
                 .revisions(revisions)

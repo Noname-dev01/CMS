@@ -51,6 +51,15 @@ public class Banner {
     @Column(nullable = false)
     private Integer ord;
 
+    /** 소속 사이트(V55). {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
+    @Column(name = "site_id")
+    private Long siteId;
+
+    /** 낡은 화면 검사용(V55) — 메타데이터 교체({@link #replaceMetadata})마다 +1. 순서 변경은 올리지 않는다. */
+    @Column(nullable = false)
+    @Builder.Default
+    private Integer version = 1;
+
     private LocalDateTime createDate;
 
     private LocalDateTime updateDate;
@@ -60,7 +69,9 @@ public class Banner {
      * {@link DisplayPeriod#requireValid}를 마친 값이어야 한다.
      */
     public void replaceMetadata(String title, String linkUrl, LocalDateTime displayStart, LocalDateTime displayEnd,
-                                boolean useYn, LocalDateTime now) {
+                                boolean useYn, Long siteId, LocalDateTime now) {
+        this.version = Math.incrementExact(this.version);
+        this.siteId = siteId;
         this.title = title;
         this.linkUrl = linkUrl;
         this.displayStart = displayStart;

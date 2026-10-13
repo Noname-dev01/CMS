@@ -1,8 +1,10 @@
 package com.cms.admin.banner.dto.request;
 
+import com.cms.admin.site.SiteScope;
 import com.cms.common.web.validation.SafeLinkUrl;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -39,6 +41,10 @@ public class BannerCreateRequest {
 
     @Schema(description = "노출 여부. 누락 시 true", example = "true")
     private Boolean useYn;
+
+    @Pattern(regexp = SiteScope.PATTERN, message = "표시 대상은 COMMON 또는 사이트 ID여야 합니다.")
+    @Schema(description = "표시 대상 — COMMON(모든 공개 사이트 공통) 또는 공개 사이트 ID. 누락 시 COMMON", example = "COMMON")
+    private String siteScope;
 
     @Schema(description = "배너 이미지(png·jpeg·gif, 2MB 이하, 한 변 2560px 이하, 애니메이션 불가). imageId와 둘 중 하나만 보낸다")
     private MultipartFile image;

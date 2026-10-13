@@ -23,6 +23,8 @@ public class SitePageSummaryResponse {
     private Integer version;
     private Boolean useYn;
     private Boolean footerYn;
+    /** 소속 사이트 ID(null = 모든 공개 사이트 공통). */
+    private Long siteId;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
 
@@ -35,6 +37,7 @@ public class SitePageSummaryResponse {
                 .version(row.version())
                 .useYn(row.useYn())
                 .footerYn(row.footerYn())
+                .siteId(row.siteId())
                 .createDate(row.createDate())
                 .updateDate(row.updateDate())
                 .build();

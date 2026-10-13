@@ -23,8 +23,11 @@ import lombok.Setter;
 public class FaqRequest {
 
     @NotNull
-    @Schema(description = "소속 카테고리 ID")
+    @Schema(description = "소속 카테고리 ID (수정이면 이동할 카테고리)")
     private Long categoryId;
+
+    @Schema(description = "수정에서만 필수 — 편집을 시작할 때의 소속 카테고리 ID. 현재 소속과 다르면 409(낡은 화면이 다른 관리자가 옮긴 항목을 되돌려 재공개하지 못하게, PLAN-site-menu.md PR ③ S6b). 등록에서는 무시")
+    private Long baseCategoryId;
 
     @NotBlank
     @Size(max = 300)

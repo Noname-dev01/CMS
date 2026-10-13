@@ -20,7 +20,7 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
     int findMaxOrdByCategoryId(@Param("categoryId") Long categoryId);
 
     /**
-     * 공개 페이지용 — 노출 중인 카테고리 ∧ 노출 중인 FAQ만, (카테고리 순서, FAQ 순서)대로. 공개 불변식이 쿼리에 고정돼 있어 호출자가 필터를 빠뜨릴 수 없다
+     * 공개 페이지용 — 노출 중인 카테고리 ∧ 노출 중인 FAQ ∧ <b>카테고리가 공통이거나 {@code siteId} 전용</b>인 것만, (카테고리 순서, FAQ 순서)대로. 공개 불변식이 쿼리에 고정돼 있어 호출자가 필터를 빠뜨릴 수 없다
      * (PLAN-faq.md 쟁점 8). 카테고리 정보도 함께 가져와 한 번의 쿼리로 묶는다.
      */
     @Query("""
@@ -29,7 +29,8 @@ public interface FaqRepository extends JpaRepository<Faq, Long> {
             where f.categoryId = c.id
               and c.useYn = true
               and f.useYn = true
+              and (c.siteId is null or c.siteId = :siteId)
             order by c.ord asc, c.id asc, f.ord asc, f.id asc
             """)
-    List<PublicFaqRow> findPublicRows();
+    List<PublicFaqRow> findPublicRows(@Param("siteId") Long siteId);
 }

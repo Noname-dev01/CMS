@@ -77,6 +77,10 @@ public class Popup {
     @Column(name = "use_yn", nullable = false)
     private Boolean useYn;
 
+    /** 소속 사이트(V55). {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
+    @Column(name = "site_id")
+    private Long siteId;
+
     private LocalDateTime createDate;
 
     private LocalDateTime updateDate;
@@ -87,8 +91,9 @@ public class Popup {
      * (이미지형의 본문, HTML형의 링크·높이 위반)은 서비스가 이미 거른다.
      */
     public void replace(String title, String linkUrl, String contentHtml, int posX, int posY, int width, Integer height,
-                        LocalDateTime displayStart, LocalDateTime displayEnd, boolean useYn, LocalDateTime now) {
+                        LocalDateTime displayStart, LocalDateTime displayEnd, boolean useYn, Long siteId, LocalDateTime now) {
         this.revision = Math.incrementExact(this.revision);
+        this.siteId = siteId;
         this.title = title;
         this.linkUrl = linkUrl;
         this.contentHtml = contentHtml;
