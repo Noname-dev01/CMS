@@ -30,7 +30,7 @@ public class MenuUpdateRequest {
 
     @Size(max = 255)
     @SafeMenuUrl
-    @Schema(description = "메뉴 URL. null이면 기존값 유지, 빈 문자열이면 URL 제거(null로 저장). /로 시작하는 경로 또는 http(s):// 주소만 허용", example = "/admin/member/manage")
+    @Schema(description = "메뉴 URL. null이면 기존값 유지, 빈 문자열이면 URL 제거(null로 저장). /로 시작하는 사이트 내부 경로만 허용(외부 http(s) 불가)", example = "/admin/member/manage")
     private String menuUrl;
 
     @Size(max = 100)

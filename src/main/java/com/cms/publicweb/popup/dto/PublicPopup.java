@@ -29,7 +29,7 @@ public record PublicPopup(Long id, String title, boolean image, String linkUrl, 
         int revision = popup.getRevision();
         if (popup.getPopupType() == PopupType.IMAGE) {
             String link = popup.getLinkUrl();
-            boolean safe = SafeUrls.isSafeMenuUrl(link);
+            boolean safe = SafeUrls.isSafeLinkUrl(link);
             return Optional.of(new PublicPopup(popup.getId(), popup.getTitle(), true, safe ? link : null,
                     safe && SafeUrls.isExternalHttpUrl(link), null, posX, posY, width, null, revision));
         }

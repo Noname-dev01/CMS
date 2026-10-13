@@ -12,7 +12,7 @@ public record PublicBanner(Long id, String title, String linkUrl, boolean extern
 
     public static PublicBanner from(Banner banner) {
         String link = banner.getLinkUrl();
-        boolean safe = SafeUrls.isSafeMenuUrl(link);
+        boolean safe = SafeUrls.isSafeLinkUrl(link);
         return new PublicBanner(banner.getId(), banner.getTitle(), safe ? link : null,
                 safe && SafeUrls.isExternalHttpUrl(link));
     }

@@ -361,7 +361,7 @@
                                         <div class="form-group">
                                             <label for="menuUrl">URL</label>
                                             <input type="text" class="form-control" id="menuUrl" name="menuUrl" aria-describedby="menuUrlHelp">
-                                            <small id="menuUrlHelp" class="form-text text-muted">/로 시작하는 경로 또는 http(s):// 주소만 입력할 수 있습니다. 비우면 하위 메뉴를 묶는 그룹 메뉴가 됩니다.</small>
+                                            <small id="menuUrlHelp" class="form-text text-muted">/로 시작하는 사이트 내부 경로만 입력할 수 있습니다(외부 주소 불가). 비우면 하위 메뉴를 묶는 그룹 메뉴가 됩니다.</small>
                                         </div>
                                         <div class="form-group">
                                             <label for="menuIcon">아이콘</label>
@@ -1161,10 +1161,9 @@ $(document).ready(function () {
 
     // 서버 SafeUrls(@SafeMenuUrl)와 같은 규칙 — 한쪽을 바꾸면 함께 바꾼다(서버가 최종 판정, 여기는 저장 전 안내용).
     const SAME_ORIGIN_PATH = /^\/(?![\/\\])[^\s\\\x00-\x1f\x7f]*$/;
-    const EXTERNAL_HTTP_URL = /^https?:\/\/[^\s\\\x00-\x1f\x7f\/?#@]+(?:[\/?#][^\s\\\x00-\x1f\x7f]*)?$/i;
 
     function isSafeMenuUrl(url) {
-        return url === '' || SAME_ORIGIN_PATH.test(url) || EXTERNAL_HTTP_URL.test(url);
+        return url === '' || SAME_ORIGIN_PATH.test(url);
     }
 
     btnSave.addEventListener('click', async function () {
@@ -1176,7 +1175,7 @@ $(document).ready(function () {
         }
 
         if (!isSafeMenuUrl(menuUrlInput.value.trim())) {
-            showFormError('메뉴 URL은 /로 시작하는 경로이거나 http(s):// 주소여야 합니다.');
+            showFormError('메뉴 URL은 /로 시작하는 사이트 내부 경로여야 합니다.');
             menuUrlInput.focus();
             return;
         }

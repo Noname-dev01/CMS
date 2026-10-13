@@ -12,6 +12,6 @@ public class SafeLinkUrlValidator implements ConstraintValidator<SafeLinkUrl, St
         if (value == null || value.isBlank()) {
             return true;
         }
-        return SafeUrls.isSafeMenuUrl(value);
+        return SafeUrls.isSafeLinkUrl(value);
     }
 }
