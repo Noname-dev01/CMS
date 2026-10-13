@@ -4,8 +4,12 @@ import com.cms.admin.menu.Menu;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.menu.dto.request.MenuStructureRequest;
 import com.cms.admin.menu.dto.response.MenuStructureResponse;
+import com.cms.admin.site.Site;
+import com.cms.admin.site.SiteRepository;
+import com.cms.admin.site.SiteType;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +24,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -41,8 +46,19 @@ class MenuServiceStructureTest {
     @Mock
     MenuRepository menuRepository;
 
+    @Mock
+    SiteRepository siteRepository;
+
     @Spy
     Clock clock = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneId.of("Asia/Seoul"));
+
+    @BeforeEach
+    void lockAdminSite() {
+        // 구조 반영은 사이트 행을 먼저 잠근다(PLAN-site-menu.md D4) — 관리자 사이트(id=1).
+        org.mockito.Mockito.lenient().when(siteRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(
+                Site.builder().id(1L).siteKey("admin").siteName("관리자").siteType(SiteType.ADMIN)
+                        .allowExternalLink(false).useYn(true).build()));
+    }
 
     @InjectMocks
     MenuService menuService;
@@ -52,7 +68,7 @@ class MenuServiceStructureTest {
     }
 
     private static Menu menu(long menuNo, Long upMenuNo, Integer ord, boolean useYn) {
-        return Menu.builder().menuNo(menuNo).menuName("메뉴" + menuNo).upMenuNo(upMenuNo).ord(ord)
+        return Menu.builder().siteId(1L).menuNo(menuNo).menuName("메뉴" + menuNo).upMenuNo(upMenuNo).ord(ord)
                 .useYn(useYn).build();
     }
 
@@ -68,12 +84,13 @@ class MenuServiceStructureTest {
 
     private static MenuStructureRequest request(MenuStructureRequest.Item... items) {
         MenuStructureRequest request = new MenuStructureRequest();
+        request.setSiteId(1L);
         request.setMenus(new ArrayList<>(List.of(items)));
         return request;
     }
 
     private void db(Menu... menus) {
-        given(menuRepository.findAllForUpdate()).willReturn(List.of(menus));
+        given(menuRepository.findAllBySiteIdForUpdate(1L)).willReturn(List.of(menus));
     }
 
     // ===================== 정상 =====================
@@ -92,7 +109,7 @@ class MenuServiceStructureTest {
         assertEquals(100, a.getOrd());
         assertEquals(200, b.getOrd());
         assertNull(a.getUpdateDate());
-        verify(menuRepository).findAllForUpdate();
+        verify(menuRepository).findAllBySiteIdForUpdate(1L);
         verifyNoMoreInteractions(menuRepository);
     }
 

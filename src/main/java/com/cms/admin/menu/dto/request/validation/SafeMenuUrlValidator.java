@@ -15,6 +15,7 @@ public class SafeMenuUrlValidator implements ConstraintValidator<SafeMenuUrl, St
         if (value == null || value.isBlank()) {
             return true;
         }
-        return SafeUrls.isSafeMenuUrl(value);
+        // 형식만 본다(내부 경로 또는 외부 http(s)). 외부 허용 여부·비공개 경로 금지는 사이트 정책이라 서비스(SiteLinkPolicy)가 판정한다.
+        return SafeUrls.isSafeLinkUrl(value);
     }
 }

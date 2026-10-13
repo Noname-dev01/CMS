@@ -34,6 +34,10 @@ import java.util.List;
 @Schema(description = "메뉴 구조 일괄 반영 요청 — 전체 메뉴의 최종 구조(부모·순서)")
 public class MenuStructureRequest {
 
+    @NotNull
+    @Schema(description = "구조를 반영할 사이트 ID(필수). menus는 이 사이트의 전체 메뉴여야 한다 — 다른 사이트의 메뉴 번호가 섞이면 409", example = "1")
+    private Long siteId;
+
     @NotEmpty
     @Schema(description = "전체 메뉴(비활성 포함). 같은 upMenuNo 안의 배열 순서가 새 순서가 된다")
     private List<@NotNull @Valid Item> menus;

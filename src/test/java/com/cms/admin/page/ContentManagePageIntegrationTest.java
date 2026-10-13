@@ -30,6 +30,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 
 /**
@@ -77,7 +78,7 @@ class ContentManagePageIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("ADMIN: 정적 페이지·메뉴 두 패널과 탭, jstree가 모두 있고 렌더링된 HTML에 중복 id가 없다")
+    @DisplayName("ADMIN: 정적 페이지·메뉴·사이트 세 패널과 탭, jstree가 모두 있고 렌더링된 HTML에 중복 id가 없다")
     void adminSeesBothPanels_withUniqueIds() throws Exception {
         MvcResult result = mockMvc.perform(get(PAGE).with(TestMembers.asMember(admin))).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
@@ -86,8 +87,14 @@ class ContentManagePageIntegrationTest extends MariaDbContainerSupport {
 
         assertThat(doc.getElementById("pagesTabPanel")).isNotNull();
         assertThat(doc.getElementById("menuTabPanel")).isNotNull();
+        assertThat(doc.getElementById("siteTabPanel")).as("사이트 탭 패널(ADMIN 전용)").isNotNull();
+        assertThat(doc.getElementById("siteTab")).as("사이트 탭 링크").isNotNull();
+        assertThat(doc.getElementById("siteSelect")).as("메뉴 탭의 편집할 사이트 선택").isNotNull();
+        assertThat(doc.getElementById("siteTableBody")).isNotNull();
+        assertThat(doc.getElementById("siteBtnSave")).as("사이트 저장 버튼은 메뉴·정적 페이지의 저장 버튼과 id가 다르다").isNotNull();
+        assertThat(doc.selectFirst("#menuTabPanel #siteTabPanel")).as("사이트 패널은 메뉴 패널 안에 있지 않다").isNull();
         assertThat(doc.getElementById("contentTabs")).as("탭 내비게이션").isNotNull();
-        assertThat(doc.select("h1").text()).isEqualTo("정적 페이지 · 메뉴 관리");
+        assertThat(doc.select("h1").text()).isEqualTo("정적 페이지 · 메뉴 · 사이트 관리");
         assertThat(doc.getElementById("menuTree")).isNotNull();
         assertThat(doc.getElementById("pageBtnSave")).as("정적 페이지 저장 버튼은 메뉴의 btnSave와 id가 다르다").isNotNull();
         assertThat(doc.getElementById("btnSave")).isNotNull();
@@ -128,8 +135,10 @@ class ContentManagePageIntegrationTest extends MariaDbContainerSupport {
         int permissions = html.indexOf("const MY_PERMISSIONS");
         int pageScript = html.indexOf("const PAGES_URL");
         int menuScript = html.indexOf("$(document).ready(function ()");
+        int siteScript = html.indexOf("window.ContentScreen.isSitePanelBusyOrDirty = function");
 
-        assertThat(List.of(jquery, jstree, quill, editor, permissions, pageScript, menuScript)).doesNotContain(-1);
+        assertThat(List.of(jquery, jstree, quill, editor, permissions, pageScript, menuScript, siteScript)).doesNotContain(-1);
+        assertThat(jquery).as("사이트 스크립트도 jQuery 뒤에 온다").isLessThan(siteScript);
         assertThat(jquery).isLessThan(jstree);
         assertThat(editor).isLessThan(pageScript);
         assertThat(jstree).isLessThan(menuScript);
@@ -162,7 +171,10 @@ class ContentManagePageIntegrationTest extends MariaDbContainerSupport {
         assertThat(doc.getElementById("menuTree")).isNull();
         assertThat(doc.getElementById("permanentDeleteModal")).isNull();
         assertThat(doc.getElementById("iconPickerModal")).isNull();
-        assertThat(html).doesNotContain("jstree").doesNotContain("/admin/api/menus").doesNotContain("menuStructureApplied");
+        assertThat(doc.getElementById("siteTabPanel")).as("MANAGER에게는 사이트 탭도 없다").isNull();
+        assertThat(doc.getElementById("siteSelect")).isNull();
+        assertThat(html).doesNotContain("jstree").doesNotContain("/admin/api/menus").doesNotContain("menuStructureApplied")
+                .doesNotContain("/admin/api/sites").doesNotContain("siteTableBody").doesNotContain("isSitePanelBusyOrDirty");
     }
 
     @Test
@@ -174,6 +186,12 @@ class ContentManagePageIntegrationTest extends MariaDbContainerSupport {
                 .isEqualTo(403);
         assertThat(mockMvc.perform(put("/admin/api/menus/structure").with(TestMembers.asMember(manager)).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content("{\"menus\":[]}")).andReturn().getResponse().getStatus())
+                .isEqualTo(403);
+        // 사이트 API도 같다 — 사이트 관리는 ADMIN 전용
+        assertThat(mockMvc.perform(get("/admin/api/sites").with(TestMembers.asMember(manager))).andReturn().getResponse().getStatus())
+                .isEqualTo(403);
+        assertThat(mockMvc.perform(post("/admin/api/sites").with(TestMembers.asMember(manager)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON).content("{\"siteKey\":\"cmp-mgr\",\"siteName\":\"x\"}")).andReturn().getResponse().getStatus())
                 .isEqualTo(403);
     }
 

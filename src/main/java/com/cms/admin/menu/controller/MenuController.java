@@ -27,15 +27,20 @@ public class MenuController {
 
     private final MenuService menuService;
 
-    @Operation(summary = "메뉴 트리 조회", description = "useYn=true(기본, 활성만) 또는 useYn=all(비활성 포함 전체)")
+    @Operation(summary = "메뉴 트리 조회", description = "siteId(필수)의 메뉴만 조회한다. useYn=true(기본, 활성만) 또는 useYn=all(비활성 포함 전체). "
+            + "노출 안내(exposure)는 관리자 사이트에서만 채워진다.")
     @ApiResponse(responseCode = "200", description = "조회 성공")
-    @ApiResponse(responseCode = "400", description = "허용되지 않은 useYn 값")
+    @ApiResponse(responseCode = "400", description = "siteId 누락 또는 허용되지 않은 useYn 값")
+    @ApiResponse(responseCode = "404", description = "사이트 없음")
     @GetMapping("/tree")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<MenuTreeResponse>> getMenuTree(
+            // required=false: 전역 핸들러에 필수 파라미터 누락(MissingServletRequestParameterException) 처리가 없어 required=true면 500이 된다.
+            // 누락은 서비스가 400으로 거른다(com.cms.admin.session 선례).
+            @RequestParam(required = false) Long siteId,
             @RequestParam(defaultValue = "true") String useYn
     ) {
-        return ResponseEntity.ok(menuService.getMenuTree(useYn));
+        return ResponseEntity.ok(menuService.getMenuTree(siteId, useYn));
     }
 
     @Operation(summary = "메뉴 단건 조회")

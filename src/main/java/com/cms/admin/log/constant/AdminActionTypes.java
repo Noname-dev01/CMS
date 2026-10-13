@@ -83,6 +83,11 @@ public final class AdminActionTypes {
     public static final String INQUIRY_STATUS = "INQUIRY_STATUS";
     public static final String INQUIRY_DELETE = "INQUIRY_DELETE";
 
+    /** 사이트 생성·수정·삭제 — targetType = SITE, targetId = 사이트 ID. 삭제만 targetLabel = 사이트 키(삭제 후에는 알 수 없어 스냅샷으로 기록) */
+    public static final String SITE_CREATE = "SITE_CREATE";
+    public static final String SITE_UPDATE = "SITE_UPDATE";
+    public static final String SITE_DELETE = "SITE_DELETE";
+
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
             ADMIN_CREATE, ADMIN_UPDATE, PASSWORD_CHANGE, MENU_CREATE, MENU_UPDATE, MENU_DEACTIVATE, MENU_DELETE, MENU_REORDER, MENU_MOVE, MENU_STRUCTURE_APPLY,
@@ -96,7 +101,8 @@ public final class AdminActionTypes {
             POPUP_CREATE, POPUP_UPDATE, POPUP_DELETE,
             FAQ_CREATE, FAQ_UPDATE, FAQ_DELETE, FAQ_CATEGORY_CREATE, FAQ_CATEGORY_UPDATE, FAQ_CATEGORY_DELETE, FAQ_ORDER,
             MEDIA_UPLOAD, MEDIA_DELETE,
-            INQUIRY_STATUS, INQUIRY_DELETE
+            INQUIRY_STATUS, INQUIRY_DELETE,
+            SITE_CREATE, SITE_UPDATE, SITE_DELETE
     );
 
     private AdminActionTypes() {}

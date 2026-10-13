@@ -24,6 +24,7 @@ public class MenuResponse {
     private Boolean useYn;
     private Integer ord;
     private Long upMenuNo;
+    private Long siteId;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
 
@@ -37,6 +38,7 @@ public class MenuResponse {
                 .useYn(menu.getUseYn())
                 .ord(menu.getOrd())
                 .upMenuNo(menu.getUpMenuNo())
+                .siteId(menu.getSiteId())
                 .createDate(menu.getCreateDate())
                 .updateDate(menu.getUpdateDate())
                 .build();

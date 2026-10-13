@@ -95,6 +95,7 @@ class MenuControllerTest {
 
     private MenuCreateRequest createRequest() {
         return MenuCreateRequest.builder()
+                .siteId(1L)
                 .menuName("회원 관리")
                 .menuUrl("/admin/member/manage")
                 .build();
@@ -123,9 +124,9 @@ class MenuControllerTest {
                 .text("회원 관리")
                 .children(List.of())
                 .build();
-        given(menuService.getMenuTree("true")).willReturn(List.of(node));
+        given(menuService.getMenuTree(1L, "true")).willReturn(List.of(node));
 
-        mockMvc.perform(get("/admin/api/menus/tree"))
+        mockMvc.perform(get("/admin/api/menus/tree").param("siteId", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("1"))
                 .andExpect(jsonPath("$[0].text").value("회원 관리"));
@@ -135,11 +136,33 @@ class MenuControllerTest {
     @DisplayName("허용되지 않은 useYn 값은 400 INVALID_REQUEST")
     @WithMockUser(roles = "ADMIN")
     void getMenuTree_invalidFilter() throws Exception {
-        given(menuService.getMenuTree("false")).willThrow(new InvalidRequestException("useYn 파라미터는 true 또는 all만 허용됩니다."));
+        given(menuService.getMenuTree(1L, "false")).willThrow(new InvalidRequestException("useYn 파라미터는 true 또는 all만 허용됩니다."));
 
-        mockMvc.perform(get("/admin/api/menus/tree").param("useYn", "false"))
+        mockMvc.perform(get("/admin/api/menus/tree").param("siteId", "1").param("useYn", "false"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("siteId 누락은 컨트롤러가 null로 서비스에 넘기고 서비스의 400 INVALID_REQUEST로 응답된다(전역 핸들러에 필수 파라미터 누락 처리가 없어 required=false로 받는다 — 500 아님)")
+    @WithMockUser(roles = "ADMIN")
+    void getMenuTree_missingSiteId_returns400() throws Exception {
+        given(menuService.getMenuTree(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq("true")))
+                .willThrow(new InvalidRequestException("siteId 파라미터가 필요합니다."));
+
+        mockMvc.perform(get("/admin/api/menus/tree"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    @DisplayName("siteId가 숫자가 아니면 400(타입 불일치) — 서비스를 호출하지 않는다")
+    @WithMockUser(roles = "ADMIN")
+    void getMenuTree_nonNumericSiteId_returns400() throws Exception {
+        mockMvc.perform(get("/admin/api/menus/tree").param("siteId", "abc"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(menuService);
     }
 
     @Test
@@ -218,7 +241,7 @@ class MenuControllerTest {
         mockMvc.perform(post("/admin/api/menus")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"menuName\":\"메뉴\",\"accessRole\":\"ADMIN\"}"))
+                        .content("{\"siteId\":1,\"menuName\":\"메뉴\",\"accessRole\":\"ADMIN\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.accessRole").doesNotExist());
     }
@@ -230,7 +253,7 @@ class MenuControllerTest {
         mockMvc.perform(post("/admin/api/menus")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"menuName\":\"메뉴\"} {}"))
+                        .content("{\"siteId\":1,\"menuName\":\"메뉴\"} {}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("JSON_PARSE_ERROR"));
 
@@ -278,7 +301,7 @@ class MenuControllerTest {
             mockMvc.perform(post("/admin/api/menus")
                             .with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(MenuCreateRequest.builder().menuName("m").menuUrl(url).build())))
+                            .content(objectMapper.writeValueAsString(MenuCreateRequest.builder().siteId(1L).menuName("m").menuUrl(url).build())))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         }
@@ -296,7 +319,7 @@ class MenuControllerTest {
             mockMvc.perform(post("/admin/api/menus")
                             .with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(MenuCreateRequest.builder().menuName("m").menuUrl(url).build())))
+                            .content(objectMapper.writeValueAsString(MenuCreateRequest.builder().siteId(1L).menuName("m").menuUrl(url).build())))
                     .andExpect(status().isCreated());
         }
     }
@@ -374,7 +397,8 @@ class MenuControllerTest {
     @DisplayName("메뉴 수정: 위험한 URL은 400 VALIDATION_ERROR이고 서비스를 호출하지 않는다")
     @WithMockUser(roles = "ADMIN")
     void updateMenu_unsafeUrl_rejected() throws Exception {
-        for (String url : List.of("javascript:alert(1)", "//evil.example", "https://evil@example.com", "https://example.com/x", "data:text/html,x")) {
+        // 외부 http(s) 주소는 형식상 통과한다(사이트 정책은 서비스가 판정) — userinfo 위장·스킴 위반·프로토콜 상대 URL만 DTO가 거른다.
+        for (String url : List.of("javascript:alert(1)", "//evil.example", "https://evil@example.com", "data:text/html,x")) {
             mockMvc.perform(patch("/admin/api/menus/1")
                             .with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
@@ -537,7 +561,7 @@ class MenuControllerTest {
         given(menuService.updateMenu(eq(1L), any())).willReturn(menuResponse());
 
         mockMvc.perform(post("/admin/api/menus").with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"menuName\":\"메뉴\",\"ord\":999}"))
+                        .content("{\"siteId\":1,\"menuName\":\"메뉴\",\"ord\":999}"))
                 .andExpect(status().isCreated());
         mockMvc.perform(patch("/admin/api/menus/1").with(csrf()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"menuName\":\"메뉴\",\"ord\":999}"))
@@ -557,7 +581,7 @@ class MenuControllerTest {
     }
 
     private static String structureBody(String... items) {
-        return "{\"menus\":[" + String.join(",", items) + "]}";
+        return "{\"siteId\":1,\"menus\":[" + String.join(",", items) + "]}";
     }
 
     @Test
@@ -593,9 +617,9 @@ class MenuControllerTest {
     @WithMockUser(roles = "ADMIN")
     void applyStructure_validationFail() throws Exception {
         for (String body : List.of(
-                "{\"menus\":[]}",
+                "{\"siteId\":1,\"menus\":[]}",
                 "{}",
-                "{\"menus\":[null]}",
+                "{\"siteId\":1,\"menus\":[null]}",
                 structureBody(structureItem(null, "null", "0", "null")),
                 structureBody(structureItem("1", null, "0", "null")),
                 structureBody(structureItem("1", "null", null, "null")),

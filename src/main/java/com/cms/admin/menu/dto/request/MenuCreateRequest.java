@@ -3,6 +3,7 @@ package com.cms.admin.menu.dto.request;
 import com.cms.admin.menu.dto.request.validation.SafeMenuUrl;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,9 +24,14 @@ public class MenuCreateRequest {
     @Schema(description = "메뉴명", example = "회원 관리")
     private String menuName;
 
+    @NotNull
+    @Schema(description = "소속 사이트 ID(필수). 부모 메뉴도 같은 사이트여야 한다", example = "1")
+    private Long siteId;
+
     @Size(max = 255)
     @SafeMenuUrl
-    @Schema(description = "메뉴 URL. /로 시작하는 사이트 내부 경로만 허용(외부 http(s) 불가)(빈 문자열은 null로 저장)", example = "/admin/member/manage")
+    @Schema(description = "메뉴 URL. 형식은 /로 시작하는 내부 경로 또는 http(s) 주소이며, 외부 주소 허용 여부와 비공개 경로 금지는 소속 사이트 정책이 판정한다"
+            + "(관리자 사이트는 내부 경로만). 빈 문자열은 null로 저장", example = "/admin/member/manage")
     private String menuUrl;
 
     @Size(max = 100)
