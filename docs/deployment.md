@@ -453,6 +453,13 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 - **새 문의 알림**: ADMIN 전원과 `INQUIRY` 조회 권한 MANAGER에게 상수 문장 알림이 간다(문의 내용 없음, 회원당 미읽음 최대 1건).
 - **롤백(문의 도입 전 앱으로)**: V47·V48은 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 `inquiry` 테이블·메뉴 행 1개가 남는다). **다만 두 가지 정리가 필요하다.** ① **알림 행**: `Notification.type`이 `@Enumerated(STRING)`이라 이전 앱이 `INQUIRY_RECEIVED` 행을 읽으면 enum 매핑 예외로 **알림 목록 조회가 실패**한다 — 롤백 전(또는 직후, 앱 정지 상태에서) `DELETE FROM notification WHERE type = 'INQUIRY_RECEIVED';`를 실행한다. ② **권한 행**: 이전 앱의 권한관리는 카탈로그에 없는 `INQUIRY` 행을 모르고 "전체 회수"가 그 행을 남겨 재배포 시 권한이 되살아날 수 있다 — 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'INQUIRY'; UPDATE member SET permission_version = permission_version + 1;`(위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL을 이미 실행했다면 불필요)를 실행하고 기동한다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다. `inquiry` 테이블에는 방문자 개인정보가 남으므로 롤백 때 테이블을 보존할지 삭제할지는 운영자가 결정한다.
 
+## 사이트 설정 — 사이트 모델과 사이트별 메뉴 (V50~V52, 2026-10-13, adversarial-review/plan/PLAN-site-menu.md PR ①)
+
+- **무엇이 바뀌나**: `site` 테이블(관리자 사이트 1·기본 공개 `main` 2 시드)과 `menu.site_id`. 정적 페이지·메뉴 관리 화면에 ADMIN 전용 "사이트" 탭이 생기고 메뉴 구조 탭에서 편집할 사이트를 고른다. **공개 화면·`SecurityConfig`·레이트리밋은 바뀌지 않았다**(공개 경로 `/{siteKey}/…`는 PR ②). 공개 사이트 메뉴는 편집만 되고 PR ⑤ 전까지 어디에도 렌더링되지 않는다.
+- **배포**: 배포 전 백업. 마이그레이션 중간 실패 복구는 `docs/migration-guide.md` "V50~V52".
+- **롤백 주의**: 공개 사이트 메뉴가 하나라도 있으면 V52 이전 앱으로 롤백하지 않는다(비활성화로는 보호되지 않는다). 공개 사이트 메뉴를 전부 영구삭제한 뒤 롤백하거나 V52 이전 백업을 복구한다. 구·신 앱 동시 실행 배포 금지. 상세는 `docs/migration-guide.md`.
+- **운영 메모**: 메뉴·사이트 쓰기는 사이트 행을 `FOR UPDATE`로 먼저 잠그고 `READ_COMMITTED`로 실행한다 — 같은 사이트의 메뉴 편집은 직렬화되고 서로 다른 사이트는 병렬이다. 사이트 키는 공개 경로 접두어가 될 값이라 예약어(`SiteKey.RESERVED`)를 쓸 수 없고 생성 후 바꿀 수 없다.
+
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
 공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 게시글이 참조하는지 — `owner_type` = `POST`; 공지 흡수(V32, 2026-10-09) 이전에는 공지 참조 `NOTICE`도 있었다)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
