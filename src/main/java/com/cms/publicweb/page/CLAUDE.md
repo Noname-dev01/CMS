@@ -14,3 +14,4 @@
 - **공개 메인 푸터**: `footer_yn ∧ use_yn` 페이지를 만든 순서(`id` 오름차순)로 현재 개정 제목과 함께 링크한다(정렬 지정 기능 없음). 푸터는 **선택 섹션**이라 `HomeController`가 `getHome()`과 **별도 호출**(`findFooterLinks()` — 자체 읽기 트랜잭션)로 읽고 예외를 컨트롤러에서 잡아 빈 목록으로 대체한다 — `getHome()`은 읽기 트랜잭션 전체라 그 안에서 예외만 잡으면 rollback-only로 반환 때 메인까지 깨질 수 있다(R1-3). 시험: `PublicHomeFooterIsolationIntegrationTest`(서비스에 DB 예외 주입 → `/`가 200).
 - 공개 레이아웃 공통 푸터는 없다(템플릿이 페이지마다 독립이다) — 푸터는 공개 메인에만 있다. 공통 레이아웃 도입은 별도 작업.
 - 시험: `PublicSitePageIntegrationTest`(현재 버전·이전 개정·비노출 동일 404·형식 위반·개정 경계·쪽 번호 보정·출력 정리·푸터·레이트리밋)·`PublicHomeFooterIsolationIntegrationTest`·`PublicPageTemplateConventionTest`·`SecurityConfigTest`의 `/pages/**` 계약.
+- **사이트별 콘텐츠(PR ③, 2026-10-13)**: `findPublicCurrent/Revision/Header/findFooterLinks`가 소속 조건(공통이거나 현재 사이트)을 쿼리에 고정한다. 다른 사이트 전용 페이지의 현재·개정 목록·특정 개정은 없는 슬러그와 같은 404다. 슬러그는 전역 유일이다. 상세·잠금·롤백은 `com.cms.admin.site`의 `CLAUDE.md` "사이트별 콘텐츠".

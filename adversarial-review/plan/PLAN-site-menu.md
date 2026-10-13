@@ -1,6 +1,6 @@
 # PLAN-site-menu — 사이트 설정 메뉴 (다중 사이트·사이트별 메뉴·공개 라우팅·콘텐츠 분리)
 
-- 작성: 2026-10-13 / 상태: **PR ① 구현·검증 완료(계획 v5, #143 머지). PR ② 구현·검증 완료(P-v4, 리뷰 4라운드 ship — 파일 말미 "PR ② 상세 설계"·"구현·검증 결과 — PR ②", 미커밋). PR ③~⑤ 미착수**
+- 작성: 2026-10-13 / 상태: **PR ① 구현·검증 완료(계획 v5, #143 머지). PR ② 구현·검증 완료·머지(#144). PR ③ 구현·검증 완료(P3-v6, 리뷰 6라운드 ship — 파일 말미 "PR ③ 상세 설계"·"구현·검증 결과 — PR ③", 미커밋), PR ④⑤ 미착수**
 - 로드맵: `adversarial-review/project-direction-roadmap.md` "실행 로드맵 — 사이트 설정 메뉴"
 - 확정 결정(재질문 금지): 사용자 메모리 `project-site-menu-decisions` — 아래 "확정 사항"에 그대로 옮긴다.
 - 이 문서의 **상세 설계 범위는 PR ①(사이트 모델 · 사이트 관리 UI · 메뉴 사이트 분리 편집)** 이다. PR ②~⑤는 "후속 PR 윤곽"에서 PR ①이 남겨야 할 전제만 다룬다(각 PR 착수 때 이 문서를 갱신해 별도 리뷰).
@@ -462,3 +462,199 @@ v2의 "생성=`FOR UPDATE` / 단일 행=`FOR SHARE` + 잠금 읽기 존재 검�
 ### 후속
 - 코드 리뷰 게이트(`/code-review-loop`) → `/commitPR`. 로드맵 반영(`/updateRoadmap`)은 사이트 설정 메뉴 전체 완료 후 한 번에.
 - PR ③(사이트별 콘텐츠: 새 `site_id` FK `RESTRICT` + `SiteService.hasContent` 확장), ④(사이트별 공지), ⑤(공개 메뉴 렌더링).
+
+---
+
+# PR ③ 상세 설계 — 사이트별 콘텐츠 (배너·팝업·FAQ 카테고리·정적 페이지/푸터)
+
+- 작성: 2026-10-13 / 브랜치 `feat/site-content`(master 기반, PR ② #144 머지 후) / 상태: **P3-v6 (적대적 리뷰 5라운드 반영)**
+- 확정 결정(재질문 금지): 메모리 `project-site-menu-decisions` — "사이트별로 다른 것: 메뉴, 시작 화면(배너·팝업·최신 글), 공지, FAQ·푸터(정적 페이지 링크). 공통 콘텐츠는 `site_id` NULL". 사용자 선택(2026-10-13): 범위 = **배너·팝업·FAQ 카테고리·푸터 전부**, 기준 브랜치 = PR ② 머지 후 master.
+
+## Q1. Context와 범위
+
+PR ②로 공개 화면이 `/{siteKey}/…` 아래로 이동했지만 **모든 사이트가 같은 콘텐츠**를 보여 준다. PR ③은 콘텐츠 행에 소속 사이트(`site_id`, **NULL = 모든 공개 사이트 공통**)를 붙이고 공개 조회가 `site_id IS NULL OR site_id = 현재 사이트`로 거르게 한다. 인가 정책(`SecurityConfig`·레이트리밋)·새 공개 경로·`AdminFeature` 변경은 **없다**.
+
+**범위 안**: `banner`·`popup`·`faq_category`·`site_page`에 `site_id` 컬럼(V55) / 관리 API·화면에 "표시 대상" 선택 / 공개 홈(배너·팝업·푸터)·FAQ·정적 페이지 조회의 사이트 필터 / `SiteService.hasContent` 확장 / 롤백 주의 문서.
+**범위 밖(PR ④⑤)**: 공지·새 글(게시판 소속), 공개 메뉴 렌더링. 미디어 라이브러리 이미지(`content_image`)는 사이트 무관 공용 자원으로 둔다. 문의(`inquiry`)는 사이트 소속을 두지 않는다(PR ② 그대로).
+
+### 정찰에서 확인한 사실 (코드를 읽은 것)
+1. **쓰기 직렬화는 기능별 단일 가드**다 — 배너 `banner_lock`(생성·삭제·순서), FAQ `faq_lock`(모든 쓰기 + 구조 `version`), 팝업은 행 락 + 소프트 상한, 정적 페이지는 페이지 행 락 + `version`. 상한은 전역 값(배너 10·팝업 30·FAQ 카테고리 30·FAQ 200)이고 `count()`로 센다.
+2. **순서는 전역 `ord`**: 배너 `ord`(순서 저장은 전체 집합 일치 필수, 아니면 409), FAQ 카테고리 `ord` 0..n-1 항상 연속 + FAQ는 카테고리 안 0..n-1, `PUT /order`가 전체 트리를 `version`과 함께 교체. 공개 쿼리는 `(ord, id)` 순.
+3. **공개 조회 불변식은 쿼리에 고정**(`findDisplayable*`·`findPublicRows`·`findPublicCurrent/Revision/Header`·`findFooterLinks`)이고 서비스 파라미터에 사이트 개념이 없다. 사이트는 `PublicSiteInterceptor`가 요청 속성(`PublicSiteRoutes.current`)으로 싣고 `PublicSiteModelAdvice`가 `sitePrefix`를 모델에 싣는다 — **서비스에는 아직 사이트가 전달되지 않는다**.
+4. **공개 이미지 경로는 사이트 무관**이다 — `/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`는 `@SiteScopedPublic`이 아니고 `findDisplayableById`로 노출 여부·기간만 재검증한다(PR ② 결정: 이미지 3종은 사이트 무관 경로 유지).
+5. **정적 페이지 슬러그는 전역 유일**(`uk_site_page_slug`)이고 공개 `/{siteKey}/pages/{slug}`가 슬러그로만 찾는다. 푸터는 `footer_yn`인 노출 페이지의 링크 목록이다(`findFooterLinks`).
+6. **관리 화면**: 배너 621·팝업 711·FAQ 810·정적 페이지 탭 503줄 템플릿(인라인 JS). 관리자 사이트 목록 API `/admin/api/sites`는 **ADMIN 전용**이라 `BANNER`·`POPUP`·`FAQ`·`SITE_PAGE`를 위임받은 **MANAGER는 호출할 수 없다**. 페이지 컨트롤러는 `@AdminPage`(사이드바 모델 주입) 한 줄짜리다.
+7. **삭제 가드**: `SiteService.deleteSite`는 사이트 행 `FOR UPDATE` 뒤 `hasContent`(메뉴 존재)로 409. 공유 잠금 선례는 게시글 생성이 게시판 행을 `FOR SHARE`로 읽는 `PostService`(`findByIdAndDeletedFalseForShare`)다. 사이트 쓰기는 READ_COMMITTED다.
+8. **시험 파급**: 배너 18·팝업 15·FAQ 11·정적 페이지 11개 시험 파일이 해당 도메인을 건드리고, 공개 서비스 시험(홈 6·FAQ 5·페이지 5·팝업 5·배너 4)이 서비스·리포지토리 시그니처에 직접 의존한다. 엔티티 `@Builder`에 필드가 늘어도 nullable이면 기존 빌더 호출은 컴파일된다(12개 파일).
+9. **`MediaService`**가 `BannerRepository`·`PopupRepository`를 사용처 요약에 쓴다(`findAllById`) — 시그니처 변경 영향 없음(확인 필요 항목으로 구현 때 컴파일로 검증).
+
+## Q2. 핵심 쟁점과 결정
+
+### S1. 스키마 — 네 테이블에 nullable `site_id` + FK `RESTRICT` (V55)
+- 선택지: (A) 각 테이블에 `site_id` NULL 허용 컬럼(NULL = 공통) / (B) 매핑 테이블 `content_site(owner_type, owner_id, site_id)`로 다대다(여러 사이트 선택) / (C) 모든 행에 `site_id NOT NULL` + "공통" 시드 사이트.
+- **결정 (A)**. 확정 결정이 "NULL = 공통"이고 필요한 표현은 "공통 or 사이트 하나"뿐이다. (B)는 다대다 UI·삭제 가드·정리 로직이 따라붙는 과설계이고 "여러 사이트에 같은 것"은 공통으로 충분히 표현된다. (C)는 FK가 가짜 사이트를 가리켜 `SiteService`/인터셉터의 "공개 사이트만 존재" 가정을 흐린다.
+- 형태: `site_id bigint(20) NULL DEFAULT NULL`, `FOREIGN KEY (site_id) REFERENCES site(id) ON DELETE RESTRICT`(FK가 인덱스를 만든다). **DEFAULT NULL = 공통**이라 기존 행은 그대로 공통, 롤백한 이전 앱이 `site_id` 없이 INSERT해도 공통으로 들어간다. 추가로 **낡은 화면 검사용 `version int NOT NULL DEFAULT 1`을 `banner`·`faq_category`에 둔다**(S6b — 팝업은 이미 수정마다 오르는 `revision`을 쓴다, 정적 페이지는 이미 `version`이 있다). 멱등: `ADD COLUMN IF NOT EXISTS` + `ADD CONSTRAINT … FOREIGN KEY IF NOT EXISTS`(V52 선례), DDL 단독 파일. 네 테이블 ALTER는 문마다 암묵 커밋이라 실패 복구 절차를 `docs/migration-guide.md`에 적는다.
+- **FAQ는 카테고리에만** 둔다 — FAQ 항목은 카테고리를 따라간다(항목 단위로 따로 두면 공통 카테고리 안에 사이트 전용 항목이 섞여 카테고리 숨김 규칙과 순서 모델이 복잡해진다). **정적 페이지 개정 테이블은 변경 없음**(페이지 행의 `site_id`만).
+- `site_id`는 **공개 사이트(`PUBLIC`)만 가리킬 수 있다** — 관리자 사이트(id=1) 지정은 서비스가 400으로 거부한다(DB 제약 없음, 서비스 검증).
+
+### S2. 대상 지정 검증과 잠금 — 사이트 행 `FOR SHARE`
+- 쓰기가 `siteId != null`이면 **기능 가드/대상 행을 잠근 뒤 대상 사이트 행을 `FOR SHARE`(PESSIMISTIC_READ)로 읽어** 존재·`PUBLIC` 타입을 확인한다(없음/타입 불일치 400 — 존재하지 않는 참조는 본문 오류). 비활성 공개 사이트는 지정할 수 있다(비활성화 중에도 내용을 준비해 둘 수 있게; 공개는 인터셉터가 막는다).
+- 이유: `SiteService.deleteSite`는 사이트 행 `FOR UPDATE` 뒤 `hasContent`를 본다. 콘텐츠 생성이 사이트 행에 `FOR SHARE`를 쥐고 INSERT하면 삭제가 그 커밋을 기다린 뒤 `hasContent`가 새 행을 본다 → 고아가 안 생긴다(FK `RESTRICT`가 최종 방어선이지만 사용자에게 500이 아니라 409를 주려면 앱 검사가 필요). 게시글 생성이 게시판 행을 `FOR SHARE`로 읽는 규약(`PostService`)과 같다.
+- **잠금 순서**: 기능 가드 → (소유자 행) → 사이트 행 `FOR SHARE` → (이미지 행·참조 등 기존 순서). 사이트 쓰기 서비스는 기능 가드를 잡지 않는다(사이트 행 → 메뉴 행) → 순환 없음. 격리 수준: **삭제가 `hasContent`를 보는 시점 가시성이 READ_COMMITTED(사이트 삭제)에서 보장**되므로 콘텐츠 쪽 격리 수준은 바꾸지 않는다.
+- 구현: `SiteRepository.findByIdForShare`(PESSIMISTIC_READ) 1개 + 얇은 컴포넌트 `ContentSiteScope.requireAssignable(Long siteId)`(null이면 아무것도 안 함) — 네 서비스가 공유(규칙 한 벌).
+- **사이트 삭제 가드**: `SiteService.hasContent`를 `menu ∨ banner ∨ popup ∨ faq_category ∨ site_page` 존재로 확장. 각 리포지토리에 `existsBySiteId`. 409 문구는 "메뉴·콘텐츠가 있는 사이트는 삭제할 수 없습니다".
+
+### S3. 공개 필터 — 서비스에 `siteId`를 전달, 쿼리에 고정
+- 선택지: (A) 쿼리 조건 `(x.siteId is null or x.siteId = :siteId)`를 각 `findDisplayable*`·`findPublic*`·`findFooterLinks`에 추가하고 서비스 메서드에 `Long siteId`를 필수 파라미터로 / (B) 서비스가 전체를 읽은 뒤 메모리에서 거름 / (C) 요청 스코프 빈으로 사이트를 암묵 주입.
+- **결정 (A)**. 공개 불변식이 "쿼리에 고정"이라는 이 프로젝트의 규약을 따른다(호출자가 필터를 빠뜨릴 수 없다). `siteId`는 컨트롤러가 `PublicSiteRoutes.current(request).id()`로 얻어 넘긴다(`@SiteScopedPublic` 컨트롤러는 인터셉터가 항상 채우므로 null 아님). 서비스는 null을 받으면 `IllegalArgumentException`으로 거부해 "필터 없음" 호출을 막는다.
+- 대상: 홈 배너(`findDisplayable`)·팝업(`findDisplayable`)·푸터(`findFooterLinks`)·FAQ(`findPublicRows`)·정적 페이지(`findPublicCurrent`·`findPublicRevision`·`findPublicHeader`). 다른 사이트 전용 페이지/개정/목록은 비노출·없음과 **같은 404**(존재 비노출).
+- **이미지 경로**(`findDisplayableById`·`findDisplayableImageById`)는 사이트 무관을 유지하되 **소속 사이트가 비활성이면 404**를 추가한다: `and (x.siteId is null or exists (select 1 from Site s where s.id = x.siteId and s.useYn = true))`. 이유: 사이트를 끄면 그 사이트 전용 콘텐츠가 공개에서 사라져야 하는데 이미지 id URL만 계속 열리는 것을 막는다. 다른 사이트 접두어 아래에서의 id 직접 접근은 막지 않는다(id 경로는 사이트 맥락이 없고 노출 중인 공개 이미지라는 점은 이전과 같다 — **수용한 한계**).
+- 정렬: 전역 `ord`/`id` 순을 그대로 쓴다. 공통·전용이 섞여도 관리자가 정한 전역 순서가 그대로 보인다.
+
+### S4. 정적 페이지 슬러그는 전역 유일 유지
+- 선택지: (A) 슬러그 전역 유일 유지 + 페이지가 보이는 사이트만 필터 / (B) `(site_id, slug)` 복합 유일 — 같은 슬러그를 사이트마다.
+- **결정 (A)**. (B)는 공통 "terms"와 사이트 전용 "terms"의 우선순위(가림), 개정 URL 해석, 슬러그 유일성 검사(NULL은 MariaDB 유니크 인덱스에서 중복 허용)·동시 등록 경합을 새로 풀어야 한다. (A)는 기존 유니크 키·동시성 방어선을 그대로 쓴다. 비용: 사이트마다 같은 이름의 페이지를 만들 수 없다(`privacy-a`/`privacy-b`로 구분) — 수용하고 승인 시 확인 사항에 넣는다.
+- `uk_site_page_slug`·`SiteSlug` 예약어·개정 모델 변경 없음. 수정 시 `version`은 대상 변경에도 오른다(`changeFlags`에 대상 포함, 본문 개정은 올리지 않음).
+
+### S5. 순서·상한은 전역 유지 (과설계 경계)
+- 사이트마다 가드·`ord`·상한을 따로 두면 `banner_lock`/`faq_lock`을 사이트별 행으로 쪼개고 순서 저장·구조 `version`·집합 일치 검사·`PUT /order` 계약을 전부 사이트 범위로 바꿔야 한다 — PR 하나로는 위험하고 확정 결정에도 없다.
+- **결정**: 가드·`ord`·`version`·상한(배너 10·팝업 30·FAQ 카테고리 30·FAQ 200)은 **전체 합계 기준 그대로**. 공개 화면은 전체 순서의 부분 수열이라 순서가 일관된다. 배너 10개 상한이 "공개 메인이 활성 배너 전부를 매번 내려받는" 부담을 한 사이트 기준으로도 넘지 않게 지킨다(합계 ≥ 한 사이트의 노출 수). 사이트가 여러 개이면 합계 상한이 빡빡해지는 것이 비용이다 — **승인 시 확인 사항**.
+- 순서 저장 화면은 전체 목록을 그대로 다룬다(필터 없음) — 행마다 "표시 대상" 배지를 보여 준다.
+
+### S6. 관리 API 계약 — `siteScope` 문자열, 수정에서는 필수 (v2 개정)
+- 요청 필드 `String siteScope`: 값은 **`"COMMON"`(모든 사이트 공통) 또는 양의 정수 문자열(사이트 ID)**. `@Pattern("COMMON|[1-9][0-9]{0,18}")`로 형식을 거르고 파싱은 공용 `SiteScope` 값 객체 하나가 한다. 정규식은 `Long` 범위(9223372036854775807)를 넘는 19자리 값을 통과시키므로 **`SiteScope`가 `NumberFormatException`/범위 초과를 `InvalidRequestException`(400)으로 바꾼다**(500 방지, `9223372036854775808`·`9999999999999999999` 시험). 응답 DTO에는 `siteId`(Long, null = 공통)를 싣는다.
+- **등록**(배너 multipart·팝업·FAQ 카테고리·정적 페이지): 필드 선택, **누락 = `COMMON`**(새 행의 기본값이라 노출 범위가 "넓어지는" 변화가 없다).
+- **수정**(배너·팝업 PUT, FAQ 카테고리 PUT, 정적 페이지 PUT): 필드 **필수**(`@NotNull`+`@Pattern`). 누락·빈 문자열·형식 위반은 **400**. 이유: PUT 전체 교체에서 누락이 `COMMON`으로 해석되면 A 전용 콘텐츠의 제목만 고친 호출이 모든 사이트 공개로 바뀐다 — 노출 범위 확대는 요청이 명시해야 한다(정적 페이지 `useYn`·`footerYn` 필수, 팝업 높이 빈 문자열 거부와 같은 방향). Jackson이 `Long`의 `""`를 `null`로 바꾸는 함정(팝업 CLAUDE.md)도 문자열 필드로 피한다.
+- **등록용·수정용 요청 클래스를 분리**한다 — 배너(`BannerCreateRequest`/`BannerUpdateRequest`)·팝업·정적 페이지는 이미 분리돼 있고, **FAQ 카테고리는 POST·PUT이 같은 `FaqCategoryRequest`라서** 수정용 `FaqCategoryUpdateRequest`(필수 `siteScope`·`version`)를 새로 둔다. MVC 시험으로 같은 누락이 POST는 성공·PUT은 400임을 고정한다.
+- 새 엔드포인트·새 URL이 없어 인가 영향이 없다. FAQ 항목(질문)은 카테고리를 따르므로 필드가 없다. 감사: 기존 액션 유지(새 액션 타입 없음).
+- 기존 시험·화면 JS 중 PUT 본문에 `siteScope`가 없는 것은 400이 되므로 갱신 대상이다(시험 파급에 포함).
+
+### S6b. 낡은 편집 화면의 공개 범위 확대 방지 — 수정에 `version` 필수 (v3 신설, 2라운드 P1 + 사용자 결정 "버전 컬럼 추가")
+- 문제: `siteScope` 필수만으로는 공통 콘텐츠를 열어 둔 화면이 그 사이 다른 관리자가 A 전용으로 바꾼 값을 `COMMON`으로 되돌려 모든 사이트에 다시 공개할 수 있다(명시값이라 필수 검사를 통과). 정적 페이지만 `version` 검사가 있다.
+- **결정**: 배너·팝업·FAQ 카테고리 수정에도 정적 페이지와 같은 낙관적 버전 검사를 둔다. 행 락(배너·팝업 `findByIdForUpdate`, FAQ 카테고리는 가드 행 뒤 대상 조회)을 잡은 **뒤** 요청의 버전과 현재 값이 다르면 **409**(문구는 정적 페이지 `STALE_VERSION`과 같은 계열).
+  - 배너: 새 컬럼 `banner.version`(V55, 기본 1). `replaceMetadata`가 +1(제목·링크·기간·노출·**대상** 중 무엇이든). 순서 저장(`changeOrder`)은 올리지 않는다(순서만 바뀐 뒤의 편집 화면까지 무효화하지 않으려고 — 대상/노출 변경은 모두 `replaceMetadata`를 지난다).
+  - 팝업: **기존 `revision`을 그대로 쓴다**(응답에 이미 있고 수정마다 락 아래에서 +1, 신규 컬럼 없음). 수정 요청에 `revision` 필수. 대상 변경도 `replace`를 지나 revision이 오르므로 "오늘 하루 보지 않기"도 함께 풀린다.
+  - FAQ 카테고리: 새 컬럼 `faq_category.version`(V55, 기본 1). 카테고리 `replace`(이름·노출·대상)가 +1. `ord` 변경(순서 반영·삭제 후 재번호)은 올리지 않는다. 구조 `version`(`faq_lock`)과는 다른 값이다.
+  - 응답 DTO(`BannerResponse`·`PopupResponse`(기존 revision)·`FaqCategoryResponse`·`FaqTreeResponse.Category`)에 버전을 싣고 화면 JS는 편집 폼에 보관했다가 PUT에 보낸다. 요청에서 누락은 400. **배너·FAQ 카테고리 `version`은 양수(`@Positive`, 시작값 1), 팝업 `revision`은 시작값이 0이므로 `@NotNull @PositiveOrZero`**(V39 기본값 0·`PopupService`가 `revision(0)`으로 생성) — 음수는 400.
+- 이전에 "수용한 한계"로 둔 배너·팝업·FAQ 카테고리 단건 수정의 낡은 폼 덮어쓰기는 이 변경으로 **해소**된다(문서 `CLAUDE.md` 3곳의 한계 문구 갱신). FAQ **항목**(질문)은 아래 "FAQ 항목" 항목처럼 소속 카테고리가 사실상 대상이므로 소속 검사만 추가한다(질문·답변 덮어쓰기의 기존 수용 한계는 유지, 삭제는 범위 밖).
+- **FAQ 항목(v4, 3라운드 P1)**: 항목의 `categoryId`가 표시 대상을 결정한다. 낡은 폼이 이전 `categoryId`를 그대로 보내면 다른 관리자가 사이트 전용 카테고리로 옮긴 항목이 공통 카테고리로 돌아가 재공개된다. 따라서 **FAQ 항목 수정 요청에 편집 시작 당시의 `baseCategoryId`를 필수로** 보내고, 가드 행 아래에서 현재 `categoryId`와 다르면 **409**로 거부한다(질문만 고쳐도 소속이 바뀌었으면 새로고침 요구). 이동 대상 카테고리의 표시 대상이 편집 중 바뀐 경우는 "이동은 그 카테고리의 **현재** 대상을 따른다"로 두고 목록의 배지로 보인다(수용 — 이동은 사용자가 대상 카테고리를 고른 행위이고, 대상 카테고리 자체의 재지정은 카테고리 `version`이 막는다).
+- **화면의 편집 스냅샷 규칙(v4 → v5 교정)**: 버전을 `editing.version`처럼 목록 객체에서 읽으면 안 된다 — 배너 `loadList()`는 편집 중 항목을 최신 목록 객체로 교체하면서 폼 입력은 다시 채우지 않으므로, 폼은 옛 값인데 버전만 최신이 되어 검사를 통과한다. 규칙: 편집 폼을 **서버에서 읽어 채우는 순간** 별도 **검증 기준 스냅샷** `{id, version(revision), (FAQ 항목은 baseCategoryId)}`을 보관하고, PUT의 `version`/`revision`/`baseCategoryId`는 **이 스냅샷에서만** 보낸다. 반대로 사용자가 바꾸는 **요청 값**(`siteScope`, FAQ 항목의 이동할 `categoryId`, 제목 등)은 **현재 폼 입력에서 읽는다**(스냅샷에 넣지 않는다 — 넣으면 선택 박스를 바꿔도 옛 값이 전송돼 변경이 조용히 무시된다). 목록 갱신·순서 저장 409 처리는 스냅샷도 폼 입력도 바꾸지 않는다. 더 새 버전을 쓰려면 폼 전체를 다시 불러와(스냅샷·입력 동시 재설정) 입력도 최신이 되게 한다. 네 화면(배너·팝업·FAQ 카테고리/항목)에 공통 적용한다.
+- **FAQ 상세·트리 불일치 방어(v5, 4라운드 P1)**: FAQ 편집 폼은 상세 응답으로 채우고 카테고리 선택지는 트리 응답으로 만든다. 두 응답의 조회 시점이 다르면(트리를 읽은 뒤 다른 관리자가 새 카테고리를 만들고 항목을 옮김) 상세의 `categoryId`가 선택지에 없어 선택이 옛 공통 카테고리로 남을 수 있고, 이때 `baseCategoryId`(최신 상세)는 현재 소속과 같아 검사를 통과한 채 `categoryId`(선택 박스 값)로 항목이 이동한다. 규칙: **상세의 `categoryId`를 선택 박스에 정확히 복원하지 못하면 저장을 막고(폼 잠금 + "화면이 낡았습니다") 트리를 다시 읽어 폼을 다시 채운다.** 사이트 대상 선택(`siteScope`) 박스의 "목록에 없음 옵션 보존"(S8)과 같은 계열의 원칙 — 복원 불가한 값은 조용히 다른 값으로 대체하지 않는다.
+- 비용: V55에 컬럼 2개 추가, 수정 요청 계약 변경(배너·팝업·FAQ 카테고리 PUT에 `version`/`revision` 필수), 기존 PUT 시험·JS 갱신. 롤백: 이전 앱은 `version`을 올리지 않지만 읽지도 않으므로 무해(재배포 시 낡은 화면 검사만 약해짐).
+
+### S7. 사이트 목록을 MANAGER에게 어떻게 주는가 — 서버 렌더링 모델
+- 선택지: (A) 4개 페이지 컨트롤러가 모델 `scopeSites`(공개 사이트 `id/name/key/useYn`)를 서버 렌더링 / (B) 새 읽기 API `/admin/api/site-options` 추가 / (C) `/admin/api/sites`를 MANAGER에 개방.
+- **결정 (A)**. (B)(C)는 `/admin/**` ADMIN 캐치올·URL 게이트 변경, 즉 **인가 정책 변경**이 필요하다. (A)는 정책 변경 없이 기존 `@AdminPage` 모델 주입 방식과 같은 서버 측 렌더링이다. 구현: 얇은 컴포넌트 `ContentScopeOptions`가 `SiteRepository`에서 `PUBLIC` 사이트를 읽고 네 `*PageController`가 `Model`에 싣는다. 정적 페이지 화면은 메뉴/사이트 탭과 한 셸이므로 같은 모델을 쓴다.
+- 사이트 이름·키는 관리자가 입력한 값이라 템플릿은 `th:text`/JS `textContent`만 쓴다(HTML 삽입 금지).
+- `ContentScopeOptions`는 공개 사이트 목록과 함께 **기본 공개 사이트의 키**(`default_yn`)도 싣는다(S8의 정적 페이지 링크용).
+- 권한 모델: 배너/팝업/FAQ/정적 페이지 위임 권한은 **기능 단위라 모든 표시 대상(공통·모든 사이트)에 적용**된다. 사이트별 위임은 하지 않는다(확정 결정에 없음, `member_permission` 변경 없음) — **승인 시 확인 사항**.
+
+### S8. 관리 화면 — 폼에 선택 박스, 목록에 배지 (최소 변경)
+- 네 화면: 등록/수정 폼에 `<select name="siteId">`(첫 옵션 "공통(모든 사이트)", 이어서 공개 사이트들 — 비활성은 "(비활성)" 표시), 목록 행에 배지(공통이면 "공통", 전용이면 사이트 이름). FAQ는 카테고리 폼에만. 팝업은 종류 불변이지만 표시 대상은 수정 가능. 정적 페이지는 `version` 낡은 화면 검사를 그대로 쓴다.
+- 필터·그룹핑·사이트별 탭은 만들지 않는다(과설계). 순서 DnD/▲▼는 전체 목록 그대로.
+- 기존 폼 JS 상태 기계(`busy`·`syncFailed`·초안 잠금 등)에 새 필드가 끼어들 뿐 흐름은 바꾸지 않는다.
+- **낡은 사이트 목록 방어(v2)**: `scopeSites`는 문서 로드 시점 값이다. 항목을 편집 폼에 불러올 때 서버가 준 `siteId`가 옵션에 **없으면 "사이트 #id (목록에 없음)" 옵션을 추가해 그 값을 보존**한다 — `select.value = …`가 조용히 비워져 `COMMON`으로 저장되는 일이 없다(수정이 `siteScope` 필수이기도 하다). 같은 셸의 사이트 탭이 쏘는 `content:sites-changed` 이벤트는 정적 페이지 탭이 구독해 "사이트 목록이 바뀌었습니다. 새로고침하면 선택지에 반영됩니다" 안내를 띄운다(옵션 자체는 새로고침으로 갱신). 오래 열린 화면이 새 사이트로 지정하려다 서버가 400(없는 사이트)을 주는 경로는 기존 오류 표시로 처리한다.
+- **FAQ**: 편집·배지의 입력원은 카테고리 단건 응답이 아니라 **트리 응답**이므로 `FaqTreeResponse.Category`(+`toTree`)에 `siteId`를 싣는다(`FaqCategoryResponse`도 같이).
+- **정적 페이지 목록**: 배지는 `SitePageSummaryRow`(JPQL 생성자 프로젝션)와 `findAllSummaries`, `SitePageSummaryResponse`·`SitePageDetailResponse`에 `siteId`를 싣는다.
+- **정적 페이지 공개 주소·개정 링크(PR ②에서 남은 결함, v2 포함)**: 현재 `page-tab.html`이 `/pages/{slug}`·`/pages/{slug}/revisions/{no}`(종료된 경로, 404)로 링크를 만든다. 규칙: 전용 페이지는 **그 사이트 키**, 공통 페이지는 **기본 공개 사이트 키**를 접두어로 `/{key}/pages/…`를 만든다. 전용 사이트가 비활성이거나 옵션에 없으면 링크 대신 "공개 안 됨" 텍스트. 기본 공개 사이트가 없으면(비정상) 링크 없음.
+
+### S9. 롤백·호환 (v2 개정)
+- **PR ② 앱(V55 이전 코드)으로의 롤백도 위험하다**: 그 앱은 `/{siteKey}/…` 경로를 유지하면서 `site_id`를 무시하므로 **사이트 전용 콘텐츠가 모든 사이트에 노출**된다. 이전 앱은 V55 컬럼을 모르므로 사이트 삭제도 FK에만 막힌다. 따라서 **사이트 전용(`site_id IS NOT NULL`) 콘텐츠가 하나라도 있으면 V55 이전 앱으로 롤백하지 않는다**(`docs/deployment.md`·`docs/migration-guide.md`에 조건과 점검 SQL을 적는다).
+- 롤백이 불가피하면 먼저 전용 콘텐츠를 **삭제 또는 백업 복구**한다. `site_id`를 NULL로 바꾸는 것은 삭제 대안이 아니다(공통 공개가 된다). FAQ는 카테고리가 항목이 남아 있으면 삭제를 거부하므로 **항목 → 카테고리 순**으로 지운다.
+- 기존 행은 모두 공통이라 PR ③ 배포 직후 공개 화면은 이전과 100% 같다. 구·신 앱 혼합 운영 금지(PR ②)는 그대로다.
+
+### S10. 하지 않는 것 (과설계 경계)
+다대다 사이트 선택, 사이트별 가드/순서/상한, 사이트별 위임 권한, 관리 화면 사이트 필터·탭, FAQ 항목 단위 소속, 슬러그 사이트별 유일, 새 감사 액션, 새 공개 경로·인가 변경, 이미지 3종 경로의 사이트 접두어화, 사이트 응답의 콘텐츠 건수 표시.
+
+## Q3. 인가·스키마 영향 고지 (승인 시 별도 확인 대상)
+- **인가 정책**: 변경 없음(`SecurityConfig`·레이트리밋·`AdminFeature`·권한 카탈로그·새 URL 없음).
+- **스키마**: **V55 신규**(네 테이블 `site_id` NULL 허용 + FK `RESTRICT`). 머지된 마이그레이션 수정 없음. 되돌리기 어려운 점: 사이트 전용 콘텐츠를 만든 뒤에는 롤백이 노출 범위를 넓힌다(S9).
+- **공개 동작**: 배포 직후 변화 없음(모두 공통). 이후 관리자가 전용 대상을 지정하면 그 사이트에서만 보인다.
+
+## Q4. 작업 단계 (안쪽 → 바깥)
+1. `V55__add_content_site_id.sql` + 엔티티 4개 필드(`siteId`, 도메인 메서드로 변경) — 컴파일 확인.
+2. `SiteRepository.findByIdForShare`, `ContentSiteScope`(검증+잠금), 각 리포지토리 `existsBySiteId`, `SiteService.hasContent` 확장.
+3. 공개 쿼리·공개 서비스·컨트롤러(`HomeController`·`PublicFaqController`·`PublicSitePageController`)에 `siteId` 전달 — **배너 호출 지점은 컨트롤러가 아니라 `PublicHomeService.getHome(siteId)`**(그 안에서 `PublicBannerService`로 전달). 이미지 쿼리의 비활성 사이트 조건.
+4. 공용 `SiteScope`(파싱·범위 초과 400) + `banner.version`·`faq_category.version`(V55)·낡은 화면 검사(S6b) + 관리 서비스·DTO(FAQ 카테고리 수정용 요청 분리 포함): 요청 `siteScope`(등록 선택·수정 필수), 응답 `siteId` — 배너·팝업·FAQ 카테고리(`FaqCategoryResponse`+**`FaqTreeResponse.Category`/`toTree`**)·정적 페이지(`SitePageSummaryRow` 프로젝션·`findAllSummaries`·요약/상세 응답).
+5. `ContentScopeOptions`(공개 사이트 + 기본 공개 사이트 키) + 4개 페이지 컨트롤러 모델 + 템플릿 4곳(선택 박스·배지·낡은 옵션 보존·정적 페이지 링크 규칙·`content:sites-changed` 안내).
+6. 시험·`./gradlew test`, 실기 검증, 문서(`CLAUDE.md` 루트·`admin.site`·`admin.banner/popup/faq/page`·`publicweb.home/faq/page`, `docs/deployment.md`·`docs/migration-guide.md`).
+
+## Q5. 테스트 계획
+- 마이그레이션: `ContentSiteMigrationTest` — 컬럼 4개·FK RESTRICT·기본값 NULL·멱등 재실행(`SiteMigrationTest` 선례).
+- 공개 필터(DB 통합): 공통·A전용·B전용 혼합 데이터로 `/a`·`/b`에서 각각 배너·팝업·FAQ·푸터·페이지가 기대대로(교차 노출 없음), 다른 사이트 전용 페이지/개정/개정 목록 → 404, 비활성 사이트 전용 이미지 → 404, 공통은 영향 없음, 기존 공개 시험은 공통 데이터라 그대로 통과.
+- 관리 서비스: 지정 검증(없음 400·관리자 사이트 400·null=공통), 수정으로 대상 변경, FAQ 카테고리 대상 변경 후 공개 반영, 정적 페이지 대상 변경이 `version`만 올리고 개정은 유지.
+- 삭제 가드: 사이트에 배너·팝업·카테고리·페이지 각각 있으면 409, 지우면 삭제 가능; FK RESTRICT가 우회 삭제를 막는지(DB 직접).
+- 동시성(v2): 사이트 삭제 ↔ 해당 사이트로 지정하는 생성 **및 공통→전용 수정** 경합(`LockWaitObserver`로 순서 고정). 단언은 "고아 없음"이 아니라 **계약**이다: 지정 쪽이 공유 잠금을 먼저 얻으면 → 지정 성공·삭제 **409**, 삭제가 먼저 커밋하면 → 지정 **400**(없는 사이트). 어느 경우에도 FK 예외·교착·500이 없어야 한다. 변이 실험: `findByIdForShare`를 일반 읽기로 바꾸면 이 시험이 실패하는지 확인(FK가 고아를 막아도 계약 위반은 드러난다).
+- PUT 계약(v2): 수정에서 `siteScope` 누락/빈 문자열/`abc`/`0` → 400, `COMMON` → 공통, 숫자 → 해당 사이트. 등록 누락 → 공통. 팝업·배너·FAQ 카테고리·정적 페이지 네 곳 모두.
+- FAQ 항목 재공개(v4): B가 공통 카테고리의 항목 편집 화면을 연 뒤 A가 그 항목을 A 전용 카테고리로 이동 → B가 질문만 고쳐 저장하면 **409**(`baseCategoryId` 불일치), 항목 소속 불변. 소속이 같으면 성공.
+- FAQ 상세·트리 불일치(v5): 트리를 읽은 뒤 다른 세션이 새 전용 카테고리를 만들고 항목을 옮긴 상태에서 이 항목의 상세를 열면 저장이 막히고(복원 불가) 트리 재조회 후 정상 편집 가능. 선택 박스를 사용자가 바꾼 대상(`siteScope`)·이동할 `categoryId`가 **스냅샷에 덮이지 않고** 요청에 실리는지(정상 버전에서 박스만 바꿔 저장하면 대상이 바뀐다)도 같은 브라우저 시험에 포함.
+- 브라우저(v4): ① 다른 관리자 대상 변경 → [목록 새로고침] → 옛 폼 저장 → 409(스냅샷 불변) ② 409 후 폼을 다시 불러와 재저장 → 성공. 배너·팝업·FAQ에 각각.
+- 팝업 revision 경계(v6): 생성 직후 `revision=0`으로 수정 성공 → `revision`이 1로 증가 → 이전 값 0으로 재수정은 409, 누락·음수는 400. 배너·FAQ 카테고리 `version=0`은 400.
+- 낡은 화면(v3): 두 세션 시나리오 — 공통 콘텐츠를 열어 둔 세션 B가 그 사이 세션 A가 A 전용으로 바꾼 뒤 `COMMON`+이전 버전으로 저장 → **409**, 대상 불변. 배너·팝업(revision)·FAQ 카테고리 각각. 같은 버전이면 성공하고 버전이 +1. 순서 저장이 배너/카테고리 `version`을 올리지 않음. 낡은 버전으로 제목만 고쳐도 409.
+- DTO 분리(v3): FAQ 카테고리 같은 입력에서 POST는 `siteScope` 누락 성공(공통), PUT은 400. `siteScope=9223372036854775808` 등 범위 초과는 400(500 아님).
+- FAQ 소속(v2): 항목을 A 전용 카테고리 → B 전용/공통 카테고리로 옮기면 공개 노출이 새 카테고리 소속을 따른다. 트리 응답의 `siteId`가 편집 폼 복원에 쓰인다.
+- 브라우저(v2): 편집 폼에 옵션에 없는 `siteId`를 가진 항목을 불러와 저장해도 대상이 보존되는지, 정적 페이지 공개 주소/개정 링크가 `/{key}/pages/…`를 가리키고 클릭하면 200인지.
+- 컨벤션: 공개 인벤토리 시험은 새 경로가 없어 무변경으로 통과해야 한다. `scopeSites` 모델이 네 페이지에 실리는지 MockMvc.
+- 권한: MANAGER(위임 있음)가 `siteId` 지정 등록이 되고 사이트 관리 API는 여전히 403.
+- 브라우저(playwright 실기): 네 화면의 선택 박스·배지, 사이트 두 개로 공개 화면 교차 확인.
+
+## Q6. 실기 검증 계획
+일회용 MariaDB(3317)+앱 8081(`project-site-menu-progress` 메모리 팁). 사이트 `news` 생성 → 공통/`main`/`news` 전용 배너·팝업·FAQ 카테고리·푸터 페이지 등록 → `/main`·`/news` 화면 비교(교차 비노출) → 대상 변경 반영 → 사이트 삭제 409 → 비활성화 시 전용 이미지 404 → 원복. 스크린샷 저장.
+
+## Q7. 리스크
+1. **수정 요청에 `siteScope` 필수화**(S6) — 기존 PUT 시험·JS·API 호출자는 필드를 추가해야 한다(누락은 400). 반대 위험인 "누락이 조용히 공통 공개"는 없다.
+2. **합계 상한**(S5): 다중 사이트에서 배너 10개 합계가 빡빡함 — 승인 시 확인.
+3. **공개 서비스 시그니처 변경으로 시험 대량 수정**(공개 서비스 시험 25여 개 파일) — 기계적이지만 범위가 넓다. `siteId` 필수화로 누락을 컴파일 오류로 드러낸다.
+4. **이미지 id 경로의 사이트 무관**(수용): 노출 중인 공개 이미지는 id로 열람 가능 — PR ② 이전과 같은 노출 모델.
+5. **MANAGER가 모든 표시 대상 지정 가능**(S7): 기능 단위 위임의 자연스러운 결과, 사이트별 위임은 범위 밖.
+6. 정적 페이지가 사이트 전용인데 다른 곳(메뉴 URL·배너 링크)이 그 슬러그를 가리키면 그 사이트 밖에서는 404 — 링크 무결성 검사는 하지 않는다(수용).
+
+## Q8. 승인 시 사용자에게 별도 확인할 것
+1. 스키마 V55(되돌리기 어려움: 롤백 시 전용 콘텐츠 노출 범위 확대, S9).
+2. **합계 상한 유지**(S5) vs 상한 상향.
+3. **슬러그 전역 유일 유지**(S4) — 사이트마다 같은 슬러그 불가.
+4. **기능 단위 위임이 모든 표시 대상에 적용**(S7) — 사이트별 위임 없음.
+5. 수정 요청의 `siteScope`·`version` 필수화(S6·S6b) — 사용자 결정(2라운드): 낡은 화면 방지를 위해 버전 컬럼 추가. 누락은 400이므로 기존 PUT 시험·JS가 함께 바뀐다.
+6. 롤백 조건(S9): 전용 콘텐츠가 있으면 V55 이전 앱으로 롤백 금지.
+7. 버전 검사(S6b)로 배너·팝업·FAQ 카테고리 PUT 계약이 바뀐다 — 기존 시험·JS 갱신 범위가 커진다(기계적).
+
+## Q9. 개정 이력 (PR ③)
+- P3-v1 (2026-10-13): 초안.
+- P3-v2 (2026-10-13, 리뷰 1라운드 — codex `gpt-6.1-sol`, no-ship, P1 2·P2 4·추가 2): 변경 — ① S6 재작성: 수정 요청 `siteScope`(`COMMON`|ID 문자열) **필수**·누락/빈 값 400(PUT 누락이 공통 공개로 승격하는 결함 제거), 등록은 누락=공통. ② S8 낡은 사이트 목록 방어(없는 `siteId`는 "목록에 없음" 옵션으로 보존, `content:sites-changed` 안내). ③ FAQ `FaqTreeResponse.Category`/`toTree`·정적 페이지 `SitePageSummaryRow` 프로젝션을 변경 목록에 명시. ④ 정적 페이지 관리 화면의 공개 주소·개정 링크를 `/{key}/pages/…`로(전용=소속 키, 공통=기본 사이트 키, 비활성이면 링크 없음). ⑤ S9 롤백: PR ② 앱으로의 롤백도 전용 콘텐츠가 있으면 금지, NULL화는 복구 수단 아님, FAQ는 항목→카테고리 순 삭제. ⑥ 동시성 시험을 계약 단언(성공/409/400, 500·교착 없음)으로 교체하고 공통→전용 수정 경합 포함. ⑦ `PublicHomeService.getHome(siteId)` 호출 지점 명시, 잠금 선례를 `PostService`로 정정. 기각 없음.
+- P3-v3 (2026-10-13, 리뷰 2라운드 — codex `gpt-6.1-sol`, no-ship, P1 1·P2 2): 변경 — ① S6b 신설: 낡은 화면이 `COMMON`을 명시 전송해 방금 전용으로 바뀐 콘텐츠를 공통 공개로 되돌리는 경로를 **사용자 결정("버전 컬럼 추가")**으로 막는다 — `banner.version`·`faq_category.version`(V55)·팝업은 기존 `revision` 재사용, 수정 요청에 버전 필수·불일치 409, 순서 변경은 버전 미증가. ② FAQ 카테고리 POST·PUT 공용 요청 분리(`FaqCategoryUpdateRequest`)와 POST 성공/PUT 400 MVC 시험. ③ `SiteScope`가 Long 범위 초과를 400으로 변환(500 방지) + 경계 입력 시험. 기각 없음.
+- P3-v4 (2026-10-13, 리뷰 3라운드 — codex `gpt-6.1-sol`, no-ship, P1 1·P2 1): 변경 — ① FAQ **항목** 수정에 `baseCategoryId` 필수·불일치 409(소속이 사실상 표시 대상이라 낡은 폼이 전용 항목을 공통 카테고리로 되돌려 재공개하는 경로 차단; v3의 "항목은 대상이 없다" 판단은 오류였음). ② 화면의 편집 스냅샷 규칙(버전·대상은 폼을 서버에서 채우는 순간 고정, 목록 갱신이 바꾸지 않음) + 브라우저 시험 2건. 기각 없음.
+- P3-v5 (2026-10-13, 리뷰 4라운드 — codex `gpt-6.1-sol`, no-ship, P1 1·P2 1): 변경 — ① FAQ 상세·트리 응답의 조회 시점 불일치로 선택 박스가 옛 카테고리로 남는 경로 차단: 상세의 `categoryId`를 선택지에 복원하지 못하면 저장을 막고 트리를 다시 읽는다. ② v4 스냅샷 규칙 교정: 스냅샷에는 **검증 기준**(id·version/revision·baseCategoryId)만 두고 사용자가 바꾸는 **요청 값**(siteScope·이동할 categoryId)은 폼 입력에서 읽는다(v4 문구는 변경을 무시하는 결함이었음). 기각 없음.
+- P3-v6 (2026-10-13, 리뷰 5라운드 — codex `gpt-6.1-sol`, no-ship, P2 1): 변경 — 팝업 `revision`의 시작값이 0(V39 기본값·`PopupService` 생성)인데 "누락/비양수 400"으로 쓰면 신규·미수정 팝업의 첫 수정이 막히므로 팝업은 `@NotNull @PositiveOrZero`, 배너·FAQ 카테고리 `version`은 `@Positive`로 구분하고 경계 시험 추가. 기각 없음.
+
+## 구현·검증 결과 — PR ③ (2026-10-14)
+
+### Context
+사이트 설정 메뉴 중 **PR ③(사이트별 콘텐츠: 배너·팝업·FAQ 카테고리·정적 페이지/푸터)** 을 계획 P3-v6(적대적 리뷰 6라운드 ship, 사용자 승인 시 "낡은 화면 = 버전 컬럼 추가"·"범위 = 전부" 선택)대로 구현했다. **인가 정책(`SecurityConfig`·레이트리밋·`AdminFeature`)은 바뀌지 않았다.** 스키마는 V55 한 개다. PR ④⑤는 미착수.
+
+### 핵심 확정 사항 (계획 P3-v6에서 변경 없음)
+- `banner`·`popup`·`faq_category`·`site_page`에 `site_id` NULL(=공통) + FK `RESTRICT`, `banner`·`faq_category`에 `version`(팝업은 `revision`, 페이지는 `version` 재사용). 대상 지정은 `ContentSiteScope`가 사이트 행 `FOR SHARE`로 검증(삭제 ↔ 지정이 409/400 중 하나로 갈림).
+- 수정 요청: `siteScope`(`COMMON`|ID 문자열)·버전 필수, 등록은 `siteScope` 선택. FAQ 카테고리는 수정용 DTO 분리, FAQ 항목은 `baseCategoryId` 필수.
+- 공개 필터는 쿼리에 고정하고 공개 서비스가 `siteId`를 필수로 받는다. 이미지 id 경로는 사이트 무관(소속 사이트 비활성이면 404).
+- 화면: 서버 렌더링 선택지(`ContentScopeOptions`), `content-scope.js`(없는 사이트 ID 보존), 편집 스냅샷(검증 기준)과 요청 값(폼 입력) 분리.
+
+### 구현 파일
+- 마이그레이션: `V55__add_content_site_id.sql`
+- 신규: `SiteScope`·`ContentSiteScope`·`ContentScopeOptions`(`com.cms.admin.site`), `FaqCategoryUpdateRequest`, `static/js/admin/content-scope.js`
+- 변경(백엔드): 엔티티 4개·리포지토리 6개(`findByIdForShare`·`existsBySiteId`·공개 쿼리의 소속 조건)·관리 서비스 4개·요청/응답 DTO·`SiteService.hasContent`·공개 서비스/컨트롤러(`HomeController`·`PublicFaqController`·`PublicSitePageController` 등)·`PublicSite.requireId`·페이지 컨트롤러 4개
+- 변경(화면): `admin/banner·popup·faq/manage.html`, `admin/page/manage.html`·`fragments/page-tab.html`
+- 문서: 루트·`admin.site/banner/popup/faq/page`·`publicweb.support/home/faq/page` `CLAUDE.md`, `docs/deployment.md`·`docs/migration-guide.md`
+
+### 검증 결과
+- **시험**: 신규 6개 클래스 — `ContentSiteMigrationTest`·`ContentSiteScopeApiIntegrationTest`·`ContentSiteScopeConcurrencyIntegrationTest`·`PublicContentSiteScopeIntegrationTest`·`ContentScopeAdminBrowserTest`(Playwright 5건)·기존 클래스에 소속 필터/비활성 이미지/삭제 가드 추가(`BannerRepositoryDataJpaTest`·`PopupRepositoryDataJpaTest`·`SiteServiceTest`). 1차 전체 실행에서 2,432건 중 50건이 새 계약(PUT에 `siteScope`·버전 필수, 생성자·시그니처 변경)으로 실패 → 갱신, 2차 2,461건 중 9건(갱신 누락·시험 결함) → 수정 후 대상 클래스 통과, **최종 전체 `./gradlew test`: 2,461건 중 실패 0·오류 0(건너뜀 12 — 기존 `@Disabled`/조건부)**.
+- **변이 실험**: `findByIdForShare`의 `@Lock(PESSIMISTIC_READ)`를 제거하면 `ContentSiteScopeConcurrencyIntegrationTest` 1건이 실패한다(복원 확인).
+- **브라우저 시험이 잡은 실제 결함 1건**: FAQ 상세/트리 불일치 안내 문구가 이어지는 `reload()`에 지워져 사용자에게 보이지 않았다 → 재조회 뒤에 띄우도록 수정.
+- **실기(Playwright + 일회용 MariaDB 3317 + 앱 8081)**: 사이트 `news` 생성 → 공통/전용 FAQ 카테고리·정적 페이지 등록 → `/main/faq`는 공통만, `/news/faq`는 공통+전용, 푸터도 동일 / `/main/pages/terms-news`·개정·개정 목록 404, `/news/pages/terms-all` 200 / 옛 경로 `/faq`·`/pages/…` 404 / 관리 화면 선택 박스·배지·정적 페이지 공개 주소(`/news/pages/…`, 공통은 `/main/pages/…`) / UI로 카테고리 대상 변경 → 공개 반영 → 같은 폼에서 이어서 원복 / 사이트 삭제 409 / `siteScope` 누락 PUT 400 / MANAGER(FAQ 읽기·수정 위임): 선택지 렌더링, 대상 지정 200, `/admin/api/sites`·정적 페이지 화면 403.
+
+### 이슈
+- **구현 중 계획과 달라진 점 없음.** 시험 관점의 조정: 팝업 동시성 시험 2건은 revision 검사 때문에 "같은 revision을 든 동시 수정"이 하나만 성공하므로 8스레드 시험은 409 뒤 재시도로, 락 대기 시험은 대기자가 `before+1`을 들고 요청하도록 바꿨다(증가분 유실 없음 단언은 유지).
+- **수용한 한계(계획대로)**: 합계 상한(배너 10 등), 슬러그 전역 유일, 기능 단위 위임이 모든 표시 대상에 적용, 이미지 id 경로의 사이트 무관, FAQ 항목 질문·답변의 stale-form 덮어쓰기.
+- **배너 화면은 브라우저로 직접 못 본 부분이 있다**: 실기에서는 배너 업로드 흐름을 돌리지 않았다(이미지 업로드 필요) — 대신 `ContentScopeAdminBrowserTest`가 배너 화면의 대상 전송·낡은 폼 거부·보존 옵션을 실제 브라우저로 확인한다. 팝업 화면의 선택 박스는 코드와 기존 `PopupAdminFormBrowserTest`(통과)로만 확인.
+
+### 후속
+- 코드 리뷰 게이트(`/code-review-loop`) → `/commitPR`. 로드맵 반영(`/updateRoadmap`)은 사이트 설정 메뉴 전체 완료 후 한 번에.
+- PR ④(사이트별 공지: `board.site_id`, `SiteService.hasContent`에 게시판 추가), PR ⑤(공개 메뉴 렌더링).
