@@ -33,6 +33,7 @@
                             <th>종류</th>
                             <th class="text-center">외부 링크</th>
                             <th class="text-center">사용</th>
+                            <th class="text-center">기본</th>
                             <th class="text-right">메뉴</th>
                         </tr>
                         </thead>
@@ -40,8 +41,8 @@
                     </table>
                 </div>
                 <small class="form-text text-muted mt-2">
-                    사이트 키는 공개 주소의 접두어가 될 값이라 만든 뒤에는 바꿀 수 없습니다. 기본 사이트(관리자·main)는 삭제·비활성화할 수 없고,
-                    메뉴가 있는 사이트는 삭제할 수 없습니다(비활성화만 가능).
+                    사이트 키는 공개 주소의 접두어(/키/…)가 될 값이라 만든 뒤에는 바꿀 수 없습니다. 접두어 없는 주소 /는 [기본] 사이트로 이동합니다.
+                    관리자·main 사이트와 현재 기본 사이트는 삭제·비활성화할 수 없고, 메뉴가 있는 사이트는 삭제할 수 없습니다(비활성화만 가능).
                 </small>
             </div>
         </div>
@@ -80,6 +81,7 @@
                     </div>
                     <div>
                         <button type="button" class="btn btn-primary" id="siteBtnSave">저장</button>
+                        <button type="button" class="btn btn-outline-primary d-none" id="siteBtnDefault">기본 사이트로 지정</button>
                         <button type="button" class="btn btn-danger d-none" id="siteBtnDelete">삭제</button>
                         <button type="button" class="btn btn-secondary" id="siteBtnReset">초기화</button>
                     </div>
@@ -110,6 +112,7 @@ $(document).ready(function () {
     const btnNew = document.getElementById('siteBtnNew');
     const btnSave = document.getElementById('siteBtnSave');
     const btnDelete = document.getElementById('siteBtnDelete');
+    const btnDefault = document.getElementById('siteBtnDefault');
     const btnReset = document.getElementById('siteBtnReset');
 
     let sites = [];            // 서버 응답 스냅샷
@@ -178,6 +181,11 @@ $(document).ready(function () {
         useYnGroup.classList.toggle('d-none', mode !== 'edit');
         const canDelete = mode === 'edit' && editing !== null && editing.seed !== true && editing.menuCount === 0;
         btnDelete.classList.toggle('d-none', !canDelete);
+        // 기본 지정은 활성 공개 사이트에서만, 미저장 입력이 없을 때만 보인다(요청은 폼이 아니라 defaultSite만 보낸다)
+        const canDefault = mode === 'edit' && editing !== null && editing.siteType === 'PUBLIC' && editing.useYn === true
+            && editing.defaultSite !== true && !isDirty();
+        btnDefault.classList.toggle('d-none', !canDefault);
+        btnDefault.disabled = locked;
     }
 
     function setForm(values) {
@@ -249,6 +257,7 @@ $(document).ready(function () {
             cell(row, site.siteType === 'ADMIN' ? '관리자' : '공개');
             cell(row, site.allowExternalLink === true ? '허용' : '불가', 'text-center');
             cell(row, site.useYn === true ? '사용' : '비활성', 'text-center');
+            cell(row, site.defaultSite === true ? '기본' : '', 'text-center font-weight-bold');
             cell(row, String(site.menuCount), 'text-right');
             row.addEventListener('click', function () {
                 if (saving || externalLock) {
@@ -308,6 +317,10 @@ $(document).ready(function () {
         startCreate();
     });
 
+    // 입력이 바뀌면 [기본 사이트로 지정]의 노출 조건(미저장 입력 없음)이 달라진다.
+    form.addEventListener('input', refreshUi);
+    form.addEventListener('change', refreshUi);
+
     btnReset.addEventListener('click', function () {
         if (mode === 'edit' && editing !== null) {
             startEdit(editing);
@@ -357,6 +370,36 @@ $(document).ready(function () {
             notifySitesChanged();
         } catch (error) {
             show(formAlert, error && error.message ? error.message : '사이트 저장 중 오류가 발생했습니다.');
+        } finally {
+            saving = false;
+            refreshUi();
+        }
+    });
+
+    btnDefault.addEventListener('click', async function () {
+        hide(formAlert);
+        hide(formSuccess);
+        const target = editing;
+        if (saving || externalLock || mode !== 'edit' || target === null || isDirty()) {
+            return;
+        }
+        saving = true;
+        refreshUi();
+        try {
+            const response = await fetch('/admin/api/sites/' + encodeURIComponent(target.id),
+                { method: 'PATCH', headers: csrfHeaders(), body: JSON.stringify({ defaultSite: true }) });
+            if (!response.ok) {
+                throw new Error(await errorMessage(response, '기본 사이트 지정에 실패했습니다.'));
+            }
+            const saved = await response.json();
+            await loadSites();   // 옛 기본 사이트 행의 표시도 바뀌므로 목록 전체를 다시 읽는다
+            const fresh = sites.find(function (s) { return s.id === saved.id; }) || saved;
+            saving = false;
+            startEdit(fresh);
+            show(formSuccess, '기본 사이트로 지정했습니다. 이제 /는 /' + fresh.siteKey + '로 이동합니다.');
+            notifySitesChanged();
+        } catch (error) {
+            show(formAlert, error && error.message ? error.message : '기본 사이트 지정 중 오류가 발생했습니다.');
         } finally {
             saving = false;
             refreshUi();

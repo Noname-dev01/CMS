@@ -89,14 +89,28 @@ public class SiteService {
     @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.SITE_UPDATE, targetType = "SITE", targetIdExpression = "id")
     public SiteResponse updateSite(Long id, SiteUpdateRequest request) {
-        Site site = siteRepository.findByIdForUpdate(id).orElseThrow(SiteService::notFound);
+        if (Boolean.FALSE.equals(request.getDefaultSite())) {
+            throw new InvalidRequestException("기본 사이트는 다른 사이트를 기본으로 지정해야만 바뀝니다.");
+        }
+        boolean makeDefault = Boolean.TRUE.equals(request.getDefaultSite());
+
+        // 기본 사이트 지정은 옛 기본·새 기본 두 행을 함께 바꾸므로 처음부터 모든 site 행을 id 오름차순으로 잠근다(PLAN-site-menu.md P2-5).
+        // 대상 행을 먼저 잠근 뒤 확장하면 잠금 순서가 깨져 교착할 수 있다.
+        List<Site> allSites = makeDefault ? siteRepository.findAllForUpdate() : List.of();
+        Site site = makeDefault
+                ? allSites.stream().filter(s -> s.getId().equals(id)).findFirst().orElseThrow(SiteService::notFound)
+                : siteRepository.findByIdForUpdate(id).orElseThrow(SiteService::notFound);
 
         String siteName = request.getSiteName() != null
                 ? requireNonBlank(request.getSiteName(), "사이트 이름은 공백일 수 없습니다.")
                 : site.getSiteName();
         boolean useYn = request.getUseYn() != null ? request.getUseYn() : site.getUseYn();
-        if (!useYn && site.isSeed()) {
+        if (!useYn && (site.isSeed() || site.isDefaultYn())) {
             throw new ConflictException("기본 사이트는 비활성화할 수 없습니다.");
+        }
+        if (makeDefault && (site.getSiteType() != SiteType.PUBLIC || !useYn)) {
+            // 요청이 만드는 최종 상태 기준 — {defaultSite:true, useYn:false} 같은 복합 요청도 여기서 막는다.
+            throw new InvalidRequestException("활성 상태의 공개 사이트만 기본 사이트로 지정할 수 있습니다.");
         }
 
         boolean allowExternal = site.permitsExternalLink();
@@ -115,7 +129,12 @@ public class SiteService {
             }
         }
 
-        site.update(siteName, allowExternal, useYn, LocalDateTime.now(clock));
+        LocalDateTime now = LocalDateTime.now(clock);
+        site.update(siteName, allowExternal, useYn, now);
+        if (makeDefault && !site.isDefaultYn()) {
+            allSites.stream().filter(Site::isDefaultYn).forEach(previous -> previous.markDefault(false, now));
+            site.markDefault(true, now);
+        }
         return SiteResponse.from(site, countMenus(id));
     }
 
@@ -124,7 +143,7 @@ public class SiteService {
             targetIdExpression = "id", targetLabelExpression = "auditLabel")
     public SiteDeleteResult deleteSite(Long id) {
         Site site = siteRepository.findByIdForUpdate(id).orElseThrow(SiteService::notFound);
-        if (site.isSeed()) {
+        if (site.isSeed() || site.isDefaultYn()) {
             throw new ConflictException("기본 사이트는 삭제할 수 없습니다.");
         }
         if (hasContent(site)) {

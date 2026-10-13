@@ -52,6 +52,10 @@ public class Site {
     @Column(nullable = false)
     private Boolean useYn;
 
+    /** 접두어 없는 {@code /}가 이동할 기본 공개 사이트 표시. 정확히 1개의 PUBLIC 활성 사이트만 true이며 {@code SiteService}가 모든 site 행을 잠그고 바꾼다. */
+    @Column(nullable = false)
+    private boolean defaultYn;
+
     private LocalDateTime createDate;
 
     private LocalDateTime updateDate;
@@ -64,6 +68,12 @@ public class Site {
     /** 이 사이트의 메뉴에 외부 http(s) 링크를 둘 수 있는가 — 관리자 사이트는 설정값과 무관하게 항상 불가. */
     public boolean permitsExternalLink() {
         return siteType == SiteType.PUBLIC && Boolean.TRUE.equals(allowExternalLink);
+    }
+
+    /** 기본 사이트 표시만 바꾼다 — 단독 호출 금지, 모든 site 행을 잠근 서비스에서만 쓴다. */
+    public void markDefault(boolean defaultYn, LocalDateTime now) {
+        this.defaultYn = defaultYn;
+        this.updateDate = now;
     }
 
     /** 수정 가능 필드 일괄 반영. 키·종류는 바뀌지 않는다. */
