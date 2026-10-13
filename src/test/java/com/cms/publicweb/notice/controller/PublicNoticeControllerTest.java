@@ -87,6 +87,11 @@ class PublicNoticeControllerTest {
     @TestConfiguration
     static class MockConfig {
         @Bean
+        public com.cms.admin.board.service.ContentCounterService contentCounterService() {
+            return Mockito.mock(com.cms.admin.board.service.ContentCounterService.class);
+        }
+
+        @Bean
         public PublicNoticeService publicNoticeService() {
             return Mockito.mock(PublicNoticeService.class);
         }

@@ -60,6 +60,14 @@ public class Post {
     private LocalDateTime publishEnd;
 
     /**
+     * 공개 조회 누적 횟수(PLAN-view-download-count.md). 증가는 {@code ContentCounterWriter}의 원자적 UPDATE만 한다.
+     * {@code updatable=false}라 관리자 수정이 로드된 낡은 값으로 이 열을 덮어쓰지 않는다 — 제거하지 않는다.
+     */
+    @Builder.Default
+    @Column(name = "view_count", nullable = false, updatable = false)
+    private long viewCount = 0L;
+
+    /**
      * 부분 수정. 각 파라미터가 null이 아닐 때만 반영한다(null=기존값 유지). 공백 거부·전체 null 거부는 서비스 책임이다.
      *
      * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록

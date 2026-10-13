@@ -32,6 +32,8 @@ public class PostSummaryResponse {
     private LocalDateTime publishEnd;
     @Schema(description = "노출 상태 — HIDDEN > SCHEDULED > EXPIRED > ACTIVE. 서버 Clock 기준")
     private DisplayStatus status;
+    @Schema(description = "공개 조회 누적 횟수(읽기 전용, 최선 노력 지표)")
+    private long viewCount;
 
     /** @param now 앱 Clock 기준 현재 시각 — 노출 상태 계산용(서비스가 요청당 1회 산출해 전달) */
     public static PostSummaryResponse from(Post post, LocalDateTime now) {
@@ -46,6 +48,7 @@ public class PostSummaryResponse {
                 .publishStart(post.getPublishStart())
                 .publishEnd(post.getPublishEnd())
                 .status(DisplayPeriod.statusOf(Boolean.TRUE.equals(post.getUseYn()), post.getPublishStart(), post.getPublishEnd(), now))
+                .viewCount(post.getViewCount())
                 .build();
     }
 }

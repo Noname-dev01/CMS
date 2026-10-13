@@ -15,6 +15,8 @@ public class PostAttachmentResponse {
     private final String contentType;
     private final Long fileSize;
     private final LocalDateTime createDate;
+    /** 공개 다운로드 시작 누적 횟수(읽기 전용). */
+    private final long downloadCount;
 
     public static PostAttachmentResponse from(PostAttachment attachment) {
         return PostAttachmentResponse.builder()
@@ -23,6 +25,7 @@ public class PostAttachmentResponse {
                 .contentType(attachment.getContentType())
                 .fileSize(attachment.getFileSize())
                 .createDate(attachment.getCreateDate())
+                .downloadCount(attachment.getDownloadCount())
                 .build();
     }
 }

@@ -29,7 +29,7 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
     private final JPAQueryFactory queryFactory;
 
     /** 정렬 허용 필드 화이트리스트 — 목록 외 속성은 무시해 임의 필드 정렬을 차단한다. */
-    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of("id", "title", "useYn", "createDate", "updateDate");
+    private static final Set<String> ALLOWED_SORT_FIELDS = Set.of("id", "title", "useYn", "createDate", "updateDate", "viewCount");
 
     @Override
     public Page<Post> searchPosts(Long boardId, PostSearchRequest request, Pageable pageable) {
@@ -187,6 +187,7 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
             case "useYn"      -> asc ? p.useYn.asc()      : p.useYn.desc();
             case "createDate" -> asc ? p.createDate.asc() : p.createDate.desc();
             case "updateDate" -> asc ? p.updateDate.asc() : p.updateDate.desc();
+            case "viewCount"  -> asc ? p.viewCount.asc()  : p.viewCount.desc();
             default           -> null;
         };
     }
