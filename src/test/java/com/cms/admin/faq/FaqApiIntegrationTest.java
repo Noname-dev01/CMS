@@ -103,6 +103,12 @@ class FaqApiIntegrationTest extends MariaDbContainerSupport {
                 + "\",\"contentFormat\":\"HTML\",\"useYn\":" + useYn + "}";
     }
 
+    /** 수정(PUT)용 — 편집 시작 때의 소속 카테고리(baseCategoryId)를 함께 보낸다(PLAN-site-menu.md PR ③ S6b). */
+    private static String faqUpdateBody(long baseCategoryId, long categoryId, String question, String answer, boolean useYn) {
+        return "{\"categoryId\":" + categoryId + ",\"baseCategoryId\":" + baseCategoryId + ",\"question\":\"" + question + "\",\"answer\":\""
+                + answer.replace("\"", "\\\"") + "\",\"contentFormat\":\"HTML\",\"useYn\":" + useYn + "}";
+    }
+
     private long createFaq(long categoryId, String question) throws Exception {
         MvcResult result = postJson("/admin/api/faqs", faqBody(categoryId, question, "<p>답변</p>", true));
         assertThat(result.getResponse().getStatus()).as(result.getResponse().getContentAsString()).isEqualTo(201);
@@ -164,8 +170,8 @@ class FaqApiIntegrationTest extends MariaDbContainerSupport {
 
         // 수정은 구조가 아니므로 버전이 오르지 않는다
         long before = version();
-        assertThat(putJson("/admin/api/faq-categories/" + categoryId, "{\"name\":\"배송/반품\",\"useYn\":false}").getResponse().getStatus()).isEqualTo(200);
-        MvcResult updated = putJson("/admin/api/faqs/" + faqId, faqBody(categoryId, "새 질문", "<p>새 답변</p>", false));
+        assertThat(putJson("/admin/api/faq-categories/" + categoryId, "{\"name\":\"배송/반품\",\"useYn\":false,\"siteScope\":\"COMMON\",\"version\":1}").getResponse().getStatus()).isEqualTo(200);
+        MvcResult updated = putJson("/admin/api/faqs/" + faqId, faqUpdateBody(categoryId, categoryId, "새 질문", "<p>새 답변</p>", false));
         assertThat(updated.getResponse().getStatus()).isEqualTo(200);
         assertThat(json(updated).get("useYn").asBoolean()).isFalse();
         assertThat(version()).as("이름·질문·답변·노출 수정은 버전을 올리지 않는다").isEqualTo(before);
@@ -289,10 +295,10 @@ class FaqApiIntegrationTest extends MariaDbContainerSupport {
         long x = createFaq(c2, "x");
 
         long beforeSame = version();
-        assertThat(putJson("/admin/api/faqs/" + a, faqBody(c1, "a2", "<p>a</p>", true)).getResponse().getStatus()).isEqualTo(200);
+        assertThat(putJson("/admin/api/faqs/" + a, faqUpdateBody(c1, c1, "a2", "<p>a</p>", true)).getResponse().getStatus()).isEqualTo(200);
         assertThat(version()).as("카테고리가 같으면 구조 변경이 아니다").isEqualTo(beforeSame);
 
-        assertThat(putJson("/admin/api/faqs/" + a, faqBody(c2, "a2", "<p>a</p>", true)).getResponse().getStatus()).isEqualTo(200);
+        assertThat(putJson("/admin/api/faqs/" + a, faqUpdateBody(c1, c2, "a2", "<p>a</p>", true)).getResponse().getStatus()).isEqualTo(200);
         assertThat(version()).isEqualTo(beforeSame + 1);
         assertThat(jdbc.queryForObject("SELECT category_id FROM faq WHERE id = ?", Long.class, a)).isEqualTo(c2);
         assertThat(jdbc.queryForList("SELECT id FROM faq WHERE category_id = ? ORDER BY ord", Long.class, c2)).containsExactly(x, a);
@@ -300,7 +306,7 @@ class FaqApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(faqOrds(c1)).as("원래 카테고리 재번호").containsExactly(0);
         assertThat(jdbc.queryForObject("SELECT ord FROM faq WHERE id = ?", Integer.class, b)).isZero();
 
-        assertThat(putJson("/admin/api/faqs/" + a, faqBody(999_999L, "a2", "<p>a</p>", true)).getResponse().getStatus()).as("없는 카테고리로 이동").isEqualTo(400);
+        assertThat(putJson("/admin/api/faqs/" + a, faqUpdateBody(c2, 999_999L, "a2", "<p>a</p>", true)).getResponse().getStatus()).as("없는 카테고리로 이동").isEqualTo(400);
         assertThat(jdbc.queryForObject("SELECT category_id FROM faq WHERE id = ?", Long.class, a)).as("실패하면 이동하지 않는다").isEqualTo(c2);
     }
 
@@ -407,7 +413,7 @@ class FaqApiIntegrationTest extends MariaDbContainerSupport {
         long a = createFaq(c, "a");
 
         assertThat(putJson("/admin/api/faqs/order", orderBody(version(), "[{\"id\":" + c + ",\"faqIds\":[" + a + "]}]")).getResponse().getStatus()).isEqualTo(200);
-        assertThat(putJson("/admin/api/faqs/" + a, faqBody(c, "수정", "<p>a</p>", true)).getResponse().getStatus()).isEqualTo(200);
+        assertThat(putJson("/admin/api/faqs/" + a, faqUpdateBody(c, c, "수정", "<p>a</p>", true)).getResponse().getStatus()).isEqualTo(200);
         assertThat(jdbc.queryForObject("SELECT question FROM faq WHERE id = ?", String.class, a)).isEqualTo("수정");
         assertThat(run(get("/admin/api/faqs/order").with(asAdmin())).getResponse().getStatus()).as("order는 숫자 ID가 아니다").isEqualTo(400);
     }
@@ -433,8 +439,8 @@ class FaqApiIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("존재하지 않는 FAQ·카테고리 수정은 404이고 가드 행이 없으면 서버 오류가 난다(조용히 잠금 없이 진행하지 않는다)")
     void notFoundAndMissingGuard() throws Exception {
-        assertThat(putJson("/admin/api/faqs/999999", faqBody(1L, "q", "<p>a</p>", true)).getResponse().getStatus()).isEqualTo(404);
-        assertThat(putJson("/admin/api/faq-categories/999999", "{\"name\":\"x\",\"useYn\":true}").getResponse().getStatus()).isEqualTo(404);
+        assertThat(putJson("/admin/api/faqs/999999", faqUpdateBody(1L, 1L, "q", "<p>a</p>", true)).getResponse().getStatus()).isEqualTo(404);
+        assertThat(putJson("/admin/api/faq-categories/999999", "{\"name\":\"x\",\"useYn\":true,\"siteScope\":\"COMMON\",\"version\":1}").getResponse().getStatus()).isEqualTo(404);
         assertThat(run(get("/admin/api/faqs/999999").with(asAdmin())).getResponse().getStatus()).isEqualTo(404);
 
         LocalDateTime unused = LocalDateTime.now();

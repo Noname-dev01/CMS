@@ -1,5 +1,8 @@
 package com.cms.admin.popup.repository;
 
+import com.cms.admin.site.Site;
+import com.cms.admin.site.SiteType;
+
 import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.domain.ContentImageRef;
 import com.cms.admin.popup.domain.Popup;
@@ -73,7 +76,7 @@ class PopupRepositoryDataJpaTest extends MariaDbContainerSupport {
     }
 
     private List<String> displayableTitles(LocalDateTime now) {
-        return popupRepository.findDisplayable(now, ALL).stream().map(Popup::getTitle).toList();
+        return popupRepository.findDisplayable(now, Site.DEFAULT_PUBLIC_SITE_ID, ALL).stream().map(Popup::getTitle).toList();
     }
 
     @Test
@@ -118,12 +121,12 @@ class PopupRepositoryDataJpaTest extends MariaDbContainerSupport {
         Popup second = save("second", PopupType.HTML, true, null, null);
         Popup third = save("third", true, null, null);
 
-        List<Popup> all = popupRepository.findDisplayable(START, ALL).stream()
+        List<Popup> all = popupRepository.findDisplayable(START, Site.DEFAULT_PUBLIC_SITE_ID, ALL).stream()
                 .filter(p -> List.of("first", "second", "third").contains(p.getTitle())).toList();
         assertThat(all).extracting(Popup::getId).containsExactly(first.getId(), second.getId(), third.getId());
 
         // 이 시험이 만든 3건 중 앞의 것부터 남는다 — 제한은 전체 노출 목록에서 앞쪽을 자르므로 기존 행이 없는 격리된 롤백 트랜잭션 안에서만 정확하다
-        List<Popup> limited = popupRepository.findDisplayable(START, PageRequest.of(0, 2));
+        List<Popup> limited = popupRepository.findDisplayable(START, Site.DEFAULT_PUBLIC_SITE_ID, PageRequest.of(0, 2));
         assertThat(limited).hasSize(2);
         assertThat(limited.get(0).getId()).isLessThan(limited.get(1).getId());
     }
@@ -164,7 +167,7 @@ class PopupRepositoryDataJpaTest extends MariaDbContainerSupport {
         Popup saved = save("rev", true, null, null);
         Popup loaded = popupRepository.findById(saved.getId()).orElseThrow();
 
-        loaded.replace("새 제목", "/boards/1", null, 20, 30, 400, null, null, null, true, START);
+        loaded.replace("새 제목", "/boards/1", null, 20, 30, 400, null, null, null, true, null, START);
         em.flush();
         em.clear();
 
@@ -172,6 +175,66 @@ class PopupRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(reloaded.getRevision()).isEqualTo(1);
         assertThat(reloaded.getTitle()).isEqualTo("새 제목");
         assertThat(reloaded.getPopupType()).isEqualTo(PopupType.IMAGE);
+    }
+
+
+    private Site savePublicSite(String key, boolean useYn) {
+        Site site = Site.builder().siteKey(key).siteName(key).siteType(SiteType.PUBLIC)
+                .allowExternalLink(false).useYn(useYn).defaultYn(false).createDate(START).updateDate(START).build();
+        em.persist(site);
+        em.flush();
+        return site;
+    }
+
+    private void assignSite(Long ownerId, Long siteId) {
+        em.createQuery("update Popup o set o.siteId = :siteId where o.id = :id")
+                .setParameter("siteId", siteId).setParameter("id", ownerId).executeUpdate();
+        em.clear();
+    }
+
+    @Test
+    @DisplayName("사이트 소속(PR ③): 공통은 모든 사이트에, 전용은 그 사이트에만 보이고, LIMIT는 사이트 필터 뒤에 적용된다")
+    void siteScopeFilter() {
+        Site alpha = savePublicSite("pop-alpha", true);
+        Site beta = savePublicSite("pop-beta", true);
+        for (int i = 0; i < 5; i++) {
+            Popup other = save("beta-" + i, PopupType.HTML, true, null, null);   // 가장 앞 id 5개가 다른 사이트 전용
+            assignSite(other.getId(), beta.getId());
+        }
+        Popup common = save("common", PopupType.HTML, true, null, null);
+        Popup onlyAlpha = save("only-alpha", PopupType.HTML, true, null, null);
+        assignSite(onlyAlpha.getId(), alpha.getId());
+
+        List<String> inAlpha = popupRepository.findDisplayable(START, alpha.getId(), PageRequest.of(0, 5)).stream().map(Popup::getTitle).toList();
+
+        assertThat(inAlpha).as("다른 사이트 전용이 슬롯을 차지하지 않는다").containsExactly("common", "only-alpha");
+        assertThat(popupRepository.findDisplayable(START, beta.getId(), PageRequest.of(0, 10)).stream().map(Popup::getTitle))
+                .contains("common", "beta-0").doesNotContain("only-alpha");
+        assertThat(common.getId()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("공개 이미지 조회(findDisplayableImageById): 소속 사이트가 비활성이면 제외한다")
+    void imageLookupHidesInactiveSiteContent() {
+        Site active = savePublicSite("pimg-active", true);
+        Site inactive = savePublicSite("pimg-inactive", false);
+        Popup ofActive = save("a", PopupType.IMAGE, true, null, null);
+        Popup ofInactive = save("i", PopupType.IMAGE, true, null, null);
+        assignSite(ofActive.getId(), active.getId());
+        assignSite(ofInactive.getId(), inactive.getId());
+
+        assertThat(popupRepository.findDisplayableImageById(ofActive.getId(), START)).isPresent();
+        assertThat(popupRepository.findDisplayableImageById(ofInactive.getId(), START)).as("비활성 사이트 전용").isEmpty();
+    }
+
+    @Test
+    @DisplayName("existsBySiteId: 그 사이트 전용 팝업이 있을 때만 참")
+    void existsBySiteId() {
+        Site site = savePublicSite("exists-popup", true);
+        assertThat(popupRepository.existsBySiteId(site.getId())).isFalse();
+        Popup popup = save("e", PopupType.HTML, true, null, null);
+        assignSite(popup.getId(), site.getId());
+        assertThat(popupRepository.existsBySiteId(site.getId())).isTrue();
     }
 
     @Test
@@ -183,7 +246,7 @@ class PopupRepositoryDataJpaTest extends MariaDbContainerSupport {
         save("html", PopupType.HTML, true, null, null);
         Popup linked = save("linked", PopupType.IMAGE, true, null, null);
 
-        List<String> shown = popupRepository.findDisplayable(START, PageRequest.of(0, 5)).stream().map(Popup::getTitle).toList();
+        List<String> shown = popupRepository.findDisplayable(START, Site.DEFAULT_PUBLIC_SITE_ID, PageRequest.of(0, 5)).stream().map(Popup::getTitle).toList();
 
         assertThat(shown).containsExactly("html", "linked");
         assertThat(popupRepository.findDisplayableImageById(linked.getId(), START)).isPresent();

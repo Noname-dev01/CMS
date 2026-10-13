@@ -131,7 +131,7 @@ class FaqPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
     }
 
     private static final String FAQ_BODY_TEMPLATE =
-            "{\"categoryId\":%d,\"question\":\"fm-changed\",\"answer\":\"<p>x</p>\",\"contentFormat\":\"HTML\",\"useYn\":true}";
+            "{\"categoryId\":%d,\"baseCategoryId\":%d,\"question\":\"fm-changed\",\"answer\":\"<p>x</p>\",\"contentFormat\":\"HTML\",\"useYn\":true}";
 
     /** 한 핸들러를 실행하고 상태 코드를 돌려준다. */
     private int call(String handler, RequestPostProcessor who) throws Exception {
@@ -140,13 +140,15 @@ class FaqPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
             case "트리" -> mockMvc.perform(get("/admin/api/faqs").with(who)).andReturn();
             case "상세" -> mockMvc.perform(get("/admin/api/faqs/{id}", faqA).with(who)).andReturn();
             case "FAQ 등록" -> mockMvc.perform(post("/admin/api/faqs").with(who).with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                    .content(FAQ_BODY_TEMPLATE.formatted(categoryId))).andReturn();
+                    .content(FAQ_BODY_TEMPLATE.formatted(categoryId, categoryId))).andReturn();
             case "카테고리 등록" -> mockMvc.perform(post("/admin/api/faq-categories").with(who).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                     .content("{\"name\":\"fm-new\",\"useYn\":true}")).andReturn();
             case "FAQ 수정" -> mockMvc.perform(put("/admin/api/faqs/{id}", faqA).with(who).with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                    .content(FAQ_BODY_TEMPLATE.formatted(categoryId))).andReturn();
+                    .content(FAQ_BODY_TEMPLATE.formatted(categoryId, categoryId))).andReturn();
             case "카테고리 수정" -> mockMvc.perform(put("/admin/api/faq-categories/{id}", categoryId).with(who).with(csrf())
-                    .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"fm-renamed\",\"useYn\":true}")).andReturn();
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"name\":\"fm-renamed\",\"useYn\":true,\"siteScope\":\"COMMON\",\"version\":"
+                            + jdbc.queryForObject("SELECT version FROM faq_category WHERE id = ?", Integer.class, categoryId) + "}")).andReturn();
             case "순서 반영" -> mockMvc.perform(put("/admin/api/faqs/order").with(who).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                     .content("{\"version\":%d,\"categories\":[{\"id\":%d,\"faqIds\":[]},{\"id\":%d,\"faqIds\":[%d,%d]}]}"
                             .formatted(version, emptyCategoryId, categoryId, faqB, faqA))).andReturn();

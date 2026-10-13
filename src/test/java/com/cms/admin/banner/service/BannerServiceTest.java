@@ -73,6 +73,7 @@ class BannerServiceTest {
     @Mock MediaImageRegistrar imageRegistrar;
     @Mock MediaImageSelector imageSelector;
     @Mock MediaImageRemover imageRemover;
+    @Mock com.cms.admin.site.ContentSiteScope contentSiteScope;
     @Mock AdminSecurityService adminSecurityService;
     @Mock FileStorage fileStorage;
 
@@ -257,11 +258,12 @@ class BannerServiceTest {
     @DisplayName("수정: 전체 교체 — 링크·시작·종료의 null은 해제이고 제목은 strip, 노출 여부와 update_date가 반영된다")
     void update_fullReplace_nullClears() {
         Banner target = banner(5, 0);
-        target.replaceMetadata("옛 제목", "/boards/1", LocalDateTime.of(2026, 1, 1, 0, 0), LocalDateTime.of(2026, 2, 1, 0, 0), true, NOW);
+        target.replaceMetadata("옛 제목", "/boards/1", LocalDateTime.of(2026, 1, 1, 0, 0), LocalDateTime.of(2026, 2, 1, 0, 0), true, null, NOW);
         given(bannerRepository.findByIdForUpdate(5L)).willReturn(Optional.of(target));
 
         BannerResponse response = bannerService.updateBanner(5L,
-                BannerUpdateRequest.builder().title(" 새 제목 ").linkUrl("").displayStart(null).displayEnd(null).useYn(false).build());
+                BannerUpdateRequest.builder().title(" 새 제목 ").linkUrl("").displayStart(null).displayEnd(null).useYn(false)
+                        .siteScope("COMMON").version(target.getVersion()).build());
 
         assertThat(target.getTitle()).isEqualTo("새 제목");
         assertThat(target.getLinkUrl()).isNull();
@@ -280,19 +282,23 @@ class BannerServiceTest {
         LocalDateTime start = LocalDateTime.of(2026, 10, 10, 9, 0);
         LocalDateTime end = LocalDateTime.of(2026, 10, 20, 0, 0);
 
-        bannerService.updateBanner(5L, update(start, null));
+        bannerService.updateBanner(5L, update(start, null, target.getVersion()));
         assertThat(target.getDisplayStart()).isEqualTo(start);
         assertThat(target.getDisplayEnd()).isNull();
-        bannerService.updateBanner(5L, update(null, end));
+        bannerService.updateBanner(5L, update(null, end, target.getVersion()));
         assertThat(target.getDisplayStart()).isNull();
         assertThat(target.getDisplayEnd()).isEqualTo(end);
 
-        assertThatThrownBy(() -> bannerService.updateBanner(5L, update(end, start))).isInstanceOf(InvalidRequestException.class);
-        assertThatThrownBy(() -> bannerService.updateBanner(5L, update(start, start))).isInstanceOf(InvalidRequestException.class);
+        assertThatThrownBy(() -> bannerService.updateBanner(5L, update(end, start, target.getVersion()))).isInstanceOf(InvalidRequestException.class);
+        assertThatThrownBy(() -> bannerService.updateBanner(5L, update(start, start, target.getVersion()))).isInstanceOf(InvalidRequestException.class);
     }
 
     private static BannerUpdateRequest update(LocalDateTime start, LocalDateTime end) {
-        return BannerUpdateRequest.builder().title("t").displayStart(start).displayEnd(end).useYn(true).build();
+        return update(start, end, 1);
+    }
+
+    private static BannerUpdateRequest update(LocalDateTime start, LocalDateTime end, int version) {
+        return BannerUpdateRequest.builder().title("t").displayStart(start).displayEnd(end).useYn(true).siteScope("COMMON").version(version).build();
     }
 
     @Test
@@ -399,13 +405,13 @@ class BannerServiceTest {
         Banner banner = banner(1, 0);
         LocalDateTime start = LocalDateTime.of(2026, 10, 10, 0, 0);
         LocalDateTime end = LocalDateTime.of(2026, 10, 20, 0, 0);
-        banner.replaceMetadata("t", null, start, end, true, NOW);
+        banner.replaceMetadata("t", null, start, end, true, null, NOW);
 
         assertThat(BannerResponse.from(banner, start.minusMinutes(1), null).getStatus()).isEqualTo(BannerResponse.Status.SCHEDULED);
         assertThat(BannerResponse.from(banner, start, null).getStatus()).isEqualTo(BannerResponse.Status.ACTIVE);
         assertThat(BannerResponse.from(banner, end.minusMinutes(1), null).getStatus()).isEqualTo(BannerResponse.Status.ACTIVE);
         assertThat(BannerResponse.from(banner, end, null).getStatus()).isEqualTo(BannerResponse.Status.EXPIRED);
-        banner.replaceMetadata("t", null, start, end, false, NOW);
+        banner.replaceMetadata("t", null, start, end, false, null, NOW);
         assertThat(BannerResponse.from(banner, start.plusDays(1), null).getStatus()).as("비노출이 기간보다 우선").isEqualTo(BannerResponse.Status.HIDDEN);
     }
 }

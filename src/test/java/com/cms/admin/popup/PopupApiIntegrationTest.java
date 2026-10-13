@@ -153,8 +153,18 @@ class PopupApiIntegrationTest extends MariaDbContainerSupport {
         return objectMapper.readTree(result.getResponse().getContentAsString());
     }
 
+    /**
+     * 수정은 표시 대상(siteScope)과 낡은 화면 검사 revision이 필수다(PLAN-site-menu.md PR ③) — 이 시험들이 관심 없는 값은 공통·현재 revision으로 채운다.
+     * 원문 JSON의 입력 계약(중복 키·오타 키 등)을 시험하므로 문자열 앞에 두 키를 끼워 넣는다(이미 같은 키가 있으면 그대로 둔다).
+     */
     private MvcResult putRaw(long id, String rawJson) throws Exception {
-        return run(put("/admin/api/popups/{id}", id).with(asAdmin()).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(rawJson));
+        String body = rawJson;
+        if (!body.contains("\"siteScope\"") && !body.contains("\"revision\"") && body.startsWith("{")) {
+            Integer current = jdbc.queryForObject("SELECT COALESCE((SELECT revision FROM popup WHERE id = ?), 0)", Integer.class, id);
+            String injected = "\"siteScope\":\"COMMON\",\"revision\":" + current;
+            body = body.equals("{}") ? "{" + injected + "}" : "{" + injected + "," + body.substring(1);
+        }
+        return run(put("/admin/api/popups/{id}", id).with(asAdmin()).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
     private int putStatus(long id, Map<String, Object> body) throws Exception {

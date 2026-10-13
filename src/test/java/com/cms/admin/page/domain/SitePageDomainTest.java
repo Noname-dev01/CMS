@@ -56,10 +56,10 @@ class SitePageDomainTest {
     void changeFlags() {
         SitePage page = page(1, 1, true, false);
 
-        assertThat(page.changeFlags(true, false)).isFalse();
-        assertThat(page.changeFlags(false, false)).isTrue();
+        assertThat(page.changeFlags(true, false, null)).isFalse();
+        assertThat(page.changeFlags(false, false, null)).isTrue();
         assertThat(page.getUseYn()).isFalse();
-        assertThat(page.changeFlags(false, true)).isTrue();
+        assertThat(page.changeFlags(false, true, null)).isTrue();
         assertThat(page.getFooterYn()).isTrue();
     }
 

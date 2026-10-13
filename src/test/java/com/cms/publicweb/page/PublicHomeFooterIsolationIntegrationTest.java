@@ -30,7 +30,7 @@ class PublicHomeFooterIsolationIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("푸터 조회가 DB 예외로 실패해도 메인은 200이고 푸터만 빠진다")
     void footerFailureDoesNotBreakHome() throws Exception {
-        Mockito.doThrow(new DataAccessResourceFailureException("주입된 푸터 조회 실패")).when(sitePageService).findFooterLinks();
+        Mockito.doThrow(new DataAccessResourceFailureException("주입된 푸터 조회 실패")).when(sitePageService).findFooterLinks(Mockito.anyLong());
 
         MvcResult result = mockMvc.perform(get("/main").with(request -> {
             request.setRemoteAddr("10.92.0.1");
@@ -40,6 +40,6 @@ class PublicHomeFooterIsolationIntegrationTest extends MariaDbContainerSupport {
         String html = result.getResponse().getContentAsString();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
         assertThat(html).contains("home-container").doesNotContain("<footer").doesNotContain("주입된 푸터 조회 실패");
-        Mockito.verify(sitePageService).findFooterLinks();
+        Mockito.verify(sitePageService).findFooterLinks(Mockito.anyLong());
     }
 }

@@ -1,5 +1,6 @@
 package com.cms.publicweb.page;
 
+import com.cms.admin.site.Site;
 import com.cms.publicweb.page.dto.PublicSitePageRevisions;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
@@ -183,12 +184,12 @@ class PublicSitePageIntegrationTest extends MariaDbContainerSupport {
 
         assertThat(getPage("/main/pages/max-rev/revisions/" + Integer.MAX_VALUE).getResponse().getStatus()).isEqualTo(200);
         assertThat(getPage("/main/pages/max-rev/revisions/" + (Integer.MAX_VALUE - 1)).getResponse().getStatus()).isEqualTo(404);
-        PublicSitePageRevisions first = service.findRevisions("max-rev", 0).orElseThrow();
+        PublicSitePageRevisions first = service.findRevisions("max-rev", 0, Site.DEFAULT_PUBLIC_SITE_ID).orElseThrow();
         assertThat(first.items()).extracting(item -> item.revisionNo()).containsExactly(Integer.MAX_VALUE);
         assertThat(first.hasNext()).isTrue();
         assertThat(first.hasPrevious()).isFalse();
-        assertThat(service.findRevisions("max-rev", 1).orElseThrow().items()).as("개정이 없는 구간은 빈 쪽").isEmpty();
-        assertThat(service.findRevisions("max-rev", Integer.MAX_VALUE).orElseThrow().page()).as("범위를 넘는 쪽은 첫 쪽").isZero();
+        assertThat(service.findRevisions("max-rev", 1, Site.DEFAULT_PUBLIC_SITE_ID).orElseThrow().items()).as("개정이 없는 구간은 빈 쪽").isEmpty();
+        assertThat(service.findRevisions("max-rev", Integer.MAX_VALUE, Site.DEFAULT_PUBLIC_SITE_ID).orElseThrow().page()).as("범위를 넘는 쪽은 첫 쪽").isZero();
         assertThat(getPage("/main/pages/max-rev/revisions?page=1").getResponse().getStatus()).isEqualTo(200);
     }
 
@@ -208,7 +209,7 @@ class PublicSitePageIntegrationTest extends MariaDbContainerSupport {
 
             int seen = 0;
             for (int p = 0; p < c.pageSizes().size(); p++) {
-                PublicSitePageRevisions result = service.findRevisions("paged", p).orElseThrow();
+                PublicSitePageRevisions result = service.findRevisions("paged", p, Site.DEFAULT_PUBLIC_SITE_ID).orElseThrow();
                 String label = c.revisions() + "건 / 쪽 " + p;
                 assertThat(result.items()).as(label).hasSize(c.pageSizes().get(p));
                 assertThat(result.page()).as(label).isEqualTo(p);
@@ -229,9 +230,9 @@ class PublicSitePageIntegrationTest extends MariaDbContainerSupport {
     void revisionListPageNormalization() throws Exception {
         page("norm", true, false, 25);
 
-        assertThat(service.findRevisions("norm", -1).orElseThrow().page()).isZero();
-        assertThat(service.findRevisions("norm", 2).orElseThrow().page()).as("마지막 쪽(1) 초과").isZero();
-        assertThat(service.findRevisions("norm", Integer.MAX_VALUE).orElseThrow().page()).isZero();
+        assertThat(service.findRevisions("norm", -1, Site.DEFAULT_PUBLIC_SITE_ID).orElseThrow().page()).isZero();
+        assertThat(service.findRevisions("norm", 2, Site.DEFAULT_PUBLIC_SITE_ID).orElseThrow().page()).as("마지막 쪽(1) 초과").isZero();
+        assertThat(service.findRevisions("norm", Integer.MAX_VALUE, Site.DEFAULT_PUBLIC_SITE_ID).orElseThrow().page()).isZero();
         for (String page : List.of("abc", "-5", "99999999999", "1", "0", "2")) {
             assertThat(getPage("/main/pages/norm/revisions?page=" + page).getResponse().getStatus()).as(page).isEqualTo(200);
         }

@@ -1,5 +1,8 @@
 package com.cms.admin.banner.repository;
 
+import com.cms.admin.site.Site;
+import com.cms.admin.site.SiteType;
+
 import com.cms.admin.banner.domain.Banner;
 import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.domain.ContentImageRef;
@@ -61,7 +64,7 @@ class BannerRepositoryDataJpaTest extends MariaDbContainerSupport {
     }
 
     private List<String> displayableTitles(LocalDateTime now) {
-        return bannerRepository.findDisplayable(now).stream().map(Banner::getTitle).toList();
+        return bannerRepository.findDisplayable(now, Site.DEFAULT_PUBLIC_SITE_ID).stream().map(Banner::getTitle).toList();
     }
 
     @Test
@@ -117,7 +120,7 @@ class BannerRepositoryDataJpaTest extends MariaDbContainerSupport {
         Banner second = save("tie-b", true, null, null, 5);
         save("front", true, null, null, 1);
 
-        List<Banner> result = bannerRepository.findDisplayable(START).stream()
+        List<Banner> result = bannerRepository.findDisplayable(START, Site.DEFAULT_PUBLIC_SITE_ID).stream()
                 .filter(b -> List.of("tie-a", "tie-b", "front").contains(b.getTitle())).toList();
 
         assertThat(result).extracting(Banner::getTitle).containsExactly("front", "tie-a", "tie-b");
@@ -151,6 +154,68 @@ class BannerRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(reloaded.getDisplayEnd()).isEqualTo(LocalDateTime.of(2026, 10, 10, 9, 6));
         assertThat(bannerRepository.findDisplayableById(saved.getId(), LocalDateTime.of(2026, 10, 10, 9, 5, 59))).isPresent();
         assertThat(bannerRepository.findDisplayableById(saved.getId(), LocalDateTime.of(2026, 10, 10, 9, 6))).isEmpty();
+    }
+
+
+    private Site savePublicSite(String key, boolean useYn) {
+        Site site = Site.builder().siteKey(key).siteName(key).siteType(SiteType.PUBLIC)
+                .allowExternalLink(false).useYn(useYn).defaultYn(false).createDate(START).updateDate(START).build();
+        em.persist(site);
+        em.flush();
+        return site;
+    }
+
+    private void assignSite(Long ownerId, Long siteId) {
+        em.createQuery("update Banner o set o.siteId = :siteId where o.id = :id")
+                .setParameter("siteId", siteId).setParameter("id", ownerId).executeUpdate();
+        em.clear();
+    }
+
+    @Test
+    @DisplayName("사이트 소속(PR ③): 공통은 모든 사이트에, 전용은 그 사이트에만 보이고 다른 사이트 전용은 보이지 않는다")
+    void siteScopeFilter() {
+        Site alpha = savePublicSite("scope-alpha", true);
+        Site beta = savePublicSite("scope-beta", true);
+        Banner common = save("common", true, null, null, 0);
+        Banner onlyAlpha = save("only-alpha", true, null, null, 1);
+        Banner onlyBeta = save("only-beta", true, null, null, 2);
+        assignSite(onlyAlpha.getId(), alpha.getId());
+        assignSite(onlyBeta.getId(), beta.getId());
+
+        List<String> inAlpha = bannerRepository.findDisplayable(START, alpha.getId()).stream().map(Banner::getTitle).toList();
+        List<String> inBeta = bannerRepository.findDisplayable(START, beta.getId()).stream().map(Banner::getTitle).toList();
+
+        assertThat(inAlpha).contains("common", "only-alpha").doesNotContain("only-beta");
+        assertThat(inBeta).contains("common", "only-beta").doesNotContain("only-alpha");
+        assertThat(bannerRepository.findDisplayable(START, Site.DEFAULT_PUBLIC_SITE_ID).stream().map(Banner::getTitle))
+                .as("기본 사이트에는 공통만").contains("common").doesNotContain("only-alpha", "only-beta");
+        assertThat(common.getId()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("공개 이미지 조회(findDisplayableById): 소속 사이트가 비활성이면 제외하고, 활성 사이트 전용·공통은 사이트와 무관하게 나온다")
+    void imageLookupHidesInactiveSiteContent() {
+        Site active = savePublicSite("img-active", true);
+        Site inactive = savePublicSite("img-inactive", false);
+        Banner common = save("c", true, null, null, 0);
+        Banner ofActive = save("a", true, null, null, 1);
+        Banner ofInactive = save("i", true, null, null, 2);
+        assignSite(ofActive.getId(), active.getId());
+        assignSite(ofInactive.getId(), inactive.getId());
+
+        assertThat(bannerRepository.findDisplayableById(common.getId(), START)).isPresent();
+        assertThat(bannerRepository.findDisplayableById(ofActive.getId(), START)).isPresent();
+        assertThat(bannerRepository.findDisplayableById(ofInactive.getId(), START)).as("비활성 사이트 전용").isEmpty();
+    }
+
+    @Test
+    @DisplayName("existsBySiteId: 그 사이트 전용 배너가 있을 때만 참")
+    void existsBySiteId() {
+        Site site = savePublicSite("exists-banner", true);
+        assertThat(bannerRepository.existsBySiteId(site.getId())).isFalse();
+        Banner banner = save("e", true, null, null, 0);
+        assignSite(banner.getId(), site.getId());
+        assertThat(bannerRepository.existsBySiteId(site.getId())).isTrue();
     }
 
     @Test

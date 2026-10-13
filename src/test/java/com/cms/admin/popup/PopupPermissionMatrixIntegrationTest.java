@@ -124,7 +124,8 @@ class PopupPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
                     .param("title", "pm-created").param("popupType", "IMAGE").with(who).with(csrf())).andReturn();
             case "수정" -> mockMvc.perform(put("/admin/api/popups/{id}", a).with(who).with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"title\":\"pm-changed\",\"posX\":10,\"posY\":10,\"width\":300,\"useYn\":true}")).andReturn();
+                    .content("{\"title\":\"pm-changed\",\"posX\":10,\"posY\":10,\"width\":300,\"useYn\":true,\"siteScope\":\"COMMON\",\"revision\":"
+                            + jdbc.queryForObject("SELECT revision FROM popup WHERE id = ?", Integer.class, a) + "}")).andReturn();
             case "삭제" -> mockMvc.perform(delete("/admin/api/popups/{id}", a).with(who).with(csrf())).andReturn();
             default -> throw new IllegalArgumentException(handler);
         };
