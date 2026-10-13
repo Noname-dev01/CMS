@@ -9,7 +9,7 @@
 <body>
 <div class="public-notice-container">
     <div class="public-notice-header">
-        <h1><a th:href="@{/notices}">공지사항</a></h1>
+        <h1><a th:href="@{|${sitePrefix}/notices|}">공지사항</a></h1>
     </div>
 
     <div class="notice-detail">
@@ -24,7 +24,7 @@
             <h3 class="notice-attachments-title">첨부파일</h3>
             <ul class="notice-attachments-list">
                 <li class="notice-attachment-item" th:each="file : ${notice.attachments}">
-                    <a th:href="@{/notices/{id}/attachments/{fid}(id=${notice.id}, fid=${file.id})}"
+                    <a th:href="@{|${sitePrefix}/notices/{id}/attachments/{fid}|(id=${notice.id}, fid=${file.id})}"
                        th:text="${file.originalFilename}"></a>
                     <span class="notice-attachment-size" th:text="${file.fileSizeText}"></span>
                 </li>
@@ -32,7 +32,7 @@
         </div>
     </div>
 
-    <a class="notice-back-link" th:href="@{/notices}">&larr; 목록으로</a>
+    <a class="notice-back-link" th:href="@{|${sitePrefix}/notices|}">&larr; 목록으로</a>
 </div>
 </body>
 </html>

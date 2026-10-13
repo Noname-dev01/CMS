@@ -60,7 +60,7 @@ class PublicInquiryRateLimitIntegrationTest extends MariaDbContainerSupport {
     }
 
     private MockHttpServletRequestBuilder invalidPost(String remoteAddr, boolean withCsrf) {
-        MockHttpServletRequestBuilder request = post("/inquiry").with(from(remoteAddr))
+        MockHttpServletRequestBuilder request = post("/main/inquiry").with(from(remoteAddr))
                 .param("name", "n").param("email", "bad").param("title", "t").param("body", "b")
                 .param("consent", "true").param("cf-turnstile-response", "t");
         return withCsrf ? request.with(csrf()) : request;
@@ -82,7 +82,7 @@ class PublicInquiryRateLimitIntegrationTest extends MariaDbContainerSupport {
                 .andExpect(header().exists("Retry-After"));
 
         mockMvc.perform(invalidPost("198.51.100.42", true)).andExpect(status().isBadRequest());   // 다른 IP는 영향 없음
-        mockMvc.perform(get("/inquiry").with(from(ip))).andExpect(status().isOk());              // 폼 조회는 별도 규칙(public-inquiry)
+        mockMvc.perform(get("/main/inquiry").with(from(ip))).andExpect(status().isOk());              // 폼 조회는 별도 규칙(public-inquiry)
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inquiry", Integer.class)).isZero();
     }
 }

@@ -60,7 +60,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "cms.rate-limit.rules[0].capacity=1",
         "cms.rate-limit.rules[0].refill-period-seconds=60",
         "cms.rate-limit.rules[1].id=page-rule",
-        "cms.rate-limit.rules[1].pattern=/notices/rl-response-test/page",
+        "cms.rate-limit.rules[1].pattern=/main/notices/rl-response-test/page",
         "cms.rate-limit.rules[1].methods=GET",
         "cms.rate-limit.rules[1].capacity=1",
         "cms.rate-limit.rules[1].refill-period-seconds=60"
@@ -132,8 +132,8 @@ class RateLimitResponseTest {
     @DisplayName("/admin/api/** 밖의 공개 경로는 초과 시 sendError(429) 호출 — 상태 코드만 확인, 실제 렌더링은 Playwright")
     void nonApiPath_exceedsLimit_sendsError() throws Exception {
         RequestPostProcessor ip = from("20.20.20.2");
-        mockMvc.perform(get("/notices/rl-response-test/page").with(ip)).andExpect(status().isOk());
-        mockMvc.perform(get("/notices/rl-response-test/page").with(ip)).andExpect(status().isTooManyRequests());
+        mockMvc.perform(get("/main/notices/rl-response-test/page").with(ip)).andExpect(status().isOk());
+        mockMvc.perform(get("/main/notices/rl-response-test/page").with(ip)).andExpect(status().isTooManyRequests());
     }
 }
 
@@ -145,7 +145,7 @@ class RateLimitResponseTestStubController {
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/notices/rl-response-test/page")
+    @GetMapping("/main/notices/rl-response-test/page")
     String pageEndpoint() {
         return "ok";
     }

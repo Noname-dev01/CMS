@@ -392,7 +392,7 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
                         + jdbc.queryForList("SELECT id FROM banner WHERE title IN ('숨김배너','예약배너','만료배너') ORDER BY id", Long.class)
                                 .stream().map(String::valueOf).reduce((x, y) -> x + "," + y).orElse("") + "]}"));
 
-        MvcResult result = mockMvc.perform(get("/").with(fromIp())).andReturn();
+        MvcResult result = mockMvc.perform(get("/main").with(fromIp())).andReturn();
         String html = result.getResponse().getContentAsString();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
@@ -412,7 +412,7 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
         long id = createOk("위험링크", null, null, null, true);
         jdbc.update("UPDATE banner SET link_url = 'javascript:alert(1)' WHERE id = ?", id);
 
-        String html = mockMvc.perform(get("/").with(fromIp())).andReturn().getResponse().getContentAsString();
+        String html = mockMvc.perform(get("/main").with(fromIp())).andReturn().getResponse().getContentAsString();
 
         assertThat(html).contains("/banners/" + id + "/image").doesNotContain("javascript:");
     }
@@ -420,7 +420,7 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("공개 메인 /: 배너·공지·새 글이 모두 없어도 200이고 빈 안내가 나온다")
     void home_emptyIsOk() throws Exception {
-        MvcResult result = mockMvc.perform(get("/").with(fromIp())).andReturn();
+        MvcResult result = mockMvc.perform(get("/main").with(fromIp())).andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
         assertThat(result.getResponse().getContentType()).startsWith("text/html");
@@ -429,8 +429,8 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("공개 메인 /: HEAD 200, 쓰기 메서드는 403/302")
     void home_headAndWrites() throws Exception {
-        assertThat(mockMvc.perform(head("/").with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(200);
-        assertThat(mockMvc.perform(post("/").with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(403);
-        assertThat(mockMvc.perform(post("/").with(csrf()).with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(302);
+        assertThat(mockMvc.perform(head("/main").with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(200);
+        assertThat(mockMvc.perform(post("/main").with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(403);
+        assertThat(mockMvc.perform(post("/main").with(csrf()).with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(302);
     }
 }

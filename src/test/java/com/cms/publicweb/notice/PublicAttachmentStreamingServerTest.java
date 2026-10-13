@@ -108,7 +108,7 @@ class PublicAttachmentStreamingServerTest extends MariaDbContainerSupport {
     }
 
     private String url() {
-        return "http://localhost:" + port + "/notices/" + noticeId + "/attachments/" + attachmentId;
+        return "http://localhost:" + port + "/main/notices/" + noticeId + "/attachments/" + attachmentId;
     }
 
     /** filler 바이트 'A'를 내보내다가 failAfter에 도달하면 IOException(-1이면 끝까지). 닫힘 여부를 기록한다. */

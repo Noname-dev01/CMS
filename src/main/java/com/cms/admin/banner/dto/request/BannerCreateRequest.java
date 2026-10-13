@@ -26,7 +26,7 @@ public class BannerCreateRequest {
 
     @Size(max = 500)
     @SafeLinkUrl
-    @Schema(description = "클릭 시 이동할 링크 — /로 시작하는 경로 또는 http(s):// 주소. 비우면 링크 없음", example = "/boards/2")
+    @Schema(description = "클릭 시 이동할 링크 — /로 시작하는 경로 또는 http(s):// 주소. 비우면 링크 없음", example = "/main/boards/2")
     private String linkUrl;
 
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)

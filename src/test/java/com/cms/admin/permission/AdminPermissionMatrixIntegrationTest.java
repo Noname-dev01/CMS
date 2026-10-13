@@ -409,7 +409,7 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("관리자 영역 밖의 알려지지 않은 경로는 기본 거부(MANAGER라도 성공하지 못함)")
     void unknownOutsideAdminIsDenied() throws Exception {
         restoreSeed();
-        MvcResult result = mockMvc.perform(get("/unknown-outside-admin").with(asManager())).andReturn();
+        MvcResult result = mockMvc.perform(get("/unknown/outside-admin").with(asManager())).andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(403);
     }

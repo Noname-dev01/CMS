@@ -1,5 +1,7 @@
 # CLAUDE.md — com.cms.publicweb.home
 
+> **경로 표기 주의(2026-10-13, PR ②)**: 이 문서의 `/notices`·`/boards`·`/pages`·`/faq`·`/inquiry`·`/`(공개 메인) 표기는 이전 경로다 — 공개 경로는 이제 `/{siteKey}/…` 아래(예: `/main/notices/1`)이고 `/`는 기본 공개 사이트로 302한다. 사이트 해석·404 계약·링크 접두어(`${sitePrefix}`)·시험은 `support/CLAUDE.md` 참조. 이미지(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`)는 사이트 무관 경로 그대로다.
+
 이 디렉터리(공개/비로그인 메인 화면 `/`)와 형제 패키지 `com.cms.publicweb.banner`(배너 이미지 공개 다운로드) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조. 설계 근거·적대적 리뷰 5라운드 기록은 `adversarial-review/plan/PLAN-public-home-banner.md`. 관리 측은 `com.cms.admin.banner`의 `CLAUDE.md`. 공개 게시판·공지(`com.cms.publicweb.board`)와 같은 격리·404 흡수 원칙이다.
 
 (필드 목록은 코드가 원본이다. 여기에는 코드만 봐서는 알기 어려운 사실만 기록한다.)

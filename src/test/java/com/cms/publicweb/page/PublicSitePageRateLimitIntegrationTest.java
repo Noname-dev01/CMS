@@ -38,7 +38,7 @@ class PublicSitePageRateLimitIntegrationTest extends MariaDbContainerSupport {
         int ok = 0;
         int limited = 0;
         for (int i = 0; i < 130; i++) {
-            int status = mockMvc.perform(get("/pages/nothing-here").with(fromIp("10.93.0.1"))).andReturn().getResponse().getStatus();
+            int status = mockMvc.perform(get("/main/pages/nothing-here").with(fromIp("10.93.0.1"))).andReturn().getResponse().getStatus();
             if (status == 429) {
                 limited++;
             } else {
@@ -50,7 +50,7 @@ class PublicSitePageRateLimitIntegrationTest extends MariaDbContainerSupport {
         // 토큰 버킷이라 버스트 상한 120에 요청하는 동안 채워진 몇 개(평균 2개/초)가 더해질 수 있다
         assertThat(ok).as("버스트 상한 120 + 그동안의 보충").isBetween(120, 126);
         assertThat(limited).as("한도 초과분은 429").isGreaterThanOrEqualTo(4);
-        assertThat(mockMvc.perform(get("/pages/nothing-here").with(fromIp("10.93.0.2"))).andReturn().getResponse().getStatus())
+        assertThat(mockMvc.perform(get("/main/pages/nothing-here").with(fromIp("10.93.0.2"))).andReturn().getResponse().getStatus())
                 .as("다른 IP는 별도 버킷").isEqualTo(404);
     }
 }

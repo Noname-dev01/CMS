@@ -31,7 +31,7 @@ class PublicHomePopupIsolationIntegrationTest extends MariaDbContainerSupport {
     @MockitoSpyBean PublicPopupService popupService;
 
     private MvcResult getHome() throws Exception {
-        return mockMvc.perform(get("/").with(request -> {
+        return mockMvc.perform(get("/main").with(request -> {
             request.setRemoteAddr("10.93.0.1");
             return request;
         })).andReturn();

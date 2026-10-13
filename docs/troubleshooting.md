@@ -1347,3 +1347,57 @@ FAQ 관리 화면(`templates/admin/faq/manage.html`)이 열린 뒤 ▲▼ 버튼
 
 - 상태 변수(`busy`)를 입력으로 삼아 컨트롤을 잠그는 함수가 있으면 **그 변수를 바꾸는 모든 지점이 갱신 호출까지 책임**져야 한다. 새 컨트롤이 기존 상태 변수에 기대기 시작하면 그 변수를 쓰는 모든 핸들러의 `finally`를 훑는다. 상태 전이가 있는 화면 JS는 HTTP 슬라이스 시험으로 검증되지 않으므로 실제 브라우저로 "작업 직후" 상태를 확인한다.
 - 실기 검증 중 `./gradlew processResources`로 템플릿을 갱신하면 devtools가 앱을 재시작해 **세션이 사라진다**(트리 조회가 401) — 다시 로그인한 뒤 확인한다(위 "bootRun 실행 중 템플릿 수정" 항목).
+
+### 경로 패턴 문자 클래스에 `/`를 쓰면 `PathPattern` 파서가 기동을 막는다 — 보안·MVC·레이트리밋 세 곳이 같은 파서를 쓴다 (2026-10-13, PLAN-site-menu.md PR ② 계획 리뷰 2라운드)
+
+#### 증상
+
+- 사이트 키 자리를 `{siteKey:[^./]+}`로 쓴 계획을 구현하면 `SecurityConfig`의 `requestMatchers`, `@GetMapping`, 레이트리밋 규칙(`PathPatternRequestMatcher`)이 모두 `PatternParseException: Expected close capture character after variable name }`로 실패해 **애플리케이션이 기동하지 않는다.**
+
+#### 원인
+
+- `PathPatternParser`는 경로를 `/`로 먼저 세그먼트로 나눈 뒤 캡처 안의 정규식을 읽는다. 문자 클래스 안의 이스케이프 안 된 `/`도 세그먼트 경계로 보고 캡처가 닫히지 않았다고 판단한다(Spring 7.0.9 `InternalPathPatternParser`). 부정 선행탐색 `(?!(?:a|b)$)`은 파싱·매칭 모두 정상이다.
+
+#### 해결 방법
+
+- 문자 클래스에서 `/`를 뺀다: `{siteKey:[^.]+}`. 단일 세그먼트 경계는 파서가 이미 처리하므로 `/`를 제외할 필요가 없다(`PublicSiteRoutes.KEY`).
+
+#### 교훈
+
+- 정규식이 든 경로 패턴은 **계획 단계에서 저장소의 실제 Spring 버전으로 파싱해 본다**(리뷰어가 JAR로 직접 실행해 잡았다). 같은 문자열이 보안·MVC·레이트리밋 세 파서를 거치므로 한 곳의 파싱 실패가 곧 기동 실패다.
+
+### 인가보다 먼저 도는 필터의 경로 규칙은 핸들러를 모른다 — 사이트 홈 레이트리밋이 `/admin`까지 삼킬 뻔했다 (2026-10-13, PLAN-site-menu.md PR ② 계획 리뷰 1라운드)
+
+#### 증상
+
+- 공개 사이트 홈용 규칙 `/{siteKey:[^.]+}`(120/60초)가 `/admin`·`/actuator`·`/error` 같은 예약·비공개 단일 세그먼트에도 매칭된다. 공개 홈 버킷을 소진한 IP의 관리자가 로그인 상태로 `/admin` 대시보드를 열면 429를 받는다.
+
+#### 원인
+
+- `RateLimitFilter`는 `CsrfFilter` 다음, **인가·핸들러 선택보다 앞**에서 요청 경로 모양만 본다. 보안 규칙 순서(`/admin/**` 먼저)나 MVC 매핑 우선순위가 여기에는 적용되지 않는다.
+
+#### 해결 방법
+
+- 규칙 패턴에서 `SiteKey.RESERVED`를 부정 선행탐색으로 제외한다(`application.yml`의 `public-site-home`). yml과 상수의 드리프트는 **행동 시험**으로 막는다 — 모든 예약어가 어떤 사이트 규칙에도 매칭되지 않고, 홈 버킷을 소진한 뒤에도 `/admin`이 429가 아니다(`SitePublicRateLimitConventionTest`; 선행탐색을 지우면 3건 실패하는 변이로 확인).
+
+#### 교훈
+
+- 와일드카드 첫 세그먼트 규칙을 필터 계층에 두면 **그 계층이 아는 것은 경로 문자열뿐**이다. 보안 규칙의 우선순위를 믿고 제외를 생략하지 말고, 경로 규칙마다 "기존 비공개 경로가 걸리지 않는다"를 시험으로 고정한다.
+
+### `WebMvcConfigurer` 빈은 `@WebMvcTest` 슬라이스에도 포함되어 서비스 의존이 있으면 컨텍스트가 깨진다 (2026-10-13, PLAN-site-menu.md PR ② 구현 중 시험으로 발견)
+
+#### 증상
+
+- 공개 사이트 해석 인터셉터를 등록하는 `@Configuration implements WebMvcConfigurer`를 생성자 주입으로 서비스에 의존시키자, 이와 무관한 `@WebMvcTest`(보안·에러·공지 슬라이스) 100여 건이 `No qualifying bean of type 'PublicSiteService'`로 컨텍스트 로드에 실패했다.
+
+#### 원인
+
+- `@WebMvcTest`는 `@Controller`·`@ControllerAdvice`와 함께 `WebMvcConfigurer`를 스캔한다. 서비스 빈은 슬라이스에 없다.
+
+#### 해결 방법
+
+- 설정 클래스는 서비스를 `ObjectProvider`로 받고 인터셉터가 **요청 시점에 지연 조회**한다(`PublicWebMvcConfig`). 실제 사이트 범위 컨트롤러를 슬라이스로 시험할 때만 `PublicSiteService`를 mock 빈으로 두고 `findActive("main")`을 stub한다.
+
+#### 교훈
+
+- 웹 계층 설정 빈에 서비스 의존을 직접 걸지 않는다 — 슬라이스 시험이 요구하는 빈이 늘면 관계없는 시험까지 깨진다.

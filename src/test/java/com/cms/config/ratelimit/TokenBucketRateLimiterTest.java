@@ -28,7 +28,7 @@ class TokenBucketRateLimiterTest {
     private RateLimitProperties.RuleConfig ruleConfig(String id, int capacity, Duration refillPeriod) {
         RateLimitProperties.RuleConfig config = new RateLimitProperties.RuleConfig();
         config.setId(id);
-        config.setPattern("/notices/**");
+        config.setPattern("/main/notices/**");
         config.setMethods(Set.of("GET"));
         config.setCapacity(capacity);
         config.setRefillPeriodSeconds(refillPeriod.toSeconds());

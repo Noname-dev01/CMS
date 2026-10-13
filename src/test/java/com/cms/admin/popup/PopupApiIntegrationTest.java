@@ -541,7 +541,7 @@ class PopupApiIntegrationTest extends MariaDbContainerSupport {
         createImage("예약팝업", null, LocalDateTime.now().plusDays(1), null, true);
         createImage("만료팝업", null, null, LocalDateTime.now().minusDays(1), true);
 
-        MvcResult result = run(get("/").with(fromIp()));
+        MvcResult result = run(get("/main").with(fromIp()));
         String html = result.getResponse().getContentAsString();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
@@ -562,7 +562,7 @@ class PopupApiIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("공개 메인: 팝업이 없으면 팝업 조각도 스크립트도 없다")
     void home_withoutPopups_hasNoPopupMarkup() throws Exception {
-        String html = run(get("/").with(fromIp())).getResponse().getContentAsString();
+        String html = run(get("/main").with(fromIp())).getResponse().getContentAsString();
 
         assertThat(html).doesNotContain("home-popup", "home-popup.js");
     }
@@ -571,13 +571,13 @@ class PopupApiIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("공개 메인: 수정하면 data-version(revision)이 바뀌어 '오늘 하루 보지 않기'가 풀린다")
     void home_versionChangesOnUpdate() throws Exception {
         long id = createImage("버전", null, null, null, true);
-        String before = run(get("/").with(fromIp())).getResponse().getContentAsString();
+        String before = run(get("/main").with(fromIp())).getResponse().getContentAsString();
         assertThat(before).contains("data-popup-id=\"" + id + "\"", "data-version=\"0\"");
 
         assertThat(putStatus(id, imageUpdate())).isEqualTo(200);
         assertThat(putStatus(id, imageUpdate())).isEqualTo(200);
 
-        String after = run(get("/").with(fromIp())).getResponse().getContentAsString();
+        String after = run(get("/main").with(fromIp())).getResponse().getContentAsString();
         assertThat(after).contains("data-version=\"2\"").doesNotContain("data-version=\"0\"");
     }
 
@@ -589,7 +589,7 @@ class PopupApiIntegrationTest extends MariaDbContainerSupport {
             ids.add(createHtml("p" + i, "<p>x</p>", true));
         }
 
-        String html = run(get("/").with(fromIp())).getResponse().getContentAsString();
+        String html = run(get("/main").with(fromIp())).getResponse().getContentAsString();
 
         for (int i = 0; i < PublicPopupService.MAX_DISPLAYED; i++) {
             assertThat(html).contains("data-popup-id=\"" + ids.get(i) + "\"");
@@ -607,7 +607,7 @@ class PopupApiIntegrationTest extends MariaDbContainerSupport {
         long emptied = createHtml("무효본문", "<p>x</p>", true);
         jdbc.update("UPDATE popup SET content_html = '<script>alert(7)</script>' WHERE id = ?", emptied);
 
-        String page = run(get("/").with(fromIp())).getResponse().getContentAsString();
+        String page = run(get("/main").with(fromIp())).getResponse().getContentAsString();
 
         assertThat(page).contains("data-popup-id=\"" + image + "\"").doesNotContain("javascript:");
         assertThat(page).contains("<p>정상</p>").doesNotContain("alert(9)", "alert(8)", "alert(7)", "<img src=\"/content-images/1\">");

@@ -51,9 +51,9 @@ class CustomErrorControllerTest {
     }
 
     @Test
-    @DisplayName("/notices/999는 일반 404")
+    @DisplayName("/main/notices/999는 일반 404")
     void publicPath_notAdminView() {
-        assertViewName("/notices/999", "", "error/404");
+        assertViewName("/main/notices/999", "", "error/404");
     }
 
     @Test
@@ -90,7 +90,7 @@ class CustomErrorControllerTest {
         assertViewName(403, "/admin/log/manage", "", "error/admin/403");
         assertViewName(403, "/admin", "", "error/admin/403");
         assertViewName(403, "/admin;v=1/log/manage", "", "error/admin/403");
-        assertViewName(403, "/notices", "", "error/403");
+        assertViewName(403, "/main/notices", "", "error/403");
         assertViewName(403, "/administrator/x", "", "error/403");
         assertViewName(403, "/cms/admin/log/manage", "/cms", "error/admin/403");
         assertViewName(403, null, "", "error/403");
@@ -134,8 +134,8 @@ class CustomErrorControllerTest {
     @Test
     @DisplayName("기존 계약 유지: 429는 error/429, 404는 timestamp·path 모델")
     void existingStatuses_unchanged() {
-        assertViewName(429, "/notices", "", "error/429");
-        assertThat(handle(404, "/notices/1", "", null).getModel()).containsOnlyKeys("timestamp", "path");
+        assertViewName(429, "/main/notices", "", "error/429");
+        assertThat(handle(404, "/main/notices/1", "", null).getModel()).containsOnlyKeys("timestamp", "path");
     }
 
     private void assertViewName(String requestUri, String contextPath, String expectedViewName) {

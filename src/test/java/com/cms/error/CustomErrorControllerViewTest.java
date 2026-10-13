@@ -83,7 +83,7 @@ class CustomErrorControllerViewTest {
     @Test
     @DisplayName("일반 경로 403 — 일반 403 화면이 렌더링되고 홈 링크가 있으며 null이 없다")
     void forbiddenPublic_rendersPublicView() throws Exception {
-        String html = render(403, "/notices", "error/403");
+        String html = render(403, "/main/notices", "error/403");
 
         assertThat(html).contains("403").contains("접근할 수 없는 페이지입니다").contains("홈으로 돌아가기");
         assertThat(html).doesNotContain("null");
@@ -110,8 +110,8 @@ class CustomErrorControllerViewTest {
     @Test
     @DisplayName("기존 화면 무회귀 — 404(일반·관리자)와 429가 그대로 렌더링된다")
     void existingViews_stillRender() throws Exception {
-        assertThat(render(404, "/notices/1", "error/404")).contains("404").doesNotContain("null");
+        assertThat(render(404, "/main/notices/1", "error/404")).contains("404").doesNotContain("null");
         assertThat(render(404, "/admin/nope", "error/admin/404")).contains("관리자 페이지를 찾을 수 없습니다");
-        assertThat(render(429, "/notices", "error/429")).contains("429");
+        assertThat(render(429, "/main/notices", "error/429")).contains("429");
     }
 }

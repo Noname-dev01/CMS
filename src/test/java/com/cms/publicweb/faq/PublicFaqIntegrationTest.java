@@ -78,7 +78,7 @@ class PublicFaqIntegrationTest extends MariaDbContainerSupport {
     }
 
     private String page() throws Exception {
-        MvcResult result = mockMvc.perform(get("/faq").with(fromIp())).andReturn();
+        MvcResult result = mockMvc.perform(get("/main/faq").with(fromIp())).andReturn();
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
         return result.getResponse().getContentAsString();
     }
@@ -166,15 +166,15 @@ class PublicFaqIntegrationTest extends MariaDbContainerSupport {
     void methodsAndSubPaths() throws Exception {
         category("c", 0, true);
 
-        assertThat(mockMvc.perform(head("/faq").with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(200);
-        assertThat(mockMvc.perform(post("/faq").with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(403);
-        assertThat(mockMvc.perform(post("/faq").with(fromIp()).with(csrf())).andReturn().getResponse().getStatus()).isEqualTo(302);
-        assertThat(mockMvc.perform(put("/faq").with(fromIp()).with(csrf())).andReturn().getResponse().getStatus()).isEqualTo(302);
-        assertThat(mockMvc.perform(delete("/faq").with(fromIp()).with(csrf())).andReturn().getResponse().getStatus()).isEqualTo(302);
-        MvcResult sub = mockMvc.perform(get("/faq/x").with(fromIp())).andReturn();
+        assertThat(mockMvc.perform(head("/main/faq").with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(200);
+        assertThat(mockMvc.perform(post("/main/faq").with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(403);
+        assertThat(mockMvc.perform(post("/main/faq").with(fromIp()).with(csrf())).andReturn().getResponse().getStatus()).isEqualTo(302);
+        assertThat(mockMvc.perform(put("/main/faq").with(fromIp()).with(csrf())).andReturn().getResponse().getStatus()).isEqualTo(302);
+        assertThat(mockMvc.perform(delete("/main/faq").with(fromIp()).with(csrf())).andReturn().getResponse().getStatus()).isEqualTo(302);
+        MvcResult sub = mockMvc.perform(get("/main/faq/x").with(fromIp())).andReturn();
         assertThat(sub.getResponse().getStatus()).as("denyAll이라 MVC에 닿지 않는다").isEqualTo(302);
         assertThat(sub.getResponse().getRedirectedUrl()).endsWith("/admin/login");
-        assertThat(mockMvc.perform(get("/faq?q=무시").with(fromIp())).andReturn().getResponse().getStatus()).as("검색 파라미터는 무시").isEqualTo(200);
+        assertThat(mockMvc.perform(get("/main/faq?q=무시").with(fromIp())).andReturn().getResponse().getStatus()).as("검색 파라미터는 무시").isEqualTo(200);
     }
 
     @Test

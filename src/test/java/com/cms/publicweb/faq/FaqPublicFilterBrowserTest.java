@@ -62,7 +62,7 @@ class FaqPublicFilterBrowserTest extends BrowserTestSupport {
     }
 
     private void open() {
-        page.navigate("http://localhost:" + port + "/faq");
+        page.navigate("http://localhost:" + port + "/main/faq");
         page.waitForFunction("() => !document.getElementById('faq-search-box').hidden");
     }
 
@@ -169,7 +169,7 @@ class FaqPublicFilterBrowserTest extends BrowserTestSupport {
         BrowserContext noScript = browserContextWithoutJavaScript();
         try {
             Page plain = noScript.newPage();
-            plain.navigate("http://localhost:" + port + "/faq");
+            plain.navigate("http://localhost:" + port + "/main/faq");
 
             assertThat(plain.locator("[data-faq-item]").count()).isEqualTo(2);
             assertThat(plain.locator("#faq-search-box").isVisible()).as("입력 상자는 숨겨진 채").isFalse();

@@ -1,5 +1,7 @@
 package com.cms.publicweb.notice.controller;
 
+import com.cms.publicweb.support.PublicSiteRoutes;
+import com.cms.publicweb.support.SiteScopedPublic;
 import com.cms.publicweb.board.dto.PublicBoardListResult;
 import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
 import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
@@ -47,7 +49,8 @@ import java.util.Optional;
  * 통제는 전량 {@link PublicNoticeService}의 공개 조건 재검증이 담당한다.
  */
 @Controller
-@RequestMapping("/notices")
+@SiteScopedPublic
+@RequestMapping(PublicSiteRoutes.NOTICES)
 @RequiredArgsConstructor
 public class PublicNoticeController {
 

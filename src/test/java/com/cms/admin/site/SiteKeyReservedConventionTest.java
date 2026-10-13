@@ -91,8 +91,9 @@ class SiteKeyReservedConventionTest {
         assertThat(missing)
                 .as("새 최상위 경로를 추가했다면 SiteKey.RESERVED에도 넣어야 한다(사이트 키가 그 경로를 가린다)")
                 .isEmpty();
-        // 검사가 아무것도 못 찾는 상태(정규식 고장)를 막는다 — 알려진 공개 경로가 실제로 잡혀야 한다.
-        assertThat(keyEligible(segments)).contains("notices", "boards", "pages", "faq", "inquiry", "content-images", "banners", "popups", "admin");
+        // 검사가 아무것도 못 찾는 상태(정규식 고장)를 막는다 — 알려진 최상위 리터럴 경로가 실제로 잡혀야 한다.
+        // 공지·게시판·정적 페이지·FAQ·문의는 PR ② 이후 /{siteKey} 아래(PublicSiteRoutes 상수)라 더는 최상위 리터럴이 아니다 — 아래 별도 단언이 맡는다.
+        assertThat(keyEligible(segments)).contains("content-images", "banners", "popups", "admin", "error");
     }
 
     @Test
@@ -105,6 +106,29 @@ class SiteKeyReservedConventionTest {
                 .as("SecurityConfig에 새 최상위 경로를 열었다면 SiteKey.RESERVED에도 넣어야 한다")
                 .isEmpty();
         assertThat(keyEligible(segments)).contains("admin", "actuator", "css", "js", "img", "vendor", "swagger-ui", "v3");
+    }
+
+    @Test
+    @DisplayName("옛 최상위 공개 경로 이름(notices·boards·pages·faq·inquiry)은 사이트 범위 경로로 옮겨진 뒤에도 예약어로 남는다 — 옛 URL 404와 키 충돌 방지")
+    void legacyTopLevelNamesStayReserved() {
+        for (String name : List.of("notices", "boards", "pages", "faq", "inquiry")) {
+            assertThat(SiteKey.isReserved(name)).as(name).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("사이트 범위 경로(PublicSiteRoutes)의 두 번째 세그먼트도 예약어다 — 새 사이트 범위 경로를 추가하면 옛 이름과의 충돌을 같이 막는다")
+    void siteScopedSecondSegmentsAreReserved() {
+        String prefix = com.cms.publicweb.support.PublicSiteRoutes.HOME;
+        List<String> constants = List.of(
+                com.cms.publicweb.support.PublicSiteRoutes.NOTICES, com.cms.publicweb.support.PublicSiteRoutes.BOARDS,
+                com.cms.publicweb.support.PublicSiteRoutes.PAGES, com.cms.publicweb.support.PublicSiteRoutes.FAQ,
+                com.cms.publicweb.support.PublicSiteRoutes.INQUIRY);
+        for (String route : constants) {
+            assertThat(route).startsWith(prefix + "/");
+            String second = firstSegment(route.substring(prefix.length()));
+            assertThat(SiteKey.isReserved(second)).as("사이트 범위 경로 " + route + " 의 둘째 세그먼트 " + second).isTrue();
+        }
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.cms.publicweb.board.controller;
 
+import com.cms.publicweb.support.PublicSiteRoutes;
+import com.cms.publicweb.support.SiteScopedPublic;
 import com.cms.publicweb.board.dto.PublicBoardListResult;
 import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
 import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
@@ -42,7 +44,8 @@ import java.util.Optional;
  * 비공개 게시판·삭제된 게시판·미노출·삭제 게시글·다른 게시판 소속 게시글·비숫자 ID는 모두 같은 404다(존재 여부 열거 방지).
  */
 @Controller
-@RequestMapping("/boards")
+@SiteScopedPublic
+@RequestMapping(PublicSiteRoutes.BOARDS)
 @RequiredArgsConstructor
 public class PublicBoardController {
 

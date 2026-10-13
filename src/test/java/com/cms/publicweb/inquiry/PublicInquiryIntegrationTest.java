@@ -81,7 +81,7 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
     }
 
     private MockHttpServletRequestBuilder submit(String name, String email, String title, String body, boolean consent) {
-        MockHttpServletRequestBuilder request = post("/inquiry").with(csrf())
+        MockHttpServletRequestBuilder request = post("/main/inquiry").with(csrf())
                 .param("name", name).param("email", email).param("title", title).param("body", body)
                 .param("cf-turnstile-response", "token-ok");
         if (consent) {
@@ -115,20 +115,20 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("GET /inquiry: 폼·사이트 키·Turnstile 스크립트·CSRF hidden이 렌더링된다 (HEAD도 200)")
     void form_rendered() throws Exception {
-        String html = mockMvc.perform(get("/inquiry")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String html = mockMvc.perform(get("/main/inquiry")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
 
         assertThat(html).contains("data-sitekey=\"1x00000000000000000000AA\"")
                 .contains("https://challenges.cloudflare.com/turnstile/v0/api.js")
                 .contains("name=\"_csrf\"")
                 .contains("name=\"consent\"")
                 .contains("개인정보 수집·이용");
-        mockMvc.perform(head("/inquiry")).andExpect(status().isOk());
+        mockMvc.perform(head("/main/inquiry")).andExpect(status().isOk());
     }
 
     @Test
     @DisplayName("POST /inquiry: CSRF 토큰이 없으면 403이고 저장되지 않으며 캡차 검증기도 호출되지 않는다")
     void post_withoutCsrf_forbidden() throws Exception {
-        mockMvc.perform(post("/inquiry").param("name", "n").param("email", "a@b.co").param("title", "t").param("body", "b")
+        mockMvc.perform(post("/main/inquiry").param("name", "n").param("email", "a@b.co").param("title", "t").param("body", "b")
                         .param("consent", "true").param("cf-turnstile-response", "t"))
                 .andExpect(status().isForbidden());
 
@@ -141,7 +141,7 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
     void submit_roundTrip() throws Exception {
         mockMvc.perform(validSubmit())
                 .andExpect(status().isSeeOther())
-                .andExpect(header().string("Location", "/inquiry?sent"));
+                .andExpect(header().string("Location", "/main/inquiry?sent"));
 
         assertThat(inquiryCount()).isEqualTo(1);
         var row = jdbc.queryForMap("SELECT name, email, title, body, status, consent_at, create_date FROM inquiry");
@@ -159,7 +159,7 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
         assertThat((String) notification.get("message")).doesNotContain("홍길동", "visitor@example.com", "배송");
         assertThat(notification.get("link_url")).isEqualTo("/admin/inquiry/manage");
 
-        mockMvc.perform(get("/inquiry").param("sent", ""))
+        mockMvc.perform(get("/main/inquiry").param("sent", ""))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("문의가 접수되었습니다")))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("name=\"email\""))));
@@ -195,7 +195,7 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("변환할 수 없는 폼 값(consent=invalid)도 500·로그 복제 없이 400 폼으로 처리된다 — 입력 보존, 캡차·저장 없음 (코드 리뷰 R1-1)")
     void unbindableValue_is400_notAdvice500() throws Exception {
-        String html = mockMvc.perform(post("/inquiry").with(csrf()).param("name", "홍길동").param("email", "a@b.co").param("title", "t")
+        String html = mockMvc.perform(post("/main/inquiry").with(csrf()).param("name", "홍길동").param("email", "a@b.co").param("title", "t")
                         .param("body", "본문").param("consent", "LEAK-bad-value").param("cf-turnstile-response", "token"))
                 .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
 
@@ -219,13 +219,13 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("캡차 토큰이 없거나 비었거나 2048자를 넘으면 400, 외부 검증 호출 0회 (R3-2)")
     void captchaToken_formatErrors_neverCallVerifier() throws Exception {
-        mockMvc.perform(post("/inquiry").with(csrf()).param("name", "n").param("email", "a@b.co").param("title", "t")
+        mockMvc.perform(post("/main/inquiry").with(csrf()).param("name", "n").param("email", "a@b.co").param("title", "t")
                         .param("body", "b").param("consent", "true"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post("/inquiry").with(csrf()).param("name", "n").param("email", "a@b.co").param("title", "t")
+        mockMvc.perform(post("/main/inquiry").with(csrf()).param("name", "n").param("email", "a@b.co").param("title", "t")
                         .param("body", "b").param("consent", "true").param("cf-turnstile-response", "   "))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(post("/inquiry").with(csrf()).param("name", "n").param("email", "a@b.co").param("title", "t")
+        mockMvc.perform(post("/main/inquiry").with(csrf()).param("name", "n").param("email", "a@b.co").param("title", "t")
                         .param("body", "b").param("consent", "true").param("cf-turnstile-response", "x".repeat(2049)))
                 .andExpect(status().isBadRequest());
 
@@ -233,7 +233,7 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
         verify(captchaVerifier, never()).verify(any(), any());
 
         // 정확히 2048자는 형식 검사를 통과해 검증기로 간다
-        mockMvc.perform(post("/inquiry").with(csrf()).param("name", "n").param("email", "a@b.co").param("title", "t")
+        mockMvc.perform(post("/main/inquiry").with(csrf()).param("name", "n").param("email", "a@b.co").param("title", "t")
                         .param("body", "b").param("consent", "true").param("cf-turnstile-response", "x".repeat(2048)))
                 .andExpect(status().isSeeOther());
         verify(captchaVerifier, times(1)).verify(any(), any());
@@ -263,10 +263,10 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
         assertThat(html).contains("현재 문의를 받을 수 없습니다").contains("value=\"홍길동\"");
         assertThat(inquiryCount()).isEqualTo(1050);
         verify(captchaVerifier, times(1)).verify(any(), any());                   // 두 번째 시도는 캡차 호출 전에 막혔다
-        mockMvc.perform(get("/inquiry")).andExpect(status().isServiceUnavailable());
+        mockMvc.perform(get("/main/inquiry")).andExpect(status().isServiceUnavailable());
 
         // 방금 상한을 채운 접수의 PRG 완료 화면은 상한과 무관하게 성공으로 안내한다 (코드 리뷰 R1-2)
-        mockMvc.perform(get("/inquiry").param("sent", "")).andExpect(status().isOk())
+        mockMvc.perform(get("/main/inquiry").param("sent", "")).andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("문의가 접수되었습니다")));
 
         jdbc.update("UPDATE inquiry SET status = 'ANSWERED' WHERE status = 'RECEIVED' LIMIT 10");
@@ -333,9 +333,9 @@ class PublicInquiryIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("PUT /inquiry와 하위 경로는 라우트가 없고 SecurityConfig가 거부한다 — 저장 없음")
     void otherMethodsAndSubPaths_denied() throws Exception {
-        mockMvc.perform(put("/inquiry").with(csrf())).andExpect(status().is3xxRedirection());
-        mockMvc.perform(post("/inquiry/1").with(csrf())).andExpect(status().is3xxRedirection());
-        mockMvc.perform(get("/inquiry/anything")).andExpect(status().is3xxRedirection());
+        mockMvc.perform(put("/main/inquiry").with(csrf())).andExpect(status().is3xxRedirection());
+        mockMvc.perform(post("/main/inquiry/1").with(csrf())).andExpect(status().is3xxRedirection());
+        mockMvc.perform(get("/main/inquiry/anything")).andExpect(status().is3xxRedirection());
 
         assertThat(inquiryCount()).isZero();
     }

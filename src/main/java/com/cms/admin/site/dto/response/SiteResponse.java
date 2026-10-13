@@ -24,6 +24,8 @@ public class SiteResponse {
     private Boolean useYn;
     @Schema(description = "시드 사이트 여부 — 삭제·비활성화 불가(서버 판정이 최종)")
     private Boolean seed;
+    @Schema(description = "기본 공개 사이트 여부 — 접두어 없는 /가 이 사이트로 이동한다")
+    private Boolean defaultSite;
     @Schema(description = "이 사이트에 속한 메뉴 수(비활성 포함) — 0일 때만 삭제 가능(서버 판정이 최종)")
     private Long menuCount;
     private LocalDateTime createDate;
@@ -38,6 +40,7 @@ public class SiteResponse {
                 .allowExternalLink(site.permitsExternalLink())
                 .useYn(site.getUseYn())
                 .seed(site.isSeed())
+                .defaultSite(site.isDefaultYn())
                 .menuCount(menuCount)
                 .createDate(site.getCreateDate())
                 .updateDate(site.getUpdateDate())

@@ -32,7 +32,7 @@ class PublicHomeFooterIsolationIntegrationTest extends MariaDbContainerSupport {
     void footerFailureDoesNotBreakHome() throws Exception {
         Mockito.doThrow(new DataAccessResourceFailureException("주입된 푸터 조회 실패")).when(sitePageService).findFooterLinks();
 
-        MvcResult result = mockMvc.perform(get("/").with(request -> {
+        MvcResult result = mockMvc.perform(get("/main").with(request -> {
             request.setRemoteAddr("10.92.0.1");
             return request;
         })).andReturn();

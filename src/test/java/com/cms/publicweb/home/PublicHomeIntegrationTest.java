@@ -79,7 +79,7 @@ class PublicHomeIntegrationTest extends MariaDbContainerSupport {
     }
 
     private String home() throws Exception {
-        return mockMvc.perform(get("/").with(fromIp())).andReturn().getResponse().getContentAsString();
+        return mockMvc.perform(get("/main").with(fromIp())).andReturn().getResponse().getContentAsString();
     }
 
     @Test
@@ -91,8 +91,8 @@ class PublicHomeIntegrationTest extends MariaDbContainerSupport {
 
         String html = home();
 
-        assertThat(html).contains("href=\"/notices/" + noticePost + "\"").contains("home-test-공지");
-        assertThat(html).contains("href=\"/boards/" + other + "/posts/" + otherPost + "\"").contains("home-test-자료실").contains("home-test-자료글");
+        assertThat(html).contains("href=\"/main/notices/" + noticePost + "\"").contains("home-test-공지");
+        assertThat(html).contains("href=\"/main/boards/" + other + "/posts/" + otherPost + "\"").contains("home-test-자료실").contains("home-test-자료글");
         assertThat(html.split("home-test-공지", -1).length - 1).as("공지 글은 공지 섹션에만").isEqualTo(1);
     }
 
@@ -121,7 +121,7 @@ class PublicHomeIntegrationTest extends MariaDbContainerSupport {
         post(noticeBoardId, "home-test-숨은공지", true, false, LocalDateTime.now());
         jdbc.update("UPDATE board SET public_yn = 0 WHERE id = ?", noticeBoardId);
 
-        var result = mockMvc.perform(get("/").with(fromIp())).andReturn();
+        var result = mockMvc.perform(get("/main").with(fromIp())).andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(200);
         assertThat(result.getResponse().getContentAsString()).doesNotContain("home-test-숨은공지");

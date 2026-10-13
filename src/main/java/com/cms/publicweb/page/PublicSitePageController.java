@@ -1,5 +1,7 @@
 package com.cms.publicweb.page;
 
+import com.cms.publicweb.support.PublicSiteRoutes;
+import com.cms.publicweb.support.SiteScopedPublic;
 import com.cms.publicweb.page.dto.PublicSitePageRevisions;
 import com.cms.publicweb.page.dto.PublicSitePageView;
 import jakarta.servlet.http.HttpServletResponse;
@@ -23,7 +25,8 @@ import java.util.regex.Pattern;
  * {@link PublicSitePageService}의 공개 조건 재검증이 맡고, 비노출·없는 슬러그·없는 개정·형식 위반은 모두 같은 404다.
  */
 @Controller
-@RequestMapping("/pages")
+@SiteScopedPublic
+@RequestMapping(PublicSiteRoutes.PAGES)
 @RequiredArgsConstructor
 public class PublicSitePageController {
 

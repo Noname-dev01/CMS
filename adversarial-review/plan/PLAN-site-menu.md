@@ -1,6 +1,6 @@
 # PLAN-site-menu — 사이트 설정 메뉴 (다중 사이트·사이트별 메뉴·공개 라우팅·콘텐츠 분리)
 
-- 작성: 2026-10-13 / 상태: **계획 v5 — 적대적 리뷰 5라운드 ship, 사용자 승인(2026-10-13), PR ① 구현·검증 완료(PR ②~⑤ 미착수)**
+- 작성: 2026-10-13 / 상태: **PR ① 구현·검증 완료(계획 v5, #143 머지). PR ② 구현·검증 완료(P-v4, 리뷰 4라운드 ship — 파일 말미 "PR ② 상세 설계"·"구현·검증 결과 — PR ②", 미커밋). PR ③~⑤ 미착수**
 - 로드맵: `adversarial-review/project-direction-roadmap.md` "실행 로드맵 — 사이트 설정 메뉴"
 - 확정 결정(재질문 금지): 사용자 메모리 `project-site-menu-decisions` — 아래 "확정 사항"에 그대로 옮긴다.
 - 이 문서의 **상세 설계 범위는 PR ①(사이트 모델 · 사이트 관리 UI · 메뉴 사이트 분리 편집)** 이다. PR ②~⑤는 "후속 PR 윤곽"에서 PR ①이 남겨야 할 전제만 다룬다(각 PR 착수 때 이 문서를 갱신해 별도 리뷰).
@@ -290,3 +290,175 @@ v2의 "생성=`FOR UPDATE` / 단일 행=`FOR SHARE` + 잠금 읽기 존재 검�
 ### 후속
 - PR ② 라우팅(`/{siteKey}/…`, `/` 302, **`SecurityConfig` 동적 무인증 경로·레이트리밋 — 인가 정책 변경, 별도 고지·승인**), PR ③ 사이트별 콘텐츠, PR ④ 사이트별 공지, PR ⑤ 공개 메뉴 렌더링 — 각 PR 착수 때 이 문서를 갱신해 리뷰한다. PR ③·④는 새 `site_id` FK를 `RESTRICT`로 두고 `SiteService.hasContent`를 확장한다.
 - 로드맵 반영(`/updateRoadmap`)은 사이트 설정 메뉴 전체 완료 후 한 번에(사용자 지시, 보류 stash 포함).
+
+
+---
+
+# PR ② 상세 설계 — 라우팅·공개 경로 이전 (2026-10-13, P-v1)
+
+> 이 부분이 PR ②의 리뷰 대상이다. 위 PR ① 본문(D1~D9·v1~v5)은 머지된 사실의 기록이며 이번 리뷰 범위가 아니다. **이 PR은 `SecurityConfig`·레이트리밋의 인가 정책을 바꾼다 — 승인 단계에서 별도 고지한다.**
+
+## P1. Context와 범위
+
+공개 화면 경로를 `/{siteKey}/…` 아래로 옮긴다(공통 포털 없음). 사용자 확정 사항(재질문 금지): 루트 접두어 · `/`는 기본 공개 사이트로 **302** · 접두어 없는 기존 URL(`/notices`·`/boards`·`/pages`·`/faq`·`/inquiry`)은 **404로 종료** · 존재하지 않는·비활성 사이트 키는 기존 공개 불변식처럼 **같은 404** · 기본 사이트를 가리키는 컬럼 추가 · 본문 속 `/content-images/{id}`는 사이트 무관 경로 · 모든 공개 링크가 접두어를 포함해 생성.
+
+**이 PR의 범위 밖(PR ③~⑤)**: 사이트별 콘텐츠 분리(지금은 **모든 공개 사이트가 같은 콘텐츠**를 각자의 접두어 아래에서 보여 준다), 사이트별 공지, 공개 메뉴 렌더링, 기본 사이트 **변경** 기능(P2-5).
+
+### 정찰에서 확인한 사실 (코드를 읽은 것)
+- 공개 컨트롤러: `HomeController`(`/`), `PublicNoticeController`(`/notices`), `PublicBoardController`(`/boards`), `PublicSitePageController`(`/pages`), `PublicFaqController`(`/faq`), `PublicInquiryController`(`/inquiry` GET·POST, PRG `RedirectView("/inquiry?sent")`), 이미지 3종(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`).
+- `SecurityConfig`는 경로마다 `permitAll`(GET/HEAD) + 같은 경로의 나머지 메서드 `denyAll` + 마지막 `anyRequest().denyAll()`이고, 첫 일치 규칙이 이긴다. 레이트리밋 규칙은 `application.yml`의 패턴 문자열을 `PathPatternRequestMatcher`로 해석하며 **버킷 키는 `(규칙 id, 원격 IP)`** 다(`TokenBucketRateLimiter:85`) — 사이트 키는 버킷 키에 들어가지 않는다.
+- 공개 템플릿의 내부 링크는 모두 `@{/notices…}` 식으로 하드코딩돼 있다(`templates/public/**` 약 40곳). 공개 `static/js`(`faq.js`·`home-popup.js`)는 내부 경로를 만들지 않는다. 본문 HTML은 `http/https/mailto` 링크와 `/content-images/{id}` 이미지만 허용하므로 본문에 내부 경로가 없다.
+- `PublicWebExceptionAdvice`는 `basePackages="com.cms.publicweb"`이고 500 페이지 템플릿 `public/notice/error.html`과 공용 `error/404.html`이 `@{/notices}` 링크를 가진다(사이트를 모르는 상태에서 렌더링될 수 있다).
+- 정적 리소스는 `static/{css,js,img,vendor}`뿐(최상위 파일 없음). 최상위 단일 세그먼트 MVC 매핑은 `/error`와 관리자 쪽 `/admin…`뿐이다.
+- 테스트 파급: 옛 경로 문자열을 가진 테스트 파일 약 40개(공개 통합·스트리밍·레이트리밋·`SecurityConfigTest` 스텁 컨트롤러·`DefaultDenyErrorDispatchIntegrationTest`·`CustomErrorController*Test`·템플릿 컨벤션 시험 등). 관리자 템플릿·JS에는 공개 경로 하드코딩이 없고 Swagger 예시 문구(`BannerCreateRequest` "/boards/2")만 있다.
+- 마이그레이션 최신은 V52. 기존 시드 `main`은 `id=2`, `isSeed()`가 삭제·비활성화를 막는다.
+
+## P2. 핵심 쟁점과 결정
+
+### P2-1. 사이트 해석(존재·활성 판정)을 어디서 하는가
+선택지: (a) 각 컨트롤러가 경로 변수를 받아 서비스 호출 (b) 인자 리졸버 (c) **`HandlerInterceptor` + 표지 어노테이션**.
+→ **(c)**. 사이트 범위 컨트롤러에 표지 `@SiteScopedPublic`을 달고, 인터셉터가 `HandlerMethod`의 빈 클래스에 표지가 있을 때만 경로 변수 `siteKey`를 해석한다. 해석 순서: ① 키 형식(`SiteKey` 형식 정규식 — 대문자·`_`·길이 위반이 여기서 탈락) ② 예약어 ③ DB 조회(`type=PUBLIC ∧ use_yn=1`). 어느 하나라도 실패하면 `response.sendError(404)` → 기존 `CustomErrorController`의 공용 404 화면. 성공하면 요청 속성에 `PublicSite(id, key, name)`를 싣는다.
+- 왜 (c): 새 라우트를 추가해도 사이트 검증을 빠뜨릴 수 없고(표지가 클래스 단위, 컨벤션 시험이 `{siteKey` 매핑 ↔ 표지의 일치를 강제), 경로 패턴 기반 인터셉터는 **`/error` 재디스패치와 정적 리소스까지 가로채** 404 루프를 만들 수 있어 기각했다. (a)는 컨트롤러 6곳 복제, (b)는 예외를 던져야 해 기존 "공개 컨트롤러는 예외를 던지지 않는다" 관례와 어긋난다.
+- 왜 `sendError`: 첨부 다운로드가 이미 쓰는 방식이고 404 화면이 한 곳이다. 모든 불가 사유(형식 위반·예약어·없음·비활성·관리자 타입)가 **같은 상태·같은 화면**이다.
+- 비용: 요청당 인덱스 조회 1회(`uk_site_site_key`), 캐시 없음 — 레이트리밋이 모든 사이트 범위 경로에 걸려 있어 상한이 있고, 캐시는 무효화 규약(사이트 비활성화 즉시 반영)을 새로 만들어야 해 과설계다.
+
+### P2-2. 경로 문법과 MVC 매핑
+- 사이트 범위 경로: `/{siteKey}`(사이트 홈), `/{siteKey}/notices[/**]`, `/{siteKey}/boards/**`, `/{siteKey}/pages/**`, `/{siteKey}/faq`, `/{siteKey}/inquiry`. 경로 변수의 정규식은 **"점이 없는 비어 있지 않은 세그먼트"(`{siteKey:[^.]+}`)** 로만 제한한다(P-v2 — 키 형식 정규식을 걸면 `/MAIN`·`/a_b` 같은 형식 위반이 MVC·보안 계층에서 먼저 탈락해 302/403이 되어 "형식 위반도 같은 404" 계약이 깨진다). 형식·예약어·존재 판정은 전부 인터셉터가 맡는다. 점이 있는 `favicon.ico`·`index.html` 같은 경로는 이 매핑에 걸리지 않아 정적 리소스 처리를 가리지 않는다. 상수는 `PublicSiteRoutes`(publicweb/support)에 두고 매핑·`SecurityConfig`·시험이 공유한다.
+- 이미지 3종(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`)은 **사이트 무관 경로로 그대로 둔다**(ID로 식별되고 노출 재검증이 서비스에 있어 사이트 소속이 필요 없다 — 사용자 결정 "본문 속 `/content-images` 사이트 무관"을 배너·팝업 이미지로 확장). 정적 `/css /js /img /vendor`도 그대로. 이들은 모두 **예약어**라 사이트 키와 충돌하지 않는다(PR ①의 자동 검사가 이미 보장).
+- 같은 URL에 두 핸들러가 겹치는지(`/content-images/faq` 등 예약어를 사이트 키 자리에 넣은 경우)는 시험으로 고정한다 — 어떤 예약어 × 어떤 경로 형태도 **500이 아니라 404/302/403** 이어야 한다(MVC "Ambiguous handler" 500 방지).
+
+### P2-3. 인가 정책 변경 — `SecurityConfig` (별도 고지 대상)
+**제거**: `/`를 제외한 옛 공개 permit 규칙 5묶음(`/notices`·`/boards`·`/pages`·`/faq`·`/inquiry`)과 그 `denyAll` 짝.
+**추가**(모두 기존 `/admin/**`·swagger·actuator·정적·이미지 규칙 **뒤**, `anyRequest().denyAll()` **앞**; 키 자리는 `PublicSiteRoutes`의 `{siteKey:[^.]+}`):
+
+| 경로 | 메서드 | 결과 |
+|---|---|---|
+| `/{siteKey}` | GET·HEAD 공개, 나머지 `denyAll` | 사이트 홈 |
+| `/{siteKey}/notices`, `/{siteKey}/notices/**` | GET·HEAD 공개, 나머지 `denyAll` | 공지 목록·상세·첨부 |
+| `/{siteKey}/boards`, `/{siteKey}/boards/**` | GET·HEAD 공개, 나머지 `denyAll` | 게시판 |
+| `/{siteKey}/pages`, `/{siteKey}/pages/**` | GET·HEAD 공개, 나머지 `denyAll` | 정적 페이지 |
+| `/{siteKey}/faq` (정확) | GET·HEAD 공개, `/{siteKey}/faq`·`/{siteKey}/faq/**`의 나머지 `denyAll` | FAQ |
+| `/{siteKey}/inquiry` (정확) | **GET·HEAD·POST 공개**, 나머지 `denyAll` | 문의 폼(두 번째 무인증 POST가 **경로만 이동**, 새 쓰기 경로 아님) |
+| 옛 접두어 없는 `/notices`, `/boards`, `/pages`, `/faq`, `/inquiry` 와 각 `/**` | GET·HEAD 공개(핸들러 없음 또는 사이트 홈 매핑에 걸려 인터셉터 404), 나머지 `denyAll` | **종료(404)** — 기본 거부로 두면 비인증 302·인증 403이 되어 사용자 결정("404")과 어긋난다 |
+
+`/error`는 직접 요청이 키 정규식에 걸리므로 **사이트 규칙보다 앞에서 `denyAll`을 명시**한다(ERROR 디스패치는 맨 앞 `dispatcherTypeMatchers`가 그대로 허용). `/`는 GET·HEAD 공개를 유지(302 핸들러).
+- **새로 공개되는 표면**: 점이 없는 **임의의 단일 세그먼트 `GET /xxx`** 와 `GET /xxx/{notices|boards|pages|faq|inquiry}…`. 전부 인터셉터가 같은 404로 끝낸다(핸들러 본문 도달 전 DB 조회 1회 이하). 이전에는 비인증 302였다. 승인 이력 표(`com.cms.config/CLAUDE.md`)를 이에 맞게 고친다.
+- 선택지: (B) 사이트 키 집합을 `AuthorizationManager`에서 DB로 판정해 존재하는 키에만 permit. 기각 — 보안 계층이 DB를 조회하게 되고, 존재하지 않는 키가 **404가 아니라 302/403**이 되어 사용자 결정과 어긋난다. 와일드 permit의 안전성은 "사이트 범위 경로의 모든 핸들러가 인터셉터를 지난다"는 구조적 보장(P2-1)에 의존하며 컨벤션 시험이 이를 강제한다.
+- 예약어 안전성 시험: `SiteKey.RESERVED`의 **모든 단어 × {`/w`, `/w/notices`, `/w/faq`, `/w/inquiry`(GET·POST)}** 가 공개 페이지(200)가 되지 않는다. 결과는 단어별로 기존 규칙이 정한다 — `admin`·`actuator`·`swagger-ui`·`v3`·`error`는 기존 게이트(비인증 302 등)가 먼저 이기며 **이 경우는 "같은 404"가 아니다(예외 명시)**, 나머지 예약어는 인터셉터 404. 이 구분을 시험 기대값 표로 고정한다.
+- **구조적 보장의 범위(P-v2)**: 안전성은 "새 permit 영역에 걸리는 모든 핸들러가 인터셉터를 지난다"에 의존하므로, 컨트롤러 시험은 `publicweb`만이 아니라 **등록된 전체 `RequestMappingHandlerMapping`** 을 대상으로 한다. 단, "패턴이 겹치면 표지 필수"로 정의하면 규칙 순서(앞선 `/admin/**` 게이트·`/error` 거부)를 무시해 정상 `/admin`·`/error` 핸들러까지 실패시키고(P-v3 지적), 변수마다 `x` 하나만 넣는 검사는 `/{section}/{view}` 같은 매핑과 공개 영역의 교집합(`/reports/notices`)을 놓친다. 그래서 **실제 공개 여부를 행동으로 정의**한다: 전체 보안 체인이 붙은 앱(`@SpringBootTest` + MockMvc)에서 모든 비-`@SiteScopedPublic` 핸들러 매핑에 대해 변수 자리를 탐침 값 집합 {`x`, `notices`, `boards`, `pages`, `faq`, `inquiry`, `main`}의 조합으로 채운 URL(변수 ≤3개라 최대 343개)을 **익명 GET·HEAD**로 호출하고, 응답이 \"로그인 302·401·403\"(보안이 막음)이 아닌 경우의 (매핑, 메서드) 목록이 **승인된 공개 비사이트 목록**(`/`, 이미지 3종, 로그인·비밀번호 재설정 페이지, `/actuator/health` 등 — 주석으로 근거를 단 상수)과 정확히 같아야 한다. 다른 패키지의 `GET /reports/notices` 같은 매핑이 공개 영역에 들어오면 목록 밖 공개로 실패한다. 표지 컨트롤러가 실제로 인터셉터를 지나는지는 아래 실서버 시험이 행동으로 확인한다.
+
+### P2-4. 레이트리밋 (인가 정책의 일부)
+패턴만 접두어를 포함하도록 바꾼다. 규칙 id·용량·순서(더 엄격한 첨부 규칙이 먼저)는 그대로이고, `*`는 한 세그먼트 와일드카드다.
+`/*/notices/*/attachments/*`, `/*/notices/**`, `/*/boards/*/posts/*/attachments/*`, `/*/boards/**`, `/*/pages/**`, `/*/faq`, `/*/inquiry`(POST 10/3600, GET·HEAD 120/60). **신규**: 사이트 홈 `public-site-home`(120/60). 패턴은 `/{siteKey:(?!(?:예약어 전체)$)[^.]+}` — **예약어를 부정 선행탐색으로 제외**한다(P-v2: 레이트리밋 필터는 인가보다 먼저 돌고 핸들러를 모르므로 제외하지 않으면 공개 홈 한도를 소진한 IP의 관리자가 `/admin` 대시보드에서 429를 받는다). yml과 `SiteKey.RESERVED`의 드리프트는 **행동 시험**으로 막는다: 모든 예약어 `/w`가 어떤 사이트 규칙에도 매칭되지 않고, 공개 홈 버킷을 소진한 뒤에도 `/admin` 등 비공개/예약 경로가 429가 아니다. `/*/…` 규칙들도 같은 시험으로 **등록된 전체 비사이트 핸들러의 예시 URL이 어떤 사이트 규칙에도 맞지 않음**을 단언한다. `/`(`public-home`)는 302 전용이 되지만 규칙을 유지한다. **버킷 키가 `(규칙, IP)` 라서 무작위 사이트 키를 돌려도 버킷이 늘지 않는다**(사이트 키 공간 공격 방어) — 시험으로 고정한다. `RateLimitFilter`가 첫 일치 규칙을 쓰므로 `/*/notices/*/attachments/*` → `/*/notices/**` 순서를 유지한다(컨벤션 시험 갱신).
+- 공유 한도의 부작용(수용): 한 IP가 사이트 A에서 소비한 한도는 사이트 B에도 적용된다.
+
+### P2-5. 기본 공개 사이트와 `/` 302
+- 스키마: `V53__add_site_default.sql`(DDL) `site.default_yn bit(1) NOT NULL DEFAULT 0` + `V54__seed_default_site.sql`(DML) `main`(id=2)을 기본으로 지정(`WHERE NOT EXISTS (기본 사이트 있음)` 재실행 안전). DDL/DML 분리 규약(V50~V52와 같음). `NOT NULL DEFAULT 0`이라 롤백한 이전 앱의 INSERT도 호환된다.
+- `/` → `302 Location: /{defaultKey}`(GET·HEAD, `RedirectView` 컨텍스트 상대). 기본 사이트 조회 = `type=PUBLIC ∧ default_yn=1 ∧ use_yn=1`. 없으면 404(fail-closed). 키는 형식이 검증된 DB 값이라 오픈 리다이렉트가 아니다. 302(영구 301 아님) — 기본 사이트가 바뀔 수 있다.
+- 불변식: 기본 사이트는 정확히 1개, 비활성화·삭제 불가. 지금은 시드 보호(`isSeed()`)가 `main`을 막고 있으므로 **서비스 변경 없이** 성립하고, 시험이 "default 행 = 시드이며 PUBLIC·활성"을 고정한다. `Site`에 `defaultYn`(primitive, 빌더 기본 false)을 추가한다.
+- **기본 사이트 변경(API·UI)을 이 PR에 포함한다 — 사용자 승인 시 선택(2026-10-13, P-v4)**. 설계:
+  - API: 기존 `PATCH /admin/api/sites/{id}`에 선택 필드 `defaultSite`(Boolean, null=유지)를 추가한다. `true`만 허용하고 `false`는 400(고정 문구 — 기본 사이트는 다른 사이트를 지정해야만 바뀐다). 대상은 `PUBLIC ∧ use_yn=1`이어야 한다(아니면 400/409). 이미 기본이면 멱등 성공. 응답·목록에 `defaultSite` 포함.
+  - **잠금(PR ①의 "다른 사이트 행 비잠금" 규약의 명시적 예외)**: 기본 사이트 변경은 옛 기본·새 기본 두 행을 바꾸므로 **모든 `site` 행을 `id` 오름차순으로 `FOR UPDATE`**(`READ_COMMITTED`) 잠근 뒤 판정·갱신한다(행 수가 적은 관리자 전용 저빈도 쓰기라 단순함을 택한다). 교착 분석: 다른 쓰기(메뉴 쓰기·사이트 수정/삭제)는 **사이트 행 하나를 잡은 뒤 메뉴 행**만 기다리고 기본 변경은 메뉴 행을 쥐지 않는다 → 순환 불가. 기본 변경끼리는 id 오름차순이라 교착 불가. 기본 플래그는 이 경로에서만 바뀌므로, 비활성화·삭제가 자기 사이트 행을 잠근 뒤 읽는 `defaultYn`은 항상 일관적이다(기본 변경은 그 행도 잠그므로 직렬화).
+  - 불변식: 기본 사이트는 정확히 1개이며 **비활성화·삭제 불가**(시드 보호에 더해 `defaultYn` 검사 추가 — 시드 `main`은 기본이 아니게 된 뒤에도 기존 시드 보호로 계속 비활성화·삭제 불가이다, 변경 최소화). DB 수준 유일 제약은 두지 않고(생성 컬럼 유일 인덱스는 `ddl-auto: validate`와의 마찰이 커서 기각) 서비스 잠금 + 시험으로 고정한다. 읽는 쪽(`/` 302)은 `defaultYn=1` 행이 정확히 1개일 때만 리다이렉트하고 0개·2개 이상이면 오류 로그 + 404(fail-closed).
+  - 감사: 기존 `SITE_UPDATE`(대상=사이트 ID)를 재사용한다 — 새 감사 유형 없음.
+  - UI: 사이트 탭 목록에 "기본" 배지, 활성 공개·비기본 사이트 행에 [기본으로 지정] 버튼(확인 모달 없이 즉시 PATCH — 되돌릴 수 있는 설정이고 브라우저 대화상자를 쓰지 않는다). 성공하면 `content:sites-changed`. 새로고침 보호·`busy` 규칙은 사이트 저장과 같다.
+  - 효과: `/`의 302 목적지가 즉시 바뀐다(캐시 없음, 302).
+  - **구현 조건(라운드 4 리뷰)**: ① `updateSite()`는 `defaultSite=true`인 요청이면 **대상 행을 먼저 잠그지 말고** 처음부터 전체 행 잠금 분기를 탄다(대상부터 잠근 뒤 확장하면 id 순서가 깨져 교착 가능) ② 복합 요청 `{"defaultSite":true,"useYn":false}`는 **최종 상태 기준**으로 400 거부한다(변경 전 플래그만 검사하지 않는다).
+
+### P2-6. 링크 생성 — 접두어를 모델로 주입
+- `@ControllerAdvice(basePackages="com.cms.publicweb")` 모델 어드바이스가 요청 속성의 `PublicSite`에서 `sitePrefix`(`/main`)와 `site`(키·이름)를 모델에 싣는다. 템플릿은 `@{${sitePrefix} + '/notices'}` 형태로 쓴다(Thymeleaf 링크 표현식이 이 형태를 지원하는지 구현 첫 단계에서 확인하고, 안 되면 `|…|` 리터럴 치환).
+- 홈(`public/home.html`)의 `@{/}`는 `@{${sitePrefix}}`. 푸터·페이지네이션·검색 폼 `th:action`·첨부 링크·문의 폼 `th:action`·PRG 리다이렉트(`/{key}/inquiry?sent`)를 모두 같은 방식으로.
+- 오류 템플릿(`error/404.html`, `public/notice/error.html`)은 사이트를 모를 수 있으므로 링크를 **`@{/}`** (→ 302로 기본 사이트)로 바꾸고 문구를 "홈으로 돌아가기"로 맞춘다.
+- **컨벤션 시험**(템플릿 텍스트 스캔): `templates/public/**`(정상 화면)에는 `@{/notices`·`@{/boards`·`@{/pages`·`@{/faq`·`@{/inquiry` **와 루트 `@{/}`** 하드코딩이 없다(P-v2: FAQ·문의 폼/완료·정적 페이지의 "홈으로"가 `@{/}`라 두 번째 사이트에서 기본 사이트로 새는 것을 막는다; 허용: `/css /js /img /vendor /banners /popups /content-images`). 루트 `@{/}`는 **오류 템플릿 두 개에서만** 허용. 텍스트 스캔과 별개로 **두 번째 사이트의 렌더링 결과**(`href`·`action`·PRG `Location`)가 전부 `/{key}` 접두어로 시작하는지 통합 시험이 검사한다.
+- 알려진 한계(수용): 관리자가 저장해 둔 **배너·팝업·메뉴의 내부 링크 URL**(예: `/boards/2`)은 이전 경로라 404가 된다. 실배포 전이라는 전제(사용자 결정 4/6)와 같다. Swagger 예시 문구를 `/main/boards/2`로 고친다.
+
+### P2-7. 인터셉터와 예외 어드바이스
+`PublicWebExceptionAdvice`(500)는 사이트 해석 전에 던져진 예외에서도 렌더링될 수 있어 모델 속성에 의존하지 않는다(P2-6의 오류 템플릿 규칙). 인터셉터 `preHandle`의 DB 예외는 `@ControllerAdvice`의 예외 처리 대상이므로 기존 HTML 500 페이지로 간다 — 인터셉터 안에서 잡지 않는다(시험: 사이트 조회 실패 주입 시 500 HTML, JSON 아님).
+
+## P3. 작업 단계 (안쪽 → 바깥)
+1. V53·V54 + `Site.defaultYn` + 마이그레이션 시험
+2. `PublicSiteService`(키로 활성 공개 사이트 조회·기본 사이트 조회), `PublicSite`, `@SiteScopedPublic`, `PublicSiteInterceptor`(+`WebMvcConfigurer` 등록), 모델 어드바이스
+3. 컨트롤러 매핑 이전(사이트 범위 6개), **`HomeController`를 `RootRedirectController`(`/` 302, 표지 없음)와 `PublicSiteHomeController`(`/{siteKey}`, 표지 있음)로 분리**(클래스 단위 표지가 충돌하지 않게, P-v2), PRG 리다이렉트
+4. `SecurityConfig`·`application.yml` 레이트리밋 패턴
+5. 템플릿 링크 접두어화, 오류 템플릿
+6. 시험(P4) → `./gradlew test`
+7. 실기 검증(P5) → 문서(`com.cms.config`·`publicweb.*`·`admin.site` `CLAUDE.md`, 루트 지도, `docs/deployment.md` 롤백 주의, 이 계획서)
+
+## P4. 테스트 계획
+- **라우팅 통합**(`PublicSiteRoutingIntegrationTest`): 없는 키·비활성 사이트·`admin`(ADMIN 타입)·예약어(`notices` 등)·형식 위반(대문자·`a_b`·초과 길이)이 **상태 코드·본문이 서로 같은 404**(`/MAIN`·`/a_b`·`/MAIN/notices` 포함 — 보안 계층에서 302/403이 되지 않음. `admin` 자체는 기존 관리자 게이트가 이긴다는 예외를 별도 단언). 기본 사이트 `/` → 302 `Location: /main`(GET·HEAD, 쿼리 무시). 두 번째 공개 사이트 생성 후 `/news`·`/news/notices`·`/news/faq` 등이 같은 콘텐츠로 200, 비활성화하면 즉시 404, 다시 활성화하면 200. 옛 `/notices`·`/notices/1`·`/boards/1`·`/pages/x`·`/faq`·`/inquiry`(GET) 404, 옛 `POST /inquiry`는 거부.
+- **실서버 시험**(`@SpringBootTest(RANDOM_PORT)`, P-v2 — MockMvc는 `sendError`의 ERROR 재디스패치를 실행하지 않아 "같은 404 화면"을 증명하지 못한다; `DefaultDenyErrorDispatchIntegrationTest` 선례): 없는·비활성·형식 위반 사이트의 **GET과 HEAD**(HEAD는 본문 없이 같은 상태), 공지·게시판 **첨부 HEAD**, `/error` 직접 요청, 거부된 사이트가 공개 서비스(`Public*Service`)에 **도달하지 않음**(서비스 호출 0회). 사이트 범위 컨트롤러는 동기 핸들러만 허용(`Callable`/`DeferredResult`/`StreamingResponseBody` 반환 금지 컨벤션) — ASYNC 재디스패치의 재검증 정책이 필요 없게 한다.
+- **보안/레이트리밋 슬라이스**(`SecurityConfigTest` 갱신): 새 규칙 표 전 행(익명 GET·HEAD 허용, 비허용 메서드 거부, `/error` 직접 요청 거부, 예약어 × 경로 형태, 점 포함 경로 미허용), 스텁 컨트롤러 경로 이전. `RateLimitFilterTest`/`RateLimitResponseTest`/규칙별 통합 시험(첨부가 목록보다 엄격, 사이트 키를 바꿔도 같은 버킷, 신규 홈 규칙, POST 문의 한도).
+- **컨벤션**: ① `{siteKey` 매핑을 가진 `publicweb` 컨트롤러 ↔ `@SiteScopedPublic` 일치 ② 표지 없는 `publicweb` 컨트롤러의 매핑은 예약어 단일 세그먼트(이미지 3종)와 `/`뿐 ③ 비-GET `publicweb` 매핑은 `POST /{siteKey}/inquiry` 하나(기존 `PublicInquiryTemplateConventionTest` 갱신) ④ 템플릿 하드코딩 금지(P2-6) ⑤ 레이트리밋 규칙 순서.
+- **기존 시험 이전**: 공개 통합·스트리밍(`PublicAttachmentStreamingServerTest`·`PublicBoardAttachmentStreamingServerTest`)·FAQ·문의·정적 페이지·홈·`CustomErrorController*Test`·`DefaultDenyErrorDispatchIntegrationTest` 등 약 40개의 경로 문자열을 `/main` 접두어로 이전한다(시험 의도 불변, 의도를 바꾸는 단언은 개별 보고).
+- **기존 시험 단언 변경(P-v2)**: `SiteKeyReservedConventionTest`는 `:35`·`:95`에서 `notices/boards/pages/faq/inquiry`를 **실제 매핑에서 발견**해야 통과하는데 이전 후 최상위 리터럴이 사라진다 → 두 단언으로 분리: ① 옛 최상위 이름이 `RESERVED`에 **여전히 포함**(옛 URL 404·사이트 키 충돌 방지) ② 매핑 발견은 "이미지 3종 리터럴 + `{siteKey` 변수 매핑의 존재와 그 두 번째 세그먼트 집합"으로 재정의. 이 시험이 공허 통과(vacuous pass)하지 않는지 변이 확인한다.
+- **기본 사이트 변경(P-v4)**: 서비스 단위(대상 비공개/비활성/관리자 타입 거부, `false` 400, 멱등, 기본 비활성화·삭제 409, 기본 플래그 0개·2개 시 `/` 404), 컨트롤러(ADMIN 전용·MANAGER 403·익명 401), 통합 동시성(실제 락: 서로 다른 두 사이트로의 동시 변경 → 최종 기본 정확히 1개·교착 없음, 기본 변경 vs 옛 기본 비활성화, 기본 변경 vs 새 대상 비활성화, 기본 변경 vs 메뉴 쓰기 비교착), `/` 302 목적지가 변경 직후 바뀜, 브라우저(배지·버튼·잠금).
+- **마이그레이션**: V53·V54 후 default 행이 정확히 `id=2` 하나, 재실행 안전, 기존 행 `default_yn=0`.
+- **인터셉터 장애 격리**: 사이트 조회 실패 주입 → 500 HTML(JSON 아님), 민감 정보 비노출.
+
+## P5. 실기 검증 계획
+일회용 DB + 앱: `/` 302 → `/main` 렌더 → 모든 내부 링크 클릭 경로(공지·게시판·페이지·FAQ·문의 폼 제출 PRG) → 사이트 탭에서 두 번째 공개 사이트 생성 → `/{key}/…` 동일 화면·링크 접두어 확인 → 비활성화 404 → 옛 URL 404 → 첨부 다운로드·이미지(배너·팝업·본문) → 레이트리밋 429 화면. Playwright 스크린샷.
+
+## P6. 리스크
+- **R1 새 무인증 표면**: 키 정규식을 만족하는 모든 경로가 인터셉터 도달. 완화: 표지+컨벤션 시험, 예약어 전수 시험, 핸들러 도달 전 DB 조회 1회로 한정, 레이트리밋.
+- **R2 모든 템플릿 링크 변경**: 한 곳이라도 옛 경로를 남기면 404 → 컨벤션 시험 + 실기 클릭 검증.
+- **R3 롤백**: 이전 앱은 `/notices` 등 옛 경로를 되살리고 `/{key}/…`는 사라진다. 데이터 손상은 없다(V53은 가산 컬럼). 롤백 후 외부에서 `/main/…` 링크를 공유했다면 죽는다. **구·신 앱을 동시에 서비스(롤링·블루그린 겹침)하면 새 URL과 옛 URL의 성공 여부가 인스턴스마다 달라지므로 혼합 버전 운영을 금지**하고 전환·롤백 모두 일괄 교체로 한다. `docs/deployment.md`에 기록.
+- **R4 저장된 내부 링크(배너·팝업·메뉴)**: 옛 경로를 가리키면 404 — 수용(실배포 전).
+- **R5 요청당 DB 조회 1회 추가**: 수용(P2-1).
+
+## P7. 승인 시 사용자에게 별도 확인할 것
+1. **인가 정책 변경**: P2-3·P2-4 전체(새 무인증 경로 표, 옛 경로 5묶음 GET/HEAD 공개→404, 단일 세그먼트 임의 GET 공개 표면, 레이트리밋 패턴).
+2. **스키마**: `site.default_yn`(V53·V54), 되돌리는 마이그레이션 없음.
+3. ~~기본 사이트 변경 기능을 만들지 않음~~ → **사용자가 포함을 선택(P-v4)** — P2-5의 변경 API·잠금 예외·UI.
+4. **배너·팝업 이미지를 사이트 무관 경로로 유지**(P2-2).
+
+## P8. 개정 이력 (PR ②)
+- P-v1 (2026-10-13): 최초 작성.
+- P-v2 (2026-10-13, 라운드 1 — codex `gpt-6.1-sol` no-ship, 6건 + 롤백 문서 1건 전부 수용) 변경:
+  - P2-2·P2-3(지적 1): 키 자리 정규식을 형식 정규식이 아니라 `[^.]+`로 넓혀 형식 위반(`/MAIN`·`/a_b`)도 인터셉터의 같은 404로 끝낸다. `admin` 등 기존 게이트가 이기는 예약어는 "같은 404"의 예외로 명시. 근거: 정규식이 보안·MVC에서 먼저 탈락시켜 302/403이 됨.
+  - P2-4(지적 2): `public-site-home` 패턴에서 예약어를 부정 선행탐색으로 제외 + 행동 시험. 근거: 필터가 인가·핸들러 선택보다 먼저 돌아 `/admin`을 제한하는 실제 회귀.
+  - P2-3·P3(지적 3): 컨벤션 시험을 전체 `RequestMappingHandlerMapping`으로 확대, `HomeController` 분리.
+  - P2-6(지적 4): 정상 화면의 루트 `@{/}`도 금지(오류 템플릿만 예외) + 두 번째 사이트 렌더링 결과 검사.
+  - P4(지적 5): `SiteKeyReservedConventionTest` 단언 분리·변이 확인.
+  - P4(지적 6): 실서버 시험(GET/HEAD·첨부 HEAD·`/error`·서비스 미도달) 추가, 사이트 범위 컨트롤러 동기 한정.
+  - P6 R3: 구·신 앱 혼합 운영 금지.
+- P-v3 (2026-10-13, 라운드 2 — codex `gpt-6.1-sol` no-ship, 2건 전부 수용) 변경:
+  - P2-2·P2-3·P2-4(지적 1): 문자 클래스 `[^./]+`는 Spring 7.0.9 `PathPattern`이 `PatternParseException`으로 거부(이스케이프 안 된 `/`)해 기동이 막힌다 → `[^.]+`로 교체(단일 세그먼트 경계는 PathPattern이 처리, 부정 선행탐색은 파싱·매칭 확인됨). 근거: 리뷰어가 저장소 JAR로 직접 실행.
+  - P2-3(지적 2): \"패턴 겹침이면 표지 필수\" 컨벤션 정의를 **익명 GET·HEAD 실제 응답 기반 공개 인벤토리 = 승인 목록** 시험으로 교체, 변수 매핑은 탐침 값 집합 조합으로 교집합 검사. 근거: 규칙 순서를 무시하면 `/admin`·`/error`가 거짓 실패하고 `/{section}/{view}`를 놓친다.
+  - 라운드 3: codex ship (새 차단 사유 없음, 소스 대조 기준 설계 승인).
+- P-v4 (2026-10-13, 사용자 승인 시 범위 추가): **기본 사이트 변경 API·UI 포함**(P2-5). 모든 site 행 id 오름차순 `FOR UPDATE` 잠금(PR ① "다른 사이트 행 비잠금" 규약의 명시적 예외), 기본 비활성화·삭제 금지, 기본 플래그 0/2개 시 fail-closed. 추가분만 라운드 4에서 재리뷰 — **codex ship**(구현 조건 2건을 P2-5에 명시). 사용자 승인 완료, 구현 착수.
+  - 확인(변경 없음): Thymeleaf `@{${sitePrefix} + '/notices'}` 파싱 OK, 이미지 경로와 사이트 경로의 모호성 없음, ERROR 허용 순서·첨부 HEAD 새 차단 사유 없음.
+
+---
+
+## 구현·검증 결과 — PR ② (2026-10-13)
+
+### Context
+사이트 설정 메뉴 중 **PR ②(라우팅·공개 경로 이전)** 를 계획 P-v4(적대적 리뷰 4라운드 ship, 사용자 승인 시 "기본 사이트 변경 기능 포함" 선택)대로 구현했다. 공개 화면 경로가 `/{siteKey}/…` 아래로 이동했고, `/`는 기본 공개 사이트로 302, 접두어 없는 옛 URL은 404로 종료된다. **인가 정책(`SecurityConfig`·레이트리밋)이 바뀌었다**(사용자 별도 고지·승인). PR ③~⑤는 미착수.
+
+### 핵심 확정 사항 (계획 P-v4에서 변경 없음)
+- 사이트 해석: `@SiteScopedPublic` 표지 컨트롤러 앞의 `PublicSiteInterceptor`(형식 → 예약어 → DB), 실패는 전부 같은 `sendError(404)`. 요청당 DB 조회 1회, 캐시 없음.
+- 경로 문법: 키 자리 `{siteKey:[^.]+}`(`PublicSiteRoutes`). 형식·예약어·존재 판정은 인터셉터가 전담.
+- 보안: 옛 permit 5묶음 제거 → 사이트 범위 규칙 추가 + 옛 경로 GET·HEAD 열어 404 종료 + `/error` 명시 거부. 레이트리밋은 `/*/…` 패턴 + 신규 `public-site-home`(예약어 부정 선행탐색).
+- 기본 사이트: `site.default_yn`(V53) + 시드 `main` 지정(V54), `/` 302(0개·복수·비활성이면 404), 변경은 `PATCH defaultSite=true` + 모든 site 행 id 오름차순 `FOR UPDATE`(복합 요청은 최종 상태 기준 400).
+- 링크: 모델 `sitePrefix`, 템플릿 `@{|${sitePrefix}/…|}`, 오류 템플릿만 `@{/}`. 이미지 3종·정적 리소스는 사이트 무관 경로 유지.
+
+### 구현 파일
+- 마이그레이션: `V53__add_site_default.sql`·`V54__seed_default_site.sql`
+- 신규 `com.cms.publicweb.support`: `PublicSiteRoutes`·`PublicSite`·`SiteScopedPublic`·`PublicSiteService`·`PublicSiteInterceptor`·`PublicWebMvcConfig`·`PublicSiteModelAdvice`·`CLAUDE.md`, `home/RootRedirectController`
+- 변경: `Site`·`SiteRepository`·`SiteService`·`SiteUpdateRequest`·`SiteResponse`, 공개 컨트롤러 6개(매핑·표지, 문의 PRG), `SecurityConfig`, `application.yml`, 공개·오류 템플릿 16개, `site-tab.html`(기본 열·버튼)
+- 문서: 루트·`com.cms.config`·`com.cms.publicweb.*`·`com.cms.admin.site` `CLAUDE.md`, `docs/deployment.md`(공개 경로 이전·혼합 버전 금지)·`docs/migration-guide.md`(V53~V54)·`docs/troubleshooting.md`(3건)
+
+### 검증 결과
+- **시험**: 전체 `./gradlew test` — 2,432건 중 9건이 이전 경로(`get("/")`, 단일 세그먼트 미분류 경로)를 쓰던 기존 시험의 의도 변경으로 실패 → 갱신 후 재통과(배너·팝업 통합, 권한 매트릭스). 신규: `SiteDefaultMigrationTest`·`SiteDefaultApiIntegrationTest`·`SiteDefaultConcurrencyIntegrationTest`·`SiteDefaultTabBrowserTest`·`SiteServiceDefaultTest`·`PublicSiteRoutingIntegrationTest`·`PublicSiteRoutingServerTest`(실서버: 같은 404 화면·HEAD 본문 없음·서비스 미도달·`/error`)·`PublicExposureInventoryTest`·`PublicSiteTemplateConventionTest`·`SitePublicRateLimitConventionTest`, 갱신 `SecurityConfigTest`(+7)·`SiteKeyReservedConventionTest`(단언 분리)·`RateLimit*`·공개 시험 약 40개의 경로 이전.
+- **변이 실험**(3건): ① 다른 패키지에 `GET /reports/notices` 추가 → 공개 인벤토리 시험 실패 ② 레이트리밋 예약어 선행탐색 제거 → 3건 실패(`/admin` 429 회귀 재현) ③ 기본 변경의 전체 행 잠금을 일반 조회로 교체 → 동시성 시험 실패. 모두 원복.
+- **실기(Playwright + 일회용 MariaDB 3317 + 앱 8081)**: `/` 302 → `/main` → 사이트 탭에서 `news` 생성 → [기본으로 지정] → `/`가 `/news`로 이동, "기본" 열 이동·버튼 소멸 → `/news` 홈·FAQ·공지·문의·페이지·게시판의 모든 `href`/`action`이 `/news` 접두어(공지·게시글·푸터 데이터를 넣고 확인) → 옛 `/notices/2` 404 화면의 "홈으로 돌아가기"가 `/`를 거쳐 `/news`로 → main 재지정·news 비활성화 후 `/news` 404 → 원복 → `/error`·`/robots.txt`·`/nosuch/unknown` 302 로그인 → 임의 키 140회 연속 요청 시 429 화면. 스크린샷 4장(`adversarial-review/screenshots/site-routing/`).
+
+### 이슈
+- **계획 리뷰가 잡은 설계 결함 4건**(구현 전 수정): 형식 정규식이 형식 위반을 302/403으로 바꿈, 홈 레이트리밋이 `/admin`을 제한, `[^./]+`가 PathPattern 파싱 실패로 기동 불가, 컨벤션 시험이 규칙 순서를 무시. `docs/troubleshooting.md`에 3건 기록.
+- **구현 중 발견**: `WebMvcConfigurer` 빈이 `@WebMvcTest`에 포함되어 서비스 의존이 있으면 슬라이스 100여 건이 깨짐 → `ObjectProvider` 지연 조회.
+- **수용한 한계**: 관리자가 저장한 배너·팝업·메뉴의 옛 내부 링크는 404(실배포 전 전제), 공유 레이트리밋 버킷(한 IP의 사이트 간 한도 공유), 모든 공개 사이트가 같은 콘텐츠를 보여 줌(PR ③ 전), 구·신 앱 혼합 운영 금지.
+- **브라우저로 못 본 것**: 기본 지정 중 다른 탭의 구조 반영 충돌(새로고침 보호 참여)은 코드로만 확인 — PR ①의 `isSitePanelBusyOrDirty` 경로를 그대로 쓴다.
+
+### 후속
+- 코드 리뷰 게이트(`/code-review-loop`) → `/commitPR`. 로드맵 반영(`/updateRoadmap`)은 사이트 설정 메뉴 전체 완료 후 한 번에.
+- PR ③(사이트별 콘텐츠: 새 `site_id` FK `RESTRICT` + `SiteService.hasContent` 확장), ④(사이트별 공지), ⑤(공개 메뉴 렌더링).
