@@ -20,3 +20,7 @@
 ## 시험
 
 `PublicNoticeServiceTest`(어댑터 위임·fail-closed), `PublicNoticeControllerTest`(슬라이스 — 계약 불변 단언 + 공지 게시판 비공개 시 목록 404), `PublicNoticeAttachmentIntegrationTest`(공지 게시판 게시글 시드로 TOCTOU·IDOR·파일 없음), `PublicAttachmentStreamingServerTest`(실서버 스트리밍·OSIV 가드), `PublicNoticeTemplateConventionTest`, `SecurityConfigTest`. 서비스 규칙의 단위 시험은 `com.cms.publicweb.board.service.PublicBoardServiceTest`로 옮겼다(옛 `PublicNoticeServiceTest`의 페이지 보정·검색어·첨부 순서·크기 표기 케이스).
+
+## 조회수·다운로드 수 집계 (2026-10-13)
+
+`PublicNoticeController`의 상세 GET·첨부 다운로드 GET도 `PublicBoardController`와 같은 방식으로 `ContentCounterService`를 호출한다(HEAD 제외, 컨트롤러 슬라이스 시험은 이 서비스를 목 빈으로 둔다). 규칙은 `com.cms.admin.board`의 `CLAUDE.md`.
