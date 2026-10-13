@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<!--
+    사이트 탭의 조각(PLAN-site-menu.md D7). 정적 페이지·메뉴 관리 화면(admin/page/manage.html)의 ADMIN 전용 탭이 포함한다.
+    조각은 둘이다: sitePanel(마크업·전용 CSS) / siteScript(의존성 로딩 뒤에 포함). 조각 이름을 body·script로 짓지 않는다 — Thymeleaf가 HTML 요소 이름과 구분하지 못해 <body> 전체를 끌어온다.
+    모달이 없다(폼은 패널 안 인라인, 삭제 확인은 confirm). CSS는 #siteTabPanel로 스코프한다(다른 탭에 번지지 않게).
+    사이트 API는 전부 ADMIN 전용이라 이 탭을 숨기는 것은 UX일 뿐 최종 판정이 아니다.
+-->
+<body>
+
+<div th:fragment="sitePanel">
+<style>
+    #siteTabPanel .site-table td, #siteTabPanel .site-table th { vertical-align: middle; }
+    #siteTabPanel .site-table tr.site-selected { background-color: #eaf0ff; }
+    #siteTabPanel .site-table tr.site-inactive td { color: #858796; }
+    #siteTabPanel .form-mode-label { margin-bottom: 1rem; font-weight: 600; color: #5a5c69; }
+</style>
+<div class="row">
+    <div class="col-lg-7 mb-4">
+        <div class="card shadow">
+            <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                <h6 class="m-0 font-weight-bold text-primary">사이트 목록</h6>
+                <button type="button" class="btn btn-primary btn-sm" id="siteBtnNew">새 공개 사이트</button>
+            </div>
+            <div class="card-body">
+                <div id="siteListAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover site-table mb-0">
+                        <thead>
+                        <tr>
+                            <th>키</th>
+                            <th>이름</th>
+                            <th>종류</th>
+                            <th class="text-center">외부 링크</th>
+                            <th class="text-center">사용</th>
+                            <th class="text-right">메뉴</th>
+                        </tr>
+                        </thead>
+                        <tbody id="siteTableBody"></tbody>
+                    </table>
+                </div>
+                <small class="form-text text-muted mt-2">
+                    사이트 키는 공개 주소의 접두어가 될 값이라 만든 뒤에는 바꿀 수 없습니다. 기본 사이트(관리자·main)는 삭제·비활성화할 수 없고,
+                    메뉴가 있는 사이트는 삭제할 수 없습니다(비활성화만 가능).
+                </small>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5 mb-4">
+        <div class="card shadow">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-success">사이트 정보</h6>
+            </div>
+            <div class="card-body">
+                <div id="siteFormAlert" class="alert alert-danger d-none" role="alert"></div>
+                <div id="siteFormSuccess" class="alert alert-success d-none" role="alert"></div>
+                <div id="siteFormModeLabel" class="form-mode-label">사이트를 선택하거나 [새 공개 사이트]를 눌러주세요.</div>
+                <form id="siteForm" autocomplete="off">
+                    <div class="form-group">
+                        <label for="siteKeyInput">사이트 키</label>
+                        <input type="text" class="form-control" id="siteKeyInput" maxlength="30" aria-describedby="siteKeyHelp">
+                        <small id="siteKeyHelp" class="form-text text-muted">소문자·숫자·하이픈 2~30자. 예약어(admin, faq 등)는 쓸 수 없고, 만든 뒤에는 바꿀 수 없습니다.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="siteNameInput">사이트 이름</label>
+                        <input type="text" class="form-control" id="siteNameInput" maxlength="100">
+                    </div>
+                    <div class="form-group">
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="siteAllowExternal">
+                            <label class="custom-control-label" for="siteAllowExternal">메뉴에 외부 링크(http/https) 허용</label>
+                        </div>
+                        <small id="siteAllowExternalHelp" class="form-text text-muted">끄려면 이 사이트의 외부 링크 메뉴를 먼저 내부 경로로 바꿔야 합니다.</small>
+                    </div>
+                    <div class="form-group" id="siteUseYnGroup">
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="siteUseYn" checked>
+                            <label class="custom-control-label" for="siteUseYn">사용</label>
+                        </div>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-primary" id="siteBtnSave">저장</button>
+                        <button type="button" class="btn btn-danger d-none" id="siteBtnDelete">삭제</button>
+                        <button type="button" class="btn btn-secondary" id="siteBtnReset">초기화</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+<th:block th:fragment="siteScript">
+<script>
+$(document).ready(function () {
+    const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
+
+    const tbody = document.getElementById('siteTableBody');
+    const listAlert = document.getElementById('siteListAlert');
+    const formAlert = document.getElementById('siteFormAlert');
+    const formSuccess = document.getElementById('siteFormSuccess');
+    const modeLabel = document.getElementById('siteFormModeLabel');
+    const form = document.getElementById('siteForm');
+    const keyInput = document.getElementById('siteKeyInput');
+    const nameInput = document.getElementById('siteNameInput');
+    const allowExternalInput = document.getElementById('siteAllowExternal');
+    const useYnInput = document.getElementById('siteUseYn');
+    const useYnGroup = document.getElementById('siteUseYnGroup');
+    const btnNew = document.getElementById('siteBtnNew');
+    const btnSave = document.getElementById('siteBtnSave');
+    const btnDelete = document.getElementById('siteBtnDelete');
+    const btnReset = document.getElementById('siteBtnReset');
+
+    let sites = [];            // 서버 응답 스냅샷
+    let mode = null;           // null | 'create' | 'edit'
+    let editing = null;        // 편집 대상 스냅샷(서버 응답) — 삭제·수정의 대상은 폼이 아니라 이 값이다
+    let saving = false;
+    let externalLock = false;  // 메뉴 탭의 구조 반영이 진행되는 동안 입력·저장을 막는다(content:menu-applying)
+    let listSeq = 0;           // 늦게 도착한 이전 목록 응답을 폐기하는 세대
+    let baseline = null;       // 폼을 채운 시점의 값 — 미저장 변경 판정 기준
+
+    function formValues() {
+        return JSON.stringify([keyInput.value, nameInput.value, allowExternalInput.checked, useYnInput.checked]);
+    }
+
+    function isDirty() {
+        return mode !== null && baseline !== null && formValues() !== baseline;
+    }
+
+    // 메뉴 탭의 구조 반영은 성공하면 문서 전체를 새로고침한다 — 이 패널에 미저장 입력이 있거나 저장·삭제 중이면 반영을 시작하지 않는다.
+    window.ContentScreen = window.ContentScreen || {};
+    window.ContentScreen.isSitePanelBusyOrDirty = function () {
+        return saving || externalLock || isDirty();
+    };
+    window.addEventListener('content:menu-applying', function (event) {
+        externalLock = event.detail === true;
+        refreshUi();
+    });
+
+    function csrfHeaders() {
+        const headers = { 'Content-Type': 'application/json' };
+        headers[csrfHeader] = csrfToken;
+        return headers;
+    }
+
+    async function errorMessage(response, fallback) {
+        try {
+            const body = await response.json();
+            return body.message || fallback;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
+    function show(el, message) {
+        el.textContent = message;
+        el.classList.remove('d-none');
+    }
+
+    function hide(el) {
+        el.classList.add('d-none');
+        el.textContent = '';
+    }
+
+    function refreshUi() {
+        const locked = saving || externalLock;
+        btnNew.disabled = locked;
+        btnSave.disabled = locked || mode === null;
+        btnDelete.disabled = locked;
+        btnReset.disabled = locked;
+        const editable = !locked && mode !== null;
+        keyInput.disabled = !editable || mode === 'edit';   // 키는 만든 뒤 바꿀 수 없다
+        nameInput.disabled = !editable;
+        // 관리자 사이트는 외부 링크를 허용할 수 없고, 시드 사이트는 비활성화할 수 없다(서버가 최종 판정)
+        allowExternalInput.disabled = !editable || (editing !== null && editing.siteType === 'ADMIN');
+        useYnInput.disabled = !editable || (editing !== null && editing.seed === true);
+        useYnGroup.classList.toggle('d-none', mode !== 'edit');
+        const canDelete = mode === 'edit' && editing !== null && editing.seed !== true && editing.menuCount === 0;
+        btnDelete.classList.toggle('d-none', !canDelete);
+    }
+
+    function setForm(values) {
+        keyInput.value = values.siteKey;
+        nameInput.value = values.siteName;
+        allowExternalInput.checked = values.allowExternalLink;
+        useYnInput.checked = values.useYn;
+        baseline = formValues();
+    }
+
+    function startCreate() {
+        mode = 'create';
+        editing = null;
+        setForm({ siteKey: '', siteName: '', allowExternalLink: false, useYn: true });
+        modeLabel.textContent = '새 공개 사이트 추가';
+        hide(formAlert);
+        hide(formSuccess);
+        refreshUi();
+        renderTable();
+        keyInput.focus();
+    }
+
+    function startEdit(site) {
+        mode = 'edit';
+        editing = site;
+        setForm({ siteKey: site.siteKey, siteName: site.siteName, allowExternalLink: site.allowExternalLink === true, useYn: site.useYn === true });
+        modeLabel.textContent = '사이트 수정: ' + site.siteName;
+        hide(formAlert);
+        hide(formSuccess);
+        refreshUi();
+        renderTable();
+    }
+
+    function reset() {
+        mode = null;
+        editing = null;
+        baseline = null;
+        form.reset();
+        modeLabel.textContent = '사이트를 선택하거나 [새 공개 사이트]를 눌러주세요.';
+        hide(formAlert);
+        refreshUi();
+        renderTable();
+    }
+
+    function cell(row, text, className) {
+        const td = document.createElement('td');
+        td.textContent = text;
+        if (className) {
+            td.className = className;
+        }
+        row.appendChild(td);
+        return td;
+    }
+
+    function renderTable() {
+        tbody.textContent = '';
+        sites.forEach(function (site) {
+            const row = document.createElement('tr');
+            row.style.cursor = 'pointer';
+            row.dataset.siteId = String(site.id);
+            if (editing !== null && editing.id === site.id) {
+                row.classList.add('site-selected');
+            }
+            if (site.useYn !== true) {
+                row.classList.add('site-inactive');
+            }
+            cell(row, site.siteKey);
+            cell(row, site.siteName);
+            cell(row, site.siteType === 'ADMIN' ? '관리자' : '공개');
+            cell(row, site.allowExternalLink === true ? '허용' : '불가', 'text-center');
+            cell(row, site.useYn === true ? '사용' : '비활성', 'text-center');
+            cell(row, String(site.menuCount), 'text-right');
+            row.addEventListener('click', function () {
+                if (saving || externalLock) {
+                    return;
+                }
+                if (isDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 이 사이트를 선택할까요?')) {
+                    return;
+                }
+                startEdit(site);
+            });
+            tbody.appendChild(row);
+        });
+    }
+
+    // true: 이 요청의 응답이 반영됨 / false: 실패하거나 더 최신 요청에 밀려 폐기됨(호출자가 서버가 돌려준 값으로 보정한다)
+    async function loadSites() {
+        const seq = ++listSeq;
+        hide(listAlert);
+        try {
+            const response = await fetch('/admin/api/sites');
+            if (!response.ok) {
+                throw new Error(await errorMessage(response, '사이트 목록 조회에 실패했습니다.'));
+            }
+            const data = await response.json();
+            if (seq !== listSeq) {
+                return false;
+            }
+            sites = data;
+            if (editing !== null) {
+                // 선택 중인 사이트가 서버 최신값으로 바뀌었어도 폼의 미저장 입력은 유지하되, 삭제 가능 여부 등 스냅샷은 갱신한다.
+                const fresh = sites.find(function (s) { return s.id === editing.id; });
+                if (fresh) {
+                    editing = fresh;
+                } else {
+                    reset();
+                }
+            }
+            renderTable();
+            refreshUi();
+            return true;
+        } catch (error) {
+            if (seq === listSeq) {
+                show(listAlert, error && error.message ? error.message : '사이트 목록 조회 중 오류가 발생했습니다.');
+            }
+            return false;
+        }
+    }
+
+    function notifySitesChanged() {
+        window.dispatchEvent(new CustomEvent('content:sites-changed'));
+    }
+
+    btnNew.addEventListener('click', function () {
+        if (isDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 새 사이트를 작성할까요?')) {
+            return;
+        }
+        startCreate();
+    });
+
+    btnReset.addEventListener('click', function () {
+        if (mode === 'edit' && editing !== null) {
+            startEdit(editing);
+        } else if (mode === 'create') {
+            startCreate();
+        } else {
+            reset();
+        }
+    });
+
+    btnSave.addEventListener('click', async function () {
+        hide(formAlert);
+        hide(formSuccess);
+        if (saving || externalLock || mode === null) {
+            return;
+        }
+        const payload = mode === 'create'
+            ? { siteKey: keyInput.value.trim(), siteName: nameInput.value.trim(), allowExternalLink: allowExternalInput.checked }
+            : { siteName: nameInput.value.trim(), allowExternalLink: allowExternalInput.checked, useYn: useYnInput.checked };
+        const target = mode === 'create' ? null : editing;
+        saving = true;
+        refreshUi();
+        try {
+            const response = mode === 'create'
+                ? await fetch('/admin/api/sites', { method: 'POST', headers: csrfHeaders(), body: JSON.stringify(payload) })
+                : await fetch('/admin/api/sites/' + encodeURIComponent(target.id), { method: 'PATCH', headers: csrfHeaders(), body: JSON.stringify(payload) });
+            if (!response.ok) {
+                throw new Error(await errorMessage(response, '사이트 저장에 실패했습니다.'));
+            }
+            const saved = await response.json();
+            const refreshed = await loadSites();
+            if (!refreshed) {
+                // 목록 재조회가 실패했다 — 저장은 서버에 반영됐으므로 낡은 스냅샷(저장 전 값)으로 폼을 되돌리지 않고
+                // 서버가 돌려준 값으로 목록 스냅샷을 보정한다(저장 전 값이 폼에 남으면 다음 저장이 방금 바꾼 설정을 되돌린다).
+                const index = sites.findIndex(function (s) { return s.id === saved.id; });
+                if (index >= 0) {
+                    sites[index] = saved;
+                } else {
+                    sites.push(saved);
+                }
+                renderTable();
+            }
+            const fresh = sites.find(function (s) { return s.id === saved.id; }) || saved;
+            saving = false;
+            startEdit(fresh);
+            show(formSuccess, '저장했습니다.');
+            notifySitesChanged();
+        } catch (error) {
+            show(formAlert, error && error.message ? error.message : '사이트 저장 중 오류가 발생했습니다.');
+        } finally {
+            saving = false;
+            refreshUi();
+        }
+    });
+
+    btnDelete.addEventListener('click', async function () {
+        hide(formAlert);
+        hide(formSuccess);
+        const target = editing;
+        if (saving || externalLock || mode !== 'edit' || target === null) {
+            return;
+        }
+        if (!window.confirm('사이트 "' + target.siteKey + '"을(를) 삭제합니다. 복구할 수 없습니다. 계속할까요?')) {
+            return;
+        }
+        saving = true;
+        refreshUi();
+        try {
+            const response = await fetch('/admin/api/sites/' + encodeURIComponent(target.id), { method: 'DELETE', headers: csrfHeaders() });
+            if (!response.ok && response.status !== 404) {
+                throw new Error(await errorMessage(response, '사이트 삭제에 실패했습니다.'));
+            }
+            // 재조회·알림이 끝날 때까지 saving을 유지한다(finally에서만 푼다) — 중간에 풀면 그 사이 새 저장이 시작돼 폼 입력이 유실된다.
+            reset();
+            await loadSites();
+            show(formSuccess, response.status === 404 ? '이미 삭제된 사이트입니다.' : '사이트를 삭제했습니다.');
+            notifySitesChanged();
+        } catch (error) {
+            show(formAlert, error && error.message ? error.message : '사이트 삭제 중 오류가 발생했습니다.');
+        } finally {
+            saving = false;
+            refreshUi();
+        }
+    });
+
+    // 미저장 입력이 있는 채로 페이지를 떠나려 하면 확인창을 띄운다.
+    window.addEventListener('beforeunload', function (event) {
+        if (isDirty()) {
+            event.preventDefault();
+            event.returnValue = '';
+        }
+    });
+
+    reset();
+    loadSites();
+});
+</script>
+</th:block>
+
+</body>
+</html>
