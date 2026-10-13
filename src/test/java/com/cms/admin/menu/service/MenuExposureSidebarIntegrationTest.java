@@ -103,7 +103,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
     }
 
     private List<JsonNode> treeNodes() throws Exception {
-        String json = mockMvc.perform(get("/admin/api/menus/tree").param("useYn", "all").with(principal(Role.ROLE_ADMIN)))
+        String json = mockMvc.perform(get("/admin/api/menus/tree").param("siteId", "1").param("useYn", "all").with(principal(Role.ROLE_ADMIN)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         List<JsonNode> nodes = new ArrayList<>();

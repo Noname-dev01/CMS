@@ -15,10 +15,15 @@ import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.admin.permission.AdminPermissionEvaluator;
+import com.cms.admin.site.Site;
+import com.cms.admin.site.SiteLinkPolicy;
+import com.cms.admin.site.SiteRepository;
+import com.cms.admin.site.SiteType;
 import com.cms.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -37,6 +42,13 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 
+/**
+ * 메뉴 서비스. <b>쓰기 메서드는 컨트롤러가 호출하는 최상위 트랜잭션 진입점이다</b>(PLAN-site-menu.md D4) — 다른 서비스가 안쪽에서 부르지 않는다.
+ * REQUIRED 전파에서는 이미 열린 트랜잭션에 참여하면 격리 선언이 무시되고 감사 커밋 순서 계약도 깨지기 때문이다.
+ *
+ * <p>모든 쓰기는 <b>해당 사이트 행을 FOR UPDATE로 먼저 잠그고</b>(그 사이트의 쓰기가 모두 지나는 단일 문) READ_COMMITTED로 실행한다.
+ * 순서는 항상 사이트 행 → 메뉴 행이며 다른 사이트의 메뉴 행은 잠그지 않는다.
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -53,31 +65,40 @@ public class MenuService {
     private final MenuRepository menuRepository;
     private final Clock clock;
     private final AdminPermissionEvaluator adminPermissionEvaluator;
+    private final SiteRepository siteRepository;
+    private final SiteLinkPolicy siteLinkPolicy;
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.MENU_CREATE, targetType = "MENU", targetIdExpression = "menuNo")
     public MenuResponse createMenu(MenuCreateRequest request) {
         String menuName = requireNonBlank(request.getMenuName(), "메뉴명은 공백일 수 없습니다.");
         boolean useYn = request.getUseYn() == null || request.getUseYn();
 
-        // 깊이 검사가 조상 사슬을 읽고 ord 오버플로 보정이 형제를 다시 매기므로 전체 행 잠금을 첫 조회로 쓴다
-        // (PLAN-menu-structure-apply.md 결정 9c — 구조 반영과 같은 순서로 잠가 직렬화된다).
-        List<Menu> allMenus = menuRepository.findAllForUpdate();
+        // 사이트 행이 그 사이트의 쓰기 문이다(빈 사이트도 직렬화). 그 뒤 사이트의 메뉴 행 전체를 잠근다 — 깊이 검사가 조상 사슬을 읽고
+        // ord 오버플로 보정이 형제를 다시 매기며, 기존 구조 반영과 같은 순서로 잠가 직렬화된다(PLAN-menu-structure-apply.md 결정 9c).
+        Long siteId = request.getSiteId();
+        Site site = lockSite(siteId);
+        siteLinkPolicy.validate(site, request.getMenuUrl());
+        List<Menu> allMenus = menuRepository.findAllBySiteIdForUpdate(siteId);
 
         Long upMenuNo = request.getUpMenuNo();
         if (upMenuNo != null) {
-            Menu parent = menuRepository.findByIdForUpdate(upMenuNo)
-                    .orElseThrow(() -> new ResourceNotFoundException("부모 메뉴를 찾을 수 없습니다."));
+            // 부모는 이미 잠근 이 사이트의 집합에서만 찾는다 — 없는 번호와 다른 사이트 소속은 같은 404(존재 비노출), 다른 사이트 행을 잠그지 않는다.
+            Map<Long, Menu> byNo = indexByMenuNo(allMenus);
+            Menu parent = byNo.get(upMenuNo);
+            if (parent == null) {
+                throw new ResourceNotFoundException("부모 메뉴를 찾을 수 없습니다.");
+            }
             if (useYn && !Boolean.TRUE.equals(parent.getUseYn())) {
                 throw new InvalidRequestException("비활성 부모 메뉴 아래에는 활성 메뉴를 생성할 수 없습니다.");
             }
-            if (depthOf(parent) >= MAX_MENU_DEPTH) {
+            if (depthOf(parent, byNo) >= MAX_MENU_DEPTH) {
                 throw new InvalidRequestException("메뉴는 최대 " + MAX_MENU_DEPTH + "단까지만 만들 수 있습니다.");
             }
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
-        Integer ord = resolveNextOrdForCreate(upMenuNo, allMenus, now);
+        Integer ord = resolveNextOrdForCreate(siteId, upMenuNo, allMenus, now);
 
         Menu saved = menuRepository.save(
                 Menu.builder()
@@ -88,6 +109,7 @@ public class MenuService {
                         .useYn(useYn)
                         .ord(ord)
                         .upMenuNo(upMenuNo)
+                        .siteId(siteId)
                         .createDate(now)
                         .updateDate(now)
                         .build()
@@ -96,7 +118,7 @@ public class MenuService {
         return MenuResponse.from(saved);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.MENU_UPDATE, targetType = "MENU", targetIdExpression = "menuNo")
     public MenuResponse updateMenu(Long menuNo, MenuUpdateRequest request) {
         // 일반 수정(이름 등)만 잠금 없는 조회를 쓰면, "일반 수정 조회 → 비활성화 커밋 → 일반
@@ -104,8 +126,11 @@ public class MenuService {
         // (감사 M-04, adversarial-review/remediation-plan.md PR 4 참조). 어떤 수정이든 최초
         // 조회부터 비관적 락(PESSIMISTIC_WRITE)으로 대상 row를 잠근다 — deleteMenu()와
         // 동일하게, 아래 활성 하위 메뉴 검사와 상태 반영이 동시 createMenu(활성 자식)와도 직렬화된다.
-        Menu target = menuRepository.findByIdForUpdate(menuNo)
-                .orElseThrow(() -> new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
+        LockedMenu locked = lockSiteAndMenu(menuNo);
+        Menu target = locked.menu();
+        if (request.getMenuUrl() != null) {
+            siteLinkPolicy.validate(locked.site(), request.getMenuUrl());
+        }
 
         String effectiveMenuName = target.getMenuName();
         if (request.getMenuName() != null) {
@@ -125,6 +150,9 @@ public class MenuService {
         if (reactivating && target.getUpMenuNo() != null) {
             Menu parent = menuRepository.findByIdForUpdate(target.getUpMenuNo())
                     .orElseThrow(() -> new ResourceNotFoundException("부모 메뉴를 찾을 수 없습니다."));
+            if (!Objects.equals(parent.getSiteId(), target.getSiteId())) {
+                throw new ConflictException("메뉴 구조가 변경되었습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.");
+            }
             if (!Boolean.TRUE.equals(parent.getUseYn())) {
                 throw new InvalidRequestException("비활성 부모 메뉴 아래로는 재활성화할 수 없습니다.");
             }
@@ -150,12 +178,11 @@ public class MenuService {
      * 잠그므로 모두 이 삭제와 직렬화된다. 하위 존재 검사는 비잠금 읽기라 <b>잠금 읽기 뒤에</b> 호출해야 REPEATABLE READ
      * 스냅샷이 잠금 이후에 고정된다.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.MENU_DELETE, targetType = "MENU",
             targetIdExpression = "menuNo", targetLabelExpression = "auditLabel")
     public MenuDeleteResult deleteMenu(Long menuNo) {
-        Menu target = menuRepository.findByIdForUpdate(menuNo)
-                .orElseThrow(() -> new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
+        Menu target = lockSiteAndMenu(menuNo).menu();
 
         if (Boolean.TRUE.equals(target.getUseYn())) {
             throw new ConflictException("활성 메뉴는 영구삭제할 수 없습니다. 먼저 비활성화해주세요.");
@@ -185,7 +212,7 @@ public class MenuService {
      * 이동하지 않은 서브트리의 기존 위반은 이 반영을 막지 않는다. 순환은 전체에서 검사한다. 저장: 현재 표시 순서와
      * 요청 순서가 다른 부모 그룹만 0..n-1로 다시 매기고 값이 같은 행은 쓰지 않는다(updateDate 보존).
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.MENU_STRUCTURE_APPLY, targetType = "MENU")
     public MenuStructureResponse applyStructure(MenuStructureRequest request) {
         List<MenuStructureRequest.Item> items = request.getMenus();
@@ -197,8 +224,9 @@ public class MenuService {
             }
         }
 
-        // 이 트랜잭션의 첫 애플리케이션 테이블 조회가 잠금 읽기여야 한다(REPEATABLE READ 스냅샷이 일찍 고정되는 것 방지).
-        List<Menu> all = menuRepository.findAllForUpdate();
+        // 사이트 행이 그 사이트의 쓰기 문이다. 그 뒤 이 사이트의 메뉴 행만 잠그고 읽는다 — 다른 사이트의 번호가 요청에 섞이면 아래 집합 비교에서 409다.
+        lockSite(request.getSiteId());
+        List<Menu> all = menuRepository.findAllBySiteIdForUpdate(request.getSiteId());
         Map<Long, Menu> byNo = new LinkedHashMap<>();
         for (Menu menu : all) {
             byNo.put(menu.getMenuNo(), menu);
@@ -348,17 +376,24 @@ public class MenuService {
         return MenuResponse.from(menu);
     }
 
-    public List<MenuTreeResponse> getMenuTree(String useYnFilter) {
+    public List<MenuTreeResponse> getMenuTree(Long siteId, String useYnFilter) {
+        // siteId는 required=false로 받아 여기서 400으로 거른다 — 전역 핸들러에 필수 파라미터 누락(500) 처리가 없다(com.cms.admin.session 선례).
+        if (siteId == null) {
+            throw new InvalidRequestException("siteId 파라미터가 필요합니다.");
+        }
         if (!"true".equals(useYnFilter) && !"all".equals(useYnFilter)) {
             throw new InvalidRequestException("useYn 파라미터는 true 또는 all만 허용됩니다.");
         }
+        Site site = siteRepository.findById(siteId)
+                .orElseThrow(() -> new ResourceNotFoundException("사이트를 찾을 수 없습니다."));
 
         // 노출 안내(exposure)는 필터와 무관하게 전체 메뉴로 계산한다 — 비활성 조상 아래 메뉴가 안내에서 어긋나지 않도록.
         // 권한이 사용자별이라 "MANAGER 한 명의 시점"이 없다 — 안내는 "권한을 받으면 MANAGER가 볼 수 있는가"(카탈로그 분류)만 본다.
-        // 그래서 권한 스냅샷(캐시 로드)이 필요 없다.
-        Predicate<String> managerVisible = adminPermissionEvaluator.anyManagerMenuUrlVisibility();
-        List<Menu> allMenus = menuRepository.findAllByOrderByOrdAscMenuNoAsc();
-        MenuVisibility.Result visibility = MenuVisibility.evaluate(allMenus, managerVisible);
+        // 그래서 권한 스냅샷(캐시 로드)이 필요 없다. 노출 안내는 관리자 사이드바 개념이라 관리자 사이트에서만 계산하고 공개 사이트는 생략한다(null).
+        List<Menu> allMenus = menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(siteId);
+        MenuVisibility.Result visibility = site.getSiteType() == SiteType.ADMIN
+                ? MenuVisibility.evaluate(allMenus, adminPermissionEvaluator.anyManagerMenuUrlVisibility())
+                : null;
 
         List<Menu> menus = "all".equals(useYnFilter)
                 ? allMenus
@@ -368,7 +403,7 @@ public class MenuService {
     }
 
     /**
-     * 사이드바 렌더링용 메뉴 목록. 활성(useYn=true) 메뉴만 대상으로, 호출자가 넘긴 판정({@code urlVisible})으로
+     * 사이드바 렌더링용 메뉴 목록. <b>관리자 사이트</b>의 활성(useYn=true) 메뉴만 대상으로, 호출자가 넘긴 판정({@code urlVisible})으로
      * 노출 여부를 정한다 — 가지치기 규칙은 {@link MenuVisibility} 참조. 판정은 요청당 한 번 받은 권한 스냅샷으로 만든 것이어야 한다.
      *
      * <p>최대 {@value #MAX_MENU_DEPTH}단(최상위 + 하위 + 하위의 하위)까지 조립한다.
@@ -376,18 +411,19 @@ public class MenuService {
      */
     @Transactional(readOnly = true)
     public List<SidebarMenuResponse> getSidebarMenus(Predicate<String> urlVisible) {
-        return MenuVisibility.evaluate(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc(), urlVisible).sidebar();
+        return MenuVisibility.evaluate(
+                menuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(Site.ADMIN_SITE_ID), urlVisible).sidebar();
     }
 
-    /** 메뉴 번호 하나의 부모 사슬 깊이(최상위=1). 순환 데이터는 한 번 본 노드에서 멈춘다. */
-    private int depthOf(Menu menu) {
+    /** 이미 잠근 사이트 집합 안에서 메뉴의 부모 사슬 깊이(최상위=1). 순환·집합 밖 부모는 거기서 멈춘다. */
+    private int depthOf(Menu menu, Map<Long, Menu> byNo) {
         int depth = 1;
         Set<Long> visited = new HashSet<>();
         visited.add(menu.getMenuNo());
         Long upMenuNo = menu.getUpMenuNo();
         while (upMenuNo != null && visited.add(upMenuNo)) {
             depth++;
-            Menu ancestor = menuRepository.findById(upMenuNo).orElse(null);
+            Menu ancestor = byNo.get(upMenuNo);
             if (ancestor == null) {
                 break;
             }
@@ -400,9 +436,9 @@ public class MenuService {
      * 생성용 다음 ord. 같은 부모 그룹의 최대 ord가 Integer.MAX_VALUE면 +1이 음수로 넘쳐 새 메뉴가 맨 앞에 놓이므로,
      * 그 경우에만 그룹을 현재 표시 순서 그대로 0..n-1로 재번호한 뒤 n을 돌려준다(순서는 바뀌지 않는다 — 결정 9e).
      */
-    private Integer resolveNextOrdForCreate(Long upMenuNo, List<Menu> allMenus, LocalDateTime now) {
+    private Integer resolveNextOrdForCreate(Long siteId, Long upMenuNo, List<Menu> allMenus, LocalDateTime now) {
         Integer maxOrd = upMenuNo == null
-                ? menuRepository.findMaxOrdByUpMenuNoIsNull()
+                ? menuRepository.findMaxOrdBySiteIdAndUpMenuNoIsNull(siteId)
                 : menuRepository.findMaxOrdByUpMenuNo(upMenuNo);
         if (maxOrd == null) {
             return 0;
@@ -425,6 +461,38 @@ public class MenuService {
     /** 공백만 있는 값은 "URL 없음"(null)으로 정규화한다. 형식 검증은 요청 DTO의 {@code @SafeMenuUrl}이 끝낸 값이다. */
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private Site lockSite(Long siteId) {
+        return siteRepository.findByIdForUpdate(siteId)
+                .orElseThrow(() -> new ResourceNotFoundException("사이트를 찾을 수 없습니다."));
+    }
+
+    private static Map<Long, Menu> indexByMenuNo(List<Menu> menus) {
+        Map<Long, Menu> byNo = new HashMap<>();
+        for (Menu menu : menus) {
+            byNo.put(menu.getMenuNo(), menu);
+        }
+        return byNo;
+    }
+
+    private record LockedMenu(Site site, Menu menu) {
+    }
+
+    /**
+     * 메뉴 번호만 아는 단일 행 연산의 잠금 — 사이트 ID를 스칼라로 도출 → 사이트 행 FOR UPDATE → 메뉴 행 FOR UPDATE로 다시 읽고 사이트 일치 확인.
+     * 선조회가 엔티티를 영속성 컨텍스트에 올리지 않고, 트랜잭션이 READ_COMMITTED라 읽기 뷰가 선조회 시점에 고정되지 않는다(PLAN-site-menu.md D4).
+     */
+    private LockedMenu lockSiteAndMenu(Long menuNo) {
+        Long siteId = menuRepository.findSiteIdByMenuNo(menuNo)
+                .orElseThrow(() -> new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
+        Site site = lockSite(siteId);
+        Menu menu = menuRepository.findByIdForUpdate(menuNo)
+                .orElseThrow(() -> new ResourceNotFoundException("메뉴를 찾을 수 없습니다."));
+        if (!Objects.equals(menu.getSiteId(), siteId)) {
+            throw new ConflictException("메뉴 구조가 변경되었습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.");
+        }
+        return new LockedMenu(site, menu);
     }
 
     private String requireNonBlank(String value, String message) {
@@ -491,6 +559,9 @@ public class MenuService {
 
         pathStack.remove(menu.getMenuNo());
 
-        return MenuTreeResponse.of(menu, level, topMenuNo, visibility.exposureOf(menu.getMenuNo()).code(), visibility.exposureOf(menu.getMenuNo()).label(), childNodes);
+        // 공개 사이트는 노출 안내(관리자 사이드바 개념)가 없다 — visibility가 null이면 생략한다.
+        String exposureCode = visibility == null ? null : visibility.exposureOf(menu.getMenuNo()).code();
+        String exposureLabel = visibility == null ? null : visibility.exposureOf(menu.getMenuNo()).label();
+        return MenuTreeResponse.of(menu, level, topMenuNo, exposureCode, exposureLabel, childNodes);
     }
 }

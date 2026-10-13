@@ -73,7 +73,7 @@ class AdminActionLogCommitOrderIntegrationTest extends MariaDbContainerSupport {
         @Transactional
         @AdminActionLogged(actionType = AdminActionTypes.MENU_UPDATE, targetType = PROBE_TARGET_TYPE, targetIdExpression = "menuNo")
         public Menu run(String menuName, boolean failAtCommit) {
-            Menu saved = menuRepository.save(Menu.builder()
+            Menu saved = menuRepository.save(Menu.builder().siteId(1L)
                     .menuName(menuName)
                     .useYn(true)
                     .ord(0)

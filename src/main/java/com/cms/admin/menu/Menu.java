@@ -42,6 +42,10 @@ public class Menu {
 
     private Long upMenuNo;
 
+    /** 소속 사이트(PLAN-site-menu.md). 생성 후 바뀌지 않는다 — 사이트 간 이동 기능이 없다. */
+    @Column(nullable = false, updatable = false)
+    private Long siteId;
+
     private LocalDateTime createDate;
 
     private LocalDateTime updateDate;

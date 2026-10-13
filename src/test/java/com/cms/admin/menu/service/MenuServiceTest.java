@@ -12,6 +12,10 @@ import com.cms.admin.menu.dto.response.MenuDeleteResult;
 import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
+import com.cms.admin.site.Site;
+import com.cms.admin.site.SiteLinkPolicy;
+import com.cms.admin.site.SiteRepository;
+import com.cms.admin.site.SiteType;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -56,6 +60,16 @@ class MenuServiceTest {
     @Mock
     com.cms.admin.permission.AdminPermissionEvaluator adminPermissionEvaluator;
 
+    @Mock
+    SiteRepository siteRepository;
+
+    /** 실제 정책 객체 — 사이트 정책 판정이 서비스에서 실제로 불리는지 함께 검증한다. */
+    @Spy
+    SiteLinkPolicy siteLinkPolicy = new SiteLinkPolicy("http://localhost:8080");
+
+    static final Site ADMIN_SITE = Site.builder().id(1L).siteKey("admin").siteName("관리자")
+            .siteType(SiteType.ADMIN).allowExternalLink(false).useYn(true).build();
+
     @InjectMocks
     MenuService menuService;
 
@@ -64,6 +78,10 @@ class MenuServiceTest {
     @BeforeEach
     void attachLogAppender() {
         org.mockito.Mockito.lenient().when(adminPermissionEvaluator.anyManagerMenuUrlVisibility()).thenReturn(url -> false);
+        // 모든 쓰기는 사이트 행을 먼저 잠근다(PLAN-site-menu.md D4) — 기본은 관리자 사이트(id=1). 단일 행 연산의 사이트 도출도 1로 답한다.
+        org.mockito.Mockito.lenient().when(siteRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(ADMIN_SITE));
+        org.mockito.Mockito.lenient().when(siteRepository.findById(1L)).thenReturn(Optional.of(ADMIN_SITE));
+        org.mockito.Mockito.lenient().when(menuRepository.findSiteIdByMenuNo(any())).thenReturn(Optional.of(1L));
         logAppender = new ListAppender<>();
         logAppender.start();
         ((Logger) LoggerFactory.getLogger(MenuService.class)).addAppender(logAppender);
@@ -76,6 +94,7 @@ class MenuServiceTest {
 
     private Menu menu(Long menuNo, String menuName, Long upMenuNo, Boolean useYn, Integer ord) {
         return Menu.builder()
+                .siteId(1L)
                 .menuNo(menuNo)
                 .menuName(menuName)
                 .useYn(useYn)
@@ -89,7 +108,7 @@ class MenuServiceTest {
     @Test
     @DisplayName("메뉴 생성 성공")
     void createMenu_success() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L)
                 .menuName("회원 관리")
                 .menuUrl("/admin/member/manage")
                 .useYn(true)
@@ -111,7 +130,7 @@ class MenuServiceTest {
     @Test
     @DisplayName("메뉴 생성 시 createDate·updateDate는 주입된 KST Clock에서 나온다")
     void createMenu_usesInjectedClock() {
-        MenuCreateRequest request = MenuCreateRequest.builder().menuName("시각 메뉴").useYn(true).build();
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L).menuName("시각 메뉴").useYn(true).build();
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
 
         menuService.createMenu(request);
@@ -125,27 +144,26 @@ class MenuServiceTest {
     @Test
     @DisplayName("존재하지 않는 부모 지정 생성 실패 (404)")
     void createMenu_parentNotFound() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L)
                 .menuName("하위 메뉴")
                 .upMenuNo(99L)
                 .build();
 
-        given(menuRepository.findByIdForUpdate(99L)).willReturn(Optional.empty());
-
+        // 이 사이트의 잠근 집합에 99가 없다 → 404 (다른 사이트 소속이어도 같은 404)
         assertThrows(ResourceNotFoundException.class, () -> menuService.createMenu(request));
     }
 
     @Test
     @DisplayName("활성 메뉴를 비활성 부모 아래 생성 시 400 거부")
     void createMenu_activeUnderInactiveParent_rejected() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L)
                 .menuName("하위 메뉴")
                 .useYn(true)
                 .upMenuNo(1L)
                 .build();
 
         Menu inactiveParent = menu(1L, "부모", null, false, 0);
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(inactiveParent));
+        given(menuRepository.findAllBySiteIdForUpdate(1L)).willReturn(List.of(inactiveParent));
 
         assertThrows(InvalidRequestException.class, () -> menuService.createMenu(request));
         verify(menuRepository, never()).save(any());
@@ -154,12 +172,11 @@ class MenuServiceTest {
     @Test
     @DisplayName("2단 부모 아래 생성은 허용된다(결과 3단)")
     void createMenu_underSecondLevelParent_allowed() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L)
                 .menuName("3단 메뉴").useYn(true).upMenuNo(2L).build();
         Menu secondLevel = menu(2L, "2단", 1L, true, 0);
         Menu root = menu(1L, "1단", null, true, 0);
-        given(menuRepository.findByIdForUpdate(2L)).willReturn(Optional.of(secondLevel));
-        given(menuRepository.findById(1L)).willReturn(Optional.of(root));
+        given(menuRepository.findAllBySiteIdForUpdate(1L)).willReturn(List.of(secondLevel, root));
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
 
         menuService.createMenu(request);
@@ -170,14 +187,12 @@ class MenuServiceTest {
     @Test
     @DisplayName("3단 부모 아래 생성(결과 4단)은 400 거부")
     void createMenu_underThirdLevelParent_rejected() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L)
                 .menuName("4단 메뉴").useYn(true).upMenuNo(3L).build();
         Menu thirdLevel = menu(3L, "3단", 2L, true, 0);
         Menu secondLevel = menu(2L, "2단", 1L, true, 0);
         Menu root = menu(1L, "1단", null, true, 0);
-        given(menuRepository.findByIdForUpdate(3L)).willReturn(Optional.of(thirdLevel));
-        given(menuRepository.findById(2L)).willReturn(Optional.of(secondLevel));
-        given(menuRepository.findById(1L)).willReturn(Optional.of(root));
+        given(menuRepository.findAllBySiteIdForUpdate(1L)).willReturn(List.of(thirdLevel, secondLevel, root));
 
         assertThrows(InvalidRequestException.class, () -> menuService.createMenu(request));
         verify(menuRepository, never()).save(any());
@@ -186,12 +201,11 @@ class MenuServiceTest {
     @Test
     @DisplayName("순환 데이터의 부모 아래 생성은 무한 루프 없이 깊이를 계산한다")
     void createMenu_cyclicParentChain_doesNotLoop() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L)
                 .menuName("메뉴").useYn(true).upMenuNo(10L).build();
         Menu a = menu(10L, "A", 20L, true, 0);
         Menu b = menu(20L, "B", 10L, true, 0);
-        given(menuRepository.findByIdForUpdate(10L)).willReturn(Optional.of(a));
-        given(menuRepository.findById(20L)).willReturn(Optional.of(b));
+        given(menuRepository.findAllBySiteIdForUpdate(1L)).willReturn(List.of(a, b));
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
 
         // A(10) → B(20) → A(10, 이미 방문)에서 멈춘다: 깊이 2이므로 생성은 가능하고 무한 루프만 없어야 한다.
@@ -201,13 +215,13 @@ class MenuServiceTest {
     @Test
     @DisplayName("생성은 전체 행 잠금(findAllForUpdate)을 첫 조회로 쓴다 — 최상위 생성도 포함")
     void createMenu_locksAllRowsFirst() {
-        MenuCreateRequest request = MenuCreateRequest.builder().menuName("최상위").build();
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L).menuName("최상위").build();
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
 
         menuService.createMenu(request);
 
         org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(menuRepository);
-        inOrder.verify(menuRepository).findAllForUpdate();
+        inOrder.verify(menuRepository).findAllBySiteIdForUpdate(1L);
         inOrder.verify(menuRepository).save(any(Menu.class));
     }
 
@@ -216,11 +230,11 @@ class MenuServiceTest {
     void createMenu_ordOverflow_renumbersGroupAndAppendsLast() {
         Menu first = menu(1L, "첫째", null, true, 5);
         Menu last = menu(2L, "마지막", null, true, Integer.MAX_VALUE);
-        given(menuRepository.findAllForUpdate()).willReturn(List.of(last, first)); // 일부러 표시 순서와 다르게 반환
-        given(menuRepository.findMaxOrdByUpMenuNoIsNull()).willReturn(Integer.MAX_VALUE);
+        given(menuRepository.findAllBySiteIdForUpdate(1L)).willReturn(List.of(last, first)); // 일부러 표시 순서와 다르게 반환
+        given(menuRepository.findMaxOrdBySiteIdAndUpMenuNoIsNull(1L)).willReturn(Integer.MAX_VALUE);
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-        MenuResponse response = menuService.createMenu(MenuCreateRequest.builder().menuName("새 메뉴").build());
+        MenuResponse response = menuService.createMenu(MenuCreateRequest.builder().siteId(1L).menuName("새 메뉴").build());
 
         assertEquals(0, first.getOrd());
         assertEquals(1, last.getOrd());
@@ -235,7 +249,7 @@ class MenuServiceTest {
 
         menuService.updateMenu(1L, MenuUpdateRequest.builder().menuName("새 이름").build());
 
-        verify(menuRepository, never()).findAllForUpdate();
+        verify(menuRepository, never()).findAllBySiteIdForUpdate(1L);
     }
 
     @Test
@@ -243,7 +257,7 @@ class MenuServiceTest {
     void createMenu_blankUrl_storedAsNull() {
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-        menuService.createMenu(MenuCreateRequest.builder().menuName("그룹").menuUrl("   ").build());
+        menuService.createMenu(MenuCreateRequest.builder().siteId(1L).menuName("그룹").menuUrl("   ").build());
 
         ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
         verify(menuRepository).save(captor.capture());
@@ -269,7 +283,7 @@ class MenuServiceTest {
     @Test
     @DisplayName("사이드바 조회: 저장 검증 도입 전에 들어간 위험 URL과 외부 http(s)(2026-10-13부터 메뉴 불가)는 null로 바뀌어 담기고, 경로만 그대로 남는다")
     void getSidebarMenus_unsafeStoredUrl_nulledOut() {
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(
+        given(menuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(
                 urlMenu(1L, "js", null, "javascript:alert(1)", 0),
                 urlMenu(2L, "slashes", null, "//evil.example/x", 1),
                 urlMenu(3L, "data", null, "data:text/html,x", 2),
@@ -289,7 +303,7 @@ class MenuServiceTest {
     @Test
     @DisplayName("생성 시 useYn 누락은 true로 기본화")
     void createMenu_useYnDefaultsToTrue() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L)
                 .menuName("메뉴")
                 .build();
 
@@ -304,9 +318,9 @@ class MenuServiceTest {
     @Test
     @DisplayName("생성은 항상 형제 max(ord)+1로 맨 끝에 배치 (최상위, 형제 없음 → 0)")
     void createMenu_ordAutoAssign_topLevel_noSiblings() {
-        MenuCreateRequest request = MenuCreateRequest.builder().menuName("메뉴").build();
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L).menuName("메뉴").build();
 
-        given(menuRepository.findMaxOrdByUpMenuNoIsNull()).willReturn(null);
+        given(menuRepository.findMaxOrdBySiteIdAndUpMenuNoIsNull(1L)).willReturn(null);
         ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
         given(menuRepository.save(captor.capture())).willAnswer(invocation -> invocation.getArgument(0));
 
@@ -318,13 +332,13 @@ class MenuServiceTest {
     @Test
     @DisplayName("생성은 항상 형제 max(ord)+1로 맨 끝에 배치 (지정 부모 아래 형제 존재)")
     void createMenu_ordAutoAssign_underParent_withSiblings() {
-        MenuCreateRequest request = MenuCreateRequest.builder()
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L)
                 .menuName("메뉴")
                 .upMenuNo(1L)
                 .build();
 
         Menu activeParent = menu(1L, "부모", null, true, 0);
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(activeParent));
+        given(menuRepository.findAllBySiteIdForUpdate(1L)).willReturn(List.of(activeParent));
         given(menuRepository.findMaxOrdByUpMenuNo(1L)).willReturn(2);
         ArgumentCaptor<Menu> captor = ArgumentCaptor.forClass(Menu.class);
         given(menuRepository.save(captor.capture())).willAnswer(invocation -> invocation.getArgument(0));
@@ -439,7 +453,7 @@ class MenuServiceTest {
     @Test
     @DisplayName("비활성 + 하위 없음 메뉴는 row를 삭제하고, 삭제 전 이름·URL 스냅샷을 반환한다")
     void deleteMenu_inactiveLeaf_deletesRow_returnsSnapshot() {
-        Menu target = Menu.builder().menuNo(1L).menuName("지울 메뉴").menuUrl("/old").useYn(false).ord(0).build();
+        Menu target = Menu.builder().siteId(1L).menuNo(1L).menuName("지울 메뉴").menuUrl("/old").useYn(false).ord(0).build();
         given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(target));
         given(menuRepository.existsByUpMenuNo(1L)).willReturn(false);
 
@@ -501,17 +515,18 @@ class MenuServiceTest {
     // ── 동시성 방어 (락 메서드 호출 검증) ──────────────────
 
     @Test
-    @DisplayName("동시성 방어: 부모 지정 생성 시 findByIdForUpdate로 부모 row를 잠근다")
-    void createMenu_locksParentRow() {
+    @DisplayName("동시성 방어: 부모는 이미 잠근 사이트 집합에서 찾는다 — 부모 잠금 쿼리를 따로 보내지 않아 다른 사이트 행을 잠그지 않는다")
+    void createMenu_findsParentInLockedSiteSet() {
         Menu activeParent = menu(1L, "부모", null, true, 0);
-        given(menuRepository.findByIdForUpdate(1L)).willReturn(Optional.of(activeParent));
+        given(menuRepository.findAllBySiteIdForUpdate(1L)).willReturn(List.of(activeParent));
         given(menuRepository.save(any(Menu.class))).willAnswer(invocation -> invocation.getArgument(0));
 
-        MenuCreateRequest request = MenuCreateRequest.builder().menuName("메뉴").upMenuNo(1L).build();
+        MenuCreateRequest request = MenuCreateRequest.builder().siteId(1L).menuName("메뉴").upMenuNo(1L).build();
 
         menuService.createMenu(request);
 
-        verify(menuRepository).findByIdForUpdate(1L);
+        verify(menuRepository, never()).findByIdForUpdate(any());
+        verify(menuRepository, never()).findById(any());
     }
 
     @Test
@@ -553,10 +568,10 @@ class MenuServiceTest {
         Menu grandchild = menu(3L, "손자", 2L, true, 0);
         Menu root2 = menu(5L, "루트2", null, true, 1);
 
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L))
                 .willReturn(List.of(root1, child1, grandchild, root2));
 
-        List<MenuTreeResponse> tree = menuService.getMenuTree("true");
+        List<MenuTreeResponse> tree = menuService.getMenuTree(1L, "true");
 
         assertEquals(2, tree.size());
         MenuTreeResponse root1Node = tree.get(0);
@@ -585,10 +600,10 @@ class MenuServiceTest {
         Menu root = menu(1L, "루트", null, true, 0);
         Menu inactiveChild = menu(2L, "비활성 자식", 1L, false, 0);
 
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L))
                 .willReturn(List.of(root, inactiveChild));
 
-        List<MenuTreeResponse> tree = menuService.getMenuTree("all");
+        List<MenuTreeResponse> tree = menuService.getMenuTree(1L, "all");
 
         assertEquals(1, tree.size());
         assertEquals(1, tree.get(0).getChildren().size());
@@ -598,13 +613,13 @@ class MenuServiceTest {
     @Test
     @DisplayName("트리 조회: 허용되지 않은 useYn 값은 InvalidRequestException")
     void getMenuTree_invalidFilter_rejected() {
-        assertThrows(InvalidRequestException.class, () -> menuService.getMenuTree("false"));
+        assertThrows(InvalidRequestException.class, () -> menuService.getMenuTree(1L, "false"));
     }
 
     // ── 사이드바 조회 ──────────────────────────────────────
 
     private Menu urlMenu(Long menuNo, String menuName, Long upMenuNo, String menuUrl, int ord) {
-        return Menu.builder().menuNo(menuNo).menuName(menuName).menuUrl(menuUrl)
+        return Menu.builder().siteId(1L).menuNo(menuNo).menuName(menuName).menuUrl(menuUrl)
                 .useYn(true).ord(ord).upMenuNo(upMenuNo).build();
     }
 
@@ -621,7 +636,7 @@ class MenuServiceTest {
         Menu memberGroup = urlMenu(4L, "회원 관리", null, null, 3);
         Menu myInfo = urlMenu(5L, "내 정보", 4L, "/admin/member/info", 0);
 
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(1L))
                 .willReturn(List.of(dashboard, menuManage, emptyGroup, memberGroup, myInfo));
 
         List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(url -> true);
@@ -643,7 +658,7 @@ class MenuServiceTest {
         Menu external = urlMenu(7L, "외부", null, "https://example.com", 4);
         Menu withQuery = urlMenu(8L, "쿼리", null, "/admin/board/posts?x=1", 5);
 
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(1L))
                 .willReturn(List.of(dashboard, menuManage, memberGroup, memberList, myInfo, emptyGroup, external, withQuery));
 
         List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(MANAGER_WITH_NOTICE);
@@ -658,7 +673,7 @@ class MenuServiceTest {
         Menu adminParent = urlMenu(1L, "관리 그룹", null, "/admin/menu/manage", 0);
         Menu notice = urlMenu(2L, "공지사항", 1L, "/admin/board/posts", 0);
 
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(adminParent, notice));
+        given(menuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(adminParent, notice));
 
         List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(MANAGER_WITH_NOTICE);
 
@@ -672,7 +687,7 @@ class MenuServiceTest {
         Menu group = urlMenu(1L, "업무", null, null, 0);
         Menu notice = urlMenu(2L, "공지사항", 1L, "/admin/board/posts", 0);
 
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(group, notice));
+        given(menuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(group, notice));
 
         assertTrue(menuService.getSidebarMenus(url -> "/admin".equals(url)).isEmpty());
     }
@@ -685,7 +700,7 @@ class MenuServiceTest {
         Menu grandchild = menu(3L, "손자", 2L, true, 0);
         Menu greatGrandchild = menu(4L, "증손", 3L, true, 0);
 
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(1L))
                 .willReturn(List.of(root, child, grandchild, greatGrandchild));
 
         List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(url -> true);
@@ -720,11 +735,11 @@ class MenuServiceTest {
         Menu notice = urlMenu(3L, "공지", 2L, "/admin/board/posts", 0);
         Menu menuManage = urlMenu(4L, "메뉴 관리", null, "/admin/menu/manage", 2);
         Menu emptyGroup = urlMenu(5L, "빈 그룹", null, null, 3);
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L))
                 .willReturn(List.of(dashboard, noticeGroup, notice, menuManage, emptyGroup));
         given(adminPermissionEvaluator.anyManagerMenuUrlVisibility()).willReturn(MANAGER_WITH_NOTICE);
 
-        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
+        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree(1L, "all"));
 
         assertEquals("ALL_ADMINS", data.get(1L).getExposure());
         assertEquals("VISIBLE_BY_CHILDREN", data.get(2L).getExposure());
@@ -738,15 +753,15 @@ class MenuServiceTest {
     void getMenuTree_exposure_parentFallsBackToOwnUrlWhenChildrenPruned() {
         Menu parent = urlMenu(1L, "대시보드 부모", null, "/admin", 0);
         Menu adminChild = urlMenu(2L, "메뉴 관리", 1L, "/admin/menu/manage", 0);
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(parent, adminChild));
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(parent, adminChild));
         given(adminPermissionEvaluator.anyManagerMenuUrlVisibility()).willReturn(MANAGER_WITH_NOTICE);
 
-        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
+        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree(1L, "all"));
 
         assertEquals("ALL_ADMINS", data.get(1L).getExposure());
         assertEquals("ADMIN_ONLY", data.get(2L).getExposure());
         // 실제 MANAGER 사이드바도 부모를 리프(대시보드 링크)로 그린다 — 안내와 같은 입력·같은 규칙
-        given(menuRepository.findAllByUseYnTrueOrderByOrdAscMenuNoAsc()).willReturn(List.of(parent, adminChild));
+        given(menuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(parent, adminChild));
         List<SidebarMenuResponse> sidebar = menuService.getSidebarMenus(MANAGER_WITH_NOTICE);
         assertEquals(1, sidebar.size());
         assertTrue(sidebar.get(0).getChildren().isEmpty());
@@ -761,11 +776,11 @@ class MenuServiceTest {
         Menu child = urlMenu(4L, "자식", 3L, null, 0);
         Menu grandchild = urlMenu(5L, "손자", 4L, "/admin", 0);
         Menu level4 = urlMenu(6L, "4단", 5L, "/admin", 0);
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L))
                 .willReturn(List.of(inactiveParent, underInactive, root, child, grandchild, level4));
         given(adminPermissionEvaluator.anyManagerMenuUrlVisibility()).willReturn(MANAGER_WITH_NOTICE);
 
-        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
+        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree(1L, "all"));
 
         assertEquals("NOT_SHOWN", data.get(1L).getExposure());
         assertEquals("NOT_SHOWN", data.get(2L).getExposure());
@@ -778,12 +793,12 @@ class MenuServiceTest {
     void getMenuTree_exposure_delegableLeafMakesGroupVisible() {
         Menu group = urlMenu(1L, "업무", null, null, 0);
         Menu notice = urlMenu(2L, "공지", 1L, "/admin/board/posts", 0);
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(group, notice));
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(group, notice));
         // 실제 판정(카탈로그 분류)을 그대로 쓴다 — 이 판정은 캐시를 읽지 않는다
         given(adminPermissionEvaluator.anyManagerMenuUrlVisibility())
                 .willReturn(new com.cms.admin.permission.AdminPermissionEvaluator(null).anyManagerMenuUrlVisibility());
 
-        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree("all"));
+        Map<Long, MenuTreeResponse.Data> data = flatten(menuService.getMenuTree(1L, "all"));
 
         assertEquals("VISIBLE_BY_CHILDREN", data.get(1L).getExposure());
         assertEquals("PERMISSION:BOARD", data.get(2L).getExposure());
@@ -792,9 +807,9 @@ class MenuServiceTest {
     @Test
     @DisplayName("트리 조회: 권한 스냅샷(캐시)을 읽지 않는다 — 노출 안내는 카탈로그 분류만 본다")
     void getMenuTree_doesNotReadPermissionSnapshot() {
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(menu(1L, "루트", null, true, 0)));
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(menu(1L, "루트", null, true, 0)));
 
-        menuService.getMenuTree("true");
+        menuService.getMenuTree(1L, "true");
 
         verify(adminPermissionEvaluator, org.mockito.Mockito.never()).snapshot();
     }
@@ -812,11 +827,11 @@ class MenuServiceTest {
         Menu a = menu(2L, "A", 1L, true, 0);
         Menu cyclicDuplicate = menu(2L, "A(순환 중복)", 2L, true, 0);
 
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc())
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L))
                 .willReturn(List.of(root, a, cyclicDuplicate));
 
         List<MenuTreeResponse> tree = assertTimeoutPreemptively(java.time.Duration.ofSeconds(5),
-                () -> menuService.getMenuTree("all"));
+                () -> menuService.getMenuTree(1L, "all"));
 
         assertEquals(1, tree.size());
         assertEquals(1, tree.get(0).getChildren().size());
@@ -834,9 +849,9 @@ class MenuServiceTest {
         Menu a = menu(10L, "A", 20L, true, 0);
         Menu b = menu(20L, "B", 10L, true, 0);
 
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(a, b));
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(a, b));
 
-        List<MenuTreeResponse> tree = menuService.getMenuTree("all");
+        List<MenuTreeResponse> tree = menuService.getMenuTree(1L, "all");
 
         assertTrue(tree.isEmpty());
 
@@ -853,9 +868,9 @@ class MenuServiceTest {
         Menu child = menu(2L, "자식", 1L, true, 0);
         Menu orphan = menu(30L, "고아", 999L, true, 0);
 
-        given(menuRepository.findAllByOrderByOrdAscMenuNoAsc()).willReturn(List.of(root, child, orphan));
+        given(menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L)).willReturn(List.of(root, child, orphan));
 
-        List<MenuTreeResponse> tree = menuService.getMenuTree("all");
+        List<MenuTreeResponse> tree = menuService.getMenuTree(1L, "all");
 
         assertEquals(1, tree.size());
         assertEquals(1, tree.get(0).getChildren().size());

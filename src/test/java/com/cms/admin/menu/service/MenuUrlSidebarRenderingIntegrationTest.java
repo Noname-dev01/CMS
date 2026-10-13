@@ -91,24 +91,24 @@ class MenuUrlSidebarRenderingIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("실제 스택에서 위험 URL·외부 http(s)로 메뉴를 만들 수 없다(400), 경로와 빈 값은 201")
+    @DisplayName("실제 스택에서 위험 URL(DTO 형식 400)·관리자 사이트의 외부 http(s)(사이트 정책 400)로 메뉴를 만들 수 없다, 경로와 빈 값은 201")
     void createApi_rejectsUnsafeUrl() throws Exception {
         mockMvc.perform(post("/admin/api/menus").with(admin()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"menuName\":\"" + PREFIX + "bad\",\"menuUrl\":\"javascript:alert(1)\"}"))
+                        .content("{\"siteId\":1,\"menuName\":\"" + PREFIX + "bad\",\"menuUrl\":\"javascript:alert(1)\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM menu WHERE menu_name = ?", Integer.class, PREFIX + "bad")).isZero();
 
         mockMvc.perform(post("/admin/api/menus").with(admin()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"menuName\":\"" + PREFIX + "ext\",\"menuUrl\":\"https://example.com/x\"}"))
+                        .content("{\"siteId\":1,\"menuName\":\"" + PREFIX + "ext\",\"menuUrl\":\"https://example.com/x\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM menu WHERE menu_name = ?", Integer.class, PREFIX + "ext")).isZero();
         mockMvc.perform(post("/admin/api/menus").with(admin()).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"menuName\":\"" + PREFIX + "blank\",\"menuUrl\":\"  \"}"))
+                        .content("{\"siteId\":1,\"menuName\":\"" + PREFIX + "blank\",\"menuUrl\":\"  \"}"))
                 .andExpect(status().isCreated());
         assertThat(jdbc.queryForObject("SELECT menu_url FROM menu WHERE menu_name = ?", String.class, PREFIX + "blank")).isNull();
     }

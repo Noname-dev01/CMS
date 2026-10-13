@@ -6,6 +6,8 @@ import com.cms.admin.log.domain.AdminActionResult;
 import com.cms.admin.log.repository.AdminActionLogRepository;
 import com.cms.admin.menu.Menu;
 import com.cms.admin.menu.MenuRepository;
+import com.cms.admin.site.Site;
+import com.cms.admin.site.SiteRepository;
 import com.cms.admin.menu.dto.request.MenuCreateRequest;
 import com.cms.admin.menu.dto.request.MenuStructureRequest;
 import com.cms.admin.menu.dto.request.MenuUpdateRequest;
@@ -29,6 +31,7 @@ import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.SQLException;
@@ -78,6 +81,9 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     MenuRepository menuRepository;
 
     @Autowired
+    SiteRepository siteRepository;
+
+    @Autowired
     AdminActionLogRepository adminActionLogRepository;
 
     @Autowired
@@ -108,7 +114,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     private Menu createMenu(String name) {
         LocalDateTime now = LocalDateTime.now();
-        Menu saved = menuRepository.save(Menu.builder()
+        Menu saved = menuRepository.save(Menu.builder().siteId(1L)
                 .menuName(name)
                 .useYn(true)
                 .ord(0)
@@ -123,7 +129,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     void concurrentParentDeactivateAndChildReactivate_neverLeavesActiveChildUnderInactiveParent() throws Exception {
         LocalDateTime now = LocalDateTime.now();
 
-        Menu parent = menuRepository.save(Menu.builder()
+        Menu parent = menuRepository.save(Menu.builder().siteId(1L)
                 .menuName("동시성 테스트 부모")
                 .useYn(true)
                 .ord(0)
@@ -132,7 +138,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
                 .build());
         parentMenuNo = parent.getMenuNo();
 
-        Menu child = menuRepository.save(Menu.builder()
+        Menu child = menuRepository.save(Menu.builder().siteId(1L)
                 .menuName("동시성 테스트 자식")
                 .useYn(false)
                 .ord(0)
@@ -200,6 +206,8 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         Long menuNo = menu.getMenuNo();
 
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        // 서비스는 최상위 진입점이라는 계약이지만, 외부 트랜잭션을 만들어 부르는 시험은 같은 격리 수준(READ_COMMITTED)으로 연다.
+        tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         CountDownLatch lockHeld = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -257,6 +265,11 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         verifyOrderedWrites(false);
     }
 
+    /**
+     * 사이트 행이 그 사이트의 쓰기 문이다(PLAN-site-menu.md D4) — 후행 호출은 메뉴 쿼리에 닿기 전에 <b>사이트 잠금 쿼리</b>에서 먼저 대기한다.
+     * 그래서 대기 관측 프로브는 사이트 잠금 쿼리(`SiteRepository.findByIdForUpdate`)에 두고, 후행이 선행 커밋 이후의 메뉴 상태를 읽는지는
+     * 메뉴 잠금 쿼리에서 따로 확인한다.
+     */
     private void verifyOrderedWrites(boolean editFirst) throws Exception {
         Menu menu = createMenu("동시성 테스트 대상");
         Long menuNo = menu.getMenuNo();
@@ -266,10 +279,11 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         AtomicReference<Thread> firstThread = new AtomicReference<>();
         AtomicLong firstConnection = new AtomicLong();
         AtomicLong secondConnection = new AtomicLong();
-        Advised repositoryProxy = (Advised) menuRepository;
-        MethodInterceptor probe = invocation -> {
+        Advised siteProxy = (Advised) siteRepository;
+        Advised menuProxy = (Advised) menuRepository;
+        MethodInterceptor siteProbe = invocation -> {
             if (!invocation.getMethod().getName().equals("findByIdForUpdate")
-                    || !menuNo.equals(invocation.getArguments()[0])) {
+                    || !Long.valueOf(Site.ADMIN_SITE_ID).equals(invocation.getArguments()[0])) {
                 return invocation.proceed();
             }
             boolean first = Thread.currentThread() == firstThread.get();
@@ -284,8 +298,15 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
             Object result = invocation.proceed();
             if (first) {
                 firstLocked.countDown();
-                await(releaseFirst, "선행 서비스 잠금 해제");
-            } else {
+                await(releaseFirst, "선행 서비스의 사이트 행 잠금 해제");
+            }
+            return result;
+        };
+        MethodInterceptor menuProbe = invocation -> {
+            Object result = invocation.proceed();
+            if (invocation.getMethod().getName().equals("findByIdForUpdate")
+                    && menuNo.equals(invocation.getArguments()[0])
+                    && Thread.currentThread() != firstThread.get()) {
                 Menu latest = (Menu) ((Optional<?>) result).orElseThrow();
                 // 후행 조회가 선행 commit 이후의 상태를 읽었는지 확인한다.
                 assertEquals(editFirst ? "변경된 이름" : menu.getMenuName(), latest.getMenuName());
@@ -295,15 +316,16 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         };
         ExecutorService executor = Executors.newFixedThreadPool(2);
         List<Future<?>> workers = new ArrayList<>();
-        repositoryProxy.addAdvice(0, probe);
+        siteProxy.addAdvice(0, siteProbe);
+        menuProxy.addAdvice(0, menuProbe);
         try {
             workers.add(executor.submit(() -> {
                 firstThread.set(Thread.currentThread());
                 writeMenu(menuNo, editFirst);
             }));
-            await(firstLocked, "선행 서비스의 최초 대상 조회/행 잠금");
+            await(firstLocked, "선행 서비스의 사이트 행 잠금");
             workers.add(executor.submit(() -> writeMenu(menuNo, !editFirst)));
-            await(secondQueryEntered, "후행 잠금 query 진입");
+            await(secondQueryEntered, "후행 사이트 잠금 query 진입");
             assertDatabaseLockWait(firstConnection.get(), secondConnection.get());
             releaseFirst.countDown();
             for (Future<?> worker : workers) {
@@ -314,7 +336,9 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
             try {
                 finishWorkers(executor, workers);
             } finally {
-                repositoryProxy.removeAdvice(probe); // 공유 Spring context에 test advice를 남기지 않는다.
+                // 공유 Spring context에 test advice를 남기지 않는다.
+                siteProxy.removeAdvice(siteProbe);
+                menuProxy.removeAdvice(menuProbe);
             }
         }
 
@@ -322,7 +346,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         // 핵심 불변식: 비활성화 결과가 일반 수정의 낡은 useYn=true로 되살아나지 않고,
         // 일반 수정의 이름 변경도 조용히 유실되지 않는다 — 둘 다 성공해야 한다.
         assertFalse(finalMenu.getUseYn(),
-                "행 잠금 직렬화로 비활성화 결과가 보존되어야 한다 (lost update 발생 의심). "
+                "사이트 문 직렬화로 비활성화 결과가 보존되어야 한다 (lost update 발생 의심). "
                         + "최종 useYn=" + finalMenu.getUseYn() + ", menuName=" + finalMenu.getMenuName());
         assertEquals("변경된 이름", finalMenu.getMenuName(),
                 "일반 수정의 이름 변경도 함께 보존되어야 한다 (조용한 실패 의심). "
@@ -384,7 +408,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     private Menu saveMenu(String name, Long upMenuNo, boolean useYn, Integer ord) {
         LocalDateTime now = LocalDateTime.now();
-        Menu saved = menuRepository.save(Menu.builder()
+        Menu saved = menuRepository.save(Menu.builder().siteId(1L)
                 .menuName(name)
                 .useYn(useYn)
                 .ord(ord)
@@ -413,13 +437,14 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
     /** 현재 DB 전체를 요청 항목으로 만든다(base = 현재, 새 부모 = 현재, 배열 순서 = 표시 순서). */
     private List<MenuStructureRequest.Item> currentItems() {
-        return menuRepository.findAllByOrderByOrdAscMenuNoAsc().stream()
+        return menuRepository.findAllBySiteIdOrderByOrdAscMenuNoAsc(1L).stream()
                 .map(menu -> MenuStructureRequest.Item.of(menu.getMenuNo(), menu.getUpMenuNo(), menu.getOrd(), menu.getUpMenuNo()))
                 .collect(Collectors.toCollection(ArrayList::new));
     }
 
     private static MenuStructureRequest structureOf(List<MenuStructureRequest.Item> items) {
         MenuStructureRequest request = new MenuStructureRequest();
+        request.setSiteId(1L);
         request.setMenus(items);
         return request;
     }
@@ -462,7 +487,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     private Future<?> holdAllRowLocks(ExecutorService executor, CountDownLatch locked, CountDownLatch release,
                                       AtomicLong holderConnection, Runnable afterLock) {
         return executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            menuRepository.findAllForUpdate();
+            menuRepository.findAllBySiteIdForUpdate(1L);
             holderConnection.set(currentConnectionId());
             afterLock.run();
             locked.countDown();
@@ -541,7 +566,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         try {
             Future<?> holder = holdAllRowLocks(executor, locked, release, holderConnection, () -> {
                 LocalDateTime now = LocalDateTime.now();
-                Menu inserted = menuRepository.save(Menu.builder().menuName("I-동시 생성").useYn(true).ord(956)
+                Menu inserted = menuRepository.save(Menu.builder().siteId(1L).menuName("I-동시 생성").useYn(true).ord(956)
                         .createDate(now).updateDate(now).build());
                 menuRepository.flush(); // 커밋 전에 INSERT를 실제로 보내 락·갭을 쥔 상태를 만든다
                 insertedMenuNo.set(inserted.getMenuNo());
@@ -576,7 +601,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
             Future<?> holder = holdAllRowLocks(executor, locked, release, holderConnection, () -> { });
             await(locked, "전체 행 잠금 획득");
             Future<MenuResponse> create = executor.submit(() -> menuService.createMenu(
-                    MenuCreateRequest.builder().menuName("C-대기 후 생성").build()));
+                    MenuCreateRequest.builder().siteId(1L).menuName("C-대기 후 생성").build()));
             awaitSomeoneWaitingFor(holderConnection.get());
             assertFalse(create.isDone(), "잠금 보유 중에는 생성이 끝나면 안 된다");
 
@@ -604,7 +629,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
             for (String name : List.of("D-동시1", "D-동시2")) {
                 creates.add(executor.submit(() -> {
                     barrier.await(10, TimeUnit.SECONDS);
-                    return menuService.createMenu(MenuCreateRequest.builder().menuName(name).build());
+                    return menuService.createMenu(MenuCreateRequest.builder().siteId(1L).menuName(name).build());
                 }));
             }
             MenuResponse first = creates.get(0).get(20, TimeUnit.SECONDS);
@@ -665,7 +690,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("영구삭제: 비활성 잎 메뉴의 row가 사라지고, MENU_DELETE 감사 로그에 targetId와 이름·URL 라벨이 남는다")
     void deleteMenu_removesRow_andLogsWithLabel() {
-        Menu target = menuRepository.save(Menu.builder().menuName("X-삭제 대상").menuUrl("/x/delete").useYn(false)
+        Menu target = menuRepository.save(Menu.builder().siteId(1L).menuName("X-삭제 대상").menuUrl("/x/delete").useYn(false)
                 .ord(970).createDate(LocalDateTime.now()).updateDate(LocalDateTime.now()).build());
         long before = maxActionLogId();
 
@@ -714,7 +739,7 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
             // createMenu와 같은 전체 행 잠금(대상 부모 포함) 안에서 비활성 자식을 INSERT한다 — 활성 자식만 보면 놓치는 경우
             Future<?> holder = holdAllRowLocks(executor, locked, release, holderConnection, () -> {
                 LocalDateTime now = LocalDateTime.now();
-                Menu child = menuRepository.save(Menu.builder().menuName("C-동시 비활성 자식").useYn(false).ord(0)
+                Menu child = menuRepository.save(Menu.builder().siteId(1L).menuName("C-동시 비활성 자식").useYn(false).ord(0)
                         .upMenuNo(parent.getMenuNo()).createDate(now).updateDate(now).build());
                 menuRepository.flush();
                 insertedChild.set(child.getMenuNo());
@@ -824,12 +849,12 @@ class MenuConcurrencyIntegrationTest extends MariaDbContainerSupport {
         long before = maxActionLogId();
 
         // 이 테스트는 동시 실행이 필요 없으므로 테스트 스레드에서 직접 호출한다(별도 스레드·executor가 없어 타임아웃 시 스레드나
-        // advice가 후속 테스트·공유 DB를 오염시킬 수 없다). 첫 전체 행 잠금(findAllForUpdate)에서 "커밋 직전 예외"를 던지는
+        // advice가 후속 테스트·공유 DB를 오염시킬 수 없다). 첫 사이트 메뉴 행 잠금(findAllBySiteIdForUpdate)에서 "커밋 직전 예외"를 던지는
         // 트랜잭션 동기화를 등록하고, 다른 스레드의 호출에는 개입하지 않는다.
         Thread testThread = Thread.currentThread();
         Advised repositoryProxy = (Advised) menuRepository;
         MethodInterceptor failAtCommit = invocation -> {
-            if (invocation.getMethod().getName().equals("findAllForUpdate")
+            if (invocation.getMethod().getName().equals("findAllBySiteIdForUpdate")
                     && Thread.currentThread() == testThread) {
                 org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
                         new org.springframework.transaction.support.TransactionSynchronization() {
