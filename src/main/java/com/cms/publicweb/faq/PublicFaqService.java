@@ -6,6 +6,7 @@ import com.cms.common.html.ContentBodyPolicy;
 import com.cms.common.html.SanitizedHtml;
 import com.cms.publicweb.faq.dto.PublicFaqCategory;
 import com.cms.publicweb.faq.dto.PublicFaqItem;
+import com.cms.publicweb.support.PublicSite;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,11 +31,11 @@ public class PublicFaqService {
     private final FaqRepository faqRepository;
 
     @Transactional(readOnly = true)
-    public List<PublicFaqCategory> findPublicFaqs() {
+    public List<PublicFaqCategory> findPublicFaqs(Long siteId) {
         // 카테고리는 첫 보이는 항목을 만났을 때 비로소 만들어진다 — 보이는 FAQ가 없는 카테고리는 자연히 빠진다
         Map<Long, String> names = new LinkedHashMap<>();
         Map<Long, List<PublicFaqItem>> itemsByCategory = new LinkedHashMap<>();
-        for (PublicFaqRow row : faqRepository.findPublicRows()) {
+        for (PublicFaqRow row : faqRepository.findPublicRows(PublicSite.requireId(siteId))) {
             SanitizedHtml answer = ContentBodyPolicy.sanitizeForFaqOutput(row.answerHtml());
             if (answer.blank()) {
                 continue;

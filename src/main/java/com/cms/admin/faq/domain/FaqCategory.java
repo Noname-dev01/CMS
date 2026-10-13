@@ -38,12 +38,23 @@ public class FaqCategory {
     @Column(name = "use_yn", nullable = false)
     private Boolean useYn;
 
+    /** 소속 사이트(V55). {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
+    @Column(name = "site_id")
+    private Long siteId;
+
+    /** 낡은 화면 검사용(V55) — 이름·노출·대상 교체({@link #replace})마다 +1. {@code ord} 변경은 올리지 않는다. */
+    @Column(nullable = false)
+    @Builder.Default
+    private Integer version = 1;
+
     private LocalDateTime createDate;
 
     private LocalDateTime updateDate;
 
-    /** 이름·노출 여부 전체 교체(PUT). */
-    public void replace(String name, boolean useYn, LocalDateTime now) {
+    /** 이름·노출 여부·표시 대상 전체 교체(PUT). */
+    public void replace(String name, boolean useYn, Long siteId, LocalDateTime now) {
+        this.version = Math.incrementExact(this.version);
+        this.siteId = siteId;
         this.name = name;
         this.useYn = useYn;
         this.updateDate = now;

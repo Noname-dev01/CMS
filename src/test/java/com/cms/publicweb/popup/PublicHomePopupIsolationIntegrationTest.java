@@ -45,13 +45,13 @@ class PublicHomePopupIsolationIntegrationTest extends MariaDbContainerSupport {
             // 실패를 주입하기 전에는 정상 노출됨을 먼저 확인한다(주입이 효과가 있는 시험임을 보장)
             assertThat(getHome().getResponse().getContentAsString()).contains("iso-popup");
 
-            Mockito.doThrow(new DataAccessResourceFailureException("주입된 팝업 조회 실패")).when(popupService).findDisplayablePopups();
+            Mockito.doThrow(new DataAccessResourceFailureException("주입된 팝업 조회 실패")).when(popupService).findDisplayablePopups(Mockito.anyLong());
 
             MvcResult result = getHome();
             String html = result.getResponse().getContentAsString();
             assertThat(result.getResponse().getStatus()).isEqualTo(200);
             assertThat(html).contains("home-container").doesNotContain("home-popup").doesNotContain("iso-popup").doesNotContain("주입된 팝업 조회 실패");
-            Mockito.verify(popupService, Mockito.atLeastOnce()).findDisplayablePopups();
+            Mockito.verify(popupService, Mockito.atLeastOnce()).findDisplayablePopups(Mockito.anyLong());
         } finally {
             Mockito.reset(popupService);
             jdbc.update("DELETE FROM popup WHERE title = 'iso-popup'");

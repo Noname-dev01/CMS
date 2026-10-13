@@ -42,6 +42,8 @@ public class PopupResponse {
     private LocalDateTime displayStart;
     private LocalDateTime displayEnd;
     private Boolean useYn;
+    /** 소속 사이트 ID(null = 모든 공개 사이트 공통). */
+    private Long siteId;
     private DisplayStatus status;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
@@ -72,6 +74,7 @@ public class PopupResponse {
                 .displayStart(popup.getDisplayStart())
                 .displayEnd(popup.getDisplayEnd())
                 .useYn(popup.getUseYn())
+                .siteId(popup.getSiteId())
                 .status(DisplayPeriod.statusOf(Boolean.TRUE.equals(popup.getUseYn()), popup.getDisplayStart(), popup.getDisplayEnd(), now))
                 .createDate(popup.getCreateDate())
                 .updateDate(popup.getUpdateDate());

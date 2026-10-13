@@ -28,6 +28,8 @@ public class FaqTreeResponse {
         private String name;
         private Integer ord;
         private Boolean useYn;
+        private Long siteId;
+        private Integer version;
         private List<Item> faqs;
     }
 

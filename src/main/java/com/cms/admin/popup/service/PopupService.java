@@ -11,6 +11,8 @@ import com.cms.admin.media.service.MediaImageLookup;
 import com.cms.admin.media.service.MediaImageRegistrar;
 import com.cms.admin.media.service.MediaImageRemover;
 import com.cms.admin.media.service.MediaImageSelector;
+import com.cms.admin.site.ContentSiteScope;
+import com.cms.admin.site.SiteScope;
 import com.cms.admin.popup.domain.Popup;
 import com.cms.admin.popup.domain.PopupLimits;
 import com.cms.admin.popup.domain.PopupType;
@@ -69,6 +71,7 @@ public class PopupService {
     static final ImageFileValidator.Limits LIMITS = new ImageFileValidator.Limits(2560, 4_000_000L, false);
 
     static final String POPUP_NOT_FOUND = "팝업을 찾을 수 없습니다.";
+    static final String STALE_REVISION = "다른 관리자가 이 팝업을 먼저 수정했습니다. 화면을 새로 고친 뒤 다시 시도해주세요.";
 
     private final PopupRepository popupRepository;
     private final ContentImageRefRepository refRepository;
@@ -77,6 +80,7 @@ public class PopupService {
     private final MediaImageSelector imageSelector;
     private final MediaImageRemover imageRemover;
     private final AdminSecurityService adminSecurityService;
+    private final ContentSiteScope contentSiteScope;
     private final FileStorage fileStorage;
     private final Clock clock;
 
@@ -110,6 +114,7 @@ public class PopupService {
         Integer height = requireHeight(request.getHeight());
         Period period = period(blankToNull(request.getDisplayStart()), blankToNull(request.getDisplayEnd()));
         boolean useYn = request.getUseYn() == null || request.getUseYn();
+        Long siteId = SiteScope.parse(request.getSiteScope());
         String linkUrl = normalizeLink(request.getLinkUrl());
         String content = blankToNull(request.getContent());
         MultipartFile image = request.getImage();
@@ -140,6 +145,7 @@ public class PopupService {
         if (popupRepository.count() >= MAX_POPUPS) {
             throw new ConflictException("팝업은 최대 " + MAX_POPUPS + "개까지 등록할 수 있습니다. 사용하지 않는 팝업을 삭제해주세요.");
         }
+        contentSiteScope.requireAssignable(siteId);
 
         ContentImage stored = null;
         if (type == PopupType.IMAGE) {
@@ -169,6 +175,7 @@ public class PopupService {
                 .displayStart(period.start())
                 .displayEnd(period.end())
                 .useYn(useYn)
+                .siteId(siteId)
                 .createDate(now)
                 .updateDate(now)
                 .build());
@@ -192,9 +199,16 @@ public class PopupService {
         String linkUrl = normalizeLink(request.getLinkUrl());
         String content = blankToNull(request.getContent());
         String sanitizedContent = content == null ? null : sanitizeBody(content, request.getContentFormat());
+        Long siteId = SiteScope.parseRequired(request.getSiteScope());
+        int revision = SiteScope.requireVersion(request.getRevision(), 0);
 
         Popup target = popupRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException(POPUP_NOT_FOUND));
+        // 행 락을 잡은 뒤 낡은 화면을 거른다(revision은 수정마다 +1 — PLAN-site-menu.md S6b)
+        if (target.getRevision() != revision) {
+            throw new ConflictException(STALE_REVISION);
+        }
+        contentSiteScope.requireAssignable(siteId);
         if (target.getPopupType() == PopupType.IMAGE) {
             requireImageTypeFields(content, height);
         } else {
@@ -206,7 +220,7 @@ public class PopupService {
 
         LocalDateTime now = LocalDateTime.now(clock);
         target.replace(title, linkUrl, sanitizedContent, posX, posY, width, height, period.start(), period.end(),
-                request.getUseYn(), now);
+                request.getUseYn(), siteId, now);
         return PopupResponse.detailOf(target, now, imageOf(target));
     }
 

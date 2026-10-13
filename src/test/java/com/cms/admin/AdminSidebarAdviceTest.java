@@ -102,6 +102,14 @@ class AdminSidebarAdviceTest {
             return Mockito.mock(DashboardService.class);
         }
 
+        /** 정적 페이지 등 콘텐츠 관리 페이지 컨트롤러가 표시 대상 선택지를 모델에 싣는다(PLAN-site-menu.md PR ③ S7) — 슬라이스에는 실제 빈이 없다. */
+        @Bean
+        public com.cms.admin.site.ContentScopeOptions contentScopeOptions() {
+            var options = Mockito.mock(com.cms.admin.site.ContentScopeOptions.class);
+            Mockito.when(options.load()).thenReturn(new com.cms.admin.site.ContentScopeOptions.Options(List.of(), null));
+            return options;
+        }
+
         /** AdminActionLogPageController가 Clock으로 기간 기본값을 계산한다 — 슬라이스에는 AppConfig가 없다. */
         @Bean
         public Clock clock() {

@@ -2,6 +2,7 @@ package com.cms.publicweb.faq;
 
 import com.cms.publicweb.support.PublicSiteRoutes;
 import com.cms.publicweb.support.SiteScopedPublic;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -20,8 +21,8 @@ public class PublicFaqController {
     private final PublicFaqService publicFaqService;
 
     @GetMapping(PublicSiteRoutes.FAQ)
-    public String list(Model model) {
-        model.addAttribute("categories", publicFaqService.findPublicFaqs());
+    public String list(HttpServletRequest request, Model model) {
+        model.addAttribute("categories", publicFaqService.findPublicFaqs(PublicSiteRoutes.current(request).id()));
         return "public/faq/list";
     }
 }

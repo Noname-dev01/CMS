@@ -10,6 +10,7 @@ import com.cms.publicweb.page.dto.PublicFooterLink;
 import com.cms.publicweb.page.dto.PublicSitePageRevisionItem;
 import com.cms.publicweb.page.dto.PublicSitePageRevisions;
 import com.cms.publicweb.page.dto.PublicSitePageView;
+import com.cms.publicweb.support.PublicSite;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,20 +35,22 @@ public class PublicSitePageService {
     private final SitePageRevisionRepository revisionRepository;
 
     @Transactional(readOnly = true)
-    public Optional<PublicSitePageView> findCurrent(String slug) {
+    public Optional<PublicSitePageView> findCurrent(String slug, Long siteId) {
+        PublicSite.requireId(siteId);
         if (!SiteSlug.isValid(slug)) {
             return Optional.empty();
         }
-        return pageRepository.findPublicCurrent(slug).map(PublicSitePageService::toView);
+        return pageRepository.findPublicCurrent(slug, siteId).map(PublicSitePageService::toView);
     }
 
     /** {@code revisionNo}는 컨트롤러가 이미 양의 {@code int}로 파싱한 값이다(없는 번호는 empty). */
     @Transactional(readOnly = true)
-    public Optional<PublicSitePageView> findRevision(String slug, int revisionNo) {
+    public Optional<PublicSitePageView> findRevision(String slug, int revisionNo, Long siteId) {
+        PublicSite.requireId(siteId);
         if (!SiteSlug.isValid(slug) || revisionNo < 1) {
             return Optional.empty();
         }
-        return pageRepository.findPublicRevision(slug, revisionNo).map(PublicSitePageService::toView);
+        return pageRepository.findPublicRevision(slug, revisionNo, siteId).map(PublicSitePageService::toView);
     }
 
     /**
@@ -55,11 +58,12 @@ public class PublicSitePageService {
      * 비용이 쪽 번호와 무관하고 전 이력에 도달할 수 있다. 음수이거나 마지막 쪽을 넘으면({@code U < 1}) 첫 쪽으로 보정한다. 산술은 {@code long}.
      */
     @Transactional(readOnly = true)
-    public Optional<PublicSitePageRevisions> findRevisions(String slug, int rawPage) {
+    public Optional<PublicSitePageRevisions> findRevisions(String slug, int rawPage, Long siteId) {
+        PublicSite.requireId(siteId);
         if (!SiteSlug.isValid(slug)) {
             return Optional.empty();
         }
-        return pageRepository.findPublicHeader(slug).map(header -> {
+        return pageRepository.findPublicHeader(slug, siteId).map(header -> {
             long current = header.currentRevisionNo();
             int page = rawPage;
             long upper = current - (long) REVISION_PAGE_SIZE * page;
@@ -82,8 +86,8 @@ public class PublicSitePageService {
      * 넣으면 이 조회의 실패가 트랜잭션을 rollback-only로 만들어 메인까지 깨뜨릴 수 있다(PLAN-static-page.md R1-3).
      */
     @Transactional(readOnly = true)
-    public List<PublicFooterLink> findFooterLinks() {
-        return pageRepository.findFooterLinks().stream()
+    public List<PublicFooterLink> findFooterLinks(Long siteId) {
+        return pageRepository.findFooterLinks(PublicSite.requireId(siteId)).stream()
                 .map((PublicSitePageHeaderRow row) -> new PublicFooterLink(row.slug(), row.title()))
                 .toList();
     }

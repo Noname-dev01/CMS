@@ -112,7 +112,7 @@ class SitePagePermissionMatrixIntegrationTest extends MariaDbContainerSupport {
                     .content("{\"slug\":\"spm-created\",\"title\":\"spm-created\",\"content\":\"<p>x</p>\",\"contentFormat\":\"HTML\"}")).andReturn();
             case "수정" -> mockMvc.perform(put("/admin/api/site-pages/{id}", id).with(who).with(csrf())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"title\":\"spm-changed\",\"content\":\"<p>y</p>\",\"contentFormat\":\"HTML\",\"useYn\":true,\"footerYn\":false,\"version\":1}")).andReturn();
+                    .content("{\"title\":\"spm-changed\",\"content\":\"<p>y</p>\",\"contentFormat\":\"HTML\",\"useYn\":true,\"footerYn\":false,\"siteScope\":\"COMMON\",\"version\":1}")).andReturn();
             case "삭제" -> mockMvc.perform(delete("/admin/api/site-pages/{id}", id).param("version", "1").with(who).with(csrf())).andReturn();
             default -> throw new IllegalArgumentException(handler);
         };

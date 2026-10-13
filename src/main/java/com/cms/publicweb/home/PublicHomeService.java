@@ -7,6 +7,7 @@ import com.cms.admin.board.repository.PublishedPostRow;
 import com.cms.publicweb.banner.PublicBannerService;
 import com.cms.publicweb.home.dto.PublicHomePost;
 import com.cms.publicweb.home.dto.PublicHomeView;
+import com.cms.publicweb.support.PublicSite;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,7 +35,8 @@ public class PublicHomeService {
     private final Clock clock;
 
     @Transactional(readOnly = true)
-    public PublicHomeView getHome() {
+    public PublicHomeView getHome(Long siteId) {
+        PublicSite.requireId(siteId);
         // 공지·새 글 두 쿼리가 같은 시각으로 판정되게 요청당 1회만 산출한다(노출 기간 경계에서 두 섹션이 어긋나지 않게)
         LocalDateTime now = LocalDateTime.now(clock);
         Optional<Long> noticeBoardId = boardRepository.findIdByBoardKey(Board.NOTICE_KEY);
@@ -43,7 +45,7 @@ public class PublicHomeService {
                 .orElse(List.of());
         // 새 글에서 공지 게시판을 뺀다 — 같은 글이 두 섹션에 나오지 않게. 공지 게시판이 없으면 뺄 게시판도 없다.
         List<PublicHomePost> latest = toPosts(postRepository.findLatestPublished(null, noticeBoardId.orElse(null), now, SECTION_SIZE));
-        return new PublicHomeView(publicBannerService.findDisplayableBanners(), notices, latest);
+        return new PublicHomeView(publicBannerService.findDisplayableBanners(siteId), notices, latest);
     }
 
     private static List<PublicHomePost> toPosts(List<PublishedPostRow> rows) {

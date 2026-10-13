@@ -14,6 +14,8 @@ import com.cms.admin.page.dto.response.SitePageRevisionSummary;
 import com.cms.admin.page.dto.response.SitePageSummaryResponse;
 import com.cms.admin.page.repository.SitePageRepository;
 import com.cms.admin.page.repository.SitePageRevisionRepository;
+import com.cms.admin.site.ContentSiteScope;
+import com.cms.admin.site.SiteScope;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -50,6 +52,7 @@ public class SitePageService {
 
     private final SitePageRepository pageRepository;
     private final SitePageRevisionRepository revisionRepository;
+    private final ContentSiteScope contentSiteScope;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -73,10 +76,12 @@ public class SitePageService {
         SanitizedHtml body = ContentBodyPolicy.sanitizePage(request.getContent(), request.getContentFormat());
         boolean useYn = request.getUseYn() == null || request.getUseYn();
         boolean footerYn = request.getFooterYn() != null && request.getFooterYn();
+        Long siteId = SiteScope.parse(request.getSiteScope());
 
         if (pageRepository.existsBySlug(slug)) {
             throw new ConflictException("이미 사용 중인 슬러그입니다.");
         }
+        contentSiteScope.requireAssignable(siteId);
         LocalDateTime now = LocalDateTime.now(clock);
         SitePage page;
         try {
@@ -87,6 +92,7 @@ public class SitePageService {
                     .version(1)
                     .useYn(useYn)
                     .footerYn(footerYn)
+                    .siteId(siteId)
                     .createDate(now)
                     .updateDate(now)
                     .build());
@@ -103,13 +109,15 @@ public class SitePageService {
     public SitePageDetailResponse updatePage(Long id, SitePageUpdateRequest request) {
         String title = requireTitle(request.getTitle());
         SanitizedHtml body = ContentBodyPolicy.sanitizePage(request.getContent(), request.getContentFormat());
+        Long siteId = SiteScope.parseRequired(request.getSiteScope());
 
         SitePage page = pageRepository.findByIdForUpdate(id).orElseThrow(() -> new ResourceNotFoundException(PAGE_NOT_FOUND));
         requireFreshVersion(page, request.getVersion());
+        contentSiteScope.requireAssignable(siteId);
 
         SitePageRevision current = requireCurrentRevision(page);
         boolean contentChanged = !current.getTitle().equals(title) || !current.getContent().equals(body.html());
-        boolean flagsChanged = page.changeFlags(request.getUseYn(), request.getFooterYn());
+        boolean flagsChanged = page.changeFlags(request.getUseYn(), request.getFooterYn(), siteId);
         if (!contentChanged && !flagsChanged) {
             // 아무것도 바뀌지 않은 저장은 개정도 버전도 올리지 않는다(재저장·더블클릭이 이력을 부풀리지 않게)
             return detailOf(page, current, "rev=" + page.getCurrentRevisionNo() + " 변경 없음");

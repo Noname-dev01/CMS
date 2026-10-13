@@ -2,6 +2,7 @@ package com.cms.admin.page.dto.request;
 
 import com.cms.admin.member.dto.request.validation.MaxUtf8Bytes;
 import com.cms.admin.page.domain.SiteSlug;
+import com.cms.admin.site.SiteScope;
 import com.cms.common.html.ContentBodyPolicy;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -42,4 +43,8 @@ public class SitePageCreateRequest {
 
     @Schema(description = "공개 메인 푸터에 링크할지. 누락 시 false", example = "false")
     private Boolean footerYn;
+
+    @Pattern(regexp = SiteScope.PATTERN, message = "표시 대상은 COMMON 또는 사이트 ID여야 합니다.")
+    @Schema(description = "표시 대상 — COMMON(모든 공개 사이트 공통) 또는 공개 사이트 ID. 누락 시 COMMON", example = "COMMON")
+    private String siteScope;
 }

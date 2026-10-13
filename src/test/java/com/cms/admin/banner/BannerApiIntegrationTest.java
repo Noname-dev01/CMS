@@ -153,7 +153,7 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(image.getResponse().getHeader("X-Content-Type-Options")).isEqualTo("nosniff");
 
         // 수정: 전체 교체 — 링크·종료를 null로 해제하고 노출을 끈다
-        String update = objectMapper.writeValueAsString(Map.of("title", "새 제목", "useYn", false));
+        String update = objectMapper.writeValueAsString(Map.of("title", "새 제목", "useYn", false, "siteScope", "COMMON", "version", 1));
         MvcResult updated = mockMvc.perform(put("/admin/api/banners/{id}", id).with(asAdmin()).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON).content(update)).andReturn();
         assertThat(updated.getResponse().getStatus()).isEqualTo(200);
@@ -267,9 +267,13 @@ class BannerApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(jdbc.queryForObject("SELECT display_end FROM banner WHERE id = ?", Object.class, id)).isNull();
     }
 
+    /** 수정은 표시 대상(siteScope)과 낡은 화면 검사 version이 필수다 — 시험이 관심 없는 값은 공통·현재 version으로 채운다(PLAN-site-menu.md PR ③). */
     private int updateStatus(long id, Map<String, Object> body) throws Exception {
+        Map<String, Object> full = new java.util.LinkedHashMap<>(body);
+        full.putIfAbsent("siteScope", "COMMON");
+        full.putIfAbsent("version", jdbc.queryForObject("SELECT COALESCE((SELECT version FROM banner WHERE id = ?), 1)", Integer.class, id));
         return mockMvc.perform(put("/admin/api/banners/{id}", id).with(asAdmin()).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(body))).andReturn().getResponse().getStatus();
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(full))).andReturn().getResponse().getStatus();
     }
 
     @Test

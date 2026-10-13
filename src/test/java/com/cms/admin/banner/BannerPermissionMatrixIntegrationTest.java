@@ -121,7 +121,8 @@ class BannerPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
                     .file(new MockMultipartFile("image", "b.png", "image/png", ImageFileValidatorTest.png(20, 10)))
                     .param("title", "bm-created").with(who).with(csrf())).andReturn();
             case "수정" -> mockMvc.perform(put("/admin/api/banners/{id}", a).with(who).with(csrf())
-                    .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"bm-changed\",\"useYn\":true}")).andReturn();
+                    .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"bm-changed\",\"useYn\":true,\"siteScope\":\"COMMON\",\"version\":"
+                            + jdbc.queryForObject("SELECT version FROM banner WHERE id = ?", Integer.class, a) + "}")).andReturn();
             case "순서" -> mockMvc.perform(put("/admin/api/banners/order").with(who).with(csrf())
                     .contentType(MediaType.APPLICATION_JSON).content("{\"ids\":[" + b + "," + a + "]}")).andReturn();
             case "삭제" -> mockMvc.perform(delete("/admin/api/banners/{id}", a).with(who).with(csrf())).andReturn();

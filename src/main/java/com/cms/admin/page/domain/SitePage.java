@@ -45,15 +45,21 @@ public class SitePage {
     @Column(name = "footer_yn", nullable = false)
     private Boolean footerYn;
 
+    /** 소속 사이트(V55). {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
+    @Column(name = "site_id")
+    private Long siteId;
+
     private LocalDateTime createDate;
 
     private LocalDateTime updateDate;
 
-    /** 노출·푸터를 바꾼다. 실제로 값이 바뀌면 true. 버전·수정 시각은 {@link #markChanged}가 한 번만 올린다. */
-    public boolean changeFlags(boolean useYn, boolean footerYn) {
-        boolean changed = !Boolean.valueOf(useYn).equals(this.useYn) || !Boolean.valueOf(footerYn).equals(this.footerYn);
+    /** 노출·푸터·표시 대상을 바꾼다. 실제로 값이 바뀌면 true. 버전·수정 시각은 {@link #markChanged}가 한 번만 올린다. */
+    public boolean changeFlags(boolean useYn, boolean footerYn, Long siteId) {
+        boolean changed = !Boolean.valueOf(useYn).equals(this.useYn) || !Boolean.valueOf(footerYn).equals(this.footerYn)
+                || !java.util.Objects.equals(siteId, this.siteId);
         this.useYn = useYn;
         this.footerYn = footerYn;
+        this.siteId = siteId;
         return changed;
     }
 

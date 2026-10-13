@@ -13,6 +13,9 @@ import java.util.Optional;
 
 public interface BannerRepository extends JpaRepository<Banner, Long> {
 
+    /** 사이트 삭제 가드용(PLAN-site-menu.md PR ③) — 그 사이트 전용 행이 있는가. */
+    boolean existsBySiteId(Long siteId);
+
     /** 관리 목록 — 노출 여부·기간과 무관하게 전부, 표시 순서대로. */
     List<Banner> findAllByOrderByOrdAscIdAsc();
 
@@ -34,7 +37,7 @@ public interface BannerRepository extends JpaRepository<Banner, Long> {
     int findMaxOrd();
 
     /**
-     * 공개 메인용 — 노출 여부와 기간 {@code [start, end)}이 조건에 고정돼 있다. 이 조건은 {@code DisplayPeriod.isActive}와 같은 의미이고
+     * 공개 메인용 — 노출 여부와 기간 {@code [start, end)}, <b>사이트 소속(공통이거나 {@code siteId}와 같음)</b>이 조건에 고정돼 있다. 이 조건은 {@code DisplayPeriod.isActive}와 같은 의미이고
      * 두 표현의 일치는 DB 시험이 고정한다. 판정 시각은 호출자(공개 서비스)가 주입된 {@code Clock}으로 1회 산출해 넘긴다.
      * <b>이미지 연결이 없는 배너는 제외한다</b>(PLAN-media-library.md R3-2 — 적격성은 소유자 쿼리에서 판정하고 이미지는 호출자가 일괄 조회로 붙인다).
      */
@@ -43,19 +46,25 @@ public interface BannerRepository extends JpaRepository<Banner, Long> {
             where b.useYn = true
               and (b.displayStart is null or b.displayStart <= :now)
               and (b.displayEnd is null or b.displayEnd > :now)
+              and (b.siteId is null or b.siteId = :siteId)
               and exists (select 1 from ContentImageRef r, ContentImage i
                           where r.ownerType = 'BANNER' and r.ownerId = b.id and i.id = r.imageId)
             order by b.ord asc, b.id asc
             """)
-    List<Banner> findDisplayable(@Param("now") LocalDateTime now);
+    List<Banner> findDisplayable(@Param("now") LocalDateTime now, @Param("siteId") Long siteId);
 
-    /** 공개 이미지 다운로드용 — {@link #findDisplayable}과 같은 조건 + id. 조건이 쿼리에 고정돼 노출 재검증을 건너뛸 수 없다. */
+    /**
+     * 공개 이미지 다운로드용 — {@link #findDisplayable}과 같은 노출 조건 + id. 이미지 경로는 사이트 맥락이 없으므로 소속 사이트 일치는 보지 않고,
+     * <b>소속 사이트가 비활성이면 제외</b>한다(사이트를 끄면 그 전용 콘텐츠가 공개에서 사라져야 한다 — PLAN-site-menu.md PR ③ S3).
+     * 조건이 쿼리에 고정돼 노출 재검증을 건너뛸 수 없다.
+     */
     @Query("""
             select b from Banner b
             where b.id = :id
               and b.useYn = true
               and (b.displayStart is null or b.displayStart <= :now)
               and (b.displayEnd is null or b.displayEnd > :now)
+              and (b.siteId is null or exists (select 1 from Site s where s.id = b.siteId and s.useYn = true))
               and exists (select 1 from ContentImageRef r, ContentImage i
                           where r.ownerType = 'BANNER' and r.ownerId = b.id and i.id = r.imageId)
             """)

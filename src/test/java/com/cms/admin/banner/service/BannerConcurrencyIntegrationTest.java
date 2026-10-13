@@ -250,7 +250,7 @@ class BannerConcurrencyIntegrationTest extends MariaDbContainerSupport {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<?> updater = executor.submit(() -> tx.executeWithoutResult(status -> {
-                bannerService.updateBanner(a, BannerUpdateRequest.builder().title("A").useYn(false).build());
+                bannerService.updateBanner(a, BannerUpdateRequest.builder().title("A").useYn(false).siteScope("COMMON").version(1).build());
                 updated.countDown();
                 try {
                     release.await(20, TimeUnit.SECONDS);

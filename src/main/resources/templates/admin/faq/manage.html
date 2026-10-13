@@ -83,6 +83,15 @@
                                             <label for="catName">이름</label>
                                             <input type="text" class="form-control" id="catName" maxlength="50" required>
                                         </div>
+                                        <div class="form-group">
+                                            <label for="catSiteScope">표시 대상</label>
+                                            <select class="form-control" id="catSiteScope" aria-describedby="catSiteScopeHint">
+                                                <option value="COMMON">공통 (모든 사이트)</option>
+                                                <option th:each="site : ${scopeSites}" th:value="${site.id()}"
+                                                        th:text="${site.active()} ? ${site.name()} : ${site.name() + ' (비활성)'}"></option>
+                                            </select>
+                                            <small class="form-text text-muted" id="catSiteScopeHint">공통은 모든 공개 사이트에, 사이트를 고르면 그 사이트에서만 보입니다. 이 카테고리의 FAQ가 따라갑니다.</small>
+                                        </div>
                                         <div class="form-group form-check">
                                             <input type="checkbox" class="form-check-input" id="catUse" checked>
                                             <label class="form-check-label" for="catUse">노출 (끄면 이 카테고리의 FAQ가 모두 공개되지 않음)</label>
@@ -144,6 +153,7 @@
 <script src="/js/sb-admin-2.min.js"></script>
 <script src="/vendor/quill/quill.js"></script>
 <script src="/js/admin/notice-editor.js"></script>
+<script src="/js/admin/content-scope.js"></script>
 
 <script th:inline="javascript">
     // 서버가 렌더링한 내 위임 권한 키("FAQ:CREATE" 등). 버튼 표시용일 뿐 서버 판정(403)이 최종이다.
@@ -172,6 +182,8 @@
     const catFormTitle = document.getElementById("catFormTitle");
     const fCatName = document.getElementById("catName");
     const fCatUse = document.getElementById("catUse");
+    const fCatScope = document.getElementById("catSiteScope");
+    const scope = ContentScope.create(fCatScope);        // 표시 대상 선택 박스(없는 사이트 ID는 옵션으로 보존)
     const btnCatSave = document.getElementById("btnCatSave");
     const btnCatNew = document.getElementById("btnCatNew");
     const btnCatDelete = document.getElementById("btnCatDelete");
@@ -202,7 +214,11 @@
     let loadSeq = 0;            // 늦게 도착한 이전 목록 응답이 초안을 덮지 않게 하는 세대(R3-1)
     let detailSeq = 0;          // 늦게 도착한 이전 상세 응답이 지금 편집 중인 폼을 덮지 않게 하는 세대
     let editingCategoryId = null;
+    // 낡은 화면 검사 기준(PLAN-site-menu.md S6b·v4~v5): 편집 폼을 서버 값으로 채우는 순간에만 정해지고, 목록 갱신(setServer)이 바꾸지 않는다.
+    // 사용자가 바꾸는 값(표시 대상, 이동할 카테고리)은 폼에서 읽는다.
+    let categoryBase = null;    // {id, version} 또는 null
     let editingFaq = null;      // 상세 응답(null이면 새 FAQ)
+    let faqBase = null;         // {id, categoryId} 또는 null — 편집을 시작할 때의 소속 카테고리
     let dragState = null;
 
     // ===================== 공통 =====================
@@ -485,6 +501,9 @@
             const name = el("span", "faq-cat-name", category.name);
             name.addEventListener("click", function () { startCategoryEdit(category.id); });
             head.appendChild(name);
+            const scopeBadge = scope.badge(category.siteId);
+            scopeBadge.classList.add("mr-2");
+            head.appendChild(scopeBadge);
             if (!category.useYn) {
                 head.appendChild(el("span", "badge badge-warning mr-2", "비노출"));
             }
@@ -656,6 +675,8 @@
         btnCatSave.textContent = "등록";
         fCatName.value = "";
         fCatUse.checked = true;
+        scope.reset();
+        categoryBase = null;
         if (server) { render(); } else { refreshFormButtons(); }
     }
 
@@ -669,6 +690,8 @@
         btnCatSave.textContent = "저장";
         fCatName.value = category.name;
         fCatUse.checked = category.useYn;
+        scope.set(category.siteId);
+        categoryBase = { id: category.id, version: category.version };
         render();
     }
 
@@ -676,10 +699,14 @@
         event.preventDefault();
         if (formLocked()) { return; }
         const editingId = editingCategoryId;
-        const payload = JSON.stringify({ name: fCatName.value, useYn: fCatUse.checked });
+        const payload = JSON.stringify(editingId === null
+            ? { name: fCatName.value, useYn: fCatUse.checked, siteScope: scope.value() }
+            : { name: fCatName.value, useYn: fCatUse.checked, siteScope: scope.value(), version: categoryBase.version });
         const url = editingId === null ? CATEGORIES_URL : CATEGORIES_URL + "/" + encodeURIComponent(editingId);
         const result = await write(url, { method: editingId === null ? "POST" : "PUT", headers: csrfHeaders(true), body: payload },
-            function (saved) { return (editingId === null ? "카테고리를 등록했습니다" : "카테고리를 저장했습니다") + idLabel(saved); }, null);
+            function (saved) { return (editingId === null ? "카테고리를 등록했습니다" : "카테고리를 저장했습니다") + idLabel(saved); },
+            // 폼은 방금 저장한 값과 같으므로 새 버전을 다음 저장의 기준으로 삼는다
+            function (saved) { if (editingId !== null && saved) { categoryBase = { id: saved.id, version: saved.version }; } });
         if (result.ok && editingId === null) {
             startCategoryCreate();
         }
@@ -702,6 +729,7 @@
 
     function startFaqCreate() {
         editingFaq = null;
+        faqBase = null;
         faqFormTitle.textContent = "새 FAQ";
         btnFaqSave.textContent = "등록";
         fFaqQuestion.value = "";
@@ -730,7 +758,16 @@
             }
             const detail = await response.json();
             if (seq !== detailSeq) { return; }
+            if (!categoryById.has(detail.categoryId)) {
+                // 상세(최신)와 트리(옛 조회)가 어긋났다 — 선택 박스가 항목의 소속 카테고리를 복원하지 못하면 다른 카테고리로 조용히 이동 저장될 수 있으므로
+                // 저장하지 않고 목록을 다시 읽는다(PLAN-site-menu.md v5). 다시 항목을 눌러 열면 된다.
+                loadingDetail = false;
+                await reload();                               // 재조회 성공이 알림을 지우므로 안내는 재조회 뒤에 띄운다
+                showError("FAQ의 카테고리가 화면 목록에 없습니다. 최신 목록으로 새로고침했습니다. 다시 선택해 주세요.");
+                return;
+            }
             editingFaq = detail;
+            faqBase = { id: detail.id, categoryId: detail.categoryId };
             faqFormTitle.textContent = "FAQ 수정 #" + detail.id;
             btnFaqSave.textContent = "저장";
             fFaqQuestion.value = detail.question;
@@ -760,8 +797,10 @@
             return;
         }
         const target = editingFaq;                         // 요청 시작 시점의 대상을 고정한다
+        const base = faqBase;                              // 낡은 화면 검사 기준도 함께 고정한다
         const payload = JSON.stringify({
             categoryId: Number(fFaqCategory.value),
+            baseCategoryId: target === null ? undefined : base.categoryId,
             question: fFaqQuestion.value,
             answer: editor.getHtml(),
             contentFormat: "HTML",
@@ -770,7 +809,12 @@
         const url = target === null ? FAQS_URL : FAQS_URL + "/" + encodeURIComponent(target.id);
         const result = await write(url, { method: target === null ? "POST" : "PUT", headers: csrfHeaders(true), body: payload },
             function (saved) { return (target === null ? "FAQ를 등록했습니다" : "FAQ를 저장했습니다") + idLabel(saved); },
-            function (saved) { if (target !== null && saved) { editingFaq = saved; } });
+            function (saved) {
+                if (target !== null && saved) {
+                    editingFaq = saved;
+                    faqBase = { id: saved.id, categoryId: saved.categoryId };   // 폼 = 방금 저장한 값이므로 새 소속을 다음 저장의 기준으로 삼는다
+                }
+            });
         if (result.ok && target === null) {
             const keepCategory = fFaqCategory.value;
             startFaqCreate();

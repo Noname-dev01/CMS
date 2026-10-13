@@ -32,6 +32,10 @@ public class BannerResponse {
     private LocalDateTime displayEnd;
     private Boolean useYn;
     private Integer ord;
+    /** 소속 사이트 ID(null = 모든 공개 사이트 공통). */
+    private Long siteId;
+    /** 수정 요청의 낡은 화면 검사 값. */
+    private Integer version;
     private Status status;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
@@ -49,6 +53,8 @@ public class BannerResponse {
                 .displayEnd(banner.getDisplayEnd())
                 .useYn(banner.getUseYn())
                 .ord(banner.getOrd())
+                .siteId(banner.getSiteId())
+                .version(banner.getVersion())
                 .status(statusOf(banner, now))
                 .createDate(banner.getCreateDate())
                 .updateDate(banner.getUpdateDate())

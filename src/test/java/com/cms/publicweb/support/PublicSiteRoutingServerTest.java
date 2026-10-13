@@ -111,8 +111,8 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
 
         send("GET", "/main");
         send("GET", "/main/faq");
-        Mockito.verify(publicHomeService).getHome();
-        Mockito.verify(publicFaqService).findPublicFaqs();
+        Mockito.verify(publicHomeService).getHome(Mockito.anyLong());
+        Mockito.verify(publicFaqService).findPublicFaqs(Mockito.anyLong());
     }
 
     @Test

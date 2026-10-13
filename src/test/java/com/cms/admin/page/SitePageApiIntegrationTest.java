@@ -103,6 +103,7 @@ class SitePageApiIntegrationTest extends MariaDbContainerSupport {
         body.put("contentFormat", "HTML");
         body.put("useYn", useYn);
         body.put("footerYn", footerYn);
+        body.put("siteScope", "COMMON");
         body.put("version", version);
         return body;
     }

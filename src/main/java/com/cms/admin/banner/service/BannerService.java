@@ -20,6 +20,8 @@ import com.cms.admin.media.service.MediaImageLookup;
 import com.cms.admin.media.service.MediaImageRegistrar;
 import com.cms.admin.media.service.MediaImageRemover;
 import com.cms.admin.media.service.MediaImageSelector;
+import com.cms.admin.site.ContentSiteScope;
+import com.cms.admin.site.SiteScope;
 import com.cms.common.display.DisplayPeriod;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
@@ -73,6 +75,7 @@ public class BannerService {
     static final ImageFileValidator.Limits LIMITS = new ImageFileValidator.Limits(2560, 4_000_000L, false);
 
     static final String BANNER_NOT_FOUND = "배너를 찾을 수 없습니다.";
+    static final String STALE_VERSION = "다른 관리자가 이 배너를 먼저 수정했습니다. 화면을 새로 고친 뒤 다시 시도해주세요.";
 
     private final BannerRepository bannerRepository;
     private final BannerLockRepository bannerLockRepository;
@@ -82,6 +85,7 @@ public class BannerService {
     private final MediaImageSelector imageSelector;
     private final MediaImageRemover imageRemover;
     private final AdminSecurityService adminSecurityService;
+    private final ContentSiteScope contentSiteScope;
     private final FileStorage fileStorage;
     private final Clock clock;
 
@@ -108,6 +112,7 @@ public class BannerService {
         LocalDateTime end = normalizeBound(request.getDisplayEnd());
         DisplayPeriod.requireValid(start, end);
         boolean useYn = request.getUseYn() == null || request.getUseYn();
+        Long siteId = SiteScope.parse(request.getSiteScope());
 
         MultipartFile upload = request.getImage();
         boolean hasUpload = upload != null && !upload.isEmpty();
@@ -138,6 +143,7 @@ public class BannerService {
             throw new ConflictException("배너는 최대 " + MAX_BANNERS + "개까지 등록할 수 있습니다. 사용하지 않는 배너를 삭제해주세요.");
         }
         int ord = bannerRepository.findMaxOrd() + 1;
+        contentSiteScope.requireAssignable(siteId);
 
         ContentImage image;
         if (hasUpload) {
@@ -159,6 +165,7 @@ public class BannerService {
                 .displayEnd(end)
                 .useYn(useYn)
                 .ord(ord)
+                .siteId(siteId)
                 .createDate(now)
                 .updateDate(now)
                 .build());
@@ -174,11 +181,18 @@ public class BannerService {
         LocalDateTime start = normalizeBound(request.getDisplayStart());
         LocalDateTime end = normalizeBound(request.getDisplayEnd());
         DisplayPeriod.requireValid(start, end);
+        Long siteId = SiteScope.parseRequired(request.getSiteScope());
+        int version = SiteScope.requireVersion(request.getVersion(), 1);
 
         Banner target = bannerRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException(BANNER_NOT_FOUND));
+        // 행 락을 잡은 뒤 낡은 화면을 거른다 — 다른 관리자가 방금 바꾼 표시 대상을 옛 값으로 되돌려 공개 범위를 넓히지 못하게(PLAN-site-menu.md S6b)
+        if (target.getVersion() != version) {
+            throw new ConflictException(STALE_VERSION);
+        }
+        contentSiteScope.requireAssignable(siteId);
         LocalDateTime now = LocalDateTime.now(clock);
-        target.replaceMetadata(title, linkUrl, start, end, request.getUseYn(), now);
+        target.replaceMetadata(title, linkUrl, start, end, request.getUseYn(), siteId, now);
         return toResponse(target, now);
     }
 

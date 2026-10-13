@@ -14,6 +14,9 @@ import java.util.Optional;
 
 public interface PopupRepository extends JpaRepository<Popup, Long> {
 
+    /** 사이트 삭제 가드용(PLAN-site-menu.md PR ③) — 그 사이트 전용 행이 있는가. */
+    boolean existsBySiteId(Long siteId);
+
     /** 관리 목록 — 노출 여부·기간과 무관하게 전부, 최근 등록 순. 총 행 수는 서비스의 소프트 상한이 제한한다. */
     List<Popup> findAllByOrderByIdDesc();
 
@@ -26,7 +29,7 @@ public interface PopupRepository extends JpaRepository<Popup, Long> {
     Optional<Popup> findByIdForUpdate(@Param("id") Long id);
 
     /**
-     * 공개 메인용 — 노출 여부와 기간 {@code [start, end)}이 조건에 고정돼 있다. 이 조건은 {@code DisplayPeriod.isActive}와 같은 의미이고
+     * 공개 메인용 — 노출 여부와 기간 {@code [start, end)}, <b>사이트 소속(공통이거나 {@code siteId}와 같음)</b>이 조건에 고정돼 있다. 이 조건은 {@code DisplayPeriod.isActive}와 같은 의미이고
      * 두 표현의 일치는 DB 시험이 고정한다. 판정 시각은 호출자(공개 서비스)가 주입된 {@code Clock}으로 1회 산출해 넘기고, 건수는 {@code pageable}로 자른다.
      * <b>적격성(HTML형이거나 이미지 연결이 있는 이미지형)을 {@code LIMIT} 전에 판정</b>한다 — 이미지 연결이 없는 불완전한 이미지형이 5개 슬롯을 차지해
      * 정상 팝업이 밀려나지 않게 한다(PLAN-media-library.md R3-2).
@@ -36,16 +39,18 @@ public interface PopupRepository extends JpaRepository<Popup, Long> {
             where p.useYn = true
               and (p.displayStart is null or p.displayStart <= :now)
               and (p.displayEnd is null or p.displayEnd > :now)
+              and (p.siteId is null or p.siteId = :siteId)
               and (p.popupType = com.cms.admin.popup.domain.PopupType.HTML
                    or exists (select 1 from ContentImageRef r, ContentImage i
                               where r.ownerType = 'POPUP' and r.ownerId = p.id and i.id = r.imageId))
             order by p.id asc
             """)
-    List<Popup> findDisplayable(@Param("now") LocalDateTime now, Pageable pageable);
+    List<Popup> findDisplayable(@Param("now") LocalDateTime now, @Param("siteId") Long siteId, Pageable pageable);
 
     /**
      * 공개 이미지 다운로드용 — {@link #findDisplayable}과 같은 조건 + id + <b>이미지형</b>. 조건이 쿼리에 고정돼 노출 재검증을 건너뛸 수 없고,
      * HTML형 팝업의 이미지 요청은 행이 없는 것과 같은 결과가 된다.
+     * 이미지 경로는 사이트 맥락이 없으므로 소속 일치는 보지 않고 <b>소속 사이트가 비활성이면 제외</b>한다(PLAN-site-menu.md PR ③ S3).
      */
     @Query("""
             select p from Popup p
@@ -54,6 +59,7 @@ public interface PopupRepository extends JpaRepository<Popup, Long> {
               and p.useYn = true
               and (p.displayStart is null or p.displayStart <= :now)
               and (p.displayEnd is null or p.displayEnd > :now)
+              and (p.siteId is null or exists (select 1 from Site s where s.id = p.siteId and s.useYn = true))
               and exists (select 1 from ContentImageRef r, ContentImage i
                           where r.ownerType = 'POPUP' and r.ownerId = p.id and i.id = r.imageId)
             """)

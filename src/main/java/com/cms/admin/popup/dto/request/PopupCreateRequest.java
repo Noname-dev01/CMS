@@ -5,7 +5,9 @@ import com.cms.admin.popup.domain.PopupType;
 import com.cms.common.html.ContentBodyPolicy;
 import com.cms.common.web.validation.SafeLinkUrl;
 import io.swagger.v3.oas.annotations.media.Schema;
+import com.cms.admin.site.SiteScope;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -72,4 +74,8 @@ public class PopupCreateRequest {
 
     @Schema(description = "노출 여부. 누락 시 true", example = "true")
     private Boolean useYn;
+
+    @Pattern(regexp = SiteScope.PATTERN, message = "표시 대상은 COMMON 또는 사이트 ID여야 합니다.")
+    @Schema(description = "표시 대상 — COMMON(모든 공개 사이트 공통) 또는 공개 사이트 ID. 누락 시 COMMON", example = "COMMON")
+    private String siteScope;
 }

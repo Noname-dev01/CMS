@@ -96,7 +96,7 @@ class FaqConcurrencyIntegrationTest extends MariaDbContainerSupport {
     }
 
     private static FaqCategoryRequest categoryRequest(String name) {
-        return new FaqCategoryRequest(name, true);
+        return new FaqCategoryRequest(name, true, null);
     }
 
     private static void await(CountDownLatch latch) {

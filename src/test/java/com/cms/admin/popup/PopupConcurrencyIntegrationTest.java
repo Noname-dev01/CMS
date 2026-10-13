@@ -77,9 +77,12 @@ class PopupConcurrencyIntegrationTest extends MariaDbContainerSupport {
         return jdbc.queryForObject("SELECT revision FROM popup WHERE id = ?", Integer.class, id);
     }
 
-    private static PopupUpdateRequest request(String title) {
+    /** 수정은 낡은 화면 검사용 revision과 표시 대상이 필수다(PLAN-site-menu.md PR ③) — 호출자가 "내가 본 revision"을 넘긴다. */
+    private static PopupUpdateRequest request(String title, int revision) {
         PopupUpdateRequest request = new PopupUpdateRequest();
         request.setTitle(title);
+        request.setSiteScope("COMMON");
+        request.setRevision(revision);
         request.setPosX(10);
         request.setPosY(10);
         request.setWidth(300);
@@ -100,13 +103,13 @@ class PopupConcurrencyIntegrationTest extends MariaDbContainerSupport {
             Future<?> holder = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
                 Popup target = popupRepository.findByIdForUpdate(id).orElseThrow();
                 holderConnection.set(((Number) entityManager.createNativeQuery("SELECT CONNECTION_ID()").getSingleResult()).longValue());
-                target.replace("holder", target.getLinkUrl(), null, 10, 10, 300, null, null, null, true, LocalDateTime.now());   // 첫 수정: revision +1, 커밋은 미룬다
+                target.replace("holder", target.getLinkUrl(), null, 10, 10, 300, null, null, null, true, null, LocalDateTime.now());   // 첫 수정: revision +1, 커밋은 미룬다
                 locked.countDown();
                 await(release);
             }));
             await(locked);
 
-            Future<?> waiter = executor.submit(() -> popupService.updatePopup(id, request("waiter")));
+            Future<?> waiter = executor.submit(() -> popupService.updatePopup(id, request("waiter", before + 1)));
             new LockWaitObserver(connectionDetails.getJdbcUrl(), connectionDetails.getPassword())
                     .awaitWaiterFor(holderConnection.get(), Duration.ofSeconds(8));
             assertThat(waiter.isDone()).as("행 락이 풀리기 전에는 두 번째 수정이 끝나지 않는다(@Lock 선언 누락 회귀 의심)").isFalse();
@@ -125,7 +128,7 @@ class PopupConcurrencyIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("같은 팝업을 8개 스레드가 동시에 수정해도 모두 성공하고 revision은 정확히 +8이다(증가분 유실 없음)")
+    @DisplayName("같은 팝업을 8개 스레드가 동시에 수정해도(낡은 revision은 409 뒤 재시도) 모두 반영되고 revision은 정확히 +8이다(증가분 유실 없음)")
     void concurrentUpdates_neverLoseIncrements() throws Exception {
         long id = fixturePopup();
         int before = revisionOf(id);
@@ -138,7 +141,15 @@ class PopupConcurrencyIntegrationTest extends MariaDbContainerSupport {
                 String title = "t" + i;
                 futures.add(executor.submit(() -> {
                     barrier.await(10, TimeUnit.SECONDS);
-                    return popupService.updatePopup(id, request(title));
+                    // 낡은 revision이면 409 — 최신 revision으로 다시 시도한다(락이 풀리는 순서대로 하나씩 반영되고, 증가분이 유실되면 합계가 모자란다)
+                    for (int attempt = 0; attempt < 100; attempt++) {
+                        try {
+                            return popupService.updatePopup(id, request(title, revisionOf(id)));
+                        } catch (com.cms.common.exception.ConflictException stale) {
+                            // 다른 스레드가 먼저 반영함 — 재시도
+                        }
+                    }
+                    throw new IllegalStateException("재시도 한도 초과");
                 }));
             }
             for (Future<?> future : futures) {

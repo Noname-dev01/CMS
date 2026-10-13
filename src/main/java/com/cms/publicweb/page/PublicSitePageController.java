@@ -4,6 +4,7 @@ import com.cms.publicweb.support.PublicSiteRoutes;
 import com.cms.publicweb.support.SiteScopedPublic;
 import com.cms.publicweb.page.dto.PublicSitePageRevisions;
 import com.cms.publicweb.page.dto.PublicSitePageView;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
@@ -36,29 +37,35 @@ public class PublicSitePageController {
     private final PublicSitePageService publicSitePageService;
 
     @GetMapping("/{slug}")
-    public String current(@PathVariable String slug, Model model, HttpServletResponse response) {
-        return publicSitePageService.findCurrent(slug)
+    public String current(@PathVariable String slug, HttpServletRequest request, Model model, HttpServletResponse response) {
+        return publicSitePageService.findCurrent(slug, siteId(request))
                 .map(view -> renderPage(view, model))
                 .orElseGet(() -> notFound(response));
     }
 
     @GetMapping("/{slug}/revisions")
     public String revisions(@PathVariable String slug, @RequestParam(defaultValue = "0") String page,
-                            Model model, HttpServletResponse response) {
-        return publicSitePageService.findRevisions(slug, parsePageOrZero(page))
+                            HttpServletRequest request, Model model, HttpServletResponse response) {
+        return publicSitePageService.findRevisions(slug, parsePageOrZero(page), siteId(request))
                 .map(result -> renderRevisions(result, model))
                 .orElseGet(() -> notFound(response));
     }
 
     @GetMapping("/{slug}/revisions/{no}")
-    public String revision(@PathVariable String slug, @PathVariable String no, Model model, HttpServletResponse response) {
+    public String revision(@PathVariable String slug, @PathVariable String no, HttpServletRequest request, Model model,
+                           HttpServletResponse response) {
         Integer revisionNo = parseRevisionNo(no);
         if (revisionNo == null) {
             return notFound(response);
         }
-        return publicSitePageService.findRevision(slug, revisionNo)
+        return publicSitePageService.findRevision(slug, revisionNo, siteId(request))
                 .map(view -> renderPage(view, model))
                 .orElseGet(() -> notFound(response));
+    }
+
+    /** 인터셉터가 해석한 현재 사이트 — 다른 사이트 전용 페이지는 서비스 쿼리가 없는 것과 같게 처리한다. */
+    private static Long siteId(HttpServletRequest request) {
+        return PublicSiteRoutes.current(request).id();
     }
 
     private String renderPage(PublicSitePageView view, Model model) {

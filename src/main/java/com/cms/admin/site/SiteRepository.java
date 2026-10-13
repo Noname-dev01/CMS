@@ -24,6 +24,14 @@ public interface SiteRepository extends JpaRepository<Site, Long> {
     Optional<Site> findByIdForUpdate(@Param("id") Long id);
 
     /**
+     * 콘텐츠를 사이트 전용으로 지정할 때 대상 사이트를 PESSIMISTIC_READ({@code FOR SHARE})로 잠가 읽는다 — 사이트 삭제({@code FOR UPDATE})와 직렬화한다
+     * (PLAN-site-menu.md PR ③ S2). 호출 트랜잭션에서 기능 가드·소유자 행을 먼저 잡은 뒤 호출한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select s from Site s where s.id = :id")
+    Optional<Site> findByIdForShare(@Param("id") Long id);
+
+    /**
      * 모든 사이트 행을 id 오름차순으로 잠가 읽는다 — 기본 사이트 변경 전용(PLAN-site-menu.md PR ② P2-5). 옛 기본·새 기본 두 행을 함께 바꾸므로
      * 고정 순서(id 오름차순)로 전부 잠가 기본 변경끼리의 교착을 막는다. 호출 트랜잭션은 READ_COMMITTED여야 한다.
      */

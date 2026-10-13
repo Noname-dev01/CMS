@@ -60,6 +60,7 @@
 | V52 | `V52__add_menu_site_id.sql` | `menu.site_id NOT NULL DEFAULT 1` + FK `ON DELETE RESTRICT`(DDL 1문 — 기존 메뉴는 전부 관리자 사이트가 된다) |
 | V53 | `V53__add_site_default.sql` | `site.default_yn bit(1) NOT NULL DEFAULT 0`(DDL 1문, 롤백 호환) |
 | V54 | `V54__seed_default_site.sql` | 시드 `main`(id=2)을 기본 공개 사이트로 지정 — 기본이 이미 있으면 건드리지 않는 멱등 DML |
+| V55 | `V55__add_content_site_id.sql` | `banner`·`popup`·`faq_category`·`site_page`에 `site_id`(NULL = 공통, FK `RESTRICT`) + `banner`·`faq_category`에 `version`(기본 1) — DDL 4문(아래 "V55") |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -194,6 +195,12 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **배포**: V53(DDL) → V54(DML). 배포 전 `make prod-backup`. 둘 다 멱등(`ADD COLUMN IF NOT EXISTS`, `WHERE NOT EXISTS`)이라 실패 뒤 `flyway repair`로 재실행해도 안전하다. V54는 기본 표시가 이미 있으면 건드리지 않는다.
 - **롤백 호환**: `default_yn`이 `NOT NULL DEFAULT 0`이라 이전 앱의 INSERT가 깨지지 않는다. 다만 이 마이그레이션과 함께 나간 앱은 공개 경로가 `/{siteKey}/…`로 바뀌므로 **앱 롤백은 일괄 교체로만** 한다(`docs/deployment.md` "공개 경로 `/{siteKey}/…` 이전").
 - **불변식 점검**: 기본 사이트는 정확히 1개의 활성 `PUBLIC` 행이어야 한다 — `SELECT id, site_key, use_yn, site_type FROM site WHERE default_yn = 1;`이 1행이 아니면 `/`가 404다. DB 제약은 없고 `SiteService`(모든 site 행 `FOR UPDATE`)와 시험이 지킨다.
+
+## V55 — 사이트별 콘텐츠 (2026-10-13, `adversarial-review/plan/PLAN-site-menu.md` PR ③)
+
+- **배포**: DDL 4문(`ALTER TABLE` 한 테이블에 한 문 — 컬럼 추가와 FK를 한 문에 묶었다), 문마다 암묵 커밋. 배포 전 `make prod-backup`. 전부 `IF NOT EXISTS`라 실패 뒤 `flyway repair`로 재실행해도 안전하다(`ContentSiteMigrationTest.isIdempotent`). 기존 행은 `site_id NULL`(공통)·`version 1`이라 데이터 이동이 없다.
+- **실패 복구**: `success=0`이 남으면 ① 앱 정지 ② 테이블별로 `SHOW COLUMNS FROM <table> LIKE 'site_id';`·`SHOW CREATE TABLE <table>`로 어디까지 적용됐는지 확인 ③ 컬럼·FK가 일부만 있어도 같은 파일을 `flyway repair` 후 재실행하면 나머지가 채워진다(멱등).
+- **롤백 호환(조건부)**: `site_id`는 `DEFAULT NULL`, `version`은 `NOT NULL DEFAULT 1`이라 이전 앱의 INSERT가 깨지지 않고 공통 콘텐츠로 들어간다(`ContentSiteMigrationTest.legacyInsertsStayCommon`). **다만 사이트 전용 콘텐츠가 있으면 롤백하지 않는다** — 이전 앱이 전용 콘텐츠를 모든 사이트에 노출한다. 점검 SQL과 삭제 순서(FAQ는 항목 → 카테고리)는 `docs/deployment.md` "사이트별 콘텐츠".
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

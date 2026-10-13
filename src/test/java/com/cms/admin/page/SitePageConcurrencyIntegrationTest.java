@@ -111,7 +111,7 @@ class SitePageConcurrencyIntegrationTest extends MariaDbContainerSupport {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(java.util.Map.of(
                         "title", title, "content", "<p>" + title + "</p>", "contentFormat", "HTML",
-                        "useYn", true, "footerYn", false, "version", version))))
+                        "useYn", true, "footerYn", false, "siteScope", "COMMON", "version", version))))
                 .andReturn().getResponse().getStatus();
     }
 
@@ -141,7 +141,7 @@ class SitePageConcurrencyIntegrationTest extends MariaDbContainerSupport {
         List<Callable<Integer>> calls = new ArrayList<>();
         calls.add(() -> mockMvc.perform(put("/admin/api/site-pages/{id}", id).with(asAdmin()).with(csrf())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"title\":\"원본\",\"content\":\"<p>원본</p>\",\"contentFormat\":\"HTML\",\"useYn\":false,\"footerYn\":false,\"version\":1}"))
+                .content("{\"title\":\"원본\",\"content\":\"<p>원본</p>\",\"contentFormat\":\"HTML\",\"useYn\":false,\"footerYn\":false,\"siteScope\":\"COMMON\",\"version\":1}"))
                 .andReturn().getResponse().getStatus());
         calls.add(update(id, "본문 변경", 1));
 
