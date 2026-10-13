@@ -50,10 +50,10 @@
                                 <div class="table-responsive">
                                     <table class="table table-bordered table-hover mb-0">
                                         <thead class="thead-light">
-                                        <tr><th>이미지</th><th>제목</th><th>노출 기간</th><th>상태</th><th>순서</th></tr>
+                                        <tr><th>이미지</th><th>제목</th><th>대상</th><th>노출 기간</th><th>상태</th><th>순서</th></tr>
                                         </thead>
                                         <tbody id="bannerList">
-                                        <tr><td colspan="5" class="text-muted">불러오는 중...</td></tr>
+                                        <tr><td colspan="6" class="text-muted">불러오는 중...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -97,6 +97,15 @@
                                             <div class="col-5 d-flex"><select class="form-control mr-1" id="bannerEndHour" aria-label="노출 종료 시"></select><select class="form-control" id="bannerEndMinute" aria-label="노출 종료 분"></select></div>
                                         </div>
                                     </div>
+                                    <div class="form-group">
+                                        <label for="bannerSiteScope">표시 대상</label>
+                                        <select class="form-control" id="bannerSiteScope" aria-describedby="bannerSiteScopeHint">
+                                            <option value="COMMON">공통 (모든 사이트)</option>
+                                            <option th:each="site : ${scopeSites}" th:value="${site.id()}"
+                                                    th:text="${site.active()} ? ${site.name()} : ${site.name() + ' (비활성)'}"></option>
+                                        </select>
+                                        <small class="form-text text-muted" id="bannerSiteScopeHint">공통은 모든 공개 사이트에, 사이트를 고르면 그 사이트에서만 보입니다.</small>
+                                    </div>
                                     <div class="form-group form-check">
                                         <input type="checkbox" class="form-check-input" id="bannerUse" checked>
                                         <label class="form-check-label" for="bannerUse">노출 (끄면 기간과 무관하게 숨김)</label>
@@ -136,6 +145,7 @@
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
 <script src="/js/admin/media-picker.js"></script>
+<script src="/js/admin/content-scope.js"></script>
 
 <script th:inline="javascript">
     // 서버가 렌더링한 내 위임 권한 키("BANNER:CREATE" 등). 버튼 표시용일 뿐 서버 판정(403)이 최종이다.
@@ -159,6 +169,8 @@
     const fEndHour = document.getElementById("bannerEndHour");
     const fEndMinute = document.getElementById("bannerEndMinute");
     const fUse = document.getElementById("bannerUse");
+    const fScope = document.getElementById("bannerSiteScope");
+    const scope = ContentScope.create(fScope);           // 표시 대상 선택 박스(없는 사이트 ID는 옵션으로 보존)
     const fImage = document.getElementById("bannerImage");
     const imageGroup = document.getElementById("imageGroup");
     const previewGroup = document.getElementById("previewGroup");
@@ -212,6 +224,9 @@
     let banners = [];          // 서버 응답 스냅샷(표시 순서)
     let orderDraft = null;     // 순서 초안: 배너 ID 배열(null이면 초안 없음)
     let editing = null;        // 편집 대상 스냅샷(null이면 새 배너 작성)
+    // 낡은 화면 검사 기준(PLAN-site-menu.md S6b): 편집 폼을 서버 값으로 채우는 순간에만 정해진다. 목록 갱신(loadList)이 editing을 최신 객체로
+    // 바꿔도 이 값은 바뀌지 않는다 — 폼 입력은 옛 값인데 버전만 최신이 되어 검사를 통과하는 일을 막는다. 사용자가 바꾸는 값(표시 대상 등)은 폼에서 읽는다.
+    let editBase = null;       // {id, version} 또는 null
     let saving = false;
     let listRequestSeq = 0;    // 늦게 도착한 이전 목록 응답이 최신 목록을 덮어쓰지 않게 하는 세대
 
@@ -326,7 +341,7 @@
         btnReload.disabled = saving || orderDraft !== null;
         orderBar.classList.toggle("d-none", orderDraft === null);
         // 저장 중에는 입력도 잠근다 — 이미 전송된 요청에 담기지 않은 추가 입력이 성공 처리 뒤 조용히 사라지거나 저장된 것으로 오인되는 것을 막는다
-        [fTitle, fLink, fStartDate, fStartHour, fStartMinute, fEndDate, fEndHour, fEndMinute, fUse, fImage, btnPickLibrary, btnClearLibrary].forEach(function (field) {
+        [fTitle, fLink, fStartDate, fStartHour, fStartMinute, fEndDate, fEndHour, fEndMinute, fUse, fScope, fImage, btnPickLibrary, btnClearLibrary].forEach(function (field) {
             field.disabled = saving;
         });
         btnOrderSave.disabled = saving;
@@ -359,7 +374,7 @@
         if (list.length === 0) {
             const tr = document.createElement("tr");
             const td = cell("등록된 배너가 없습니다.");
-            td.colSpan = 5;
+            td.colSpan = 6;
             td.className = "text-muted";
             tr.appendChild(td);
             bannerList.appendChild(tr);
@@ -377,6 +392,9 @@
             tr.appendChild(imageCell);
 
             tr.appendChild(cell(banner.title));
+            const scopeCell = document.createElement("td");
+            scopeCell.appendChild(scope.badge(banner.siteId));
+            tr.appendChild(scopeCell);
             tr.appendChild(cell(periodText(banner)));
 
             const statusCell = document.createElement("td");
@@ -403,6 +421,8 @@
         formTitle.textContent = "새 배너";
         bannerForm.reset();
         fUse.checked = true;
+        scope.reset();
+        editBase = null;
         setPickedImage(null);
         imageGroup.classList.remove("d-none");
         previewGroup.classList.add("d-none");
@@ -417,12 +437,14 @@
             return;
         }
         editing = banner;
+        editBase = { id: banner.id, version: banner.version };
         formTitle.textContent = "배너 #" + banner.id + " 수정";
         fTitle.value = banner.title;
         fLink.value = banner.linkUrl || "";
         writeDateTime(fStartDate, fStartHour, fStartMinute, banner.displayStart);
         writeDateTime(fEndDate, fEndHour, fEndMinute, banner.displayEnd);
         fUse.checked = !!banner.useYn;
+        scope.set(banner.siteId);
         fImage.value = "";
         imageGroup.classList.add("d-none");
         preview.src = BANNERS_URL + "/" + encodeURIComponent(banner.id) + "/image";
@@ -479,6 +501,7 @@
             return;
         }
         const target = editing;                             // 요청 시작 시점의 대상을 고정한다
+        const base = editBase;                              // 낡은 화면 검사 기준도 함께 고정한다
         let displayStart;
         let displayEnd;
         try {
@@ -500,7 +523,9 @@
                         linkUrl: fLink.value.trim() === "" ? null : fLink.value.trim(),
                         displayStart: displayStart,
                         displayEnd: displayEnd,
-                        useYn: fUse.checked
+                        useYn: fUse.checked,
+                        siteScope: scope.value(),
+                        version: base.version
                     })
                 });
             } else {
@@ -514,6 +539,7 @@
                 if (displayStart !== null) { form.append("displayStart", displayStart); }
                 if (displayEnd !== null) { form.append("displayEnd", displayEnd); }
                 form.append("useYn", fUse.checked ? "true" : "false");
+                form.append("siteScope", scope.value());
                 if (pickedImage !== null) {
                     form.append("imageId", String(pickedImage.id));
                 } else {
@@ -524,9 +550,14 @@
             if (response.ok) {
                 const saved = await response.json();
                 showSuccess(target ? "배너를 저장했습니다: #" + saved.id : "배너를 등록했습니다: #" + saved.id);
-                if (!target) {
+                if (target) {
+                    // 폼은 방금 저장한 값과 같으므로 새 버전을 다음 저장의 기준으로 삼는다
+                    editBase = { id: saved.id, version: saved.version };
+                } else {
                     editing = null;
+                    editBase = null;
                     bannerForm.reset();
+                    scope.reset();
                     setPickedImage(null);
                     fUse.checked = true;
                 }

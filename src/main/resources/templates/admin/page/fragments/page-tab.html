@@ -21,9 +21,12 @@
 
                 <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
                 <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
+                <!--/* 같은 셸의 사이트 탭이 사이트를 만들거나 바꾸면 표시 대상 선택지가 낡는다 — 새로고침 안내(옵션은 서버가 렌더링한 값) */-->
+                <div id="scopeStaleNotice" class="alert alert-info d-none" role="status">사이트 목록이 바뀌었습니다. 화면을 새로 고치면 표시 대상 선택지에 반영됩니다.</div>
+                <span id="pageScopeData" class="d-none" th:attr="data-default-key=${scopeDefaultKey}"></span>
 
                 <p class="text-muted small">
-                    약관·개인정보처리방침·소개 같은 고정 페이지를 관리합니다. 공개 주소는 <code>/pages/슬러그</code>이며 슬러그는 만든 뒤 바꿀 수 없습니다.
+                    약관·개인정보처리방침·소개 같은 고정 페이지를 관리합니다. 공개 주소는 <code>/사이트키/pages/슬러그</code>이며 슬러그는 만든 뒤 바꿀 수 없습니다.
                     <strong>제목이나 본문을 바꿔 저장할 때마다 개정이 쌓이고</strong> 방문자는 이전 버전을 볼 수 있습니다. 이미지는 넣을 수 없습니다.
                     잘못 올린 내용을 이전 개정에서만 지울 수는 없으니, 민감한 내용이 들어갔다면 페이지를 비노출하거나 삭제하세요.
                 </p>
@@ -39,10 +42,10 @@
                                 <div class="table-responsive">
                                     <table class="table table-bordered table-hover mb-0">
                                         <thead class="thead-light">
-                                        <tr><th>슬러그</th><th>제목</th><th>상태</th><th>개정</th></tr>
+                                        <tr><th>슬러그</th><th>제목</th><th>대상</th><th>상태</th><th>개정</th></tr>
                                         </thead>
                                         <tbody id="pageList">
-                                        <tr><td colspan="4" class="text-muted">불러오는 중...</td></tr>
+                                        <tr><td colspan="5" class="text-muted">불러오는 중...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -71,6 +74,16 @@
                                         <label>본문</label>
                                         <div class="page-editor"><div id="pageContentEditor"></div></div>
                                         <small class="form-text text-muted">보이는 글자 50,000자 이하. 이미지는 지원하지 않습니다.</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="pageSiteScope">표시 대상</label>
+                                        <select class="form-control" id="pageSiteScope" aria-describedby="pageSiteScopeHint">
+                                            <option value="COMMON">공통 (모든 사이트)</option>
+                                            <option th:each="site : ${scopeSites}" th:value="${site.id()}"
+                                                    th:attr="data-key=${site.key()}, data-active=${site.active()}"
+                                                    th:text="${site.active()} ? ${site.name()} : ${site.name() + ' (비활성)'}"></option>
+                                        </select>
+                                        <small class="form-text text-muted" id="pageSiteScopeHint">공통은 모든 공개 사이트에, 사이트를 고르면 그 사이트에서만 보입니다(푸터 링크도 같습니다). 슬러그는 모든 사이트에서 유일합니다.</small>
                                     </div>
                                     <div class="form-group form-check">
                                         <input type="checkbox" class="form-check-input" id="pageUse" checked>
@@ -108,6 +121,21 @@
     const fTitle = document.getElementById("pageTitle");
     const fUse = document.getElementById("pageUse");
     const fFooter = document.getElementById("pageFooter");
+    const fScope = document.getElementById("pageSiteScope");
+    const scope = ContentScope.create(fScope);        // 표시 대상 선택 박스(없는 사이트 ID는 옵션으로 보존)
+    const DEFAULT_KEY = document.getElementById("pageScopeData").dataset.defaultKey || null;
+    const scopeStaleNotice = document.getElementById("scopeStaleNotice");
+    // 사이트 탭이 사이트를 바꾸면 선택지가 낡았음을 알린다
+    window.addEventListener("content:sites-changed", function () { scopeStaleNotice.classList.remove("d-none"); });
+
+    /** 페이지의 공개 주소 접두어(예: /main). 공통 페이지는 기본 공개 사이트로, 전용 페이지는 그 사이트로 — 사이트가 비활성이거나 알 수 없으면 null. */
+    function publicPrefix(siteId) {
+        if (siteId === null || siteId === undefined) {
+            return DEFAULT_KEY ? "/" + DEFAULT_KEY : null;
+        }
+        const key = scope.key(siteId);
+        return key && scope.isActive(siteId) ? "/" + key : null;
+    }
     const btnSave = document.getElementById("pageBtnSave");
     const btnNew = document.getElementById("btnNew");
     const btnDelete = document.getElementById("btnDelete");
@@ -203,7 +231,7 @@
         btnReload.disabled = busy;
         // 슬러그는 새 페이지에서만 입력할 수 있다
         fSlug.disabled = busy || editing !== null;
-        [fTitle, fUse, fFooter].forEach(function (field) { field.disabled = busy; });
+        [fTitle, fUse, fFooter, fScope].forEach(function (field) { field.disabled = busy; });
         // 본문 편집기도 잠근다 — 이미 전송된 요청에 담기지 않은 추가 입력이 성공 응답의 setHtml로 조용히 사라지는 것을 막는다(코드 리뷰 R1)
         editor.quill.enable(!busy);
     }
@@ -213,7 +241,7 @@
         if (pages.length === 0) {
             const tr = document.createElement("tr");
             const td = cell("등록된 정적 페이지가 없습니다.");
-            td.colSpan = 4;
+            td.colSpan = 5;
             td.className = "text-muted";
             tr.appendChild(td);
             pageList.appendChild(tr);
@@ -223,6 +251,9 @@
             tr.className = "page-row" + (editing && editing.id === page.id ? " table-active" : "");
             tr.appendChild(cell(page.slug));
             tr.appendChild(cell(page.title));
+            const scopeCell = document.createElement("td");
+            scopeCell.appendChild(scope.badge(page.siteId));
+            tr.appendChild(scopeCell);
 
             const statusCell = document.createElement("td");
             const badge = document.createElement("span");
@@ -258,9 +289,10 @@
             li.className = "list-group-item d-flex justify-content-between align-items-center py-2";
             const left = document.createElement("span");
             // 이전 개정 본문은 공개 주소로 본다(노출 중인 페이지만 — 비노출이면 링크 없음)
-            if (editing.useYn) {
+            const prefix = publicPrefix(editing.siteId);
+            if (editing.useYn && prefix !== null) {
                 const link = document.createElement("a");
-                link.href = "/pages/" + encodeURIComponent(editing.slug) + "/revisions/" + encodeURIComponent(revision.revisionNo);
+                link.href = prefix + "/pages/" + encodeURIComponent(editing.slug) + "/revisions/" + encodeURIComponent(revision.revisionNo);
                 link.target = "_blank";
                 link.rel = "noopener noreferrer";
                 link.textContent = "개정 " + revision.revisionNo;
@@ -288,6 +320,7 @@
         pageForm.reset();
         fUse.checked = true;
         fFooter.checked = false;
+        scope.reset();
         editor.setHtml("");
         slugLink.textContent = "";
         btnSave.textContent = "등록";
@@ -304,8 +337,12 @@
         fTitle.value = detail.title;
         fUse.checked = !!detail.useYn;
         fFooter.checked = !!detail.footerYn;
+        scope.set(detail.siteId);
         editor.setHtml(detail.content || "");
-        slugLink.textContent = "공개 주소: /pages/" + detail.slug + (detail.useYn ? "" : " (비노출 중이라 방문자에게 404)");
+        const prefix = publicPrefix(detail.siteId);
+        slugLink.textContent = prefix === null
+            ? "공개 주소 없음 (소속 사이트가 비활성이거나 기본 공개 사이트가 없어 방문자에게 보이지 않습니다)"
+            : "공개 주소: " + prefix + "/pages/" + detail.slug + (detail.useYn ? "" : " (비노출 중이라 방문자에게 404)");
         btnSave.textContent = "저장";
         btnNew.classList.remove("d-none");
         btnDelete.classList.toggle("d-none", !canDelete);
@@ -317,8 +354,9 @@
     function isDirty() {
         // 신규 작성에서도 노출·푸터를 기본값(켜짐·꺼짐)에서 바꿨으면 미저장 변경이다(R2-1 — 빠뜨리면 플래그만 바꾼 채 메뉴 반영·이탈이 경고 없이 값을 버린다)
         return editing === null
-                ? (fSlug.value !== "" || fTitle.value !== "" || editor.isChanged() || fUse.checked !== true || fFooter.checked !== false)
-                : (fTitle.value !== editing.title || editor.isChanged() || fUse.checked !== !!editing.useYn || fFooter.checked !== !!editing.footerYn);
+                ? (fSlug.value !== "" || fTitle.value !== "" || editor.isChanged() || fUse.checked !== true || fFooter.checked !== false || scope.value() !== ContentScope.COMMON)
+                : (fTitle.value !== editing.title || editor.isChanged() || fUse.checked !== !!editing.useYn || fFooter.checked !== !!editing.footerYn
+                        || scope.value() !== (editing.siteId === null || editing.siteId === undefined ? ContentScope.COMMON : String(editing.siteId)));
     }
 
     /** 사용자가 직접 하는 전환 전에 미저장 입력을 버려도 되는지 묻는다(코드 리뷰 R2). 저장·삭제 성공 뒤의 내부 초기화는 묻지 않는다. */
@@ -413,6 +451,7 @@
                         contentFormat: "HTML",
                         useYn: fUse.checked,
                         footerYn: fFooter.checked,
+                        siteScope: scope.value(),
                         version: target.version
                     })
                 });
@@ -426,13 +465,14 @@
                         content: editor.getHtml(),
                         contentFormat: "HTML",
                         useYn: fUse.checked,
-                        footerYn: fFooter.checked
+                        footerYn: fFooter.checked,
+                        siteScope: scope.value()
                     })
                 });
             }
             if (response.ok) {
                 const saved = await response.json();
-                showSuccess(target ? "페이지를 저장했습니다 (개정 " + saved.currentRevisionNo + ")." : "페이지를 등록했습니다: /pages/" + saved.slug);
+                showSuccess(target ? "페이지를 저장했습니다 (개정 " + saved.currentRevisionNo + ")." : "페이지를 등록했습니다: " + saved.slug);
                 applyDetail(saved);                          // 최신 version·개정 목록을 바로 받는다
                 await loadList();
             } else if (response.status === 409 && target) {
@@ -454,7 +494,7 @@
             return;
         }
         const target = editing;
-        if (!confirm("정적 페이지 /pages/" + target.slug + " 을(를) 삭제하시겠습니까?\n개정 이력까지 모두 삭제되며 복구할 수 없습니다.")) {
+        if (!confirm("정적 페이지 " + target.slug + " 을(를) 삭제하시겠습니까?\n개정 이력까지 모두 삭제되며 복구할 수 없습니다.")) {
             return;
         }
         setSaving(true);
@@ -464,7 +504,7 @@
                 headers: csrfHeaders(false)
             });
             if (response.ok || response.status === 204 || response.status === 404) {
-                showSuccess(response.status === 404 ? "이미 삭제된 페이지입니다." : "페이지를 삭제했습니다: /pages/" + target.slug);
+                showSuccess(response.status === 404 ? "이미 삭제된 페이지입니다." : "페이지를 삭제했습니다: " + target.slug);
                 startCreate();
                 await loadList();
             } else {

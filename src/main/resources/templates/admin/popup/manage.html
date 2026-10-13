@@ -55,10 +55,10 @@
                                 <div class="table-responsive">
                                     <table class="table table-bordered table-hover mb-0">
                                         <thead class="thead-light">
-                                        <tr><th>미리보기</th><th>종류</th><th>제목</th><th>노출 기간</th><th>상태</th></tr>
+                                        <tr><th>미리보기</th><th>종류</th><th>제목</th><th>대상</th><th>노출 기간</th><th>상태</th></tr>
                                         </thead>
                                         <tbody id="popupList">
-                                        <tr><td colspan="5" class="text-muted">불러오는 중...</td></tr>
+                                        <tr><td colspan="6" class="text-muted">불러오는 중...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -147,6 +147,15 @@
                                             <div class="col-5 d-flex"><select class="form-control mr-1" id="popupEndHour" aria-label="노출 종료 시"></select><select class="form-control" id="popupEndMinute" aria-label="노출 종료 분"></select></div>
                                         </div>
                                     </div>
+                                    <div class="form-group">
+                                        <label for="popupSiteScope">표시 대상</label>
+                                        <select class="form-control" id="popupSiteScope" aria-describedby="popupSiteScopeHint">
+                                            <option value="COMMON">공통 (모든 사이트)</option>
+                                            <option th:each="site : ${scopeSites}" th:value="${site.id()}"
+                                                    th:text="${site.active()} ? ${site.name()} : ${site.name() + ' (비활성)'}"></option>
+                                        </select>
+                                        <small class="form-text text-muted" id="popupSiteScopeHint">공통은 모든 공개 사이트에, 사이트를 고르면 그 사이트에서만 보입니다.</small>
+                                    </div>
                                     <div class="form-group form-check">
                                         <input type="checkbox" class="form-check-input" id="popupUse" checked>
                                         <label class="form-check-label" for="popupUse">노출 (끄면 기간과 무관하게 숨김)</label>
@@ -173,6 +182,7 @@
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
 <script src="/js/admin/media-picker.js"></script>
+<script src="/js/admin/content-scope.js"></script>
 <script src="/vendor/quill/quill.js"></script>
 <script src="/js/admin/notice-editor.js"></script>
 
@@ -207,6 +217,8 @@
     const fEndHour = document.getElementById("popupEndHour");
     const fEndMinute = document.getElementById("popupEndMinute");
     const fUse = document.getElementById("popupUse");
+    const fScope = document.getElementById("popupSiteScope");
+    const scope = ContentScope.create(fScope);           // 표시 대상 선택 박스(없는 사이트 ID는 옵션으로 보존)
     const imageGroup = document.getElementById("imageGroup");
     const previewGroup = document.getElementById("previewGroup");
     const preview = document.getElementById("popupPreview");
@@ -266,6 +278,8 @@
 
     let popups = [];           // 서버 응답 스냅샷(최근 등록 순, 본문 없음)
     let editing = null;        // 편집 대상 상세(null이면 새 팝업 작성)
+    // 낡은 화면 검사 기준(PLAN-site-menu.md S6b): 상세를 읽어 폼을 채우는 순간에만 정해지고 목록 갱신이 바꾸지 않는다. 표시 대상 등 사용자가 바꾸는 값은 폼에서 읽는다.
+    let editBase = null;       // {id, revision} 또는 null
     let saving = false;
     let loadingDetail = false;
     let listRequestSeq = 0;    // 늦게 도착한 이전 목록 응답이 최신 목록을 덮어쓰지 않게 하는 세대
@@ -397,7 +411,7 @@
         btnNew.disabled = locked;
         btnReload.disabled = locked;
         // 저장 중에는 입력도 잠근다 — 이미 전송된 요청에 담기지 않은 추가 입력이 성공 처리 뒤 조용히 사라지는 것을 막는다
-        [fTitle, fLink, fImage, btnPickLibrary, btnClearLibrary, fPosX, fPosY, fWidth, fStartDate, fStartHour, fStartMinute, fEndDate, fEndHour, fEndMinute, fUse].forEach(function (field) {
+        [fTitle, fLink, fImage, btnPickLibrary, btnClearLibrary, fPosX, fPosY, fWidth, fStartDate, fStartHour, fStartMinute, fEndDate, fEndHour, fEndMinute, fUse, fScope].forEach(function (field) {
             field.disabled = locked;
         });
         // 높이는 HTML형만 쓴다. 이미지형으로 바꾸면 숨겨진 높이 입력이 범위 밖 값을 쥔 채 활성으로 남아 브라우저 기본 검증이 등록을 막고
@@ -425,7 +439,7 @@
         if (popups.length === 0) {
             const tr = document.createElement("tr");
             const td = cell("등록된 팝업이 없습니다.");
-            td.colSpan = 5;
+            td.colSpan = 6;
             td.className = "text-muted";
             tr.appendChild(td);
             popupList.appendChild(tr);
@@ -449,6 +463,9 @@
 
             tr.appendChild(cell(TYPE_LABELS[popup.popupType] || popup.popupType));
             tr.appendChild(cell(popup.title));
+            const scopeCell = document.createElement("td");
+            scopeCell.appendChild(scope.badge(popup.siteId));
+            tr.appendChild(scopeCell);
             tr.appendChild(cell(periodText(popup)));
 
             const statusCell = document.createElement("td");
@@ -469,6 +486,7 @@
         popupForm.reset();
         setPickedImage(null);
         fUse.checked = true;
+        scope.reset();
         fPosX.value = "100";
         fPosY.value = "100";
         fWidth.value = "400";
@@ -480,6 +498,7 @@
         detailRequestSeq++;                               // 진행 중인 상세 응답을 폐기한다
         loadingDetail = false;
         editing = null;
+        editBase = null;
         formTitle.textContent = "새 팝업";
         resetFields();
         applyTypeUi("IMAGE", false);
@@ -519,6 +538,7 @@
                 return;
             }
             editing = detail;
+            editBase = { id: detail.id, revision: detail.revision };
             fTitle.value = detail.title;
             fLink.value = detail.linkUrl || "";
             fPosX.value = detail.posX;
@@ -528,6 +548,7 @@
             writeDateTime(fStartDate, fStartHour, fStartMinute, detail.displayStart);
             writeDateTime(fEndDate, fEndHour, fEndMinute, detail.displayEnd);
             fUse.checked = !!detail.useYn;
+            scope.set(detail.siteId);
             fImage.value = "";
             applyTypeUi(detail.popupType, true);
             if (detail.popupType === "IMAGE") {
@@ -583,8 +604,10 @@
         render();
     }
 
-    function buildUpdateBody(type, displayStart, displayEnd) {
+    function buildUpdateBody(type, displayStart, displayEnd, base) {
         const body = {
+            siteScope: scope.value(),
+            revision: base.revision,
             title: fTitle.value,
             posX: readInt(fPosX, "왼쪽 위치"),
             posY: readInt(fPosY, "위쪽 위치"),
@@ -613,6 +636,7 @@
         if (displayStart !== null) { form.append("displayStart", displayStart); }
         if (displayEnd !== null) { form.append("displayEnd", displayEnd); }
         form.append("useYn", fUse.checked ? "true" : "false");
+        form.append("siteScope", scope.value());
         if (type === "HTML") {
             form.append("content", editor.getHtml());
             form.append("contentFormat", "HTML");
@@ -635,13 +659,14 @@
             return;
         }
         const target = editing;                            // 요청 시작 시점의 대상을 고정한다
+        const base = editBase;                             // 낡은 화면 검사 기준도 함께 고정한다
         const type = target ? target.popupType : selectedType();
         let request;
         try {
             const displayStart = readDateTime(fStartDate, fStartHour, fStartMinute, "노출 시작");
             const displayEnd = readDateTime(fEndDate, fEndHour, fEndMinute, "노출 종료");
             if (target) {
-                request = { method: "PUT", headers: csrfHeaders(true), body: JSON.stringify(buildUpdateBody(type, displayStart, displayEnd)) };
+                request = { method: "PUT", headers: csrfHeaders(true), body: JSON.stringify(buildUpdateBody(type, displayStart, displayEnd, base)) };
             } else {
                 if (type === "IMAGE" && (!fImage.files || fImage.files.length === 0) && pickedImage === null) {
                     throw new Error("팝업 이미지를 선택해 주세요.");
@@ -658,7 +683,10 @@
             if (response.ok) {
                 const saved = await response.json();
                 showSuccess(target ? "팝업을 저장했습니다: #" + saved.id : "팝업을 등록했습니다: #" + saved.id);
-                if (!target) {
+                if (target) {
+                    // 폼은 방금 저장한 값과 같으므로 새 revision을 다음 저장의 기준으로 삼는다
+                    editBase = { id: saved.id, revision: saved.revision };
+                } else {
                     startCreate();
                 }
                 await loadList();
