@@ -2,6 +2,8 @@ package com.cms.admin;
 
 import com.cms.admin.dashboard.dto.response.DailyVisitorCountResponse;
 import com.cms.admin.dashboard.dto.response.DashboardStatsResponse;
+import com.cms.admin.dashboard.dto.response.ContentStatsResponse;
+import com.cms.admin.dashboard.service.ContentStatsService;
 import com.cms.admin.dashboard.service.DashboardService;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.admin.menu.service.MenuService;
@@ -43,6 +45,9 @@ class AdminMainControllerTest {
     DashboardService dashboardService;
 
     @Autowired
+    ContentStatsService contentStatsService;
+
+    @Autowired
     AdminSecurityService adminSecurityService;
 
     @Autowired
@@ -50,7 +55,7 @@ class AdminMainControllerTest {
 
     @BeforeEach
     void setUp() {
-        reset(dashboardService, adminSecurityService, menuService);
+        reset(dashboardService, contentStatsService, adminSecurityService, menuService);
         // AdminViewAdvice가 com.cms.admin 전체에 적용되므로 기본 스텁이 필요하다.
         given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
         given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
@@ -58,6 +63,11 @@ class AdminMainControllerTest {
 
     @TestConfiguration
     static class MockConfig {
+
+        @Bean
+        public ContentStatsService contentStatsService() {
+            return Mockito.mock(ContentStatsService.class);
+        }
 
         @Bean
         public DashboardService dashboardService() {
@@ -137,6 +147,37 @@ class AdminMainControllerTest {
         mockMvc.perform(get("/admin"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("admin/index"));
+    }
+
+    @Test
+    @DisplayName("콘텐츠 현황은 서비스가 돌려준 값이 contentStats 모델로 전달되고, 제목·파일명은 이스케이프되어 출력된다")
+    @WithMockUser(roles = "ADMIN")
+    void main_rendersContentStats_escaped() throws Exception {
+        given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
+        ContentStatsResponse stats = new ContentStatsResponse(12L, 3L,
+                List.of(new ContentStatsResponse.TopPost(1L, 2L, "<b>게시판</b>", "<script>alert(1)</script>", 9L)),
+                List.of(new ContentStatsResponse.TopAttachment(5L, 1L, 2L, "게시판", "글", "<img src=x>.pdf", 4L)));
+        given(contentStatsService.getContentStats(any())).willReturn(stats);
+
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("contentStats", stats))
+                .andExpect(content().string(containsString("콘텐츠 현황")))
+                .andExpect(content().string(containsString("&lt;script&gt;alert(1)&lt;/script&gt;")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("<script>alert(1)</script>"))))
+                .andExpect(content().string(containsString("&lt;img src=x&gt;.pdf")));
+    }
+
+    @Test
+    @DisplayName("콘텐츠 현황 조회 실패(null)여도 200이고 안내 문구가 나온다 — 방문자 카드와 폴백이 분리돼 있다")
+    @WithMockUser(roles = "ADMIN")
+    void main_nullContentStats_showsNoticeAndStill200() throws Exception {
+        given(dashboardService.getDashboardStats()).willReturn(DashboardStatsResponse.builder().build());
+        given(contentStatsService.getContentStats(any())).willReturn(null);
+
+        mockMvc.perform(get("/admin"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("콘텐츠 현황을 불러올 수 없습니다")));
     }
 
     @Test

@@ -93,6 +93,11 @@ class AdminSidebarAdviceTest {
         }
 
         @Bean
+        public com.cms.admin.dashboard.service.ContentStatsService contentStatsService() {
+            return Mockito.mock(com.cms.admin.dashboard.service.ContentStatsService.class);
+        }
+
+        @Bean
         public DashboardService dashboardService() {
             return Mockito.mock(DashboardService.class);
         }
