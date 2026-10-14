@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title th:text="${page.title}">페이지</title>
     <link rel="stylesheet" th:href="@{/css/public/page.css}">
+    <link rel="stylesheet" th:href="@{/css/public/site-menu.css}">
 </head>
 <body>
+<th:block th:replace="~{public/fragments/site-menu :: siteMenu}"></th:block>
 <div class="public-page-container">
     <div class="page-detail">
         <!--/* 이전 개정을 보고 있을 때만 안내한다. 현재 개정 번호로 들어와도 current=true라 안내가 없다. */-->

@@ -1,6 +1,6 @@
 # PLAN-site-menu — 사이트 설정 메뉴 (다중 사이트·사이트별 메뉴·공개 라우팅·콘텐츠 분리)
 
-- 작성: 2026-10-13 / 상태: **PR ① 구현·검증 완료(계획 v5, #143 머지). PR ② 구현·검증 완료·머지(#144). PR ③ 구현·검증 완료(P3-v6, 리뷰 6라운드 ship — 파일 말미 "PR ③ 상세 설계"·"구현·검증 결과 — PR ③", 미커밋), PR ④⑤ 미착수**
+- 작성: 2026-10-13 / 상태: **PR ① 구현·검증 완료(계획 v5, #143 머지). PR ② 구현·검증 완료·머지(#144). PR ③ 구현·검증 완료(P3-v6, 리뷰 6라운드 ship — 파일 말미 "PR ③ 상세 설계"·"구현·검증 결과 — PR ③", #145 머지), PR ④ 구현·검증 완료·머지(P4-v2, #146), PR ⑤ 구현·검증 완료(P5-v3, 말미 "PR ⑤ 상세 설계"·"구현·검증 결과 — PR ⑤", 미커밋)**
 - 로드맵: `adversarial-review/project-direction-roadmap.md` "실행 로드맵 — 사이트 설정 메뉴"
 - 확정 결정(재질문 금지): 사용자 메모리 `project-site-menu-decisions` — 아래 "확정 사항"에 그대로 옮긴다.
 - 이 문서의 **상세 설계 범위는 PR ①(사이트 모델 · 사이트 관리 UI · 메뉴 사이트 분리 편집)** 이다. PR ②~⑤는 "후속 PR 윤곽"에서 PR ①이 남겨야 할 전제만 다룬다(각 PR 착수 때 이 문서를 갱신해 별도 리뷰).
@@ -658,3 +658,274 @@ PR ②로 공개 화면이 `/{siteKey}/…` 아래로 이동했지만 **모든 �
 ### 후속
 - 코드 리뷰 게이트(`/code-review-loop`) → `/commitPR`. 로드맵 반영(`/updateRoadmap`)은 사이트 설정 메뉴 전체 완료 후 한 번에.
 - PR ④(사이트별 공지: `board.site_id`, `SiteService.hasContent`에 게시판 추가), PR ⑤(공개 메뉴 렌더링).
+
+---
+
+# PR ④ 상세 설계 — 사이트별 공지·게시판
+
+- 작성: 2026-10-14 / 브랜치 `feat/site-notice`(master 기반, PR ③ #145 머지 후) / 상태: **P4-v2 (적대적 리뷰 1라운드 ship)**
+- 확정 결정(재질문 금지): 메모리 `project-site-menu-decisions` (3/6) — "게시판에 `board.site_id`(NULL=공통) 소속 컬럼 추가. 사이트별 공지 게시판을 두고 `/{siteKey}/notices`가 그 사이트의 공지 게시판에 위임. 시스템 게시판 보호 규칙(삭제 409·비공개 전환 400)과 `NOTICE` 키 유일성을 사이트별로 확장해야 한다." 이 PR은 그 결정의 구현이다.
+
+## R1. Context와 범위
+
+PR ②·③ 이후 배너·팝업·FAQ·푸터는 사이트별로 갈리지만 **게시판·공지는 모든 공개 사이트가 같은 것**을 본다(`/{key}/notices`는 항상 공지 게시판 `board_key='NOTICE'` 하나, `/{key}/boards/{id}`는 소속 무관, 메인 "새 글"도 전 사이트 공통). PR ④는 게시판에 소속 사이트를 붙이고 공개 조회가 `site_id IS NULL OR site_id = 현재 사이트`로 거르게 하며, **사이트마다 자기 공지 게시판을 가질 수 있게** 한다. 인가 정책(`SecurityConfig`·레이트리밋·`AdminFeature`)·새 공개 경로·권한 카탈로그 변경은 **없다**.
+
+**범위 안**: V56(`board.site_id` + FK `RESTRICT`) / 게시판 생성·수정에 표시 대상(`siteScope`)과 "사이트 공지 게시판" 생성 / 공개 게시판·공지·메인(공지 섹션·새 글 섹션)·본문 이미지 판정의 사이트 필터 / 게시판 소프트 삭제 시 소속 해제 / `SiteService.hasContent` 확장 / 게시판 관리 화면(선택 박스·배지) / 롤백 주의 문서.
+**범위 밖(PR ⑤ 또는 안 함)**: 공개 메뉴 렌더링(PR ⑤), 게시글 단위 소속, 사이트별 게시판 권한(게시판 권한은 원래 게시판 단위라 이미 사이트별로 줄 수 있다), 게시글 관리 화면의 "내 게시판" 선택에 사이트 표시, 사이트 생성 시 공지 게시판 자동 생성.
+
+### 정찰에서 확인한 사실 (코드를 읽은 것)
+1. **공지 = 시스템 게시판 `board_key='NOTICE'`** 한 행(V31 `UNIQUE(board_key)`, V32가 시드). `findIdByBoardKey(NOTICE_KEY)`가 **세 곳**(`PublicNoticeService.noticeBoardId`·`PublicHomeService.getHome`·`BoardService.getNoticeBoardId`)에서 쓰인다. 시스템 보호는 `Board.isSystem()`(= `boardKey != null`)로 `deleteBoard` 409·`updateBoard`의 `publicYn=false` 400에서 판정한다.
+2. **공개 게시판 조회 진입점이 한 곳**: `BoardRepository.findByIdAndDeletedFalseAndPublicYnTrue`가 `PublicBoardService`의 세 메서드(목록·상세·첨부)에서만 쓰인다. 공지는 `PublicNoticeService`가 공지 게시판 ID를 찾아 `PublicBoardService`에 위임하는 어댑터다. 메인 "새 글"은 `PostRepositoryImpl.findLatestPublished`가 게시판을 조인해 `publicYn ∧ ¬deleted`를 거르고 공지 게시판 한 개를 `excludeBoardId`로 뺀다.
+3. **공개 컨트롤러 둘**(`PublicBoardController`·`PublicNoticeController`)은 이미 `@SiteScopedPublic`이고 `PublicSiteRoutes.current(request)`로 사이트를 얻을 수 있다(PR ③의 `HomeController`·`PublicFaqController` 선례). 첨부 스트리밍 코드는 두 컨트롤러가 복제하고 있다 — 이 PR은 서비스 호출 인자만 바꾸고 스트리밍은 건드리지 않는다.
+4. **본문 이미지 공개 판정**(`existsPublishedPostRef`, JPQL)이 게시판 `publicYn ∧ ¬deleted`를 직접 본다. 사이트 전용 게시판의 이미지는 PR ③ 배너·팝업 이미지와 같은 모델(경로 사이트 무관, 소속 사이트 비활성이면 404)을 따르는 것이 일관된다.
+5. **게시판 소프트 삭제**는 행을 남긴다(`deleted=true`, 복원 API 없음). 따라서 `site_id` FK `RESTRICT`는 **삭제된 게시판 행도 막는다** — 그대로 두면 사이트를 영영 지울 수 없게 되거나 `hasContent`와 FK가 어긋나 500이 난다. `board_key`의 UNIQUE도 같은 이유로 삭제된 행이 키를 점유한다.
+6. **게시판 관리 화면**(`manage.html` 324줄)은 ADMIN 전용이고 PATCH가 이름·공개·첨부를 항상 함께 보낸다(낡은 화면 덮어쓰기는 기존 수용 한계). 게시판 정의에는 `version`이 없다. 사이트 목록은 `ContentScopeOptions`가 서버 렌더링으로 준다(PR ③) — 이 화면은 ADMIN 전용이라 `/admin/api/sites`도 쓸 수 있지만 선택 박스 헬퍼(`content-scope.js`)를 재사용하려면 같은 서버 렌더링이 맞다.
+7. **시험 파급**: `findIdByBoardKey`·`findByIdAndDeletedFalseAndPublicYnTrue`·`findLatestPublished`·`PublicBoardService`·`PublicNoticeService`·`PublicHomeService`를 직접 쓰는 시험이 11개 파일, 이 중 서비스 시그니처가 바뀌면 컴파일 단계에서 드러난다. 엔티티 `Board`는 `@Builder`/`@AllArgsConstructor`라 nullable 필드를 더해도 빌더 호출은 그대로 컴파일된다(`new Board(` 직접 호출 없음).
+8. **잠금 선례**: PR ③ `ContentSiteScope.requireAssignable`(사이트 행 `FOR SHARE`, `MANDATORY`)과 `SiteService.deleteSite`(사이트 행 `FOR UPDATE` → `hasContent`)가 대상 지정 ↔ 사이트 삭제를 "지정 먼저면 삭제 409, 삭제 먼저면 지정 400"으로 직렬화한다. 게시판은 가드 행이 없고 행 락(`findByIdAndDeletedFalseForUpdate`/`ForShare`)만 있다.
+
+## R2. 핵심 쟁점과 결정
+
+### T1. 스키마 — `board.site_id` NULL 허용 + FK `RESTRICT` (V56)
+- 선택지: (A) 게시판에만 `site_id`(NULL=공통) / (B) 게시글에도 소속(공통 게시판 안에서 글 단위 분리) / (C) 사이트 생성 시 공지 게시판을 자동 만들고 공통 공지 폐지.
+- **결정 (A)**. 확정 결정이 "게시판에 `board.site_id`"이다. (B)는 글 단위 소속·권한·카운터·검색이 전부 따라붙는 과설계이고 "사이트마다 다른 글"은 사이트 전용 게시판으로 충분히 표현된다. (C)는 기존 공개 URL이 가리키던 공지가 사라져 `main`이 빈 공지로 시작하고, 모든 사이트가 공지 게시판을 가지면 `hasContent`가 항상 참이 되어 사이트를 지울 수 없게 된다.
+- 형태: `ALTER TABLE board ADD COLUMN IF NOT EXISTS site_id bigint(20) DEFAULT NULL, ADD CONSTRAINT fk_board_site FOREIGN KEY IF NOT EXISTS (site_id) REFERENCES site(id) ON DELETE RESTRICT`(V55 선례, 멱등, DDL 단독 파일, 문 하나). 기존 행은 모두 공통 — 배포 직후 공개 동작은 이전과 100% 같다. 롤백한 이전 앱이 `site_id` 없이 INSERT해도 공통으로 들어간다.
+- **공개 사이트(`PUBLIC`)만 가리킬 수 있다**(서비스 검증 `ContentSiteScope`, DB 제약 없음 — PR ③과 같다).
+
+### T2. 공개 규칙 — 게시판이 현재 사이트에 보이는 조건
+- **게시판 `publicYn ∧ ¬deleted ∧ (site_id IS NULL ∨ site_id = 현재 사이트)`**. 사이트 전용 게시판을 다른 사이트 접두어로 열면 비공개·없는 ID와 **같은 404**(존재 비노출).
+- 선택지: (A) 서비스 메서드에 `Long siteId`를 필수로 받고 쿼리에 조건 고정(`BoardRepository.findPublicById(id, siteId)`가 `findByIdAndDeletedFalseAndPublicYnTrue`를 **대체**해 옛 메서드를 컴파일 단계에서 없앤다) / (B) 서비스가 게시판을 읽은 뒤 메모리에서 거름 / (C) 요청 스코프 암묵 주입. **결정 (A)** — PR ③ S3와 같은 이유(공개 불변식은 쿼리에 고정, `PublicSite.requireId`로 `null` 거부).
+- 대상: `PublicBoardService` 3개 메서드(`getPublishedPosts`·`findPublishedPost`·`findPublishedAttachment`), `PublicNoticeService` 4개 메서드, `PublicHomeService.getHome`(이미 `siteId`를 받는다) 안의 공지·새 글, 본문 이미지 판정.
+- **본문 이미지(`/content-images/{id}`)는 사이트 무관 경로를 유지**하되 `existsPublishedPostRef`에 `(b.siteId is null or exists (select 1 from Site s where s.id = b.siteId and s.useYn = true))`를 더해 **소속 사이트가 비활성이면 404**로 만든다(PR ③ 배너·팝업 이미지와 같은 모델 — 사이트를 끄면 전용 콘텐츠가 이미지 URL로 새지 않는다). 다른 사이트 접두어 아래에서 id로 직접 여는 것은 막지 않는다(공개 글이 참조하는 이미지, **수용한 한계**).
+- 메인 "새 글": `findLatestPublished`에 `siteId` 조건(`board.siteId is null or = :siteId`)을 **게시판 조인 조건에** 넣는다. 정렬·건수는 그대로.
+
+### T3. 사이트 공지 게시판 — 키 규칙 `NOTICE`(공통) / `NOTICE:{siteId}`(사이트 전용)
+- 문제: `board_key`가 `UNIQUE`라 `NOTICE`를 가진 게시판은 하나뿐이다. 사이트마다 공지 게시판을 두려면 "키 유일성을 사이트별로" 바꿔야 한다(확정 결정).
+- 선택지:
+  - (A) **키 값에 사이트를 넣는다** — 공통은 그대로 `NOTICE`, 사이트 전용은 `NOTICE:{siteId}`(서버가 만들고 사용자 입력이 아니다, `varchar(30)`에 최대 26자). 기존 `UNIQUE(board_key)`가 **사이트별 최대 하나**를 DB 수준에서 보장한다.
+  - (B) 유일 인덱스를 `(board_key, site_scope)`(생성 컬럼 `COALESCE(site_id, 0)`)로 교체 — 키는 `NOTICE` 그대로, 공통/전용 구분은 `site_id`. 의미는 깔끔하지만 **인덱스 교체 DDL + 생성 컬럼**이 필요하고, 롤백한 이전 앱의 `findIdByBoardKey('NOTICE')`가 여러 행을 만나 `IncorrectResultSizeDataAccessException`(500)이다.
+  - (C) 게시판에 `notice_yn` 플래그 컬럼 + `UNIQUE(site_id, notice_yn)`: NULL이 유일성에서 중복 허용이라 공통이 둘이 될 수 있어 결국 생성 컬럼이 필요.
+- **결정 (A)**. 인덱스·생성 컬럼 DDL이 없고, 이전 앱(V55)의 `findIdByBoardKey('NOTICE')`는 여전히 정확히 공통 공지 게시판 하나만 돌려줘 **공지 해석이 롤백에도 안전**하다. 비용: 키와 `site_id`가 중복 정보다 — 서비스만 키를 만들고(사용자 입력 불가) `Board.noticeKeyFor(siteId)` 한 곳에서 생성하며, 불일치는 시험이 고정한다. 키가 의미를 품는 비용을 감수하는 대신 스키마를 가산 컬럼 하나로 끝낸다.
+- **해석 규칙** `BoardRepository.findNoticeBoardId(siteId)`(default 메서드): 그 사이트의 `NOTICE:{siteId}`가 살아 있으면 그것, 없으면 공통 `NOTICE`. **전용 공지 게시판이 있으면 공통 공지를 대체**한다(합치지 않는다 — 합치면 건수·페이지네이션·"새 글 제외" 규칙이 복잡해진다). 전용 게시판이 없는 사이트(기존 `main` 포함)는 이전과 똑같이 공통 공지를 본다 — 배포 직후 변화 없음.
+- **생성**: `POST /admin/api/boards`에 선택 필드 `siteScope`(누락 = `COMMON`)와 `noticeBoard`(boolean, 누락 = false)를 더한다. `noticeBoard=true`이면 `siteScope`가 사이트 ID여야 하고(`COMMON`이면 400 — 공통 공지 게시판은 V32가 만든 하나뿐), `publicYn=false`면 400(공지 게시판은 비공개로 만들 수 없다 — 기존 "비공개 전환 400" 규칙과 같다). 같은 사이트의 살아 있는 전용 공지 게시판이 이미 있으면 **409**(사전 `existsByBoardKey` + 동시 생성은 `UNIQUE` 위반을 `saveAndFlush`에서 잡아 같은 409로 번역 — 500 방지).
+- **수정·삭제 규칙(시스템 보호의 사이트별 확장)**:
+  - 비공개 전환 400은 **키가 있는 모든 게시판**(공통·전용 공지)에 적용(`isSystem()` 그대로).
+  - 삭제 409는 **공통 공지 게시판(`NOTICE`)만**. 전용 공지 게시판은 살아 있는 게시글이 없으면 삭제할 수 있다 — 막으면 "사이트를 지우려면 공지 게시판을 지워야 하는데 지울 수 없다"가 되어 그 사이트를 영구히 지울 수 없다. 삭제 후 그 사이트는 공통 공지로 되돌아간다.
+  - 표시 대상 변경(`siteScope`)은 키가 있는 게시판에는 400(키가 `site_id`를 품는다).
+
+### T4. 일반 게시판의 표시 대상 — 생성 시 지정, 수정은 PATCH로 명시한 경우만
+- 생성: `siteScope` 선택(누락 = 공통). 수정 `PATCH`: `siteScope` 필드가 **있을 때만** 바꾼다(키 없음 = 유지). PR ③은 PUT 전체 교체라 "누락이 공통 공개로 번지는" 문제 때문에 필수+버전을 도입했지만, 게시판은 **이미 부분 수정(PATCH, null = 유지)** 이라 낡은 화면이 대상을 되돌리려면 사용자가 선택 박스를 바꿔 명시해야 한다 — 화면은 **선택 박스가 편집 시작 시점 값에서 바뀐 경우에만** `siteScope`를 보낸다(변경 감지, 게시글 `publishPeriod` 선례). 따라서 버전 컬럼을 두지 않는다(과설계 경계).
+- `siteScope` 값 형식은 PR ③의 `SiteScope`(`COMMON` 또는 양의 정수 문자열, 범위 초과 400)를 재사용한다. "변경할 필드가 없습니다" 400 검사에 `siteScope`도 포함한다.
+- 잠금: `createBoard`는 INSERT 전에 `ContentSiteScope.requireAssignable`(사이트 행 `FOR SHARE`), `updateBoard`는 **게시판 행 `FOR UPDATE` → 사이트 행 `FOR SHARE`** 순서다. `deleteSite`는 사이트 행만 `FOR UPDATE` 하고 게시판 행을 잠그지 않으므로 순환이 없다(PR ③ 배너·팝업과 같은 구조).
+
+### T5. 소프트 삭제가 소속을 해제한다
+- `Board.softDelete`가 `siteId`를 `null`로 만들고, **전용 공지 게시판이면 `boardKey`도 `null`로** 만든다. 삭제된 게시판은 어느 사이트에도 속하지 않고 키도 점유하지 않는다 — 이래야 (1) 사이트 삭제가 FK `RESTRICT`에 걸리지 않고 (2) 같은 사이트에 공지 게시판을 다시 만들 수 있다(`UNIQUE(board_key)`가 삭제된 행을 세지 않게). 게시판 삭제는 이미 "복원 API 없음"이고 감사 `BOARD_DELETE`가 게시판 ID를 남기므로 소속 이력 손실은 수용한다.
+- `SiteService.hasContent`는 `boardRepository.existsBySiteId`(삭제 여부 무관 전체 행)를 추가한다. 이 PR의 삭제 경로는 소속을 비우므로 정상 운영에서 삭제된 행은 걸리지 않고, **롤백 중 이전 앱이 소속을 비우지 않고 지운 행**만 409로 걸려 FK 500을 막는다(`site_id`를 수동으로 NULL로 정리하는 절차를 문서에 적는다). 409 문구에 "게시판"을 더한다.
+
+### T6. 관리 화면·API 응답 (최소 변경)
+- `BoardResponse`에 `siteId`(null=공통)와 `systemKey`가 아닌 **`noticeBoard`(boolean, `boardKey != null`)** 만 싣는다(키 문자열은 내부 값이라 노출하지 않는다).
+- `manage.html`: 목록에 "표시 대상" 열(`content-scope.js` 배지, 공지 게시판이면 "공지" 배지 추가), 폼에 표시 대상 선택 박스(`BoardPageController`가 `ContentScopeOptions`를 `scopeSites` 모델로 렌더링 — 이 화면은 ADMIN 전용), **생성 모드에서만** "이 사이트의 공지 게시판으로 만들기" 체크박스(사이트를 고르고 공개일 때만 활성). 수정 모드에서는 표시 대상 박스가 키 있는 게시판이면 비활성(잠금). 변경 감지는 편집 시작 시점의 `siteId` 스냅샷과 비교한다. 이름은 `textContent`/`th:text`만.
+- 게시글 관리 화면의 "내 게시판" 선택·`MyBoardResponse`는 바꾸지 않는다(이름이 같은 게시판의 구분은 `#id` 표기로 충분 — 수용). 통합 검색·권한관리 매트릭스도 그대로다.
+
+### T7. 롤백·호환
+- V56 이전 앱은 `site_id`를 무시한다 → **사이트 전용(`site_id IS NOT NULL`) 게시판이 하나라도 있으면 V56 이전 앱으로 롤백하지 않는다**(전용 게시판이 모든 사이트에 노출). 불가피하면 전용 게시판의 글을 지우고 게시판을 삭제하거나 백업을 복구한다 — `site_id`를 NULL로 바꾸는 것은 대안이 아니다(공통 공개). 전용 공지 게시판(`NOTICE:{id}`)은 이전 앱도 `findIdByBoardKey('NOTICE')`로 공통만 찾으므로 공지 해석은 안전하지만 `/boards/{id}`로는 열린다.
+- 구·신 앱 혼합 운영 금지(PR ②)는 그대로다.
+
+### T8. 하지 않는 것 (과설계 경계)
+게시글 단위 소속, 게시판 `version`, 전용 공지가 공통 공지와 합쳐 보이는 모드, 사이트 생성 시 공지 게시판 자동 생성, 사이트별 게시판 권한 모델, 새 감사 액션(기존 `BOARD_*` 유지), 새 공개 경로·인가 변경, `NoticeRedirectController`의 사이트별 분기(관리자 옛 주소는 공통 공지 게시판으로 간다 — 전용 공지는 게시판 목록에서 고른다), 게시글 관리 화면의 사이트 표시.
+
+## R3. 인가·스키마 영향 고지 (승인 시 별도 확인 대상)
+- **인가 정책**: 변경 없음(`SecurityConfig`·레이트리밋·`AdminFeature`·권한 카탈로그·새 URL 없음). 게시판 정의 API는 기존대로 ADMIN 전용.
+- **스키마**: **V56 신규**(`board.site_id` NULL 허용 + FK `RESTRICT`). 머지된 마이그레이션 수정 없음. 되돌리기 어려운 점: 사이트 전용 게시판을 만든 뒤 롤백하면 노출 범위가 넓어진다(T7).
+- **공개 동작**: 배포 직후 변화 없음(모두 공통). 이후 관리자가 전용 게시판·전용 공지를 만들면 그 사이트에서만 보인다.
+
+## R4. 작업 단계 (안쪽 → 바깥)
+1. `V56__add_board_site_id.sql` + `Board`(`siteId`, `noticeKeyFor`, 도메인 메서드 `changeSite`·`softDelete` 개정) — 컴파일 확인.
+2. `BoardRepository`(`findPublicById`·`findNoticeBoardId`·`existsBySiteId`·`existsByBoardKey`) / `SiteService.hasContent` 확장 / `PostRepositoryImpl.findLatestPublished`(`siteId`·시스템 게시판 제외) / `existsPublishedPostRef`의 비활성 사이트 조건.
+3. 공개 서비스·컨트롤러: `PublicBoardService`·`PublicNoticeService`·`PublicHomeService`에 `siteId` 전달, 두 컨트롤러가 `PublicSiteRoutes.current(request).id()`를 넘긴다.
+4. 관리 서비스·DTO: `BoardService.createBoard`(표시 대상·공지 게시판 생성·409 번역)·`updateBoard`(`siteScope`·시스템 게시판 잠금)·`deleteBoard`(공통 공지만 409)·`BoardCreateRequest`/`BoardUpdateRequest`/`BoardResponse`.
+5. `BoardPageController` 모델 + `manage.html`(선택 박스·배지·공지 체크박스·변경 감지).
+6. 시험·`./gradlew test`, 실기 검증, 문서(`CLAUDE.md` 루트·`admin.site`·`admin.board`·`publicweb.board/notice/home/support`, `docs/deployment.md`·`docs/migration-guide.md` V56).
+
+## R5. 테스트 계획
+- 마이그레이션: `BoardSiteMigrationTest` — 컬럼·FK `RESTRICT`·기본값 NULL·멱등 재실행·V55 → V56 업그레이드 시 기존 행 공통.
+- 공개 필터(DB 통합): 공통·A전용·B전용 게시판 혼합으로 `/a`·`/b` 각각에서 목록·상세·첨부·메인 "새 글" 교차 노출 없음, 다른 사이트 전용 게시판 id → 비공개와 **같은 404**, 공통은 영향 없음, 비활성 사이트 전용 게시판의 본문 이미지 → 404.
+- 공지 해석: 전용 공지 게시판이 없는 사이트는 공통 공지, 있는 사이트는 전용만(공통 글이 안 보임), 전용 삭제 후 공통으로 복귀, 메인 "새 글"이 공통·전용 공지 게시판 글을 모두 제외, 메인 공지 섹션이 해석된 게시판을 쓴다.
+- 관리 서비스: 생성(공통/사이트/없는 사이트 400/관리자 사이트 400), `noticeBoard` 규칙(공통이면 400·비공개면 400·중복 409·동시 중복 생성이 409), 수정 `siteScope`(유지/변경/형식 위반 400/범위 초과 400/공지 게시판 400/전체 null 400), 삭제(공통 공지 409 유지·전용 공지 삭제 가능·소속·키 해제 후 재생성 성공), `BoardResponse.siteId`.
+- 삭제 가드: 사이트에 게시판이 있으면 409, 게시판을 지우면 삭제 가능, FK `RESTRICT`가 우회 삭제를 막는지(DB 직접), 이전 앱이 남긴 삭제 행(소속 유지)도 409.
+- 동시성: 사이트 삭제 ↔ 해당 사이트로 지정하는 게시판 생성 **및 공통→전용 수정** 경합 — PR ③ `ContentSiteScopeConcurrencyIntegrationTest`의 `LockWaitObserver` 방식으로 계약을 단언(지정 먼저 → 삭제 409, 삭제 먼저 → 지정 400, 500·교착 없음). 변이 실험: `ContentSiteScope`를 일반 읽기로 바꾸면 실패하는지.
+- 컨벤션·인가: 공개 인벤토리 시험·`SecurityConfigTest`는 새 경로가 없어 무변경 통과. `BoardController` 권한(MANAGER 403) 유지. `@WebMvcTest`가 `BoardPageController`를 포함하면 `ContentScopeOptions` 목 빈 필요.
+- 브라우저(Playwright, 실제 앱): 게시판 관리 화면의 선택 박스·배지·공지 체크박스 활성 조건·변경 감지(선택을 안 바꾸면 PATCH에 `siteScope`가 실리지 않음)·키 있는 게시판의 박스 잠금.
+
+## R6. 실기 검증 계획
+일회용 MariaDB(3317) + 앱 8081(메모리 팁). 사이트 `news` 생성 → 공통 공지 글·`news` 전용 공지 게시판(+글)·`news` 전용 일반 게시판(+글)·공통 일반 게시판(+글) 등록 → `/main`·`/news` 메인 "공지"·"새 글"·`/…/notices`·`/…/boards/{id}` 비교(교차 비노출, `main`은 공통 공지) → 사이트 삭제 409 → 전용 공지 게시판을 **첨부 → 글 → 게시판 순으로** 지운 뒤(글이 남으면 삭제 409) `/news/notices`가 공통으로 복귀 → 본문 이미지 검증은 공지와 **별도로 남겨 둔 `news` 전용 일반 게시판의 글**로 한다(익명 요청이 사이트 활성 200 → `news` 비활성화 404 → 재활성화 200; 지운 글의 이미지로는 새 조건을 증명하지 못한다) → 원복. 스크린샷 저장.
+
+## R7. 리스크
+1. **키가 사이트를 품는 설계(T3-A)**: 키·`site_id` 불일치를 서비스가 못 만들게 하는 것이 전부다 — 시험이 고정하되 DB 직접 수정은 막지 못한다(수용).
+2. **전용 공지가 공통 공지를 대체**: 공통 공지에 쓴 글이 전용 공지가 있는 사이트에서 공지 섹션에 안 나온다 — 의도이며 승인 시 확인.
+3. **공개 서비스 시그니처 변경으로 시험 11개 파일 수정**: 기계적. `siteId` 필수화로 누락이 컴파일 오류로 드러난다.
+4. **이미지 id 경로의 사이트 무관**(수용): 공개 글이 참조하는 이미지는 id로 열람 가능 — 이전과 같은 노출 모델.
+5. **삭제된 게시판의 소속 이력 손실**(수용): 감사 로그에 게시판 ID는 남는다.
+6. 관리자가 같은 이름의 게시판을 여러 사이트에 만들면 게시글 관리 화면의 선택에서 이름이 겹친다(`#id`로 구분, 수용).
+
+## R8. 승인 시 사용자에게 별도 확인할 것
+1. 스키마 V56(되돌리기 어려움: 전용 게시판이 있으면 롤백 금지, T7).
+2. **전용 공지가 공통 공지를 대체**(합치지 않음, T3) — 전용 공지 게시판이 없는 사이트는 공통 공지를 그대로 본다.
+3. **공지 게시판 키 규칙 `NOTICE:{siteId}`**(T3-A) vs 생성 컬럼 유일 인덱스(B).
+4. **전용 공지 게시판은 글이 없으면 삭제 가능**(공통 공지는 계속 삭제 불가, T3·T5) — 그래야 사이트를 지울 수 있다.
+5. 일반 게시판의 표시 대상은 **생성 후에도 바꿀 수 있다**(PATCH로 명시한 경우만, 버전 컬럼 없음, T4). 불변으로 하면 구현이 더 단순하지만 잘못 지정한 빈 게시판도 지우고 다시 만들어야 한다.
+6. 사이트 생성 시 공지 게시판을 **자동 생성하지 않는다**(관리자가 게시판 관리에서 만든다, T1·T8).
+
+## R9. 개정 이력 (PR ④)
+- P4-v1 (2026-10-14): 초안.
+- P4-v2 (2026-10-14, 리뷰 1라운드 — codex `gpt-6.1-sol`, **ship**, P3 1): 변경 — R6 실기 절차 수정: 전용 공지 게시판은 글(·첨부)이 남아 있으면 삭제 409이므로 첨부 → 글 → 게시판 순으로 지우고, 비활성 사이트 이미지 404 검증은 지우지 않을 별도 전용 일반 게시판의 글로 분리. 설계 결함 지적 없음, 기각 없음.
+
+## 구현·검증 결과 — PR ④ (2026-10-14)
+
+### Context
+사이트 설정 메뉴 중 **PR ④(사이트별 게시판·공지)** 를 계획 P4-v2(적대적 리뷰 1라운드 ship, 사용자 승인 — 확인 항목 5건 추천안 그대로)대로 구현했다. **인가 정책(`SecurityConfig`·레이트리밋·`AdminFeature`)은 바뀌지 않았다.** 스키마는 V56 한 개다. PR ⑤(공개 메뉴 렌더링)는 미착수.
+
+### 핵심 확정 사항 (계획 P4-v2에서 변경 없음)
+- `board.site_id` NULL(=공통) + FK `RESTRICT`(V56). 공개 게시판 조건 `publicYn ∧ ¬deleted ∧ (site_id IS NULL ∨ = 현재 사이트)`를 `BoardRepository.findPublicById`·`findLatestPublished`에 쿼리로 고정, 공개 서비스는 `siteId` 필수.
+- 사이트 공지 게시판 키 `NOTICE:{siteId}`(공통은 `NOTICE`) — 기존 `UNIQUE(board_key)`로 사이트당 하나, 전용이 공통을 **대체**(`findNoticeBoardId`).
+- 공통 공지만 삭제 409, 전용 공지는 글이 없으면 삭제 가능. 소프트 삭제가 `site_id`·`board_key`를 비운다. `hasContent`에 `boardRepository.existsBySiteId`(삭제 행 포함).
+- 게시판 PATCH `siteScope`는 명시한 경우에만 변경, 공지 게시판은 변경 400. 본문 이미지는 사이트 무관 경로 + 소속 사이트 비활성 시 404.
+
+### 구현 파일
+- 마이그레이션: `V56__add_board_site_id.sql`
+- 변경(백엔드): `Board`·`BoardRepository`·`BoardService`·`BoardCreateRequest`/`BoardUpdateRequest`/`BoardResponse`·`PostRepositoryImpl`/`PostRepositoryCustom`(`findLatestPublished`)·`ContentImageRefRepository.existsPublishedPostRef`·`SiteService.hasContent`·`PublicBoardService`·`PublicNoticeService`·`PublicHomeService`·`PublicBoardController`·`PublicNoticeController`·`BoardPageController`
+- 변경(화면): `admin/board/manage.html`(표시 대상 열·선택 박스·공지 체크박스·변경 감지·공지 게시판 잠금)
+- 문서: 루트·`admin.site`·`admin.board`·`publicweb.board/notice/home/support` `CLAUDE.md`, `docs/deployment.md`·`docs/migration-guide.md`
+
+### 검증 결과
+- **시험**: 신규 5개 클래스 — `BoardSiteMigrationTest`(4)·`BoardSiteScopeApiIntegrationTest`(9)·`BoardSiteScopeConcurrencyIntegrationTest`(3)·`PublicBoardSiteScopeIntegrationTest`(5)·`BoardScopeAdminBrowserTest`(3, 실제 브라우저) + `PostRepositoryDataJpaTest`·`SiteServiceTest`·공개 서비스·컨트롤러 시험의 시그니처 갱신. **최종 전체 `./gradlew test`: 2,488건 중 실패 0·오류 0(건너뜀 12 — 기존)**.
+- **변이 실험**: `findPublicById`의 사이트 조건과 `existsPublishedPostRef`의 비활성 사이트 조건을 지우면 `PublicBoardSiteScopeIntegrationTest` 2건(게시판 교차 노출·이미지)이 실패한다(복원 확인).
+- **실기(Playwright + 일회용 MariaDB 3317 + 앱 8081)**: 게시판 관리 화면에서 사이트 `news` 대상 일반 게시판·공지 게시판·공통 게시판을 UI로 생성(목록의 대상 배지·공지 배지, 저장 뒤 공지 게시판의 박스 잠금) → `/main`은 공통 공지·공통 새 글만, `/news`는 전용 공지(공통 공지 대체)·공통+전용 새 글 / `/main/boards/{전용}`·`/main/notices/{전용 공지 글}` 404, `/news/notices/{공통 공지 글}` 404 / 사이트 삭제 409 → 공통 공지 삭제 409 → 전용 공지 글이 있으면 삭제 409 → `siteScope` 변경·비공개 전환 400, 같은 사이트 두 번째 공지 게시판 409 → 글·게시판 삭제 뒤 `/news/notices`가 공통 공지로 복귀(삭제 행의 `site_id`·키 해제 확인) → 전용 게시판을 모두 지우자 사이트 삭제 204 / 익명 POST 401·옛 `/notices/1` 404·`/` 302 회귀 없음. 스크린샷 3장(`adversarial-review/screenshots/site-notice/`).
+
+### 이슈
+- **구현 중 계획과 달라진 점 없음.**
+- **브라우저 도구 한계**: 실기에서 Playwright MCP의 `#btnSave` 클릭이 제출을 일으키지 않아(원인 미규명 — 화면 JS 오류는 없고 `requestSubmit()`은 정상 동작, 같은 화면의 `BoardScopeAdminBrowserTest`는 실제 클릭으로 통과) 제출은 `requestSubmit()`으로 대신했다.
+- **작업 환경 부작용**: 정리 단계에서 `taskkill /IM java.exe`를 써 로컬의 다른 Java 프로세스(Gradle 데몬 등)도 함께 종료됐다. 코드·DB 영향은 없다.
+- **수용한 한계(계획대로)**: 본문 이미지 id 경로의 사이트 무관, 전용 공지는 합치지 않고 대체, 게시글 관리 화면의 "내 게시판" 선택에 사이트 표시 없음, 삭제된 게시판의 소속 이력 손실, 공통 공지 게시판은 모든 사이트의 `/boards/{id}`에서도 열림.
+
+### 후속
+- 코드 리뷰 게이트(`/code-review-loop`) → `/commitPR`. 로드맵 반영(`/updateRoadmap`)은 사이트 설정 메뉴 전체 완료 후 한 번에.
+- PR ⑤(공개 메뉴 렌더링).
+
+---
+
+# PR ⑤ 상세 설계 — 공개 메뉴 렌더링 (P5-v3, 2026-10-14)
+
+## P5.1 Context
+
+PR ①이 공개 사이트 메뉴(`menu.site_id` = 공개 사이트)를 **편집**할 수 있게 했지만 어디에도 그리지 않는다(R5). PR ⑤는 `/{siteKey}/…` 의 공개 화면에 **그 사이트의 활성 메뉴를 내비게이션으로 렌더링**한다. 스키마·인가 정책(`SecurityConfig`·레이트리밋·`AdminFeature`)·관리 화면·API는 바뀌지 않는다. 새 공개 경로도 없다(인벤토리 시험 대상 변화 없음).
+
+## P5.2 정찰에서 발견한 쟁점 (코드로 확인)
+
+1. **공개 템플릿에 공통 레이아웃이 없다.** 화면 11개가 각자 독립 `<html>`이다(`publicweb/page/CLAUDE.md` "공통 푸터 없음"). 메뉴를 한 번만 넣을 자리가 없어, 공유 조각을 각 템플릿이 포함해야 한다.
+2. **모델 주입 지점**: `PublicSiteModelAdvice`가 `publicSite`·`sitePrefix`를 이미 모든 사이트 범위 컨트롤러에 싣는다. 그러나 `@ModelAttribute`에서 즉시 조회하면 **첨부 다운로드(스트리밍) 같은 뷰 없는 핸들러에서도 메뉴 쿼리가 나간다**.
+3. **`@WebMvcTest` 슬라이스가 이 advice를 포함한다**(`PublicNoticeControllerTest` 등). advice가 새 서비스 빈을 직접 주입받으면 컨텍스트가 깨진다 — 인터셉터가 `ObjectProvider`로 푼 것과 같은 문제.
+4. **출력 시 재검증이 필요하다**(계획 D3): 저장된 메뉴 URL은 편집 시점 정책을 만족하지만 DB 직접 수정·정책 변경 경합은 막지 못하므로 렌더링 때 다시 거른다. 그런데 `SiteLinkPolicy.validate`는 **예외로** 알리는 API라 렌더링 경로(메뉴 N개)에서 예외 제어 흐름이 된다.
+5. **트리 무결성**: 메뉴는 부모-자식 트리(최대 3단)이고 비활성 부모 아래 활성 자식, 고아, 4단 이상의 레거시 행이 있을 수 있다(관리 쪽 `getSidebarMenus`가 이미 같은 문제를 다룬다). 공개 화면은 이들을 **조용히 건너뛰어야** 한다.
+6. **메인 규약**: `home.html`은 스크립트·`th:utext` 금지(`PublicHomeTemplateConventionTest`). 메뉴 조각도 같은 제약 안에서 만들어야 한다 → CSS만으로 하위 메뉴를 열어야 한다.
+7. **사이트 접두어**: 메뉴 URL은 편집자가 **완전한 경로**(`/main/notices`)로 저장하므로 렌더링이 접두어를 붙이지 않는다(붙이면 이중 접두어). 외부 `http(s)`는 새 탭 + `rel="noopener noreferrer"`.
+8. **테스트 파급**: 템플릿 10개의 `<head>`/`<body>` 변경이라 기존 통합 시험(`PublicSiteRoutingIntegrationTest` 등)은 본문 단언이 깨질 가능성이 낮지만 `PublicSiteTemplateConventionTest`(링크 접두어 규약)는 메뉴 `th:href="${…}"`가 `@{}`가 아니라 영향 없음을 확인해야 한다.
+
+## P5.3 설계 결정
+
+### P5-1. 렌더링 범위 — **모든 정상 공개 화면**에 같은 메뉴 조각
+- 선택지: (a) 메인만 (b) **정상 공개 화면 전부** (c) 공통 레이아웃 신설 후 이전.
+- 선택: (b). 이유: 메뉴는 사이트 내비게이션이라 메인에만 있으면 목적이 없다. (c)는 화면 11개를 뒤엎는 리팩터링이라 이 PR의 최소 변경 원칙에 반한다 → 조각 하나(`public/fragments/site-menu.html :: siteMenu`)를 각 템플릿 본문 맨 위에서 한 줄로 포함한다(정상 공개 템플릿 10개).
+- 제외: 오류 템플릿 4개(사이트를 알 수 없음), `public/notice/error.html`(`PublicWebExceptionAdvice` 공유 뷰), `fragments/home-popups.html`.
+- 시험이 "정상 공개 템플릿은 모두 이 조각을 포함한다"를 강제한다(새 화면에서 빠뜨리지 않게).
+
+### P5-2. 모델 공급 — **지연 홀더** `siteMenu`, 조회 실패는 메뉴만 빠진다
+- 선택지: (a) advice가 즉시 조회 (b) 컨트롤러마다 푸터처럼 직접 호출 (c) **advice가 지연 홀더를 싣고 템플릿이 만질 때 처음 조회**.
+- 선택: (c). `PublicSiteModelAdvice.addSite`가 `siteMenu`(`PublicSiteMenu`)를 싣는다. 홀더는 `getItems()` 첫 호출에서 서비스를 부르고 결과를 요청 안에서 기억한다. 템플릿이 쓰지 않는 요청(스트리밍·리다이렉트)은 쿼리가 없다. (a)는 쟁점 2, (b)는 11개 컨트롤러 중복.
+- 서비스는 `ObjectProvider<PublicMenuService>`로 지연 조회한다(쟁점 3). 슬라이스에서 빈이 없으면 빈 메뉴.
+- **fail-soft**: 홀더가 `RuntimeException`을 잡아 WARN(예외 클래스명만)을 남기고 빈 목록을 돌려준다 — 메뉴는 선택 섹션이라 조회 실패가 화면을 깨면 안 된다(푸터·팝업과 같은 원칙). 렌더링 중 호출이라 `PublicWebExceptionAdvice`가 못 잡는 구간이므로 홀더 안에서 격리한다. 서비스는 자체 읽기 트랜잭션이고 홀더는 트랜잭션 밖이라 rollback-only 오염이 없다(OSIV 꺼짐 계약 유지).
+- 캐시는 두지 않는다(`PublicSiteService`와 같은 이유: 메뉴 수정·사이트 비활성화가 즉시 반영돼야 하고 레이트리밋이 요청 수를 제한). 비용: 요청당 사이트 PK 조회 1 + 메뉴 조회 1(`site_id` FK 인덱스).
+
+### P5-3. 서비스 `com.cms.publicweb.menu.PublicMenuService`
+- `@Transactional(readOnly = true) List<PublicMenuItem> findMenu(Long siteId)` — `PublicSite.requireId(siteId)`.
+  1. 사이트 행을 읽어 **활성 `PUBLIC`이 아니면 빈 목록**(인터셉터가 이미 보장하지만 서비스 단독 호출에도 안전하게).
+  2. `MenuRepository.findAllBySiteIdAndUseYnTrueOrderByOrdAscMenuNoAsc(siteId)` — 활성만, 기존 메서드 재사용(쿼리 추가 없음).
+  3. 부모별로 묶고 **루트(`upMenuNo IS NULL`)에서만** 내려간다 → 고아·비활성 부모 아래 자식·순환은 도달하지 못해 자연히 제외된다. 방문 집합으로 중복 방지. **깊이는 `MenuService.MAX_MENU_DEPTH`(3)까지만** 그린다. 이 상수는 현재 package-private이라 `publicweb`에서 참조할 수 없으므로 **`public static final`로 공개**한다(구현 범위에 포함, 값·의미 불변 — 숫자 `3`을 복제하면 편집 허용 깊이와 표시 깊이가 갈라진다).
+  4. 각 노드: URL이 있으면 `SiteLinkPolicy.permits(site, url)`로 **출력 시 재검증**한다. 통과하지 못하면 URL이 없는 것으로 취급한다.
+  5. **가지치기**: 링크도 없고 보이는 자식도 없는 노드는 제거한다(빈 라벨이 남지 않게). 자식이 있으면 URL 유무와 무관하게 그룹으로 남는다.
+- 출력 DTO `PublicMenuItem(String name, String url, boolean external, List<PublicMenuItem> children)` — 엔티티 비노출. `external` = `!SafeUrls.isSameOriginPath(url)`.
+- 선택지(재검증 실패 표현): 계획 D3은 "통과 못 하면 `#`"이었다. `href="#"`은 죽은 링크라 접근성·UX가 나쁘고 관리 사이드바의 `#`은 라벨이 URL 없는 항목과 구별이 안 되는 임시 방어였다 → **링크 없는 라벨(`<span>`)** 로 바꾼다(위 4번 가지치기 포함). 계획 D3 문구와 다르므로 개정 이력에 명시한다.
+
+### P5-4. `SiteLinkPolicy.permits` — 예외 없는 판정 추가
+- 기존 `validate`가 던지던 규칙을 `violation(site, url): String`(위반 문구 또는 null)로 추출하고 `validate`는 이를 감싸 `InvalidRequestException`을 던지며(동작·문구 불변), 새 `boolean permits(Site site, String url)`는 `violation == null`을 돌려준다. 규칙이 한 벌이라 편집 시점과 출력 시점이 갈라지지 않는다. `null`·빈 URL은 `permits`에서 **false**(렌더링에서는 "링크 없음")로 둔다 — `validate`의 "빈 값 통과"와 의미가 다르므로 메서드 Javadoc에 명시한다.
+
+### P5-5. 마크업·스타일 — 스크립트 없는 CSS 내비게이션
+- `<nav class="site-menu" aria-label="사이트 메뉴">` 안에 중첩 `<ul>`. 모든 텍스트는 `th:text`, 링크는 `th:href="${item.url}"`(편집 URL 그대로·접두어 비부착, 쟁점 7), 외부는 `target="_blank" rel="noopener noreferrer"`. `th:utext`·`<script>`·인라인 이벤트 없음.
+- **하위 메뉴는 숨기지 않고 항상 펼쳐 둔다(P5-v2)**: 최상위는 가로 나열(좁은 화면은 세로), 하위 단계는 들여쓴 세로 목록으로 항상 보인다. `display:none`·`visibility:hidden`·`:hover`/`:focus-within` 펼침을 쓰지 않는다 — 숨기면 URL 없는 그룹(`<span>`)에는 키보드 진입점이 없고, hover 없는 입력(터치 노트북·가로 태블릿)에서는 폭이 넓어도 열 수 없다. 항상 펼침이면 Tab 순서가 문서 순서와 같아 모든 링크에 키보드·터치로 닿는다. 비용: 항목이 많은 메뉴는 화면을 더 차지한다(드롭다운·접힘 토글은 스크립트가 필요해 이 PR 범위 밖, 후속 과제). 새 CSS `static/css/public/site-menu.css`, 각 템플릿이 `<link>`로 추가한다.
+- 현재 위치 강조·접힘 상태 기억·메뉴 아이콘·설명 표시는 만들지 않는다(요청 없음).
+- 조각은 `siteMenu` 홀더가 없거나(슬라이스·사이트 해석 전) 항목이 없으면 아무것도 그리지 않는다(`th:if`).
+
+### P5-6. 하지 않는 것
+스키마·`SecurityConfig`·레이트리밋·관리 화면/API·메뉴 캐시·공통 레이아웃 신설·현재 위치 강조·모바일 토글 스크립트·푸터 변경(정적 페이지 푸터는 그대로 별개 섹션).
+
+## P5.4 테스트 계획
+
+- `PublicMenuServiceTest`(Mockito 또는 DataJpa): 활성 트리 순서(`ord, menuNo`)·비활성 노드 제외·**비활성 부모 아래 활성 자식 제외**·고아 제외·순환 방어·4단 잘라냄·링크 없는 빈 노드 제거·그룹 유지·**재검증 실패 URL(관리 경로·허용 꺼진 사이트의 외부 URL)은 링크 없음**·외부 `external=true`·비활성/관리자 사이트·없는 사이트는 빈 목록.
+- `SiteLinkPolicyTest`: `permits` ↔ `validate` 동치(같은 입력표), 기존 `validate` 문구·동작 회귀 없음.
+- `PublicSiteMenuHolderTest`: 지연(템플릿이 안 쓰면 서비스 호출 0)·1회만 호출·예외 격리(WARN, 빈 목록)·`ObjectProvider` 빈 없음.
+- `PublicSiteMenuIntegrationTest`(실제 스택): 두 사이트 메뉴 교차 비노출·메인과 공지/게시판/페이지/FAQ/문의 화면에 같은 메뉴·메뉴 수정 즉시 반영(캐시 없음)·사이트 비활성화 시 404 그대로·메뉴 조회 실패 주입 시 화면 200(메뉴만 빠짐)·**이스케이프**(`<script>` 이름·`javascript:` 직접 DB 삽입 URL이 링크로 나오지 않음)·외부 링크 `rel`·스트리밍 요청에서 메뉴 쿼리 0(지연).
+- `PublicSiteMenuTemplateConventionTest`: 조각에 `th:utext`·`<script>`·`on*=` 없음, 정상 공개 템플릿이 모두 조각을 포함, 외부 링크에 `noopener noreferrer`, `site-menu.css` 링크 포함.
+- 기존 `PublicHomeTemplateConventionTest`·`PublicSiteTemplateConventionTest`·`PublicNoticeControllerTest` 무변경 통과.
+- **브라우저 시험(필수)**: ① 3단 메뉴(URL 없는 그룹 포함)의 모든 링크가 **마우스 없이 Tab만으로** 순서대로 포커스되고 Enter로 이동 ② 데스크톱 폭 + 터치 에뮬레이션(`hasTouch`, `hover: none`)에서 모든 단계의 링크가 보이고 탭으로 이동 ③ 좁은 폭에서 가로 스크롤 없음.
+
+## P5.5 실기 검증 계획
+
+공개 사이트 `news` 생성 → 3단 메뉴 + 외부 링크 + URL 없는 그룹 등록 → `/news`·`/news/notices`·`/news/faq` 등에서 렌더링 확인(스크린샷 데스크톱·모바일 폭) → 메뉴 비활성화/수정/영구삭제 즉시 반영 → 다른 사이트(`main`)에 안 보임 → 사이트 비활성화 404 → 관리자 사이드바 불변 → 익명 응답에 `/admin` 링크 없음.
+
+## P5.6 리스크
+
+- **R1 롤백**: 스키마 변경이 없어 PR ⑤만 되돌려도 안전(메뉴가 다시 렌더링되지 않을 뿐). 문서에 "공개 메뉴는 PR ⑤ 전까지 렌더링 없음"(R5)이 이제 해소됐음을 기록.
+- **R2 요청당 쿼리 2개 증가**: 공개 화면 전체에 추가됨. 캐시 없음은 의도적 선택(즉시 반영); 레이트리밋이 상한. 부하가 문제가 되면 후속에서 짧은 TTL 캐시를 재평가(지금은 만들지 않는다).
+- **R3 편집자 URL이 접두어 없는 옛 경로**(`/notices`)면 404 — PR ② 롤백 주의와 같은 성격의 입력 오류. 렌더링이 접두어를 보정하지 않는다(편집 책임, 수용).
+- **R4 템플릿 10개 수정**: 누락 방지를 컨벤션 시험으로 강제.
+- **R5 렌더링 중 예외**: 홀더 격리로 방어, 템플릿 문법 오류는 시험이 잡는다.
+
+## P5.7 개정 이력
+- P5-v3 (2026-10-14, 라운드 2 — codex `gpt-6.1-sol` "보완 시 ship", 1건 수용) 변경: `MenuService.MAX_MENU_DEPTH`를 `public`으로 공개(지적: package-private이라 공개 서비스가 못 씀, 상수 복제 금지). 그 밖의 지연 조회·실패 격리·가지치기·재검증에는 차단 사유 없음.
+- P5-v2 (2026-10-14, 라운드 1 — codex `gpt-6.1-sol` no-ship, 2건 전부 수용) 변경: P5-5를 hover/focus 드롭다운에서 **상시 펼침**으로 교체(지적 1: URL 없는 그룹에 키보드 진입점이 없고 숨긴 자식은 포커스 불가, 지적 2: 폭이 넓어도 hover 없는 터치 입력 존재). 브라우저 시험을 필수로 승격하고 키보드 전용·터치 에뮬레이션 조건 추가.
+- P5-v1 (2026-10-14): 최초 작성 — 쟁점 8건, 결정 P5-1~P5-6. 계획 D3의 "재검증 실패 시 `#`"를 "링크 없는 라벨 + 빈 노드 가지치기"로 변경(P5-3).
+
+## 구현·검증 결과 — PR ⑤ (2026-10-14)
+
+### Context
+사이트 설정 메뉴 중 **PR ⑤(공개 메뉴 렌더링)** 를 계획 P5-v3(적대적 리뷰 2라운드 ship, 사용자 승인)대로 구현했다. **스키마·인가 정책(`SecurityConfig`·레이트리밋·`AdminFeature`)·관리 화면·API는 바뀌지 않았다.** 이로써 사이트 설정 메뉴 PR ①~⑤가 모두 구현됐다. 브랜치는 PR ④ 머지(#146) 뒤의 최신 `master`에서 분기한 `feat/site-menu-render`.
+
+### 핵심 확정 사항
+- 정상 공개 화면 **10개 템플릿 전부**가 공유 조각 `public/fragments/site-menu.html :: siteMenu`와 `site-menu.css`를 포함한다(오류 뷰·`notice/error.html`·`fragments/*` 제외).
+- 모델 `siteMenu`는 **요청 범위 지연 홀더**(`PublicSiteMenu`) — 템플릿이 만질 때 1회 조회, 실패는 홀더 안에서 격리(메뉴만 빠지고 200). advice·홀더는 `ObjectProvider`로 서비스를 푼다.
+- `PublicMenuService.findMenu(siteId)`: 활성 `PUBLIC` 사이트의 활성 메뉴를 **루트에서 내려가며** 트리화(고아·비활성 부모 아래 자식·순환 제외), 깊이 `MenuService.MAX_MENU_DEPTH`(3, `public`으로 공개), **출력 시 `SiteLinkPolicy.permits` 재검증** → 실패 URL은 **링크 없는 라벨**(계획 D3의 `#` 대신), 링크도 자식도 없는 노드 제거.
+- `SiteLinkPolicy`는 규칙 한 벌(`violation`)을 `validate`(예외)와 `permits`(boolean)가 공유한다. `validate`의 동작·문구는 불변.
+- **하위 메뉴는 항상 펼침**(리뷰 라운드 1) — 스크립트·hover·숨김 없음. 키보드·터치 모두 모든 링크에 닿는다.
+
+### 구현 파일
+- 신규: `publicweb/menu/{PublicMenuService, PublicSiteMenu, dto/PublicMenuItem}`, `templates/public/fragments/site-menu.html`, `static/css/public/site-menu.css`
+- 수정: `PublicSiteModelAdvice`(홀더 주입), `SiteLinkPolicy`(`permits` 추출), `MenuService.MAX_MENU_DEPTH`(`public`), 공개 템플릿 10개(조각·CSS 포함)
+- 시험(신규): `PublicSiteMenuIntegrationTest`(12)·`PublicSiteMenuTest`(4)·`PublicSiteMenuTemplateConventionTest`(4), `SiteLinkPolicyTest` 확장(`permits` 동치표)
+- 문서: 루트 `CLAUDE.md`, `com.cms.admin.site`·`com.cms.publicweb.support`의 `CLAUDE.md`
+
+### 검증 결과
+- **전체 테스트** `./gradlew cleanTest test` — BUILD SUCCESSFUL(11분 20초). 환경 이슈: 처음 Docker Desktop이 꺼져 있어 Testcontainers 시험이 시작하지 못했다(코드 문제 아님) → 기동 후 재실행.
+- **실기(개발 DB + `bootRun`, Playwright)**: 공개 사이트 `news`와 3단 메뉴(URL 없는 그룹 "조직도"·외부 링크 포함)를 **실제 관리 API**로 생성 → `/news`·`/news/faq`에서 렌더링(데스크톱·360px 스크린샷 `adversarial-review/screenshots/site-menu-render/`) / 외부 링크 `target=_blank rel="noopener noreferrer"`, 내부 링크는 속성 없음 / **Tab만으로 4개 링크 순서대로 포커스, Enter로 `/news/faq` 이동** / 터치 에뮬(1280px, `hover: none`) 모든 링크 보임 + 탭 이동 / 360px 가로 스크롤 없음 / `/main`에는 메뉴 없음 / **수정·비활성화가 즉시 반영, 원복 확인** / DB에 직접 삽입한 `javascript:`·`/admin/member/manage` 메뉴는 렌더링되지 않고 `<b>태그</b>`는 이스케이프 / 관리자 사이드바에 공개 메뉴 없음 / 정리 후 `/news` 404 복귀.
+
+### 코드 리뷰 (codex `adversarial-review`, 2라운드 — 마지막 approve)
+- 1라운드 지적 1건(medium) **수용**: 퍼센트 인코딩된 호스트(`https://%63ms.example/admin`)는 `URI.getHost()`가 null이라 같은 출처 검사(`ownPathOf`)가 건너뛰어지지만 브라우저는 `cms.example`로 정규화해 이동한다 → 외부 허용 사이트에서 관리 경로가 공개 메뉴에 나올 수 있었다(인가 우회는 아니고 비공개 경로 차단 계약 위반). `SiteLinkPolicy.hasParsableHost`로 **호스트를 읽을 수 없거나 `%`를 포함한 절대 URL은 거부**한다(`validate`·`permits` 공통). 시험: `SiteLinkPolicyTest.percentEncodedHostIsRejected`(5종), `PublicSiteMenuIntegrationTest.pages_percentEncodedHostLinkIsNotRendered`. 별칭 호스트(다른 도메인) 비탐지는 기존 수용 한계 그대로.
+- 2라운드: 새 지적 없음(approve). 최종 전체 테스트 BUILD SUCCESSFUL(11분 50초).
+
+### 이슈
+- **구현 중 계획과 달라진 점**: ① 정상 공개 템플릿이 11개가 아니라 **10개**(문서 수치 정정) ② 컨벤션 시험의 CSS 단언이 링크 밑줄용 `:hover`까지 막아 과했으므로 "하위 목록을 여는 `:hover` 규칙 금지"로 좁혔다.
+- **실기 중 진단 실수**: 개발 DB 로그인이 막혔을 때 로그인 식별자가 이메일이 아니라 `user_id`(`admin`)임을 몰라 임시 관리자 계정을 만들었다가, 원인을 알고 바로 삭제했다(최종 `member`는 원래 1행). 검증 데이터(`news` 사이트·메뉴)도 모두 삭제했다.
+- **환경 부작용**: DB가 V56까지 마이그레이션된 상태에서 로컬 `cms-app-dev` 컨테이너(옛 빌드)를 멈춰 두었다 — 새 빌드로 다시 올려야 한다(혼합 운영 금지).
+- **무관한 기존 현상**: 개발 DB 배너 id 4의 이미지 파일이 없어 `/banners/4/image` 404가 콘솔에 남는다.
+- **수용한 한계**: 메뉴 영역이 화면별 본문 컨테이너와 정렬을 맞추지 않는다(공통 레이아웃 도입 때 재검토), 요청당 쿼리 2개 증가(캐시 없음, 레이트리밋이 상한), 접두어 없는 옛 경로를 저장한 메뉴는 404, 드롭다운·현재 위치 강조 없음.
+
+### 후속
+- 코드 리뷰 게이트(`/code-review-loop`) → `/commitPR`. 로드맵 반영(`/updateRoadmap`)은 사이트 설정 메뉴 PR ①~⑤ 완료 후 한 번에.

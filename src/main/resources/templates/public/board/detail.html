@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title th:text="${post.title}">게시글</title>
     <link rel="stylesheet" th:href="@{/css/public/board.css}">
+    <link rel="stylesheet" th:href="@{/css/public/site-menu.css}">
 </head>
 <body>
+<th:block th:replace="~{public/fragments/site-menu :: siteMenu}"></th:block>
 <div class="public-board-container">
     <div class="public-board-header">
         <h1><a th:href="@{|${sitePrefix}/boards/{id}|(id=${post.boardId})}" th:text="${post.boardName}">게시판</a></h1>

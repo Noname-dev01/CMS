@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>자주 묻는 질문</title>
     <link rel="stylesheet" th:href="@{/css/public/faq.css}">
+    <link rel="stylesheet" th:href="@{/css/public/site-menu.css}">
 </head>
 <body>
+<th:block th:replace="~{public/fragments/site-menu :: siteMenu}"></th:block>
 <div class="public-faq-container">
     <h1 class="faq-title">자주 묻는 질문</h1>
 
