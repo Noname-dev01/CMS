@@ -14,7 +14,7 @@
 - **기본 사이트 `/`**: `RootRedirectController`가 `PublicSiteService.findDefault()`로 `302 Location: /{defaultKey}`(GET·HEAD). `site.default_yn` 표시가 정확히 1개의 활성 공개 사이트가 아니면 오류 로그 + 404(fail-closed). 변경은 관리자 사이트 탭의 [기본으로 지정]/`PATCH /admin/api/sites/{id}`(`defaultSite=true`) — `com.cms.admin.site`의 `CLAUDE.md`.
 - **실서버 시험이 필요한 이유**: MockMvc는 `sendError(404)` 뒤의 ERROR 재디스패치를 실행하지 않아 "같은 404 화면"과 HEAD 본문 없음을 증명하지 못한다 — `PublicSiteRoutingServerTest`(없는·비활성·형식 위반·예약어 사이트가 옛 URL 404와 **같은 화면**, HEAD 404 본문 없음, 거부된 사이트가 공개 서비스에 도달하지 않음, `/error` 직접 요청 거부).
 - **롤백**: V53은 가산 컬럼이라 데이터 손상은 없지만 이전 앱은 옛 경로(`/notices` 등)를 되살리고 `/{key}/…`는 사라진다. **구·신 앱 혼합 운영(롤링·블루그린 겹침) 금지**, 전환·롤백 모두 일괄 교체(`docs/deployment.md`). 관리자가 저장해 둔 배너·팝업·메뉴의 **내부 링크 URL**(예: `/boards/2`)은 이전 경로라 404가 된다(실배포 전이라는 전제로 수용).
-- **PR ③(2026-10-13)**: 배너·팝업·FAQ·정적 페이지·푸터는 `site_id`(NULL = 공통)로 사이트마다 분리된다 — 공개 서비스는 `siteId`를 필수로 받고(`PublicSite.requireId`) 쿼리에 소속 조건이 고정돼 있다. 컨트롤러는 `PublicSiteRoutes.current(request).id()`를 넘긴다. 상세는 `com.cms.admin.site`의 `CLAUDE.md` "사이트별 콘텐츠". 공지·게시판·공개 메뉴 렌더링은 아직 모든 사이트가 같다(PR ④⑤).
+- **PR ③(2026-10-13)**: 배너·팝업·FAQ·정적 페이지·푸터는 `site_id`(NULL = 공통)로 사이트마다 분리된다 — 공개 서비스는 `siteId`를 필수로 받고(`PublicSite.requireId`) 쿼리에 소속 조건이 고정돼 있다. 컨트롤러는 `PublicSiteRoutes.current(request).id()`를 넘긴다. 상세는 `com.cms.admin.site`의 `CLAUDE.md` "사이트별 콘텐츠". 게시판·공지는 PR ④(2026-10-14)부터 `board.site_id`로 분리된다(공개 서비스가 `siteId`를 필수로 받고 `PublicSiteRoutes.current(request).id()`를 넘긴다). 공개 메뉴 렌더링은 아직 없다(PR ⑤).
 
 ## 기존 항목
 
