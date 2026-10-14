@@ -1,6 +1,8 @@
 package com.cms.admin.board.dto.request;
 
+import com.cms.admin.site.SiteScope;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -26,4 +28,8 @@ public class BoardUpdateRequest {
 
     @Schema(description = "첨부 허용 여부 (null이면 기존값 유지)", example = "false")
     private Boolean attachmentYn;
+
+    @Pattern(regexp = SiteScope.PATTERN)
+    @Schema(description = "표시 대상 — \"COMMON\" 또는 사이트 ID 문자열 (null이면 기존값 유지, 공지 게시판은 변경 불가)", example = "COMMON")
+    private String siteScope;
 }

@@ -49,7 +49,7 @@ public interface ContentImageRefRepository extends JpaRepository<ContentImageRef
 
     /**
      * 공개 게시글이 이 이미지를 참조하는지(PLAN-board.md 쟁점 9·D-6). 공개 조건은 {@code PublicBoardService}의 공개 불변식과 같아야 한다 —
-     * 게시판 {@code publicYn ∧ ¬deleted}, 게시글 {@code useYn ∧ ¬deleted}, 게시글이 그 게시판 소속. 노출 기간 {@code [publishStart, publishEnd)}도 만족해야 한다(예약·만료 글의 이미지가 글보다 먼저/오래 공개되지 않게). 이미지 출처는 {@code BOARD}이고 참조한
+     * 게시판 {@code publicYn ∧ ¬deleted ∧ (공통 ∨ 소속 사이트 활성 — PR ④, 이미지 경로는 사이트 무관이라 사이트 비활성만 거른다)}, 게시글 {@code useYn ∧ ¬deleted}, 게시글이 그 게시판 소속. 노출 기간 {@code [publishStart, publishEnd)}도 만족해야 한다(예약·만료 글의 이미지가 글보다 먼저/오래 공개되지 않게). 이미지 출처는 {@code BOARD}이고 참조한
      * 게시글의 게시판과 같아야 한다(롤백 중 출처 검증 없이 생긴 참조로는 공개되지 않는다). 라이브러리 계열 출처({@code LIBRARY}·{@code BANNER}·{@code POPUP})는
      * 게시판과 무관하게 공개 글이 참조하면 공개된다 — 저장 시점에 MEDIA 읽기 권한을 요구한다(PLAN-media-library.md D3). {@code r.imageId = :imageId}가 빠지면 다른 공개 글의
      * 참조가 아무 이미지나 공개하므로 반드시 요청 이미지와 연결한다.
@@ -59,6 +59,7 @@ public interface ContentImageRefRepository extends JpaRepository<ContentImageRef
             + " and p.useYn = true and p.deleted = false"
             + " and (p.publishStart is null or p.publishStart <= :now) and (p.publishEnd is null or p.publishEnd > :now)"
             + " and b.id = p.boardId and b.publicYn = true and b.deleted = false"
+            + " and (b.siteId is null or exists (select 1 from Site s where s.id = b.siteId and s.useYn = true))"
             + " and i.id = r.imageId"
             + " and ((i.scopeType = 'BOARD' and i.scopeId = p.boardId) or i.scopeType in ('LIBRARY', 'BANNER', 'POPUP'))")
     boolean existsPublishedPostRef(@Param("imageId") Long imageId, @Param("now") LocalDateTime now);

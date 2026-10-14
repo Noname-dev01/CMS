@@ -3,6 +3,7 @@ package com.cms.admin.site.service;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.admin.banner.repository.BannerRepository;
+import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.faq.repository.FaqCategoryRepository;
 import com.cms.admin.menu.MenuRepository;
 import com.cms.admin.page.repository.SitePageRepository;
@@ -34,8 +35,8 @@ import java.util.Map;
  * 수정·삭제는 사이트 행을 FOR UPDATE로 먼저 잠근다 — 그 사이트의 메뉴 쓰기가 모두 같은 행을 먼저 잠그므로(MenuService) 메뉴 존재·외부 링크 검사가
  * 메뉴 쓰기와 경합하지 않는다.
  *
- * <p>삭제 가드의 "내용"은 메뉴 + 사이트 전용 콘텐츠(배너·팝업·FAQ 카테고리·정적 페이지, PR ③)다. 사이트 소속 컬럼을 가진 새 테이블(게시판, PR ④)이
- * 생길 때는 그 FK도 ON DELETE RESTRICT로 두고 {@link #hasContent}에 포함시켜야 한다.
+ * <p>삭제 가드의 "내용"은 메뉴 + 사이트 전용 콘텐츠(배너·팝업·FAQ 카테고리·정적 페이지, PR ③; 게시판, PR ④)다. 사이트 소속 컬럼을 가진 새
+ * 테이블이 생길 때는 그 FK도 ON DELETE RESTRICT로 두고 {@link #hasContent}에 포함시켜야 한다.
  */
 @Service
 @RequiredArgsConstructor
@@ -47,6 +48,7 @@ public class SiteService {
     private final PopupRepository popupRepository;
     private final FaqCategoryRepository faqCategoryRepository;
     private final SitePageRepository sitePageRepository;
+    private final BoardRepository boardRepository;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -155,7 +157,7 @@ public class SiteService {
             throw new ConflictException("기본 사이트는 삭제할 수 없습니다.");
         }
         if (hasContent(site)) {
-            throw new ConflictException("메뉴나 콘텐츠(배너·팝업·FAQ 카테고리·정적 페이지)가 있는 사이트는 삭제할 수 없습니다. 비활성화하거나 먼저 삭제해주세요.");
+            throw new ConflictException("메뉴나 콘텐츠(배너·팝업·FAQ 카테고리·정적 페이지·게시판)가 있는 사이트는 삭제할 수 없습니다. 비활성화하거나 먼저 삭제해주세요.");
         }
         SiteDeleteResult snapshot = new SiteDeleteResult(site.getId(), site.getSiteKey());
         siteRepository.delete(site);
@@ -164,7 +166,7 @@ public class SiteService {
 
     /**
      * 사이트에 속한 내용이 있는가 — 메뉴, 배너, 팝업, FAQ 카테고리, 정적 페이지(PR ③). 사이트 행 잠금 뒤에 호출한다. 새 {@code site_id} 소유 테이블이
-     * 생기면(PR ④ 게시판 등) 여기와 FK {@code RESTRICT}를 함께 추가한다.
+     * 생기면 여기와 FK {@code RESTRICT}를 함께 추가한다.
      */
     private boolean hasContent(Site site) {
         Long id = site.getId();
@@ -172,7 +174,8 @@ public class SiteService {
                 || bannerRepository.existsBySiteId(id)
                 || popupRepository.existsBySiteId(id)
                 || faqCategoryRepository.existsBySiteId(id)
-                || sitePageRepository.existsBySiteId(id);
+                || sitePageRepository.existsBySiteId(id)
+                || boardRepository.existsBySiteId(id);
     }
 
     private long countMenus(Long siteId) {

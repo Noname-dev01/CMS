@@ -64,12 +64,13 @@ public class PublicBoardController {
                        @RequestParam(defaultValue = "0") String page,
                        @RequestParam(required = false) String keyword,
                        Model model,
+                       HttpServletRequest request,
                        HttpServletResponse response) {
         Long parsedBoardId = parseId(boardId);
         if (parsedBoardId == null) {
             return notFound(response);
         }
-        return publicBoardService.getPublishedPosts(parsedBoardId, parsePageOrZero(page), keyword)
+        return publicBoardService.getPublishedPosts(siteId(request), parsedBoardId, parsePageOrZero(page), keyword)
                 .map(result -> renderList(result, model))
                 .orElseGet(() -> notFound(response));
     }
@@ -82,7 +83,7 @@ public class PublicBoardController {
         if (parsedBoardId == null || parsedPostId == null) {
             return notFound(response);
         }
-        return publicBoardService.findPublishedPost(parsedBoardId, parsedPostId)
+        return publicBoardService.findPublishedPost(siteId(request), parsedBoardId, parsedPostId)
                 .map(post -> {
                     countViewIfGet(parsedPostId, request);
                     return renderDetail(post, model);
@@ -104,7 +105,7 @@ public class PublicBoardController {
                            @PathVariable String attachmentId,
                            HttpServletRequest request,
                            HttpServletResponse response) throws IOException {
-        Optional<PublicPostAttachmentDownload> download = openDownload(boardId, postId, attachmentId, response);
+        Optional<PublicPostAttachmentDownload> download = openDownload(boardId, postId, attachmentId, request, response);
         if (download.isEmpty()) {
             return;
         }
@@ -127,8 +128,9 @@ public class PublicBoardController {
     public void attachmentHead(@PathVariable String boardId,
                                @PathVariable String postId,
                                @PathVariable String attachmentId,
+                               HttpServletRequest request,
                                HttpServletResponse response) throws IOException {
-        Optional<PublicPostAttachmentDownload> download = openDownload(boardId, postId, attachmentId, response);
+        Optional<PublicPostAttachmentDownload> download = openDownload(boardId, postId, attachmentId, request, response);
         if (download.isEmpty()) {
             return;
         }
@@ -145,7 +147,7 @@ public class PublicBoardController {
      * 않는다(던지면 {@code PublicWebExceptionAdvice}가 404가 아니라 HTML 500으로 만든다). 반환된 DTO는 호출자가 곧바로 try-with-resources로 닫아야 한다.
      */
     private Optional<PublicPostAttachmentDownload> openDownload(String boardId, String postId, String attachmentId,
-                                                                HttpServletResponse response) throws IOException {
+                                                                HttpServletRequest request, HttpServletResponse response) throws IOException {
         Long parsedBoardId = parseId(boardId);
         Long parsedPostId = parseId(postId);
         Long parsedAttachmentId = parseId(attachmentId);
@@ -155,7 +157,7 @@ public class PublicBoardController {
         }
 
         Optional<PublicPostAttachmentRef> ref =
-                publicBoardService.findPublishedAttachment(parsedBoardId, parsedPostId, parsedAttachmentId);
+                publicBoardService.findPublishedAttachment(siteId(request), parsedBoardId, parsedPostId, parsedAttachmentId);
         Optional<PublicPostAttachmentDownload> download = ref.flatMap(publicBoardService::openAttachment);
         if (download.isEmpty()) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
@@ -232,6 +234,11 @@ public class PublicBoardController {
     private String renderDetail(PublicPostDetail post, Model model) {
         model.addAttribute("post", post);
         return "public/board/detail";
+    }
+
+    /** 현재 요청의 사이트 ID — {@code @SiteScopedPublic} 컨트롤러라 인터셉터가 항상 채운다(PLAN-site-menu.md PR ④). */
+    private static Long siteId(HttpServletRequest request) {
+        return PublicSiteRoutes.current(request).id();
     }
 
     private String notFound(HttpServletResponse response) {
