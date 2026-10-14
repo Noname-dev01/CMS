@@ -1,6 +1,5 @@
 package com.cms.publicweb.notice.service;
 
-import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.publicweb.board.dto.PublicBoardListResult;
 import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
@@ -36,6 +35,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class PublicNoticeServiceTest {
 
     private static final Long NOTICE_BOARD_ID = 3L;
+    private static final Long SITE_ID = 2L;
 
     @Mock
     BoardRepository boardRepository;
@@ -47,7 +47,7 @@ class PublicNoticeServiceTest {
     PublicNoticeService service;
 
     private void noticeBoardExists() {
-        given(boardRepository.findIdByBoardKey(Board.NOTICE_KEY)).willReturn(Optional.of(NOTICE_BOARD_ID));
+        given(boardRepository.findNoticeBoardId(SITE_ID)).willReturn(Optional.of(NOTICE_BOARD_ID));
     }
 
     @Test
@@ -57,23 +57,23 @@ class PublicNoticeServiceTest {
         PublicBoardListResult list = new PublicBoardListResult(NOTICE_BOARD_ID, "공지사항", new PageImpl<>(List.of()), null);
         PublicPostDetail detail = PublicPostDetail.builder().id(1L).title("t").build();
         PublicPostAttachmentRef ref = new PublicPostAttachmentRef("f.pdf", "k");
-        given(publicBoardService.getPublishedPosts(NOTICE_BOARD_ID, 2, "점검")).willReturn(Optional.of(list));
-        given(publicBoardService.findPublishedPost(NOTICE_BOARD_ID, 1L)).willReturn(Optional.of(detail));
-        given(publicBoardService.findPublishedAttachment(NOTICE_BOARD_ID, 1L, 5L)).willReturn(Optional.of(ref));
+        given(publicBoardService.getPublishedPosts(SITE_ID, NOTICE_BOARD_ID, 2, "점검")).willReturn(Optional.of(list));
+        given(publicBoardService.findPublishedPost(SITE_ID, NOTICE_BOARD_ID, 1L)).willReturn(Optional.of(detail));
+        given(publicBoardService.findPublishedAttachment(SITE_ID, NOTICE_BOARD_ID, 1L, 5L)).willReturn(Optional.of(ref));
 
-        assertSame(list, service.getPublishedNotices(2, "점검").orElseThrow());
-        assertSame(detail, service.findPublishedNotice(1L).orElseThrow());
-        assertSame(ref, service.findPublishedAttachment(1L, 5L).orElseThrow());
+        assertSame(list, service.getPublishedNotices(SITE_ID, 2, "점검").orElseThrow());
+        assertSame(detail, service.findPublishedNotice(SITE_ID, 1L).orElseThrow());
+        assertSame(ref, service.findPublishedAttachment(SITE_ID, 1L, 5L).orElseThrow());
     }
 
     @Test
     @DisplayName("공지 게시판이 없거나 삭제됐으면(키 조회 empty) 목록·상세·첨부 모두 empty이고 게시판 서비스를 호출하지 않는다 — fail-closed 404")
     void noticeBoardMissing_everythingEmpty() {
-        given(boardRepository.findIdByBoardKey(Board.NOTICE_KEY)).willReturn(Optional.empty());
+        given(boardRepository.findNoticeBoardId(SITE_ID)).willReturn(Optional.empty());
 
-        assertTrue(service.getPublishedNotices(0, null).isEmpty());
-        assertTrue(service.findPublishedNotice(1L).isEmpty());
-        assertTrue(service.findPublishedAttachment(1L, 5L).isEmpty());
+        assertTrue(service.getPublishedNotices(SITE_ID, 0, null).isEmpty());
+        assertTrue(service.findPublishedNotice(SITE_ID, 1L).isEmpty());
+        assertTrue(service.findPublishedAttachment(SITE_ID, 1L, 5L).isEmpty());
 
         verifyNoInteractions(publicBoardService);
     }
@@ -82,10 +82,10 @@ class PublicNoticeServiceTest {
     @DisplayName("게시판 서비스가 empty(비공개 게시판 등)를 주면 그대로 empty — 빈 목록이나 예외로 번역하지 않는다")
     void boardServiceEmpty_propagatesEmpty() {
         noticeBoardExists();
-        given(publicBoardService.getPublishedPosts(anyLong(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any()))
+        given(publicBoardService.getPublishedPosts(anyLong(), anyLong(), org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.any()))
                 .willReturn(Optional.empty());
 
-        assertTrue(service.getPublishedNotices(0, null).isEmpty());
+        assertTrue(service.getPublishedNotices(SITE_ID, 0, null).isEmpty());
     }
 
     @Test

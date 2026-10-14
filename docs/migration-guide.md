@@ -61,6 +61,7 @@
 | V53 | `V53__add_site_default.sql` | `site.default_yn bit(1) NOT NULL DEFAULT 0`(DDL 1문, 롤백 호환) |
 | V54 | `V54__seed_default_site.sql` | 시드 `main`(id=2)을 기본 공개 사이트로 지정 — 기본이 이미 있으면 건드리지 않는 멱등 DML |
 | V55 | `V55__add_content_site_id.sql` | `banner`·`popup`·`faq_category`·`site_page`에 `site_id`(NULL = 공통, FK `RESTRICT`) + `banner`·`faq_category`에 `version`(기본 1) — DDL 4문(아래 "V55") |
+| V56 | `V56__add_board_site_id.sql` | `board.site_id`(NULL = 공통, FK `RESTRICT`) — DDL 1문(아래 "V56") |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -201,6 +202,11 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 - **배포**: DDL 4문(`ALTER TABLE` 한 테이블에 한 문 — 컬럼 추가와 FK를 한 문에 묶었다), 문마다 암묵 커밋. 배포 전 `make prod-backup`. 전부 `IF NOT EXISTS`라 실패 뒤 `flyway repair`로 재실행해도 안전하다(`ContentSiteMigrationTest.isIdempotent`). 기존 행은 `site_id NULL`(공통)·`version 1`이라 데이터 이동이 없다.
 - **실패 복구**: `success=0`이 남으면 ① 앱 정지 ② 테이블별로 `SHOW COLUMNS FROM <table> LIKE 'site_id';`·`SHOW CREATE TABLE <table>`로 어디까지 적용됐는지 확인 ③ 컬럼·FK가 일부만 있어도 같은 파일을 `flyway repair` 후 재실행하면 나머지가 채워진다(멱등).
 - **롤백 호환(조건부)**: `site_id`는 `DEFAULT NULL`, `version`은 `NOT NULL DEFAULT 1`이라 이전 앱의 INSERT가 깨지지 않고 공통 콘텐츠로 들어간다(`ContentSiteMigrationTest.legacyInsertsStayCommon`). **다만 사이트 전용 콘텐츠가 있으면 롤백하지 않는다** — 이전 앱이 전용 콘텐츠를 모든 사이트에 노출한다. 점검 SQL과 삭제 순서(FAQ는 항목 → 카테고리)는 `docs/deployment.md` "사이트별 콘텐츠".
+
+## V56 — 사이트별 게시판·공지 (2026-10-14, `adversarial-review/plan/PLAN-site-menu.md` PR ④)
+
+- **배포**: DDL 1문(`ALTER TABLE board`에 `site_id` 컬럼 + FK `fk_board_site`), 문 하나라 부분 적용이 없다. 배포 전 `make prod-backup`. 컬럼·FK 모두 `IF NOT EXISTS`라 `flyway repair` 뒤 재실행해도 안전하다(`BoardSiteMigrationTest.isIdempotent`). 기존 행은 `site_id NULL`(공통)이라 데이터 이동이 없다. 공지 게시판 키 유일성은 기존 `UNIQUE(board_key)`를 그대로 쓴다(사이트 전용 공지는 키 `NOTICE:{siteId}`) — 인덱스 변경 없음.
+- **롤백 호환(조건부)**: `site_id`가 `DEFAULT NULL`이라 이전 앱의 INSERT가 깨지지 않고 공통 게시판으로 들어간다(`BoardSiteMigrationTest.legacyInsertStaysCommon`). **다만 사이트 전용 게시판이 있으면 롤백하지 않는다** — 이전 앱이 전용 게시판을 모든 사이트에 노출한다. 점검 SQL·삭제 순서·이전 앱이 남긴 삭제 행 정리는 `docs/deployment.md` "사이트별 게시판·공지".
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

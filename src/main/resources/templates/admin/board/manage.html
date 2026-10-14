@@ -47,10 +47,10 @@
                                 <div class="table-responsive">
                                     <table class="table table-bordered table-hover mb-0">
                                         <thead class="thead-light">
-                                        <tr><th>#</th><th>이름</th><th>공개</th><th>첨부</th><th>수정일</th></tr>
+                                        <tr><th>#</th><th>이름</th><th>표시 대상</th><th>공개</th><th>첨부</th><th>수정일</th></tr>
                                         </thead>
                                         <tbody id="boardList">
-                                        <tr><td colspan="5" class="text-muted">불러오는 중...</td></tr>
+                                        <tr><td colspan="6" class="text-muted">불러오는 중...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -68,6 +68,20 @@
                                     <div class="form-group">
                                         <label for="boardName">이름</label>
                                         <input type="text" class="form-control" id="boardName" maxlength="100" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="boardSiteScope">표시 대상</label>
+                                        <select class="form-control" id="boardSiteScope" aria-describedby="boardSiteScopeHint">
+                                            <option value="COMMON">공통 (모든 사이트)</option>
+                                            <option th:each="site : ${scopeSites}" th:value="${site.id()}"
+                                                    th:text="${site.active()} ? ${site.name()} : ${site.name() + ' (비활성)'}"></option>
+                                        </select>
+                                        <small class="form-text text-muted" id="boardSiteScopeHint">공통은 모든 공개 사이트에, 사이트를 고르면 그 사이트에서만 보입니다. 공지 게시판의 표시 대상은 바꿀 수 없습니다.</small>
+                                    </div>
+                                    <div class="form-group form-check" id="boardNoticeGroup">
+                                        <input type="checkbox" class="form-check-input" id="boardNotice" disabled>
+                                        <label class="form-check-label" for="boardNotice">이 사이트의 공지 게시판으로 만들기</label>
+                                        <small class="form-text text-muted">사이트를 고르고 공개 게시판일 때만 선택할 수 있습니다. 사이트마다 하나이며, 만들면 그 사이트의 공지 화면이 공통 공지 대신 이 게시판을 보여 줍니다.</small>
                                     </div>
                                     <div class="form-group form-check">
                                         <input type="checkbox" class="form-check-input" id="boardPublic" checked>
@@ -98,6 +112,7 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
+<script src="/js/admin/content-scope.js"></script>
 
 <script>
     const BOARDS_URL = "/admin/api/boards";
@@ -108,6 +123,10 @@
     const boardName = document.getElementById("boardName");
     const boardPublic = document.getElementById("boardPublic");
     const boardAttachment = document.getElementById("boardAttachment");
+    const boardSiteScope = document.getElementById("boardSiteScope");
+    const boardNotice = document.getElementById("boardNotice");
+    const boardNoticeGroup = document.getElementById("boardNoticeGroup");
+    const scope = ContentScope.create(boardSiteScope);   // 표시 대상 선택 박스(없는 사이트 ID는 옵션으로 보존)
     const btnSave = document.getElementById("btnSave");
     const btnNew = document.getElementById("btnNew");
     const btnDelete = document.getElementById("btnDelete");
@@ -167,7 +186,7 @@
         if (boards.length === 0) {
             const tr = document.createElement("tr");
             const cell = td("게시판이 없습니다.");
-            cell.colSpan = 5;
+            cell.colSpan = 6;
             cell.className = "text-muted";
             tr.appendChild(cell);
             boardList.appendChild(tr);
@@ -178,6 +197,15 @@
             tr.className = "board-row" + (editing && editing.id === board.id ? " table-active" : "");
             tr.appendChild(td(String(board.id)));
             tr.appendChild(td(board.name));
+            const scopeCell = document.createElement("td");
+            scopeCell.appendChild(scope.badge(board.siteId));
+            if (board.noticeBoard) {
+                const noticeBadge = document.createElement("span");
+                noticeBadge.className = "badge badge-warning ml-1";
+                noticeBadge.textContent = "공지";
+                scopeCell.appendChild(noticeBadge);
+            }
+            tr.appendChild(scopeCell);
             tr.appendChild(td(board.publicYn ? "공개" : "비공개"));
             tr.appendChild(td(board.attachmentYn ? "허용" : "금지"));
             tr.appendChild(td(formatDate(board.updateDate)));
@@ -218,6 +246,10 @@
         boardName.value = board.name;
         boardPublic.checked = !!board.publicYn;
         boardAttachment.checked = !!board.attachmentYn;
+        scope.set(board.siteId);
+        boardNotice.checked = false;
+        boardNoticeGroup.classList.add("d-none");           // 공지 게시판 만들기는 생성 모드에서만
+        syncScopeControls();
         btnSave.textContent = "저장";
         btnNew.classList.remove("d-none");
         btnDelete.classList.remove("d-none");
@@ -233,16 +265,34 @@
         boardForm.reset();
         boardPublic.checked = true;
         boardAttachment.checked = true;
+        scope.reset();
+        boardNotice.checked = false;
+        boardNoticeGroup.classList.remove("d-none");
+        syncScopeControls();
         btnSave.textContent = "생성";
         btnNew.classList.add("d-none");
         btnDelete.classList.add("d-none");
         loadList();
     }
 
+    // 표시 대상 박스·공지 게시판 체크박스의 활성 조건: 공지 게시판(키 있는 게시판)의 대상은 바꿀 수 없고, 공지 게시판 만들기는 사이트를 고르고 공개일 때만 된다
+    function syncScopeControls() {
+        const lockedScope = !!(editing && editing.noticeBoard);
+        boardSiteScope.disabled = saving || lockedScope;
+        const canNotice = scope.value() !== ContentScope.COMMON && boardPublic.checked;
+        if (!canNotice) {
+            boardNotice.checked = false;
+        }
+        boardNotice.disabled = saving || !canNotice;
+    }
+    boardSiteScope.addEventListener("change", syncScopeControls);
+    boardPublic.addEventListener("change", syncScopeControls);
+
     // 저장 중에는 입력·작성 대상 전환을 잠가 응답 반영 시 초안이 덮어써지지 않게 한다
     function setSaving(value) {
         saving = value;
         [boardName, boardPublic, boardAttachment, btnSave, btnNew, btnDelete].forEach(function (el) { el.disabled = value; });
+        syncScopeControls();
     }
 
     boardForm.addEventListener("submit", async function (event) {
@@ -257,6 +307,16 @@
         }
         const target = editing;                        // 요청 시작 시점의 대상을 고정한다
         const payload = { name: name, publicYn: boardPublic.checked, attachmentYn: boardAttachment.checked };
+        if (!target) {
+            payload.siteScope = scope.value();
+            payload.noticeBoard = boardNotice.checked;
+        } else if (!target.noticeBoard) {
+            // 표시 대상은 편집 시작 시점 값에서 바꿨을 때만 보낸다 — 낡은 화면이 다른 관리자가 바꾼 대상을 되돌리지 않게
+            const base = target.siteId === null || target.siteId === undefined ? ContentScope.COMMON : String(target.siteId);
+            if (scope.value() !== base) {
+                payload.siteScope = scope.value();
+            }
+        }
         setSaving(true);
         try {
             const response = await fetch(target ? BOARDS_URL + "/" + encodeURIComponent(target.id) : BOARDS_URL, {

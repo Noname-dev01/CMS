@@ -58,6 +58,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class PublicBoardServiceTest {
 
     private static final Long BOARD_ID = 7L;
+    private static final Long SITE_ID = 2L;
 
     /** 서비스가 쿼리에 넘기는 판정 시각 — 고정 Clock(KST 2026-10-09 12:00)의 값. 저장소 호출 인자로 단언해 "주입된 Clock으로 요청당 산출해 전달"을 고정한다. */
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 10, 9, 12, 0);
@@ -100,7 +101,7 @@ class PublicBoardServiceTest {
     }
 
     private void publicBoardExists() {
-        given(boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(BOARD_ID)).willReturn(Optional.of(board()));
+        given(boardRepository.findPublicById(BOARD_ID, SITE_ID)).willReturn(Optional.of(board()));
     }
 
     // ===================== 목록 =====================
@@ -108,9 +109,9 @@ class PublicBoardServiceTest {
     @Test
     @DisplayName("공개 게시판이 아니면(없음·비공개·삭제) 목록은 empty이고 게시글 저장소를 조회하지 않는다")
     void list_boardNotPublic_emptyAndNoPostQuery() {
-        given(boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(BOARD_ID)).willReturn(Optional.empty());
+        given(boardRepository.findPublicById(BOARD_ID, SITE_ID)).willReturn(Optional.empty());
 
-        assertTrue(service.getPublishedPosts(BOARD_ID, 0, null).isEmpty());
+        assertTrue(service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).isEmpty());
 
         verifyNoInteractions(postRepository);
     }
@@ -121,7 +122,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.searchPublished(eq(BOARD_ID), eq(null), eq(NOW), any())).willReturn(new PageImpl<>(List.of(post(1L))));
 
-        PublicBoardListResult result = service.getPublishedPosts(BOARD_ID, 0, null).orElseThrow();
+        PublicBoardListResult result = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow();
 
         assertEquals(1, result.page().getContent().size());
         assertEquals(1L, result.page().getContent().get(0).getId());
@@ -134,7 +135,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
 
-        service.getPublishedPosts(BOARD_ID, -5, null);
+        service.getPublishedPosts(SITE_ID, BOARD_ID, -5, null);
 
         assertEquals(0, capturedPageable(null).getPageNumber());
     }
@@ -145,7 +146,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
 
-        service.getPublishedPosts(BOARD_ID, Integer.MAX_VALUE, null);
+        service.getPublishedPosts(SITE_ID, BOARD_ID, Integer.MAX_VALUE, null);
 
         assertEquals(0, capturedPageable(null).getPageNumber());
     }
@@ -156,7 +157,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
 
-        service.getPublishedPosts(BOARD_ID, 0, null);
+        service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null);
 
         Pageable pageable = capturedPageable(null);
         assertEquals(10, pageable.getPageSize());
@@ -180,7 +181,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
 
-        PublicBoardListResult result = service.getPublishedPosts(BOARD_ID, 0, keyword).orElseThrow();
+        PublicBoardListResult result = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, keyword).orElseThrow();
 
         assertNull(result.keyword());
         verify(postRepository).searchPublished(eq(BOARD_ID), eq(null), eq(NOW), any());
@@ -192,7 +193,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), eq(NOW), any())).willReturn(new PageImpl<>(List.of(post(1L))));
 
-        PublicBoardListResult result = service.getPublishedPosts(BOARD_ID, 0, "  점검\t").orElseThrow();
+        PublicBoardListResult result = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, "  점검\t").orElseThrow();
 
         assertEquals("점검", result.keyword());
         assertEquals(1L, result.page().getContent().get(0).getId());
@@ -204,7 +205,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), eq(NOW), any())).willReturn(new PageImpl<>(List.of()));
 
-        service.getPublishedPosts(BOARD_ID, Integer.MAX_VALUE, "점검");
+        service.getPublishedPosts(SITE_ID, BOARD_ID, Integer.MAX_VALUE, "점검");
 
         Pageable pageable = capturedPageable("점검");
         assertEquals(0, pageable.getPageNumber());
@@ -220,10 +221,10 @@ class PublicBoardServiceTest {
         String max = "가".repeat(100);
         given(postRepository.searchPublished(eq(BOARD_ID), eq(max), eq(NOW), any())).willReturn(new PageImpl<>(List.of()));
 
-        service.getPublishedPosts(BOARD_ID, 0, max);
+        service.getPublishedPosts(SITE_ID, BOARD_ID, 0, max);
         verify(postRepository).searchPublished(eq(BOARD_ID), eq(max), eq(NOW), any());
 
-        PublicBoardListResult tooLong = service.getPublishedPosts(BOARD_ID, 0, max + "가").orElseThrow();
+        PublicBoardListResult tooLong = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, max + "가").orElseThrow();
         assertTrue(tooLong.page().isEmpty());
         assertEquals(0, tooLong.page().getTotalElements());
         assertEquals(max + "가", tooLong.keyword());
@@ -238,8 +239,8 @@ class PublicBoardServiceTest {
         String fiftyOne = "😀".repeat(51);
         given(postRepository.searchPublished(eq(BOARD_ID), eq(fifty), eq(NOW), any())).willReturn(new PageImpl<>(List.of()));
 
-        service.getPublishedPosts(BOARD_ID, 0, fifty);
-        service.getPublishedPosts(BOARD_ID, 0, fiftyOne);
+        service.getPublishedPosts(SITE_ID, BOARD_ID, 0, fifty);
+        service.getPublishedPosts(SITE_ID, BOARD_ID, 0, fiftyOne);
 
         verify(postRepository).searchPublished(eq(BOARD_ID), eq(fifty), eq(NOW), any());
         verify(postRepository, never()).searchPublished(eq(BOARD_ID), eq(fiftyOne), eq(NOW), any());
@@ -250,9 +251,9 @@ class PublicBoardServiceTest {
     @Test
     @DisplayName("상세: 공개 게시판이 아니면 empty이고 첨부 저장소를 호출하지 않는다")
     void detail_boardNotPublic_empty() {
-        given(boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(BOARD_ID)).willReturn(Optional.empty());
+        given(boardRepository.findPublicById(BOARD_ID, SITE_ID)).willReturn(Optional.empty());
 
-        assertTrue(service.findPublishedPost(BOARD_ID, 1L).isEmpty());
+        assertTrue(service.findPublishedPost(SITE_ID, BOARD_ID, 1L).isEmpty());
 
         verifyNoInteractions(postAttachmentRepository);
     }
@@ -263,7 +264,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.findPublishedById(999L, BOARD_ID, NOW)).willReturn(Optional.empty());
 
-        assertTrue(service.findPublishedPost(BOARD_ID, 999L).isEmpty());
+        assertTrue(service.findPublishedPost(SITE_ID, BOARD_ID, 999L).isEmpty());
 
         verifyNoInteractions(postAttachmentRepository);
     }
@@ -277,8 +278,8 @@ class PublicBoardServiceTest {
         given(postRepository.findPublishedById(2L, BOARD_ID, NOW)).willReturn(Optional.of(post(2L)));
         given(postAttachmentRepository.findByPostIdOrderByIdAsc(2L)).willReturn(List.of());
 
-        PublicPostDetail withAttachments = service.findPublishedPost(BOARD_ID, 1L).orElseThrow();
-        PublicPostDetail without = service.findPublishedPost(BOARD_ID, 2L).orElseThrow();
+        PublicPostDetail withAttachments = service.findPublishedPost(SITE_ID, BOARD_ID, 1L).orElseThrow();
+        PublicPostDetail without = service.findPublishedPost(SITE_ID, BOARD_ID, 2L).orElseThrow();
 
         assertEquals("글 1", withAttachments.getTitle());
         assertEquals(List.of(5L, 7L), withAttachments.getAttachments().stream().map(PublicPostAttachment::getId).toList());
@@ -294,7 +295,7 @@ class PublicBoardServiceTest {
         given(postRepository.findPublishedById(1L, BOARD_ID, NOW)).willReturn(Optional.of(post(1L)));
         given(postAttachmentRepository.findByIdAndPostId(5L, 1L)).willReturn(Optional.of(attachment(5L, 1L)));
 
-        Optional<PublicPostAttachmentRef> result = service.findPublishedAttachment(BOARD_ID, 1L, 5L);
+        Optional<PublicPostAttachmentRef> result = service.findPublishedAttachment(SITE_ID, BOARD_ID, 1L, 5L);
 
         assertTrue(result.isPresent());
         assertEquals("file5.pdf", result.get().originalFilename());
@@ -308,7 +309,7 @@ class PublicBoardServiceTest {
         publicBoardExists();
         given(postRepository.findPublishedById(1L, BOARD_ID, NOW)).willReturn(Optional.empty());
 
-        assertTrue(service.findPublishedAttachment(BOARD_ID, 1L, 5L).isEmpty());
+        assertTrue(service.findPublishedAttachment(SITE_ID, BOARD_ID, 1L, 5L).isEmpty());
 
         verifyNoInteractions(postAttachmentRepository, fileStorage);
     }
@@ -320,7 +321,7 @@ class PublicBoardServiceTest {
         given(postRepository.findPublishedById(1L, BOARD_ID, NOW)).willReturn(Optional.of(post(1L)));
         given(postAttachmentRepository.findByIdAndPostId(5L, 1L)).willReturn(Optional.empty());
 
-        assertTrue(service.findPublishedAttachment(BOARD_ID, 1L, 5L).isEmpty());
+        assertTrue(service.findPublishedAttachment(SITE_ID, BOARD_ID, 1L, 5L).isEmpty());
 
         verifyNoInteractions(fileStorage);
     }
@@ -333,11 +334,11 @@ class PublicBoardServiceTest {
         given(postAttachmentRepository.findByIdAndPostId(5L, 1L)).willReturn(Optional.of(attachment(5L, 1L)));
         given(fileStorage.open("2026/08/03/5.pdf")).willReturn(storedStream("content"));
 
-        PublicPostAttachmentRef ref = service.findPublishedAttachment(BOARD_ID, 1L, 5L).orElseThrow();
+        PublicPostAttachmentRef ref = service.findPublishedAttachment(SITE_ID, BOARD_ID, 1L, 5L).orElseThrow();
         service.openAttachment(ref);
 
         InOrder order = inOrder(boardRepository, postRepository, postAttachmentRepository, fileStorage);
-        order.verify(boardRepository).findByIdAndDeletedFalseAndPublicYnTrue(BOARD_ID);
+        order.verify(boardRepository).findPublicById(BOARD_ID, SITE_ID);
         order.verify(postRepository).findPublishedById(1L, BOARD_ID, NOW);
         order.verify(postAttachmentRepository).findByIdAndPostId(5L, 1L);
         order.verify(fileStorage).open("2026/08/03/5.pdf");

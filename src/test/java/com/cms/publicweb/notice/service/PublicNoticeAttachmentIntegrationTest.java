@@ -8,6 +8,7 @@ import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
 import com.cms.admin.board.repository.PostRepository;
 import com.cms.admin.board.service.PostAttachmentService;
+import com.cms.admin.site.Site;
 import com.cms.common.storage.FileStorage;
 import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
 import com.cms.support.CmsTestApplication;
@@ -85,7 +86,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
     }
 
     private Long noticeBoardId() {
-        return boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();
+        return boardRepository.findNoticeBoardId(Site.DEFAULT_PUBLIC_SITE_ID).orElseThrow();
     }
 
     private Post savePublishedNotice(String titlePrefix) {
@@ -114,7 +115,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
 
     /** 컨트롤러와 같은 2단계 호출: 공개 조건 재검증(트랜잭션) → 파일 open(트랜잭션 밖). */
     private Optional<PublicPostAttachmentDownload> download(Long noticeId, Long attachmentId) {
-        return publicNoticeService.findPublishedAttachment(noticeId, attachmentId)
+        return publicNoticeService.findPublishedAttachment(Site.DEFAULT_PUBLIC_SITE_ID, noticeId, attachmentId)
                 .flatMap(publicNoticeService::openAttachment);
     }
 
@@ -184,7 +185,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
         PostAttachment attachment = postAttachmentRepository.findById(response.getId()).orElseThrow();
         createdStorageKeys.add(attachment.getStorageKey());
         try {
-            assertTrue(publicNoticeService.findPublishedNotice(foreign.getId()).isEmpty());
+            assertTrue(publicNoticeService.findPublishedNotice(Site.DEFAULT_PUBLIC_SITE_ID, foreign.getId()).isEmpty());
             assertTrue(download(foreign.getId(), attachment.getId()).isEmpty());
         } finally {
             postAttachmentRepository.deleteById(attachment.getId());

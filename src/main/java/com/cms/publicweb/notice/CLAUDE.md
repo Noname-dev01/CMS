@@ -26,3 +26,7 @@
 ## 조회수·다운로드 수 집계 (2026-10-13)
 
 `PublicNoticeController`의 상세 GET·첨부 다운로드 GET도 `PublicBoardController`와 같은 방식으로 `ContentCounterService`를 호출한다(HEAD 제외, 컨트롤러 슬라이스 시험은 이 서비스를 목 빈으로 둔다). 규칙은 `com.cms.admin.board`의 `CLAUDE.md`.
+
+## 사이트별 공지 (PR ④, 2026-10-14)
+
+공지 게시판은 **사이트별로 해석**한다 — `PublicNoticeService`의 네 메서드가 `siteId`를 첫 인자로 필수 받고(`PublicSite.requireId`) `BoardRepository.findNoticeBoardId(siteId)`로 그 사이트의 전용 공지 게시판(`NOTICE:{siteId}`)이 있으면 그것, 없으면 공통 공지 게시판(`NOTICE`)을 쓴 뒤 `PublicBoardService`에 `siteId`와 함께 위임한다. 전용 공지가 공통을 **대체**한다(합치지 않음). 전용 공지 게시판의 글은 다른 사이트의 `/{key}/notices/{id}`에서 404다(게시판 ID로 소속을 확인). 위 "구조"의 "`findIdByBoardKey("NOTICE")` 1회" 서술은 이제 사이트별로 최대 두 번의 UNIQUE 인덱스 조회다. 컨트롤러는 `siteId(request)`를 서비스에 넘긴다(HEAD 첨부 포함). 상세는 `com.cms.admin.site`의 `CLAUDE.md` "사이트별 게시판·공지".

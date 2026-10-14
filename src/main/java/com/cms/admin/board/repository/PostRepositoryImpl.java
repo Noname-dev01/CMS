@@ -98,20 +98,23 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
     }
 
     @Override
-    public List<PublishedPostRow> findLatestPublished(Long boardId, Long excludeBoardId, LocalDateTime now, int limit) {
+    public List<PublishedPostRow> findLatestPublished(Long boardId, Long siteId, boolean excludeSystemBoards, LocalDateTime now, int limit) {
         QPost post = QPost.post;
         QBoard board = QBoard.board;
 
+        // 공통이거나 현재 사이트 전용인 게시판만(PLAN-site-menu.md PR ④ T2) — 공개 조건과 함께 이 메서드 안에 고정돼 있다
         BooleanBuilder condition = new BooleanBuilder()
                 .and(board.publicYn.isTrue())
                 .and(board.deleted.isFalse())
+                .and(board.siteId.isNull().or(board.siteId.eq(siteId)))
                 .and(post.deleted.isFalse())
                 .and(isPublished(post, now));
         if (boardId != null) {
             condition.and(post.boardId.eq(boardId));
         }
-        if (excludeBoardId != null) {
-            condition.and(post.boardId.ne(excludeBoardId));
+        if (excludeSystemBoards) {
+            // 시스템 게시판(공통·사이트 전용 공지)은 새 글에서 뺀다 — 같은 글이 공지 섹션과 새 글 섹션에 함께 나오지 않게
+            condition.and(board.boardKey.isNull());
         }
 
         return queryFactory

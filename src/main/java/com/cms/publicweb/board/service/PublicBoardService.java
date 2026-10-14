@@ -6,6 +6,7 @@ import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
 import com.cms.admin.board.repository.PostRepository;
 import com.cms.common.storage.FileStorage;
+import com.cms.publicweb.support.PublicSite;
 import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.board.dto.PublicBoardListResult;
@@ -58,9 +59,9 @@ public class PublicBoardService {
      * {@link #MAX_KEYWORD_LENGTH}를 넘으면 DB를 조회하지 않고 빈 페이지를 돌려준다(이상 입력 흡수).
      */
     @Transactional(readOnly = true)
-    public Optional<PublicBoardListResult> getPublishedPosts(Long boardId, int page, String rawKeyword) {
+    public Optional<PublicBoardListResult> getPublishedPosts(Long siteId, Long boardId, int page, String rawKeyword) {
         LocalDateTime now = LocalDateTime.now(clock);
-        return boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(boardId).map(board -> {
+        return boardRepository.findPublicById(boardId, PublicSite.requireId(siteId)).map(board -> {
             Pageable pageable = PageRequest.of(normalizePage(page), PAGE_SIZE,
                     Sort.by(Sort.Order.desc("createDate"), Sort.Order.desc("id")));
             String keyword = rawKeyword == null ? "" : rawKeyword.strip();
@@ -78,9 +79,9 @@ public class PublicBoardService {
     }
 
     @Transactional(readOnly = true)
-    public Optional<PublicPostDetail> findPublishedPost(Long boardId, Long postId) {
+    public Optional<PublicPostDetail> findPublishedPost(Long siteId, Long boardId, Long postId) {
         LocalDateTime now = LocalDateTime.now(clock);
-        return boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(boardId)
+        return boardRepository.findPublicById(boardId, PublicSite.requireId(siteId))
                 .flatMap(board -> postRepository.findPublishedById(postId, board.getId(), now)
                         .map(post -> toDetail(board, post)));
     }
@@ -91,9 +92,9 @@ public class PublicBoardService {
      * {@link #openAttachment}가 맡는다(열린 스트림이 트랜잭션 프록시를 통과하면 commit 실패 시 닫을 수 없다).
      */
     @Transactional(readOnly = true)
-    public Optional<PublicPostAttachmentRef> findPublishedAttachment(Long boardId, Long postId, Long attachmentId) {
+    public Optional<PublicPostAttachmentRef> findPublishedAttachment(Long siteId, Long boardId, Long postId, Long attachmentId) {
         LocalDateTime now = LocalDateTime.now(clock);
-        Optional<Board> board = boardRepository.findByIdAndDeletedFalseAndPublicYnTrue(boardId);
+        Optional<Board> board = boardRepository.findPublicById(boardId, PublicSite.requireId(siteId));
         if (board.isEmpty() || postRepository.findPublishedById(postId, board.get().getId(), now).isEmpty()) {
             return Optional.empty();
         }

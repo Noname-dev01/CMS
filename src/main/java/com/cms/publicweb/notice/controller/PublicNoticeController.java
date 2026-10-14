@@ -72,9 +72,10 @@ public class PublicNoticeController {
     public String list(@RequestParam(defaultValue = "0") String page,
                        @RequestParam(required = false) String keyword,
                        Model model,
+                       HttpServletRequest request,
                        HttpServletResponse response) {
         // 공지 게시판이 없거나 비공개·삭제 상태면 empty → 상세와 같은 404(fail-closed, PLAN-notice-to-board.md 쟁점 8)
-        return publicNoticeService.getPublishedNotices(parsePageOrZero(page), keyword)
+        return publicNoticeService.getPublishedNotices(siteId(request), parsePageOrZero(page), keyword)
                 .map(listResult -> renderList(listResult, model))
                 .orElseGet(() -> notFound(response));
     }
@@ -98,7 +99,7 @@ public class PublicNoticeController {
             return "error/404";
         }
 
-        return publicNoticeService.findPublishedNotice(noticeId)
+        return publicNoticeService.findPublishedNotice(siteId(request), noticeId)
                 .map(notice -> {
                     // HEAD는 같은 핸들러로 들어오지만 조회로 세지 않는다. 예외를 던지지 않는다.
                     if (!"HEAD".equals(request.getMethod())) {
@@ -127,7 +128,7 @@ public class PublicNoticeController {
                            @PathVariable String attachmentId,
                            HttpServletRequest request,
                            HttpServletResponse response) throws IOException {
-        Optional<PublicPostAttachmentDownload> download = openDownload(id, attachmentId, response);
+        Optional<PublicPostAttachmentDownload> download = openDownload(id, attachmentId, request, response);
         if (download.isEmpty()) {
             return;
         }
@@ -150,8 +151,9 @@ public class PublicNoticeController {
     @RequestMapping(value = "/{id}/attachments/{attachmentId}", method = RequestMethod.HEAD)
     public void attachmentHead(@PathVariable String id,
                                @PathVariable String attachmentId,
+                               HttpServletRequest request,
                                HttpServletResponse response) throws IOException {
-        Optional<PublicPostAttachmentDownload> download = openDownload(id, attachmentId, response);
+        Optional<PublicPostAttachmentDownload> download = openDownload(id, attachmentId, request, response);
         if (download.isEmpty()) {
             return;
         }
@@ -169,7 +171,7 @@ public class PublicNoticeController {
      * HTML 500으로 만든다). 반환된 DTO는 호출자가 곧바로 try-with-resources로 닫아야 한다.
      */
     private Optional<PublicPostAttachmentDownload> openDownload(String id, String attachmentId,
-                                                                  HttpServletResponse response) throws IOException {
+                                                                  HttpServletRequest request, HttpServletResponse response) throws IOException {
         Long noticeId = parseId(id);
         Long parsedAttachmentId = parseId(attachmentId);
         if (noticeId == null || parsedAttachmentId == null) {
@@ -178,7 +180,7 @@ public class PublicNoticeController {
         }
 
         Optional<PublicPostAttachmentRef> ref =
-                publicNoticeService.findPublishedAttachment(noticeId, parsedAttachmentId);
+                publicNoticeService.findPublishedAttachment(siteId(request), noticeId, parsedAttachmentId);
         Optional<PublicPostAttachmentDownload> download = ref.flatMap(publicNoticeService::openAttachment);
         if (download.isEmpty()) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
@@ -241,6 +243,11 @@ public class PublicNoticeController {
     private String renderDetail(PublicPostDetail notice, Model model) {
         model.addAttribute("notice", notice);
         return "public/notice/detail";
+    }
+
+    /** 현재 요청의 사이트 ID — {@code @SiteScopedPublic} 컨트롤러라 인터셉터가 항상 채운다(PLAN-site-menu.md PR ④). */
+    private static Long siteId(HttpServletRequest request) {
+        return PublicSiteRoutes.current(request).id();
     }
 
     private String notFound(HttpServletResponse response) {

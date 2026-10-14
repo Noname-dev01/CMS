@@ -20,6 +20,10 @@ public class BoardResponse {
     private String name;
     private Boolean publicYn;
     private Boolean attachmentYn;
+    @Schema(description = "소속 사이트 ID (null = 모든 공개 사이트 공통)")
+    private Long siteId;
+    @Schema(description = "공지 게시판(시스템 게시판) 여부 — 공통 공지 또는 사이트 전용 공지")
+    private Boolean noticeBoard;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
 
@@ -29,6 +33,8 @@ public class BoardResponse {
                 .name(board.getName())
                 .publicYn(board.getPublicYn())
                 .attachmentYn(board.getAttachmentYn())
+                .siteId(board.getSiteId())
+                .noticeBoard(board.isSystem())
                 .createDate(board.getCreateDate())
                 .updateDate(board.getUpdateDate())
                 .build();

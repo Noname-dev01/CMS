@@ -10,17 +10,21 @@ import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.admin.permission.MemberBoardPermissionRepository;
 import com.cms.admin.permission.PermissionChangedEvent;
+import com.cms.admin.site.ContentSiteScope;
+import com.cms.admin.site.SiteScope;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 게시판 정의 관리(ADMIN 전용, PLAN-board.md 쟁점 6). 삭제는 살아 있는 게시글이 없을 때만 가능하다 — 삭제 API는 이 검사와 함께 PR B에서 처음
@@ -31,10 +35,12 @@ import java.util.List;
 public class BoardService {
 
     private static final String NOT_FOUND_MESSAGE = "게시판을 찾을 수 없습니다.";
+    private static final String NOTICE_BOARD_EXISTS_MESSAGE = "이 사이트의 공지 게시판이 이미 있습니다.";
 
     private final BoardRepository boardRepository;
     private final PostRepository postRepository;
     private final MemberBoardPermissionRepository memberBoardPermissionRepository;
+    private final ContentSiteScope contentSiteScope;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
@@ -60,32 +66,75 @@ public class BoardService {
     @AdminActionLogged(actionType = AdminActionTypes.BOARD_CREATE, targetType = "BOARD", targetIdExpression = "id")
     public BoardResponse createBoard(BoardCreateRequest request) {
         String name = requireNonBlank(request.getName());
+        Long siteId = SiteScope.parse(request.getSiteScope());   // 누락 = 공통(null)
+        boolean noticeBoard = Boolean.TRUE.equals(request.getNoticeBoard());
+        if (noticeBoard) {
+            if (siteId == null) {
+                throw new InvalidRequestException("사이트 공지 게시판은 표시 대상 사이트를 골라야 합니다.");
+            }
+            if (!Boolean.TRUE.equals(request.getPublicYn())) {
+                throw new InvalidRequestException("공지 게시판은 공개 게시판이어야 합니다.");
+            }
+        }
+        // 사이트 행 FOR SHARE — 사이트 삭제와 직렬화된다(지정이 먼저면 삭제 409, 삭제가 먼저면 지정 400)
+        contentSiteScope.requireAssignable(siteId);
+        String boardKey = noticeBoard ? Board.noticeKeyFor(siteId) : null;
+        if (boardKey != null && boardRepository.existsByBoardKey(boardKey)) {
+            throw new ConflictException(NOTICE_BOARD_EXISTS_MESSAGE);
+        }
         LocalDateTime now = LocalDateTime.now(clock);
-        Board saved = boardRepository.save(Board.builder()
+        Board board = Board.builder()
                 .name(name)
                 .publicYn(request.getPublicYn())
                 .attachmentYn(request.getAttachmentYn())
                 .deleted(false)
+                .boardKey(boardKey)
+                .siteId(siteId)
                 .createDate(now)
                 .updateDate(now)
-                .build());
-        return BoardResponse.from(saved);
+                .build();
+        try {
+            // 사전 검사를 통과한 동시 생성은 UNIQUE(board_key)가 막는다 — flush에서 잡아 500이 아니라 같은 409로 번역한다
+            return BoardResponse.from(boardRepository.saveAndFlush(board));
+        } catch (DataIntegrityViolationException e) {
+            if (boardKey != null) {
+                throw new ConflictException(NOTICE_BOARD_EXISTS_MESSAGE);
+            }
+            throw e;
+        }
     }
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.BOARD_UPDATE, targetType = "BOARD", targetIdExpression = "id")
     public BoardResponse updateBoard(Long id, BoardUpdateRequest request) {
-        if (request.getName() == null && request.getPublicYn() == null && request.getAttachmentYn() == null) {
+        if (request.getName() == null && request.getPublicYn() == null && request.getAttachmentYn() == null
+                && request.getSiteScope() == null) {
             throw new InvalidRequestException("변경할 필드가 없습니다.");
         }
+        // 표시 대상은 요청이 siteScope를 명시한 경우에만 바꾼다(누락 = 유지) — 낡은 화면이 대상을 되돌리려면 선택을 바꿔 명시해야 한다
+        boolean siteRequested = request.getSiteScope() != null;
+        Long requestedSiteId = siteRequested ? SiteScope.parse(request.getSiteScope()) : null;
         Board board = boardRepository.findByIdAndDeletedFalseForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND_MESSAGE));
         // 시스템 게시판(공지)은 공개 /notices가 의존하므로 비공개로 바꿀 수 없다(이름·첨부 허용은 변경 가능)
         if (board.isSystem() && Boolean.FALSE.equals(request.getPublicYn())) {
             throw new InvalidRequestException("시스템 게시판은 비공개로 바꿀 수 없습니다.");
         }
+        boolean siteChanged = siteRequested && !Objects.equals(board.getSiteId(), requestedSiteId);
+        if (siteChanged) {
+            // 공지 게시판은 키가 사이트를 품고 있어 표시 대상을 바꿀 수 없다
+            if (board.isSystem()) {
+                throw new InvalidRequestException("공지 게시판의 표시 대상은 바꿀 수 없습니다.");
+            }
+            // 게시판 행 FOR UPDATE → 사이트 행 FOR SHARE 순서 (사이트 삭제는 게시판 행을 잠그지 않는다)
+            contentSiteScope.requireAssignable(requestedSiteId);
+        }
         String name = request.getName() != null ? requireNonBlank(request.getName()) : null;
-        board.update(name, request.getPublicYn(), request.getAttachmentYn(), LocalDateTime.now(clock));
+        LocalDateTime now = LocalDateTime.now(clock);
+        board.update(name, request.getPublicYn(), request.getAttachmentYn(), now);
+        if (siteChanged) {
+            board.changeSite(requestedSiteId, now);
+        }
         return BoardResponse.from(board);
     }
 
@@ -100,7 +149,8 @@ public class BoardService {
     public BoardResponse deleteBoard(Long id) {
         Board board = boardRepository.findByIdAndDeletedFalseForUpdate(id)
                 .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND_MESSAGE));
-        if (board.isSystem()) {
+        // 공통 공지 게시판만 삭제 불가 — 사이트 전용 공지 게시판은 글이 없으면 지울 수 있다(막으면 그 사이트를 지울 수 없다, PLAN-site-menu.md PR ④ T3)
+        if (board.isCommonNotice()) {
             throw new ConflictException("시스템 게시판은 삭제할 수 없습니다.");
         }
         if (postRepository.existsByBoardIdAndDeletedFalse(id)) {

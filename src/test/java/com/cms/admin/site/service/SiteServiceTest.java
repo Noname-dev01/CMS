@@ -57,6 +57,9 @@ class SiteServiceTest {
     @Mock
     com.cms.admin.page.repository.SitePageRepository sitePageRepository;
 
+    @Mock
+    com.cms.admin.board.repository.BoardRepository boardRepository;
+
     @Spy
     Clock clock = Clock.fixed(Instant.parse("2026-09-29T15:00:00Z"), ZoneId.of("Asia/Seoul"));
 
@@ -222,7 +225,7 @@ class SiteServiceTest {
     }
 
     @Test
-    @DisplayName("삭제: 메뉴가 없어도 전용 배너·팝업·FAQ 카테고리·정적 페이지 중 하나라도 있으면 409 — 어느 쪽이든 삭제하지 않는다(PR ③)")
+    @DisplayName("삭제: 메뉴가 없어도 전용 배너·팝업·FAQ 카테고리·정적 페이지·게시판 중 하나라도 있으면 409 — 어느 쪽이든 삭제하지 않는다(PR ③·④)")
     void delete_blockedByAnyOwnedContent() {
         Site news = site(3L, "news", SiteType.PUBLIC, true, true);
         given(siteRepository.findByIdForUpdate(3L)).willReturn(Optional.of(news));
@@ -230,9 +233,10 @@ class SiteServiceTest {
                 () -> given(bannerRepository.existsBySiteId(3L)).willReturn(true),
                 () -> given(popupRepository.existsBySiteId(3L)).willReturn(true),
                 () -> given(faqCategoryRepository.existsBySiteId(3L)).willReturn(true),
-                () -> given(sitePageRepository.existsBySiteId(3L)).willReturn(true));
+                () -> given(sitePageRepository.existsBySiteId(3L)).willReturn(true),
+                () -> given(boardRepository.existsBySiteId(3L)).willReturn(true));
         for (Runnable owner : arrange) {
-            org.mockito.Mockito.reset(bannerRepository, popupRepository, faqCategoryRepository, sitePageRepository);
+            org.mockito.Mockito.reset(bannerRepository, popupRepository, faqCategoryRepository, sitePageRepository, boardRepository);
             owner.run();
             assertThatThrownBy(() -> siteService.deleteSite(3L)).isInstanceOf(ConflictException.class);
         }

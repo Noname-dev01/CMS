@@ -44,6 +44,25 @@ public interface BoardRepository extends JpaRepository<Board, Long> {
     @Query("select b.id from Board b where b.boardKey = :boardKey and b.deleted = false")
     Optional<Long> findIdByBoardKey(@Param("boardKey") String boardKey);
 
-    /** 공개 화면 전용 — 공개 게시판(publicYn)이면서 삭제되지 않은 게시판만. 조건이 메서드명으로 고정돼 공개 불변식이 실수로 깨지지 않는다. */
-    Optional<Board> findByIdAndDeletedFalseAndPublicYnTrue(Long id);
+    /**
+     * 현재 사이트의 공지 게시판 ID(PLAN-site-menu.md PR ④ T3). 그 사이트 전용 공지 게시판({@code NOTICE:{siteId}})이 살아 있으면 그것, 없으면
+     * 공통 공지 게시판({@code NOTICE})이다. 전용이 있으면 공통을 <b>대체</b>한다(합치지 않는다). 둘 다 없으면 비어 있다.
+     */
+    default Optional<Long> findNoticeBoardId(Long siteId) {
+        return findIdByBoardKey(Board.noticeKeyFor(siteId)).or(() -> findIdByBoardKey(Board.NOTICE_KEY));
+    }
+
+    /**
+     * 공개 화면 전용 — 공개 게시판(publicYn)이면서 삭제되지 않았고, 공통이거나 현재 사이트 전용인 게시판만(PR ④). 조건이 쿼리에 고정돼 공개 불변식이
+     * 실수로 깨지지 않으며, 다른 사이트 전용 게시판은 없는 ID와 구분되지 않는다(호출자는 같은 404로 흡수한다).
+     */
+    @Query("select b from Board b where b.id = :id and b.deleted = false and b.publicYn = true"
+            + " and (b.siteId is null or b.siteId = :siteId)")
+    Optional<Board> findPublicById(@Param("id") Long id, @Param("siteId") Long siteId);
+
+    /** 사이트 삭제 가드용(PR ④) — 그 사이트 소속 게시판 행이 있는가(삭제된 행 포함 — FK RESTRICT와 같은 범위). */
+    boolean existsBySiteId(Long siteId);
+
+    /** 사이트 전용 공지 게시판 중복 생성 사전 검사(살아 있는 행만 키를 가진다 — 소프트 삭제가 키를 비운다). */
+    boolean existsByBoardKey(String boardKey);
 }

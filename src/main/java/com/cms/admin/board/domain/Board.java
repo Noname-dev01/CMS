@@ -50,6 +50,13 @@ public class Board {
     @Column(name = "board_key", length = 30)
     private String boardKey;
 
+    /**
+     * 소속 사이트(V56). null = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리키며 서비스(ContentSiteScope)가 검증한다.
+     * 소프트 삭제하면 비워진다 — 삭제된 게시판은 어느 사이트에도 속하지 않아 사이트 삭제의 FK RESTRICT에 걸리지 않는다.
+     */
+    @Column(name = "site_id")
+    private Long siteId;
+
     private LocalDateTime createDate;
 
     private LocalDateTime updateDate;
@@ -72,14 +79,35 @@ public class Board {
         this.updateDate = now;
     }
 
-    /** 시스템 게시판(키가 있는 게시판)인지. 삭제·비공개 전환이 금지된다. */
+    /** 시스템 게시판(키가 있는 게시판)인지. 비공개 전환과 표시 대상 변경이 금지된다(공통 공지는 삭제도 금지 — {@link #isCommonNotice}). */
     public boolean isSystem() {
         return boardKey != null;
     }
 
-    /** 소프트 삭제. deleted=true 처리 후 수정 시각을 갱신한다. */
+    /** 공통 공지 게시판({@link #NOTICE_KEY})인지. 사이트 전용 공지 게시판({@link #noticeKeyFor})과 달리 삭제할 수 없다. */
+    public boolean isCommonNotice() {
+        return NOTICE_KEY.equals(boardKey);
+    }
+
+    /** 사이트 전용 공지 게시판의 키 — 서버만 만든다(사용자 입력 아님). 기존 UNIQUE(board_key)가 사이트당 하나를 보장한다. */
+    public static String noticeKeyFor(Long siteId) {
+        return NOTICE_KEY + ":" + siteId;
+    }
+
+    /** 표시 대상 변경. 호출자가 사이트 존재·타입을 검증하고 시스템 게시판은 막는다. {@code null} = 공통. */
+    public void changeSite(Long siteId, LocalDateTime now) {
+        this.siteId = siteId;
+        this.updateDate = now;
+    }
+
+    /**
+     * 소프트 삭제. deleted=true 처리 후 수정 시각을 갱신한다. 소속 사이트와(사이트 전용 공지 게시판의) 키를 비워, 삭제된 행이 사이트 삭제의
+     * FK와 board_key 유일성을 붙잡지 않게 한다.
+     */
     public void softDelete(LocalDateTime now) {
         this.deleted = true;
+        this.siteId = null;
+        this.boardKey = null;
         this.updateDate = now;
     }
 }

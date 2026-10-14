@@ -1,6 +1,5 @@
 package com.cms.publicweb.home;
 
-import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostRepository;
 import com.cms.admin.board.repository.PublishedPostRow;
@@ -39,12 +38,13 @@ public class PublicHomeService {
         PublicSite.requireId(siteId);
         // 공지·새 글 두 쿼리가 같은 시각으로 판정되게 요청당 1회만 산출한다(노출 기간 경계에서 두 섹션이 어긋나지 않게)
         LocalDateTime now = LocalDateTime.now(clock);
-        Optional<Long> noticeBoardId = boardRepository.findIdByBoardKey(Board.NOTICE_KEY);
+        // 이 사이트의 공지 게시판(전용이 있으면 전용, 없으면 공통) — 사이트별 해석은 BoardRepository.findNoticeBoardId
+        Optional<Long> noticeBoardId = boardRepository.findNoticeBoardId(siteId);
         List<PublicHomePost> notices = noticeBoardId
-                .map(id -> toPosts(postRepository.findLatestPublished(id, null, now, SECTION_SIZE)))
+                .map(id -> toPosts(postRepository.findLatestPublished(id, siteId, false, now, SECTION_SIZE)))
                 .orElse(List.of());
-        // 새 글에서 공지 게시판을 뺀다 — 같은 글이 두 섹션에 나오지 않게. 공지 게시판이 없으면 뺄 게시판도 없다.
-        List<PublicHomePost> latest = toPosts(postRepository.findLatestPublished(null, noticeBoardId.orElse(null), now, SECTION_SIZE));
+        // 새 글에서 시스템 게시판(공통·전용 공지)을 뺀다 — 같은 글이 두 섹션에 나오지 않게. 사이트 전용 일반 게시판은 그 사이트에서만 나온다.
+        List<PublicHomePost> latest = toPosts(postRepository.findLatestPublished(null, siteId, true, now, SECTION_SIZE));
         return new PublicHomeView(publicBannerService.findDisplayableBanners(siteId), notices, latest);
     }
 

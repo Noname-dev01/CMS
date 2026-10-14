@@ -3,6 +3,8 @@ package com.cms.admin.board.repository;
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.dto.request.PostSearchRequest;
+import com.cms.admin.site.Site;
+import com.cms.admin.site.SiteType;
 import com.cms.common.display.DisplayPeriod;
 import com.cms.config.QuerydslConfig;
 import com.cms.support.MariaDbContainerSupport;
@@ -275,11 +277,11 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost("hidden", false, false);                     // 미노출
         savePost("deleted", true, true);                      // 삭제
 
-        var rows = postRepository.findLatestPublished(boardId, null, NOW, 10);
+        var rows = postRepository.findLatestPublished(boardId, 2L, false, NOW, 10);
 
         assertThat(rows).extracting(PublishedPostRow::id).containsExactly(tieSecond.getId(), tieFirst.getId(), older.getId());
         assertThat(rows).extracting(PublishedPostRow::boardName).containsOnly("시험 게시판");
-        assertThat(postRepository.findLatestPublished(boardId, null, NOW, 2)).hasSize(2);
+        assertThat(postRepository.findLatestPublished(boardId, 2L, false, NOW, 2)).hasSize(2);
     }
 
     @Test
@@ -291,24 +293,81 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(deletedBoard, "삭제된 게시판 글", true, false);
         Post visible = savePost(boardId, "공개 글", true, false);
 
-        assertThat(postRepository.findLatestPublished(null, null, NOW, 100))
+        assertThat(postRepository.findLatestPublished(null, 2L, false, NOW, 100))
                 .extracting(PublishedPostRow::id).contains(visible.getId());
-        assertThat(postRepository.findLatestPublished(null, null, NOW, 100))
+        assertThat(postRepository.findLatestPublished(null, 2L, false, NOW, 100))
                 .extracting(PublishedPostRow::title).doesNotContain("비공개 게시판 글", "삭제된 게시판 글");
-        assertThat(postRepository.findLatestPublished(privateBoard, null, NOW, 10)).isEmpty();
-        assertThat(postRepository.findLatestPublished(deletedBoard, null, NOW, 10)).isEmpty();
+        assertThat(postRepository.findLatestPublished(privateBoard, 2L, false, NOW, 10)).isEmpty();
+        assertThat(postRepository.findLatestPublished(deletedBoard, 2L, false, NOW, 10)).isEmpty();
     }
 
     @Test
-    @DisplayName("findLatestPublished: excludeBoardId로 한 게시판을 뺀다 — 공지 게시판을 제외한 새 글 섹션용")
-    void findLatestPublished_excludeBoard() {
-        Post inBoard = savePost(boardId, "A 게시판 글", true, false);
-        Post inOther = savePost(otherBoardId, "B 게시판 글", true, false);
+    @DisplayName("findLatestPublished: excludeSystemBoards면 시스템 게시판(공통·전용 공지)을 뺀다 — 새 글 섹션용")
+    void findLatestPublished_excludeSystemBoards() {
+        Post inBoard = savePost(boardId, "일반 게시판 글", true, false);
+        Long commonNotice = boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();   // V32가 시드한 공통 공지 게시판
+        Long siteNotice = boardRepository.save(Board.builder().name("전용 공지").publicYn(true).attachmentYn(true).deleted(false).boardKey("NOTICE:2").siteId(2L).build()).getId();
+        Post inCommonNotice = savePost(commonNotice, "공통 공지 글", true, false);
+        Post inSiteNotice = savePost(siteNotice, "전용 공지 글", true, false);
 
-        assertThat(postRepository.findLatestPublished(null, boardId, NOW, 100))
-                .extracting(PublishedPostRow::id).contains(inOther.getId()).doesNotContain(inBoard.getId());
-        assertThat(postRepository.findLatestPublished(null, null, NOW, 100))
-                .extracting(PublishedPostRow::id).contains(inOther.getId(), inBoard.getId());
+        assertThat(postRepository.findLatestPublished(null, 2L, true, NOW, 100))
+                .extracting(PublishedPostRow::id).contains(inBoard.getId()).doesNotContain(inCommonNotice.getId(), inSiteNotice.getId());
+        assertThat(postRepository.findLatestPublished(null, 2L, false, NOW, 100))
+                .extracting(PublishedPostRow::id).contains(inBoard.getId(), inCommonNotice.getId(), inSiteNotice.getId());
+    }
+
+    @Test
+    @DisplayName("사이트 소속(PR ④): 공통 게시판은 모든 사이트에, 전용 게시판은 그 사이트에만 보이고 findPublicById도 같은 규칙이다")
+    void siteScope_filtersLatestAndPublicById() {
+        Site alpha = savePublicSite("board-alpha", true);
+        Site beta = savePublicSite("board-beta", true);
+        Long onlyAlphaBoard = boardRepository.save(Board.builder().name("알파 전용").publicYn(true).attachmentYn(true).deleted(false).siteId(alpha.getId()).build()).getId();
+        Post common = savePost(boardId, "공통 글", true, false);
+        Post onlyAlpha = savePost(onlyAlphaBoard, "알파 글", true, false);
+
+        assertThat(postRepository.findLatestPublished(null, alpha.getId(), false, NOW, 100))
+                .extracting(PublishedPostRow::id).contains(common.getId(), onlyAlpha.getId());
+        assertThat(postRepository.findLatestPublished(null, beta.getId(), false, NOW, 100))
+                .extracting(PublishedPostRow::id).contains(common.getId()).doesNotContain(onlyAlpha.getId());
+        assertThat(postRepository.findLatestPublished(onlyAlphaBoard, beta.getId(), false, NOW, 100)).isEmpty();
+
+        assertThat(boardRepository.findPublicById(onlyAlphaBoard, alpha.getId())).isPresent();
+        assertThat(boardRepository.findPublicById(onlyAlphaBoard, beta.getId())).isEmpty();
+        assertThat(boardRepository.findPublicById(boardId, beta.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("공지 게시판 해석(PR ④): 전용 공지 게시판이 있으면 전용, 없으면 공통이다")
+    void findNoticeBoardId_siteThenCommon() {
+        Site alpha = savePublicSite("notice-alpha", true);
+        Site beta = savePublicSite("notice-beta", true);
+        Long commonNotice = boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();   // V32가 시드한 공통 공지 게시판
+        Long alphaNotice = boardRepository.save(Board.builder().name("알파 공지").publicYn(true).attachmentYn(true).deleted(false)
+                .boardKey(Board.noticeKeyFor(alpha.getId())).siteId(alpha.getId()).build()).getId();
+
+        assertThat(boardRepository.findNoticeBoardId(alpha.getId())).contains(alphaNotice);
+        assertThat(boardRepository.findNoticeBoardId(beta.getId())).contains(commonNotice);
+    }
+
+    @Test
+    @DisplayName("existsBySiteId는 삭제된 행도 센다(FK RESTRICT와 같은 범위) — 소프트 삭제가 소속을 비우면 세지 않는다")
+    void existsBySiteId_countsAllRows() {
+        Site alpha = savePublicSite("exists-alpha", true);
+        Board board = boardRepository.save(Board.builder().name("알파 전용").publicYn(true).attachmentYn(true).deleted(false).siteId(alpha.getId()).build());
+        assertThat(boardRepository.existsBySiteId(alpha.getId())).isTrue();
+
+        board.softDelete(NOW);
+        boardRepository.saveAndFlush(board);
+
+        assertThat(boardRepository.existsBySiteId(alpha.getId())).isFalse();
+    }
+
+    private Site savePublicSite(String key, boolean useYn) {
+        Site site = Site.builder().siteKey(key).siteName(key).siteType(SiteType.PUBLIC)
+                .allowExternalLink(false).useYn(useYn).defaultYn(false).createDate(NOW).updateDate(NOW).build();
+        em.persist(site);
+        em.flush();
+        return site;
     }
 
     // ===================== 노출 기간 [publishStart, publishEnd) (PLAN-post-publish-period.md 쟁점 3·9) =====================
@@ -351,7 +410,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(list.getContent().stream().map(Post::getId).toList().contains(post.getId())).as("목록 " + ctx).isEqualTo(expected);
         assertThat(list.getTotalElements()).as("COUNT " + ctx).isEqualTo(expected ? 1L : 0L);
 
-        assertThat(postRepository.findLatestPublished(boardId, null, now, 100).stream().anyMatch(r -> r.id().equals(post.getId())))
+        assertThat(postRepository.findLatestPublished(boardId, 2L, false, now, 100).stream().anyMatch(r -> r.id().equals(post.getId())))
                 .as("메인 " + ctx).isEqualTo(expected);
     }
 

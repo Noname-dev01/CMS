@@ -163,7 +163,7 @@ class PublicNoticeControllerTest {
     @DisplayName("공지 게시판이 공개 상태가 아니면(서비스가 empty) 목록은 상세와 같은 404 error/404 뷰다 — 200 빈 목록·500이 아님(PLAN-notice-to-board.md R2-1)")
     @WithMockUser
     void list_noticeBoardNotPublic_returns404() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, null)).willReturn(Optional.empty());
+        given(publicNoticeService.getPublishedNotices(2L, 0, null)).willReturn(Optional.empty());
 
         mockMvc.perform(get("/main/notices"))
                 .andExpect(status().isNotFound())
@@ -174,7 +174,7 @@ class PublicNoticeControllerTest {
     @DisplayName("공지 게시판이 공개 상태가 아니면 HEAD 목록도 404다")
     @WithMockUser
     void list_noticeBoardNotPublic_headReturns404() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, null)).willReturn(Optional.empty());
+        given(publicNoticeService.getPublishedNotices(2L, 0, null)).willReturn(Optional.empty());
 
         mockMvc.perform(head("/main/notices")).andExpect(status().isNotFound());
     }
@@ -183,7 +183,7 @@ class PublicNoticeControllerTest {
     @DisplayName("목록 조회 성공 시 public/notice/list 뷰와 notices 모델을 반환한다")
     @WithMockUser
     void list_success_returnsViewAndModel() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, null))
+        given(publicNoticeService.getPublishedNotices(2L, 0, null))
                 .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "공지 제목")), PageRequest.of(0, 10), 1)));
 
         mockMvc.perform(get("/main/notices"))
@@ -197,7 +197,7 @@ class PublicNoticeControllerTest {
     @DisplayName("공지가 없으면 빈 상태 문구가 렌더링된다")
     @WithMockUser
     void list_empty_showsEmptyState() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, null))
+        given(publicNoticeService.getPublishedNotices(2L, 0, null))
                 .willReturn(listOf(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0)));
 
         mockMvc.perform(get("/main/notices"))
@@ -210,31 +210,31 @@ class PublicNoticeControllerTest {
     @DisplayName("page=abc(비숫자)는 파싱 실패로 0으로 흡수되어 200을 반환한다")
     @WithMockUser
     void list_pageNonNumeric_zeroedAndOk() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, null)).willReturn(listOf(new PageImpl<>(List.of())));
+        given(publicNoticeService.getPublishedNotices(2L, 0, null)).willReturn(listOf(new PageImpl<>(List.of())));
 
         mockMvc.perform(get("/main/notices").param("page", "abc"))
                 .andExpect(status().isOk());
 
-        verify(publicNoticeService).getPublishedNotices(0, null);
+        verify(publicNoticeService).getPublishedNotices(2L, 0, null);
     }
 
     @Test
     @DisplayName("page가 정수 범위를 초과하는 문자열이면 파싱 실패로 0으로 흡수되어 200을 반환한다")
     @WithMockUser
     void list_pageIntegerOverflow_zeroedAndOk() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, null)).willReturn(listOf(new PageImpl<>(List.of())));
+        given(publicNoticeService.getPublishedNotices(2L, 0, null)).willReturn(listOf(new PageImpl<>(List.of())));
 
         mockMvc.perform(get("/main/notices").param("page", "99999999999999"))
                 .andExpect(status().isOk());
 
-        verify(publicNoticeService).getPublishedNotices(0, null);
+        verify(publicNoticeService).getPublishedNotices(2L, 0, null);
     }
 
     @Test
     @DisplayName("size 쿼리 파라미터가 있어도 무시된다 — 컨트롤러 시그니처에 바인딩 대상이 없음")
     @WithMockUser
     void list_sizeParamIgnored() throws Exception {
-        given(publicNoticeService.getPublishedNotices(anyInt(), any())).willReturn(listOf(new PageImpl<>(List.of())));
+        given(publicNoticeService.getPublishedNotices(anyLong(), anyInt(), any())).willReturn(listOf(new PageImpl<>(List.of())));
 
         mockMvc.perform(get("/main/notices").param("size", "999"))
                 .andExpect(status().isOk());
@@ -244,7 +244,7 @@ class PublicNoticeControllerTest {
     @DisplayName("제목에 스크립트 태그가 있어도 목록에서 이스케이프되어 실행되지 않는다")
     @WithMockUser
     void list_xssPayloadTitle_isEscaped() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, null))
+        given(publicNoticeService.getPublishedNotices(2L, 0, null))
                 .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "<script>alert(1)</script>")))));
 
         mockMvc.perform(get("/main/notices"))
@@ -259,7 +259,7 @@ class PublicNoticeControllerTest {
     @DisplayName("keyword 원문을 그대로 서비스에 넘기고, 서비스가 정규화한 검색어를 모델·입력란 값으로 쓴다")
     @WithMockUser
     void list_keyword_passedRawAndNormalizedEchoed() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, "  점검 "))
+        given(publicNoticeService.getPublishedNotices(2L, 0, "  점검 "))
                 .willReturn(listResult(
                         new PageImpl<>(List.of(summary(1L, "서버 점검 안내")), PageRequest.of(0, 10), 1), "점검"));
 
@@ -270,14 +270,14 @@ class PublicNoticeControllerTest {
                 .andExpect(content().string(containsString("서버 점검 안내")))
                 .andExpect(content().string(containsString("전체 보기")));
 
-        verify(publicNoticeService).getPublishedNotices(0, "  점검 ");
+        verify(publicNoticeService).getPublishedNotices(2L, 0, "  점검 ");
     }
 
     @Test
     @DisplayName("검색 결과가 없으면 '검색 결과가 없습니다' 문구를 보인다")
     @WithMockUser
     void list_keywordNoResult_showsSearchEmptyState() throws Exception {
-        given(publicNoticeService.getPublishedNotices(0, "없는말"))
+        given(publicNoticeService.getPublishedNotices(2L, 0, "없는말"))
                 .willReturn(listResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), "없는말"));
 
         mockMvc.perform(get("/main/notices").param("keyword", "없는말"))
@@ -290,7 +290,7 @@ class PublicNoticeControllerTest {
     @DisplayName("검색 중 페이지 링크에는 URL 인코딩된 keyword가 붙는다")
     @WithMockUser
     void list_keywordPagination_keepsEncodedKeyword() throws Exception {
-        given(publicNoticeService.getPublishedNotices(1, "점검 & 공지"))
+        given(publicNoticeService.getPublishedNotices(2L, 1, "점검 & 공지"))
                 .willReturn(listResult(
                         new PageImpl<>(List.of(summary(1L, "점검 & 공지 1")), PageRequest.of(1, 10), 25), "점검 & 공지"));
 
@@ -307,7 +307,7 @@ class PublicNoticeControllerTest {
     @DisplayName("검색하지 않은 목록의 페이지 링크에는 keyword가 붙지 않는다")
     @WithMockUser
     void list_noKeywordPagination_hasNoKeywordParam() throws Exception {
-        given(publicNoticeService.getPublishedNotices(1, null))
+        given(publicNoticeService.getPublishedNotices(2L, 1, null))
                 .willReturn(listOf(new PageImpl<>(List.of(summary(1L, "공지")), PageRequest.of(1, 10), 25)));
 
         String html = mockMvc.perform(get("/main/notices").param("page", "1"))
@@ -326,7 +326,7 @@ class PublicNoticeControllerTest {
         String scriptPayload = "<script>alert(1)</script>";
         String attrPayload = "\" autofocus onfocus=\"alert(1)";
         for (String payload : List.of(scriptPayload, attrPayload)) {
-            given(publicNoticeService.getPublishedNotices(eq(0), eq(payload)))
+            given(publicNoticeService.getPublishedNotices(eq(2L), eq(0), eq(payload)))
                     .willReturn(listResult(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0), payload));
 
             String html = mockMvc.perform(get("/main/notices").param("keyword", payload))
@@ -344,7 +344,7 @@ class PublicNoticeControllerTest {
     @DisplayName("상세 조회 성공 시 public/notice/detail 뷰와 notice 모델을 반환한다")
     @WithMockUser
     void detail_success_returnsViewAndModel() throws Exception {
-        given(publicNoticeService.findPublishedNotice(1L))
+        given(publicNoticeService.findPublishedNotice(2L, 1L))
                 .willReturn(Optional.of(detail(1L, "공지 제목", "본문 내용")));
 
         mockMvc.perform(get("/main/notices/1"))
@@ -358,7 +358,7 @@ class PublicNoticeControllerTest {
     @DisplayName("미노출·삭제·존재하지 않는 ID는 모두 404 + error/404 뷰(JSON 아님)")
     @WithMockUser
     void detail_notFound_returns404View() throws Exception {
-        given(publicNoticeService.findPublishedNotice(99L)).willReturn(Optional.empty());
+        given(publicNoticeService.findPublishedNotice(2L, 99L)).willReturn(Optional.empty());
 
         mockMvc.perform(get("/main/notices/99"))
                 .andExpect(status().isNotFound())
@@ -382,7 +382,7 @@ class PublicNoticeControllerTest {
     @DisplayName("공개 상세 응답 본문에 작성자 정보가 없다 (DTO 자체에 authorId 필드 없음)")
     @WithMockUser
     void detail_doesNotExposeAuthorInfo() throws Exception {
-        given(publicNoticeService.findPublishedNotice(1L))
+        given(publicNoticeService.findPublishedNotice(2L, 1L))
                 .willReturn(Optional.of(detail(1L, "공지 제목", "본문 내용")));
 
         mockMvc.perform(get("/main/notices/1"))
@@ -402,7 +402,7 @@ class PublicNoticeControllerTest {
         com.cms.admin.board.domain.Post post = com.cms.admin.board.domain.Post.builder()
                 .id(1L).boardId(3L).title("제목").content(payload).useYn(true).deleted(false).authorId("admin01").build();
         com.cms.admin.board.domain.Board board = com.cms.admin.board.domain.Board.builder().id(3L).name("공지사항").publicYn(true).attachmentYn(true).deleted(false).build();
-        given(publicNoticeService.findPublishedNotice(1L))
+        given(publicNoticeService.findPublishedNotice(2L, 1L))
                 .willReturn(Optional.of(PublicPostDetail.from(board, post, java.util.List.of())));
 
         mockMvc.perform(get("/main/notices/1"))
@@ -420,7 +420,7 @@ class PublicNoticeControllerTest {
     @DisplayName("Service 실행 중 예외가 발생하면 JSON이 아니라 HTML 500(public/notice/error)으로 응답한다 — 전역 GlobalApiExceptionHandler보다 우선 적용")
     @WithMockUser
     void detail_serviceThrows_returnsHtml500NotJson() throws Exception {
-        given(publicNoticeService.findPublishedNotice(anyLong())).willThrow(new RuntimeException("DB 장애 시뮬레이션"));
+        given(publicNoticeService.findPublishedNotice(anyLong(), anyLong())).willThrow(new RuntimeException("DB 장애 시뮬레이션"));
 
         mockMvc.perform(get("/main/notices/1"))
                 .andExpect(status().isInternalServerError())
@@ -432,7 +432,7 @@ class PublicNoticeControllerTest {
     @DisplayName("목록 조회 중 예외가 발생해도 JSON이 아니라 HTML 500으로 응답한다")
     @WithMockUser
     void list_serviceThrows_returnsHtml500NotJson() throws Exception {
-        given(publicNoticeService.getPublishedNotices(eq(0), any())).willThrow(new RuntimeException("DB 장애 시뮬레이션"));
+        given(publicNoticeService.getPublishedNotices(eq(2L), eq(0), any())).willThrow(new RuntimeException("DB 장애 시뮬레이션"));
 
         mockMvc.perform(get("/main/notices"))
                 .andExpect(status().isInternalServerError())
@@ -445,7 +445,7 @@ class PublicNoticeControllerTest {
     @DisplayName("상세에 첨부 링크와 파일명이 렌더링된다")
     @WithMockUser
     void detail_rendersAttachmentLink() throws Exception {
-        given(publicNoticeService.findPublishedNotice(1L))
+        given(publicNoticeService.findPublishedNotice(2L, 1L))
                 .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
                         List.of(attachmentDto(7L, "report.pdf")))));
 
@@ -459,7 +459,7 @@ class PublicNoticeControllerTest {
     @DisplayName("첨부가 0건이면 '첨부파일' 섹션 문구가 없다")
     @WithMockUser
     void detail_noAttachments_noAttachmentSection() throws Exception {
-        given(publicNoticeService.findPublishedNotice(1L))
+        given(publicNoticeService.findPublishedNotice(2L, 1L))
                 .willReturn(Optional.of(detail(1L, "제목", "본문")));
 
         mockMvc.perform(get("/main/notices/1"))
@@ -471,7 +471,7 @@ class PublicNoticeControllerTest {
     @DisplayName("첨부 파일명에 스크립트 태그가 있어도 이스케이프되어 실행되지 않는다")
     @WithMockUser
     void detail_attachmentFilenameXss_isEscaped() throws Exception {
-        given(publicNoticeService.findPublishedNotice(1L))
+        given(publicNoticeService.findPublishedNotice(2L, 1L))
                 .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
                         List.of(attachmentDto(7L, "<script>alert(1)</script>.txt")))));
 
@@ -485,7 +485,7 @@ class PublicNoticeControllerTest {
     @DisplayName("상세 응답 본문에 storageKey(서버 내부 경로)가 노출되지 않는다")
     @WithMockUser
     void detail_doesNotExposeStorageKey() throws Exception {
-        given(publicNoticeService.findPublishedNotice(1L))
+        given(publicNoticeService.findPublishedNotice(2L, 1L))
                 .willReturn(Optional.of(detailWithAttachments(1L, "제목", "본문",
                         List.of(attachmentDto(7L, "report.pdf")))));
 
@@ -548,7 +548,7 @@ class PublicNoticeControllerTest {
 
     private TrackingInputStream stubDownload(String filename, byte[] bytes, int failAfter) {
         TrackingInputStream stream = new TrackingInputStream(bytes, failAfter);
-        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
+        given(publicNoticeService.findPublishedAttachment(2L, 1L, 7L)).willReturn(Optional.of(REF));
         given(publicNoticeService.openAttachment(REF))
                 .willReturn(Optional.of(new PublicPostAttachmentDownload(filename, bytes.length, stream)));
         return stream;
@@ -607,7 +607,7 @@ class PublicNoticeControllerTest {
     @DisplayName("공개 조건 재검증이 empty를 반환하면(비공개 notice·없는 첨부·타 notice 첨부 공통) 404이고 파일은 열지 않는다")
     @WithMockUser
     void attachment_findReturnsEmpty_notFoundWithoutOpen() throws Exception {
-        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.empty());
+        given(publicNoticeService.findPublishedAttachment(2L, 1L, 7L)).willReturn(Optional.empty());
 
         mockMvc.perform(get("/main/notices/1/attachments/7"))
                 .andExpect(status().isNotFound());
@@ -619,7 +619,7 @@ class PublicNoticeControllerTest {
     @DisplayName("파일 open이 empty(실파일 없음)이면 404")
     @WithMockUser
     void attachment_openReturnsEmpty_notFound() throws Exception {
-        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
+        given(publicNoticeService.findPublishedAttachment(2L, 1L, 7L)).willReturn(Optional.of(REF));
         given(publicNoticeService.openAttachment(REF)).willReturn(Optional.empty());
 
         mockMvc.perform(get("/main/notices/1/attachments/7"))
@@ -641,7 +641,7 @@ class PublicNoticeControllerTest {
     @DisplayName("다운로드 중 Service 예외는 HTML 500 + public/notice/error 뷰로 응답한다(JSON 아님)")
     @WithMockUser
     void attachment_serviceThrows_returnsHtml500NotJson() throws Exception {
-        given(publicNoticeService.findPublishedAttachment(anyLong(), anyLong()))
+        given(publicNoticeService.findPublishedAttachment(anyLong(), anyLong(), anyLong()))
                 .willThrow(new RuntimeException("디스크 오류 시뮬레이션"));
 
         mockMvc.perform(get("/main/notices/1/attachments/7"))
@@ -654,7 +654,7 @@ class PublicNoticeControllerTest {
     @DisplayName("파일 open 실패(IllegalStateException)도 HTML 500 + public/notice/error 뷰다")
     @WithMockUser
     void attachment_openThrows_returnsHtml500() throws Exception {
-        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.of(REF));
+        given(publicNoticeService.findPublishedAttachment(2L, 1L, 7L)).willReturn(Optional.of(REF));
         given(publicNoticeService.openAttachment(REF)).willThrow(new IllegalStateException("디스크 오류"));
 
         mockMvc.perform(get("/main/notices/1/attachments/7"))
@@ -761,7 +761,7 @@ class PublicNoticeControllerTest {
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(content().bytes(new byte[0]));
 
-        verify(publicNoticeService).findPublishedAttachment(1L, 7L);
+        verify(publicNoticeService).findPublishedAttachment(2L, 1L, 7L);
         verify(publicNoticeService).openAttachment(REF);
         assertEquals(0, stream.readCalls, "HEAD는 본문 바이트를 읽지 않는다");
         assertTrue(stream.closed, "HEAD도 열었던 핸들을 곧바로 닫는다");
@@ -771,7 +771,7 @@ class PublicNoticeControllerTest {
     @DisplayName("HEAD의 404도 GET과 동일하다(공개 조건 재검증 empty)")
     @WithMockUser
     void attachment_head_notFoundSameAsGet() throws Exception {
-        given(publicNoticeService.findPublishedAttachment(1L, 7L)).willReturn(Optional.empty());
+        given(publicNoticeService.findPublishedAttachment(2L, 1L, 7L)).willReturn(Optional.empty());
 
         mockMvc.perform(head("/main/notices/1/attachments/7"))
                 .andExpect(status().isNotFound());
