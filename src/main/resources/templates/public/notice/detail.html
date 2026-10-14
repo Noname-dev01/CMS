@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title th:text="${notice.title}">공지사항</title>
     <link rel="stylesheet" th:href="@{/css/public/notice.css}">
+    <link rel="stylesheet" th:href="@{/css/public/site-menu.css}">
 </head>
 <body>
+<th:block th:replace="~{public/fragments/site-menu :: siteMenu}"></th:block>
 <div class="public-notice-container">
     <div class="public-notice-header">
         <h1><a th:href="@{|${sitePrefix}/notices|}">공지사항</a></h1>

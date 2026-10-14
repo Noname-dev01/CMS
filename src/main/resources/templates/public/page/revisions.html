@@ -5,8 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title th:text="${revisions.title + ' 개정 이력'}">개정 이력</title>
     <link rel="stylesheet" th:href="@{/css/public/page.css}">
+    <link rel="stylesheet" th:href="@{/css/public/site-menu.css}">
 </head>
 <body>
+<th:block th:replace="~{public/fragments/site-menu :: siteMenu}"></th:block>
 <div class="public-page-container">
     <h1 class="page-title">
         <a th:href="@{|${sitePrefix}/pages/{slug}|(slug=${revisions.slug})}" th:text="${revisions.title}">페이지</a>

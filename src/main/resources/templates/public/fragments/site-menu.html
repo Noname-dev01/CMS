@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/* 사이트 메뉴(PLAN-site-menu.md PR ⑤). 모델 siteMenu는 지연 홀더라 이 조각이 만질 때 처음 조회한다 — 홀더가 없거나(슬라이스·사이트 해석 전)
+     항목이 없으면 아무것도 그리지 않는다. 항목 이름은 th:text, 링크는 서비스가 SiteLinkPolicy로 다시 거른 값만 th:href에 들어간다
+     (편집자가 저장한 완전한 경로라 sitePrefix를 붙이지 않는다). 외부 링크는 새 탭 + noopener noreferrer.
+     하위 메뉴는 숨기지 않고 항상 펼친다(스크립트·hover 의존 없음 — 키보드·터치 접근). 이스케이프 없는 출력·스크립트·인라인 이벤트 금지
+     (PublicSiteMenuTemplateConventionTest). */-->
+<th:block th:fragment="siteMenu">
+    <nav class="site-menu" aria-label="사이트 메뉴" th:if="${siteMenu != null and not #lists.isEmpty(siteMenu.items)}">
+        <th:block th:replace="~{public/fragments/site-menu :: menuList(${siteMenu.items})}"></th:block>
+    </nav>
+</th:block>
+
+<ul class="site-menu-list" th:fragment="menuList(items)">
+    <li class="site-menu-item" th:each="item : ${items}">
+        <a th:if="${item.url != null and item.external}" th:href="${item.url}" th:text="${item.name}"
+           target="_blank" rel="noopener noreferrer"></a>
+        <a th:if="${item.url != null and not item.external}" th:href="${item.url}" th:text="${item.name}"></a>
+        <span class="site-menu-label" th:if="${item.url == null}" th:text="${item.name}"></span>
+        <th:block th:if="${not #lists.isEmpty(item.children)}">
+            <th:block th:replace="~{public/fragments/site-menu :: menuList(${item.children})}"></th:block>
+        </th:block>
+    </li>
+</ul>
+</body>
+</html>
