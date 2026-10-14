@@ -119,4 +119,42 @@ class SiteLinkPolicyTest {
         assertThatCode(() -> lenient.validate(PUBLIC_EXTERNAL, "https://cms.example/admin")).doesNotThrowAnyException();
         assertThatThrownBy(() -> lenient.validate(PUBLIC_EXTERNAL, "/admin")).isInstanceOf(InvalidRequestException.class);
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "https://%63ms.example/admin", "https://cms%2eexample/admin", "https://%63ms.example/main/faq",
+            "https://exa%6dple.com/x", "https://user@%63ms.example/admin"})
+    @DisplayName("호스트를 Java가 읽지 못하는 절대 URL(퍼센트 인코딩 호스트)은 같은 출처 검사를 건너뛰므로 외부 허용 사이트에서도 거부한다(코드 리뷰 지적)")
+    void percentEncodedHostIsRejected(String url) {
+        assertRejected(PUBLIC_EXTERNAL, url);
+        assertThat(policy.permits(PUBLIC_EXTERNAL, url)).isFalse();
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    @DisplayName("permits: URL 없음(null·빈 값)은 링크로 그릴 수 없으므로 false — validate의 '빈 값 통과'와 의미가 다르다")
+    void permits_blankIsNotALink(String url) {
+        assertThat(policy.permits(PUBLIC_EXTERNAL, url)).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/faq", "/main/notices", "https://example.com/x", "HTTP://example.com",
+            "/admin", "/admin?x=1", "/ADMIN/x", "/%61dmin", "/a/../admin", "/swagger-ui.html", "/actuator/health",
+            "https://cms.example/admin/login", "https://cms.example/main/faq",
+            "javascript:alert(1)", "//evil.example/x", "ftp://example.com", "faq", "mailto:a@b.c"})
+    @DisplayName("permits ↔ validate 동치: 같은 규칙 한 벌이라 모든 사이트·입력에서 '던지지 않음 ⇔ true'")
+    void permits_matchesValidate(String url) {
+        for (Site site : new Site[]{ADMIN, PUBLIC_EXTERNAL, PUBLIC_INTERNAL_ONLY}) {
+            boolean validates;
+            try {
+                policy.validate(site, url);
+                validates = true;
+            } catch (InvalidRequestException e) {
+                validates = false;
+            }
+            assertThat(policy.permits(site, url)).as("%s / %s", site.getSiteKey(), url).isEqualTo(validates);
+        }
+    }
 }

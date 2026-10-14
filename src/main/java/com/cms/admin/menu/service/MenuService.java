@@ -55,7 +55,7 @@ import java.util.function.Predicate;
 public class MenuService {
 
     /** 메뉴 최대 깊이(최상위=1). 사이드바 렌더링과 생성·구조 반영 검증이 같은 상한을 쓴다. */
-    static final int MAX_MENU_DEPTH = 3;
+    public static final int MAX_MENU_DEPTH = 3;
 
     /** 조회 쿼리(order by ord asc, menu_no asc)와 같은 표시 순서 — MariaDB는 NULL을 가장 작게 본다. */
     private static final Comparator<Menu> DISPLAY_ORDER =

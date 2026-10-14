@@ -53,25 +53,55 @@ public class SiteLinkPolicy {
         if (url == null || url.isBlank()) {
             return;
         }
-        if (!SafeUrls.isSafeLinkUrl(url)) {
-            throw new InvalidRequestException("메뉴 URL 형식이 올바르지 않습니다.");
-        }
-        if (SafeUrls.isSameOriginPath(url)) {
-            checkInternalPath(site, url);
-            return;
-        }
-        if (!site.permitsExternalLink()) {
-            throw new InvalidRequestException("이 사이트의 메뉴에는 외부 링크를 사용할 수 없습니다.");
-        }
-        String ownPath = ownPathOf(url);
-        if (ownPath != null) {
-            checkInternalPath(site, ownPath);
+        String violation = violation(site, url);
+        if (violation != null) {
+            throw new InvalidRequestException(violation);
         }
     }
 
-    private void checkInternalPath(Site site, String path) {
+    /**
+     * 출력 시 재검증용 — 예외 없이 "이 URL을 이 사이트 메뉴 링크로 그려도 되는가"를 돌려준다. {@link #validate}와 같은 규칙 한 벌을 쓰지만
+     * 의미가 다르다: {@code validate}는 빈 값을 "URL 없음"으로 통과시키고, 이쪽은 링크로 쓸 수 없으므로 {@code false}다.
+     */
+    public boolean permits(Site site, String url) {
+        return url != null && !url.isBlank() && violation(site, url) == null;
+    }
+
+    /** 위반 문구(입력 원문 비반영) 또는 통과면 null. */
+    private String violation(Site site, String url) {
+        if (!SafeUrls.isSafeLinkUrl(url)) {
+            return "메뉴 URL 형식이 올바르지 않습니다.";
+        }
+        if (SafeUrls.isSameOriginPath(url)) {
+            return internalPathViolation(site, url);
+        }
+        if (!site.permitsExternalLink()) {
+            return "이 사이트의 메뉴에는 외부 링크를 사용할 수 없습니다.";
+        }
+        if (!hasParsableHost(url)) {
+            return "메뉴 URL 형식이 올바르지 않습니다.";
+        }
+        String ownPath = ownPathOf(url);
+        return ownPath == null ? null : internalPathViolation(site, ownPath);
+    }
+
+    private String internalPathViolation(Site site, String path) {
         if (site.getSiteType() == SiteType.PUBLIC && isPrivatePath(path)) {
-            throw new InvalidRequestException("공개 사이트 메뉴에는 관리·내부 경로를 사용할 수 없습니다.");
+            return "공개 사이트 메뉴에는 관리·내부 경로를 사용할 수 없습니다.";
+        }
+        return null;
+    }
+
+    /**
+     * Java가 호스트를 읽을 수 있는 절대 URL인가. 퍼센트 인코딩된 호스트({@code https://%63ms.example/admin})는 {@code URI.getHost()}가 null이라
+     * 같은 출처 판정이 건너뛰어지지만 브라우저는 {@code cms.example}로 정규화해 이동한다 — 두 해석이 갈라지는 입력은 거부한다(리뷰 지적).
+     */
+    private static boolean hasParsableHost(String url) {
+        try {
+            String host = URI.create(url).getHost();
+            return host != null && host.indexOf('%') < 0;
+        } catch (RuntimeException e) {
+            return false;
         }
     }
 
