@@ -2,7 +2,8 @@
 
 > 작성일: 2026-07-10
 > 기준 커밋: `03680cd` (기능: 메뉴 데이터 기반 사이드바 동적 렌더링 #6)
-> 최근 갱신: 2026-10-13(46차) — 사용자 요청으로 **"사이트 설정 메뉴"를 정식 항목으로 추가**(완료 반영 아님, 미착수). 다중 사이트(`site` + `menu.site_id`)·사이트별 링크 정책(관리자=내부만, 공개=내부+외부 http(s))·ADMIN 전용·사이트 관리 UI·루트 접두어 라우팅(`/{siteKey}/…`, `/`는 302, 기존 공개 URL 404)·사이트별 콘텐츠 분리를 6개 미결정까지 확정해 "실행 로드맵 — 사이트 설정 메뉴"에 기록하고 "탈락한 후보"의 이름만 있던 항목은 승격 표시했다. 관련 선행 변경인 관리자 메뉴 내부 링크 제한은 PR #141로 올렸다(머지 전).
+> 최근 갱신: 2026-10-14(47차) — `/updateRoadmap` 사실확인: **"사이트 설정 메뉴"(PLAN-site-menu PR ①~⑤) 완료 반영.** PR #143 `9c5d135`·#144 `01f05f6`·#145 `ede4ad5`·#146 `64f579d`·#147 `9639297`이 모두 MERGED(`gh pr view`)이고 각 PR CI `test`·`prod-smoke` pass. master에서 `V50`~`V56`·`admin/site/`·`publicweb/support/`·`publicweb/menu/` 존재와 사이트 관련 시험 20개 클래스 214건 실패 0을 직접 확인했다. 완료 기준 7개 전부 충족 — 단 기준 6의 "통과 못 하면 `#`"는 구현이 **링크 없는 라벨**이라(PR ⑤ 계획 리뷰에서 변경·사용자 승인) 문구를 정정했다. 상세는 "실행 로드맵 — 사이트 설정 메뉴"의 "완료 기록" 참조.
+> 이전 갱신: 2026-10-13(46차) — 사용자 요청으로 **"사이트 설정 메뉴"를 정식 항목으로 추가**(완료 반영 아님, 미착수). 다중 사이트(`site` + `menu.site_id`)·사이트별 링크 정책(관리자=내부만, 공개=내부+외부 http(s))·ADMIN 전용·사이트 관리 UI·루트 접두어 라우팅(`/{siteKey}/…`, `/`는 302, 기존 공개 URL 404)·사이트별 콘텐츠 분리를 6개 미결정까지 확정해 "실행 로드맵 — 사이트 설정 메뉴"에 기록하고 "탈락한 후보"의 이름만 있던 항목은 승격 표시했다. 관련 선행 변경인 관리자 메뉴 내부 링크 제한은 PR #141로 올렸다(머지 전).
 > 이전 갱신: 2026-10-13(45차) — `/updateRoadmap` 사실확인: **"이번 선정에서 탈락한 후보" 중 조회수·다운로드 카운트 + 대시보드 고도화 완료 반영**(휴지통은 그대로 미완료). PR #140 `04bf78e`(`gh pr view` state=MERGED, mergedAt=2026-10-13T05:22:57Z), PR CI `test`·`prod-smoke` pass, `git pull` 뒤 master에서 `V49__add_view_download_counts.sql`·`ContentCounterService`·`ContentCounterWriter`·`ContentStatsService`·`ContentCountIntegrationTest` 존재 확인. 계획·검증 기록은 `plan/PLAN-view-download-count.md`(적대적 리뷰 2라운드 ship + 코드 리뷰 1건 반영 — 동시 쓰기 상한 3). 상세는 "이번 선정에서 탈락한 후보" 참조.
 > 이전 갱신: 2026-10-12(44차) — `/updateRoadmap` 사실확인: **Top 8 ③ 후속 — 문의하기(공개 폼 → 관리자 문의함) 완료 반영.** PR #138 `7ffe6a2`(`gh pr view` state=MERGED, mergedAt=2026-10-12T14:22:33Z), PR CI `test`·`prod-smoke` SUCCESS, `git pull` 뒤 master에서 `V47__create_inquiry.sql`·`V48__seed_inquiry_menu.sql`·`com.cms.admin.inquiry`·`com.cms.publicweb.inquiry` 존재 확인. 완료 기준 4개를 코드·시험·실기 기록으로 대조해 전부 충족을 확인했다(근거는 아래 "③ 후속" 참조). **사용자 요청으로 후속 과제 2건을 신규 기록했다** — "후속 과제 — 문의하기 완료 시 기록 (2026-10-12)": ① Cloudflare Turnstile 실제 키 발급·prod 컨테이너 경로 실기 검증 ② 개인정보처리방침의 Cloudflare 전송 고지·보존 기간 명시. 둘 다 미착수이며, 이 둘이 끝나기 전에는 운영에서 `/inquiry`가 기본값(닫힘, 503)으로 남는다.
 > 이전 갱신: 2026-10-12(43차) — `/updateRoadmap` 사실확인: **Top 8 ⑧ 미디어 라이브러리 완료 반영.** PR #136 `e03da10`(`gh pr view` state=MERGED, mergedAt=2026-10-12T10:13:43Z), PR CI `test`·`prod-smoke` SUCCESS(머지 커밋의 master push CI는 확인 시점에 진행 중이었다 — 결과는 이 갱신에 반영하지 않았다). 계획 `plan/PLAN-media-library.md`(v5.1, **계획 적대적 리뷰 5라운드 ship** — 지적 21건 전부 수용, 사용자 승인 2026-10-12), `/code-review-loop` 4라운드(1라운드 P2: 폼 모달 위에 중첩한 선택 모달을 닫으면 Bootstrap 4가 `body.modal-open`을 지워 게시글 폼이 스크롤되지 않음 — 수용·`hidden.bs.modal`에서 복원, 2라운드 P2: 201자 이상 `keyword`가 전역 핸들러에 처리기가 없는 `ConstraintViolationException`으로 500 — 수용·서비스에서 400으로 직접 검증, 3·4라운드 지적 0건). master 확인: `V43`~`V46` 마이그레이션, `admin/media/`(`MediaService`·`MediaImageRegistrar`·`MediaImageRemover`·`MediaImageSelector`·`MediaController` 등), `AdminFeature.MEDIA`(다섯 번째 `DELEGABLE`, READ·CREATE·DELETE), 시험 `MediaLibraryApiIntegrationTest`(13)·`MediaMigrationTest`(5)·`MediaConcurrencyIntegrationTest`(7)·`MediaPickerNestedModalBrowserTest`(2, 실제 브라우저)·`ContentImageIntegrationTest`(13) 존재. 검증: 머지된 master 트리는 전체 테스트를 돌린 구현 브랜치 마지막 커밋(`9f1fc48`)과 트리 diff가 없다(squash 머지) — 그 트리에서 `./gradlew cleanTest test` 220개 클래스·2160건 실패 0·오류 0(건너뜀 12건은 기존), 변이 실험(삭제 진입점의 `READ_COMMITTED` 제거 → 격리 수준·갭 락 시험 2건 실패, `replaceRefs`의 `FOR SHARE` 제거 → 존재 확인 직후 삭제 시험 실패, 이미지 잠금을 참조 삭제 뒤로 → `Deadlock found` 재현, 브라우저 시험은 복원 핸들러를 무력화하면 2건 모두 실패), 실기(Playwright 일회용 DB·임시 스토리지 — 계획 문서의 골든 패스 기록과 스크린샷 8장, 이번 세션에서 중첩 모달을 닫은 뒤 실제 휠 스크롤이 되는지 재확인). **로드맵 문구 정정(사용자 확인)**: 완료 기준 3의 "전체 용량 초과 400"을 **409**로 고쳤다 — 기존 `content_image_usage` 카운터 계약을 유지한 계획 D5의 결과이며 `ContentImageIntegrationTest`가 개수·바이트 상한 409를 고정한다(상태 코드는 바꾸지 않았다). **계획과 달라진 점**: 409 사용처 목록은 구조화 필드가 아니라 메시지 문자열(`사용처: 배너 #3, 게시글 #12 외 N건`)이고 구조화된 사용처는 상세 API가 준다. **인가 정책·스키마 변경**: 새 위임 기능 `MEDIA`, V43~V46. **주의·한계(수용)**: V43 이전 앱으로의 롤백은 지원하지 않는다(roll-forward만 — 구버전은 배너·팝업 삭제 때 NULL이 된 `storage_key`를 읽는다), 롤백 후 재배포하면 `MEDIA` 권한 행이 되살아날 수 있다. **후속**: `banner.storage_key/content_type/file_size` 등 NULL 허용 화석 컬럼 DROP + `UNIQUE` 정리(별도 PR), 이름 변경·교체·태그는 범위 밖. **남은 Top 8**: ③ 세션 관리 항목에서 후속으로 분리한 문의하기뿐.
@@ -663,15 +664,15 @@
 
 - **휴지통(삭제 공지 복원)**: 가치는 있으나 기존 도메인 다듬기라 새 도메인보다 후순위.
 - ~~**조회수/다운로드 카운트 + 대시보드 고도화**~~ → **완료** (2026-10-13 · PR #140 `04bf78e`): `post.view_count`·`post_attachment.download_count`(V49, 롤백 호환, 엔티티 `updatable=false`)를 비트랜잭션 `ContentCounterService` + `@Transactional` `ContentCounterWriter`(SET STATEMENT 문장·락 대기 상한)로 집계한다 — (IP, 대상)당 30분 1회·동시 쓰기 상한 3·공개 판정을 통과한 상세 GET과 파일 열기에 성공한 첨부 GET만(HEAD·404 제외, `/boards`·`/notices` 모두). 대시보드 "콘텐츠 현황"(총 조회·총 다운로드·상위 5 글/첨부)은 ADMIN 전체, MANAGER는 READ 가능한 게시판만이며 방문자 지표와 폴백을 분리했다. 관리 화면에 조회수 열·정렬·다운로드 횟수 추가. 인가 정책·`SecurityConfig` 변경 없음. 수용한 한계: 프록시 뒤 과소 집계·재기동 시 중복 집계·폭주 시 일부 유실(최선 노력 지표), 기간별 추이·공개 화면 노출은 범위 밖. 계획서 `plan/PLAN-view-download-count.md`.
-- ~~**사이트 설정 메뉴**~~ → **정식 항목으로 승격**(2026-10-13, 아래 "실행 로드맵 — 사이트 설정 메뉴").
+- ~~**사이트 설정 메뉴**~~ → **정식 항목으로 승격**(2026-10-13) → **완료**(2026-10-14 · PR #143~#147, 아래 "실행 로드맵 — 사이트 설정 메뉴").
 - **감사 로그 CSV 내보내기·관리자 초대 메일 가입·비밀번호 이력 재사용 금지**: 운영 편의 항목 — 실배포 이후 운영 요구에 따라 재평가.
 - **2단계 인증(TOTP)·관리자 경로 IP 허용 목록**: 새 라이브러리 도입·인가 정책 변경이 필요해 별도 제안·협의 후 착수.
 
-## 실행 로드맵 — 사이트 설정 메뉴 (2026-10-13 확정, 미착수)
+## 실행 로드맵 — 사이트 설정 메뉴 (2026-10-13 확정, **2026-10-14 완료** — PR #143~#147)
 
 > "탈락한 후보"에 이름만 있던 **사이트 설정 메뉴**를 사용자와 6개 미결정까지 모두 확정해 정식 항목으로 올렸다(2026-10-13). 계획서는 `/feature`로 `plan/PLAN-site-menu.md`를 만들어 적대적 리뷰를 거친다. 대화에 나온 구체 업종·사이트명 사례는 예시일 뿐이다.
 
-### ★ 사이트 설정 메뉴 — 다중 사이트·사이트별 메뉴·공개 라우팅·콘텐츠 분리 — 미착수
+### ★ 사이트 설정 메뉴 — 다중 사이트·사이트별 메뉴·공개 라우팅·콘텐츠 분리 — **완료** (2026-10-14 · PR #143~#147)
 - **유형**: 기능 / **선정 이유**: 지금 `menu` 테이블은 관리자 사이드바 전용이고 공개 `/`의 링크는 템플릿에 고정돼 있다. "사이트를 선택해 그 사이트의 메뉴를 관리"하는 구조로 일반화하고, 공개 사이트는 여러 개가 될 수 있게 한다(관리자 사이트 + 공개 사이트 N개).
 - **확정 결정**
   - **데이터 모델**: `site` 테이블 + `menu.site_id` FK. 사이트별 **링크 정책 컬럼**(외부 링크 허용 여부)을 두고 **서비스 계층에서 판정**한다(DTO 어노테이션은 형식 검사만). `site.site_key`는 고유·형식·**예약어** 제약(admin, actuator, notices, boards, pages, faq, inquiry, content-images, 정적 리소스 접두어 css·js·vendor·img 등)이고 생성 후 불변.
@@ -687,13 +688,14 @@
   - **인가 정책 변경**: 루트 접두어는 사이트 키가 DB 값이라 **새 사이트 추가가 곧 무인증 공개 경로 추가**다. `SecurityConfig`의 무인증 공개 경로 규칙·`anyRequest().denyAll()` 기본 거부와의 정합, 레이트리밋 패턴(접두어 포함 형태, 순서 의존)을 바꾼다. 사이트 키 예약어 충돌 검증과 동적 규칙이 필요하다.
 - **권장 PR 분할**(순서·의존성은 계획서에서 확정): ① 사이트 모델·사이트 관리 UI·메뉴 사이트 분리 편집 ② 라우팅(접두어)·공개 경로 이전·`/` 302 ③ 사이트별 콘텐츠(시작 화면·FAQ·푸터) ④ 사이트별 공지 ⑤ 공개 메뉴 렌더링.
 - **완료 기준**
-  - [ ] 사이트 선택으로 관리자 사이트·공개 사이트 메뉴를 따로 편집(서버가 사이트별 링크 정책으로 검증, 관리자는 내부만·공개는 내부+외부, 비공개 접두어 거부)
-  - [ ] ADMIN만 사이트 생성·수정·비활성화(시드 2행 삭제·키 변경 불가, 내용 있는 사이트 삭제 금지), 사이트 키 예약어·형식 검증
-  - [ ] 공개 경로가 `/{siteKey}/…` 아래에서 동작하고 존재하지 않는·비활성 사이트 키는 기존 공개 불변식처럼 같은 404, `/`는 기본 사이트로 302, 접두어 없는 기존 URL은 404
-  - [ ] 모든 공개 링크(템플릿·페이지네이션·첨부)가 접두어를 포함해 생성되고 맥락이 유지됨
-  - [ ] 시작 화면·공지·FAQ·푸터가 사이트별로 분리되고 `site_id` NULL 콘텐츠는 공통으로 노출됨
-  - [ ] 공개 메뉴가 해당 사이트에 렌더링되고 외부 링크는 `rel="noopener noreferrer"`, 저장된 값이 규칙을 통과하지 못하면 `#`
-  - [ ] 기존 공개 시험·템플릿 컨벤션·스트리밍 시험이 새 경로 기준으로 통과, 롤백 주의 문서화
+  - [x] 사이트 선택으로 관리자 사이트·공개 사이트 메뉴를 따로 편집(서버가 사이트별 링크 정책으로 검증, 관리자는 내부만·공개는 내부+외부, 비공개 접두어 거부)
+  - [x] ADMIN만 사이트 생성·수정·비활성화(시드 2행 삭제·키 변경 불가, 내용 있는 사이트 삭제 금지), 사이트 키 예약어·형식 검증
+  - [x] 공개 경로가 `/{siteKey}/…` 아래에서 동작하고 존재하지 않는·비활성 사이트 키는 기존 공개 불변식처럼 같은 404, `/`는 기본 사이트로 302, 접두어 없는 기존 URL은 404
+  - [x] 모든 공개 링크(템플릿·페이지네이션·첨부)가 접두어를 포함해 생성되고 맥락이 유지됨
+  - [x] 시작 화면·공지·FAQ·푸터가 사이트별로 분리되고 `site_id` NULL 콘텐츠는 공통으로 노출됨
+  - [x] 공개 메뉴가 해당 사이트에 렌더링되고 외부 링크는 `rel="noopener noreferrer"`, 저장된 값이 규칙을 통과하지 못하면 **링크 없는 라벨**(문구 정정 2026-10-14 — 원래 `#`로 적었으나 PR ⑤ 계획 리뷰에서 죽은 링크를 피하려 바꿨고 사용자가 승인했다. 링크도 자식도 없는 노드는 제거한다)
+  - [x] 기존 공개 시험·템플릿 컨벤션·스트리밍 시험이 새 경로 기준으로 통과, 롤백 주의 문서화
+- **완료 기록 (2026-10-14, 사실확인)**: 다섯 PR이 모두 머지됐다 — ① #143 `9c5d135`(2026-10-13T11:52:09Z, V50~V52) ② #144 `01f05f6`(13:57:47Z, V53·V54, **인가 정책 변경 별도 승인**) ③ #145 `ede4ad5`(16:11:47Z, V55) ④ #146 `64f579d`(2026-10-14T04:45:56Z, V56) ⑤ #147 `9639297`(06:32:12Z, 스키마·인가 변경 없음). 각 PR CI `test`·`prod-smoke` pass. master 확인: `V50`~`V56` 마이그레이션, `admin/site/`(`Site`·`SiteKey`·`SiteLinkPolicy`·`ContentSiteScope`·`SiteService` 등), `publicweb/support/`(`PublicSiteInterceptor`·`PublicSiteRoutes`·`PublicSiteService`)·`publicweb/menu/`(`PublicMenuService`·`PublicSiteMenu`), `docs/deployment.md`의 V50~V56 롤백 주의 절. 검증: master 트리에서 사이트 관련 20개 시험 클래스 214건 실패 0을 직접 실행(`SiteMenuApiIntegrationTest`·`SiteMigrationTest`·`SiteKeyTest`·`SiteKeyReservedConventionTest`·`SiteLinkPolicyTest`·`SiteDefaultApiIntegrationTest`·`SiteMenuConcurrencyIntegrationTest`·`ContentSiteScopeApiIntegrationTest`·`BoardSiteScopeApiIntegrationTest`·`PublicSiteRoutingIntegrationTest`·`PublicSiteRoutingServerTest`·`PublicExposureInventoryTest`·`PublicSiteTemplateConventionTest`·`PublicContentSiteScopeIntegrationTest`·`PublicBoardSiteScopeIntegrationTest`·`PublicSiteMenu*` 등), PR ⑤ 시점 전체 `./gradlew cleanTest test` 통과·PR ③④⑤ 개발 DB 실기(Playwright). 계획·검증 기록은 `plan/PLAN-site-menu.md`(PR ①~⑤ 상세 설계·구현·검증 결과, 적대적 리뷰 PR ① 5라운드·② 4라운드·③ 6라운드·④ 1라운드·⑤ 2라운드 ship). **인가 정책 변경(승인됨)**: PR ②에서 `/{siteKey}/…` 동적 무인증 공개 경로·레이트리밋 패턴. **계획과 달라진 점**: 공개 메뉴 재검증 실패는 `#`가 아니라 링크 없는 라벨(위 기준 6). **수용한 한계**: 별칭 호스트 비탐지(링크 정책은 인가가 아니라 심층 방어), 메뉴 URL 감사 이력 없음, 이미지 id 경로는 사이트 무관, 공개 메뉴 영역이 화면별 본문과 정렬이 맞지 않음(공통 레이아웃 도입 때 재검토), 요청당 쿼리 2개 추가(캐시 없음). **롤백**: 공개 사이트 메뉴·전용 콘텐츠가 있으면 V52/V55/V56 이전 앱으로 롤백하지 않는다, 구·신 앱 혼합 운영 금지(`docs/deployment.md`).
 - **리스크**: 공개 경로 전체·`SecurityConfig`·레이트리밋을 건드려 회귀 범위가 넓다. 접두어 때문에 공개 불변식(404 흡수·존재 여부 비노출)이 우회되지 않아야 한다. 규모가 커서 PR을 나누고 각 PR마다 적대적 리뷰·실기 검증을 거친다.
 
 ## 후속 과제 — ① prod 프로파일 완료 시 발견 (2026-07-30 기록)
