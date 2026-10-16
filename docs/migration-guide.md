@@ -62,6 +62,7 @@
 | V54 | `V54__seed_default_site.sql` | 시드 `main`(id=2)을 기본 공개 사이트로 지정 — 기본이 이미 있으면 건드리지 않는 멱등 DML |
 | V55 | `V55__add_content_site_id.sql` | `banner`·`popup`·`faq_category`·`site_page`에 `site_id`(NULL = 공통, FK `RESTRICT`) + `banner`·`faq_category`에 `version`(기본 1) — DDL 4문(아래 "V55") |
 | V56 | `V56__add_board_site_id.sql` | `board.site_id`(NULL = 공통, FK `RESTRICT`) — DDL 1문(아래 "V56") |
+| V57 | `V57__merge_menu_manage_into_site_page.sql` | 사이드바 "메뉴 관리" 행을 "정적 페이지 관리" 행에 합침 — 시드 그대로일 때만(전부-아니면-전무, 순수 DML, 아래 "V57") |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -207,6 +208,21 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
 
 - **배포**: DDL 1문(`ALTER TABLE board`에 `site_id` 컬럼 + FK `fk_board_site`), 문 하나라 부분 적용이 없다. 배포 전 `make prod-backup`. 컬럼·FK 모두 `IF NOT EXISTS`라 `flyway repair` 뒤 재실행해도 안전하다(`BoardSiteMigrationTest.isIdempotent`). 기존 행은 `site_id NULL`(공통)이라 데이터 이동이 없다. 공지 게시판 키 유일성은 기존 `UNIQUE(board_key)`를 그대로 쓴다(사이트 전용 공지는 키 `NOTICE:{siteId}`) — 인덱스 변경 없음.
 - **롤백 호환(조건부)**: `site_id`가 `DEFAULT NULL`이라 이전 앱의 INSERT가 깨지지 않고 공통 게시판으로 들어간다(`BoardSiteMigrationTest.legacyInsertStaysCommon`). **다만 사이트 전용 게시판이 있으면 롤백하지 않는다** — 이전 앱이 전용 게시판을 모든 사이트에 노출한다. 점검 SQL·삭제 순서·이전 앱이 남긴 삭제 행 정리는 `docs/deployment.md` "사이트별 게시판·공지".
+
+## V57 — 사이드바 "메뉴 관리"와 "정적 페이지 관리" 통합 (2026-10-14, `adversarial-review/plan/PLAN-content-menu-unify.md` "후속 PR — 사이드바 두 항목 통합")
+
+- **배포**: 순수 DML(스키마 변경 없음). 관리자 사이트(`site_id=1`)의 "메뉴 관리" 행(`/admin/menu/manage`)을 지우고 "정적 페이지 관리" 행(`/admin/site-page/manage`)의 이름을 "정적 페이지 · 메뉴 · 사이트 관리"로 바꾼다. 배포 전 `make prod-backup`은 기존 관례대로다.
+- **전부-아니면-전무**: 적격 판정을 변경 전에 한 번만 내려 두 문장이 같은 값(`@merge_ok`)을 쓴다. 두 행 모두 시드 그대로(이름·아이콘·설명 NULL·활성·최상위·자식 없음·같은 URL 행이 관리자 사이트에 정확히 1개, 문자열은 `utf8mb4_nopad_bin` 엄격 비교)일 때만 합치고, **관리자가 UI에서 개명·이동·비활성화·아이콘 변경·자식 추가·중복 생성을 한 환경은 아무것도 바뀌지 않는다**(두 항목이 그대로 남는다 — 관리자가 메뉴 구조 편집 화면에서 직접 정리한다). 시험: `SiteMenuMergeMigrationTest`.
+- **롤백**: 데이터만 바뀌어 이전 앱은 그대로 기동한다(합친 행은 같은 URL이라 동작한다). 다만 지운 "메뉴 관리" 항목은 마이그레이션으로 복구되지 않는다 — 이전 앱의 사이드바에도 없는 채로 `/admin/menu/manage`(302)·URL 직접 접근으로만 닿는다. 되돌리려면 수동으로 넣는다:
+  ```sql
+  INSERT INTO menu (menu_name, menu_url, menu_icon, use_yn, ord, up_menu_no, site_id)
+  SELECT '메뉴 관리', '/admin/menu/manage', 'fas fa-fw fa-bars', 1,
+         (SELECT COALESCE(MAX(ord), -1) + 1 FROM menu WHERE up_menu_no IS NULL AND site_id = 1), NULL, 1
+  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM menu WHERE menu_url = '/admin/menu/manage' AND site_id = 1);
+  UPDATE menu SET menu_name = '정적 페이지 관리' WHERE menu_url = '/admin/site-page/manage' AND site_id = 1
+     AND menu_name = '정적 페이지 · 메뉴 · 사이트 관리';
+  ```
+- **수용한 한계**: 통합 검색에서 구문 `메뉴 관리`·`정적 페이지 관리`는 더 이상 일치하지 않는다(키워드 `메뉴`·`사이트`·`정적`은 합친 항목을 찾는다).
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.
