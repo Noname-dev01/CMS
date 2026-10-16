@@ -75,7 +75,7 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
         jdbc.update("INSERT INTO site (site_key, site_name, site_type, allow_external_link, use_yn, default_yn) VALUES ('offsite', '꺼진 사이트', 'PUBLIC', 0, 0, 0)");
         jdbc.update("INSERT INTO site (site_key, site_name, site_type, allow_external_link, use_yn, default_yn) VALUES ('opsadmin', '관리 타입', 'ADMIN', 0, 1, 0)");
 
-        String reference = send("GET", "/notices/1").body();    // 접두어 없는 옛 URL — 핸들러가 없어 컨테이너 404
+        String reference = withoutErrorTime(send("GET", "/notices/1").body());    // 접두어 없는 옛 URL — 핸들러가 없어 컨테이너 404
         assertThat(reference).as("기준 404 화면").isNotBlank();
 
         for (String path : List.of("/nosuch", "/nosuch/notices", "/nosuch/boards/1", "/nosuch/pages/terms", "/nosuch/faq", "/nosuch/inquiry",
@@ -83,8 +83,29 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
             HttpResponse<String> response = send("GET", path);
             assertThat(response.statusCode()).as(path).isEqualTo(404);
             assertThat(response.headers().firstValue("Location")).as(path).isEmpty();
-            assertThat(response.body()).as(path + " — 기준 404 화면과 같아야 한다").isEqualTo(reference);
+            assertThat(withoutErrorTime(response.body())).as(path + " — 기준 404 화면과 같아야 한다").isEqualTo(reference);
         }
+    }
+
+    /**
+     * 404 화면은 "오류 발생 시간"(초 단위, {@code CustomErrorController}가 요청마다 {@code new Date()}로 싣는다)을 출력하므로, 기준과 거부된 사이트의
+     * 두 요청이 초 경계를 넘으면 본문이 달라져 시험이 가끔 실패했다(타이밍 flake). 비교에서는 그 시각 한 줄만 고정 값으로 바꾸고 나머지 본문은
+     * 그대로 비교한다 — 존재 여부를 드러내는 다른 차이는 계속 잡힌다.
+     */
+    private static String withoutErrorTime(String html) {
+        return html.replaceAll("(오류 발생 시간: <span>)\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(</span>)", "$1<시각>$2");
+    }
+
+    @Test
+    @DisplayName("비교용 시각 정규화는 '오류 발생 시간' 한 줄만 가리고 다른 차이는 그대로 드러낸다")
+    void errorTimeNormalization_masksOnlyTheTimestamp() {
+        String a = "<p>오류 발생 시간: <span>2026-10-16 16:19:31</span></p><h1>404</h1>";
+        String b = "<p>오류 발생 시간: <span>2026-10-16 16:19:32</span></p><h1>404</h1>";
+        String other = "<p>오류 발생 시간: <span>2026-10-16 16:19:32</span></p><h1>403</h1>";
+
+        assertThat(withoutErrorTime(a)).isEqualTo(withoutErrorTime(b));
+        assertThat(withoutErrorTime(a)).isNotEqualTo(withoutErrorTime(other));
+        assertThat(withoutErrorTime("본문에 시각이 없다")).isEqualTo("본문에 시각이 없다");
     }
 
     @Test
