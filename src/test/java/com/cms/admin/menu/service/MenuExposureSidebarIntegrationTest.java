@@ -124,17 +124,17 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
         String manager = dashboardHtml(Role.ROLE_MANAGER);
         assertThat(manager).contains("href=\"" + NOTICE_URL + "\"");
         assertThat(manager).contains("href=\"/admin/member/info\"");
-        assertThat(manager).doesNotContain("href=\"/admin/menu/manage\"");
-        // 이 시험의 MANAGER는 위임 가능 기능 전체의 READ를 받으므로(setBoardRead) 합친 항목(SITE_PAGE 판정 키)도 본다 — 권한이 없으면 안 보이는 것은 검색 시험이 고정한다
+        assertThat(manager).doesNotContain("href=\"/admin/menu/manage\"").doesNotContain("href=\"/admin/site/manage\"");
+        // 이 시험의 MANAGER는 위임 가능 기능 전체의 READ를 받으므로(setBoardRead) "사이트 관리" 그룹 아래 "정적 페이지 관리"(SITE_PAGE 판정 키)만 본다 — 권한이 없으면 안 보이는 것은 검색 시험이 고정한다
         assertThat(manager).contains("href=\"/admin/site-page/manage\"");
         assertThat(manager).doesNotContain("href=\"/admin/log/manage\"");
         assertThat(manager).as("V15 권한 관리 메뉴는 위임 불가라 MANAGER에게 보이지 않는다").doesNotContain("href=\"/admin/permission/manage\"");
 
         String admin = dashboardHtml(Role.ROLE_ADMIN);
         assertThat(admin).contains("href=\"" + NOTICE_URL + "\"").contains("href=\"/admin/permission/manage\"");
-        // V57: "메뉴 관리"는 "정적 페이지 · 메뉴 · 사이트 관리" 한 항목으로 합쳐졌다(같은 화면의 탭이라 입구도 하나)
-        assertThat(admin).contains("href=\"/admin/site-page/manage\"").contains("정적 페이지 · 메뉴 · 사이트 관리")
-                .doesNotContain("href=\"/admin/menu/manage\"");
+        // V58: "사이트 관리" 그룹 아래 정적 페이지 관리·메뉴 관리·사이트 설정 세 화면
+        assertThat(admin).contains("href=\"/admin/site-page/manage\"").contains("href=\"/admin/menu/manage\"").contains("href=\"/admin/site/manage\"")
+                .contains("사이트 관리").contains("사이트 설정").doesNotContain("정적 페이지 · 메뉴 · 사이트 관리");
     }
 
     @Test
@@ -148,6 +148,21 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
 
         assertThat(dashboardHtml(Role.ROLE_MANAGER)).doesNotContain("href=\"" + NOTICE_URL + "\"");
         assertThat(dashboardHtml(Role.ROLE_ADMIN)).contains("href=\"" + NOTICE_URL + "\"");
+    }
+
+    @Test
+    @DisplayName("'사이트 관리' 그룹: SITE_PAGE만 있는 MANAGER는 그룹 아래 '정적 페이지 관리' 하나만, SITE_PAGE가 없으면 그룹 전체가 숨겨진다(V58, 가지치기)")
+    void siteAdminGroupIsPrunedForManager() throws Exception {
+        jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+        jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'SITE_PAGE', 'READ')", manager.getId());
+        cache.invalidate();
+        String withPage = dashboardHtml(Role.ROLE_MANAGER);
+        assertThat(withPage).contains("사이트 관리").contains("href=\"/admin/site-page/manage\"")
+                .doesNotContain("href=\"/admin/menu/manage\"").doesNotContain("href=\"/admin/site/manage\"");
+
+        jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
+        cache.invalidate();
+        assertThat(dashboardHtml(Role.ROLE_MANAGER)).doesNotContain("사이트 관리").doesNotContain("href=\"/admin/site-page/manage\"");
     }
 
     @Test

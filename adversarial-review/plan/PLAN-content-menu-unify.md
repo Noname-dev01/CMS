@@ -300,3 +300,97 @@
 
 ### 후속
 - 코드 리뷰 게이트(`/code-review-loop`) → `/commitPR`. 사이드바를 카테고리 그룹으로 재구성하는 일은 사용자가 직접 한다.
+
+---
+
+# 후속 PR 2 — 탭 통합 화면을 "사이트 관리" 그룹 아래 세 화면으로 되돌린다 (U3-v1, 2026-10-16)
+
+## U3.1 Context
+
+#130에서 정적 페이지·메뉴 구조·사이트를 한 화면의 탭으로 합쳤고(방법 3′), #150(V57)에서 사이드바의 두 항목을 "정적 페이지 · 메뉴 · 사이트 관리" 한 항목으로 합쳤다. 사용자 요청(2026-10-16): **탭을 없애고 사이드바에 "사이트 관리" 그룹을 두어 그 하위 메뉴로 "정적 페이지 관리"·"메뉴 관리"·"사이트 설정"을 둔다.** 이슈 #151(긴 이름이 두 줄로 접힘)은 긴 이름이 사라져 같이 해소된다(닫을지는 구현 뒤 사용자에게 확인). 사이드바의 다른 항목 카테고리 재구성은 범위 밖이다(사용자가 직접). **스키마 변경 없음(데이터 마이그레이션 V58), 인가 정책(`SecurityConfig`·`AdminFeature`·권한관리) 변경 없음.**
+
+## U3.2 정찰에서 발견한 쟁점 (코드로 확인)
+
+1. **셸은 단순하고 조각은 이미 독립이다.** `admin/page/manage.html`(139줄)이 탭 내비게이션·세 패널·메뉴 모달·스크립트 배치 순서만 맡고, 패널은 `page-tab :: pagePanel/pageScript`·`menu-tab :: menuPanel/menuModals/menuScript`·`site-tab :: sitePanel/siteScript`다. 화면별 셸 3개로 나누면 된다.
+2. **탭 간 결합은 소수고 분리 뒤에는 전부 쓸모없다**: ① `window.ContentScreen.isPagePanelBusyOrDirty`/`isSitePanelBusyOrDirty`(+ 메뉴 반영 가드 `handleApply`) ② `content:menu-applying` 이벤트(`notifyApplying`, 정적 페이지·사이트 패널의 `externalLock`) ③ `content:sites-changed`(사이트 패널이 발행 `notifySitesChanged`, 메뉴 패널의 수신 리스너 약 30줄, 정적 페이지 패널의 `scopeStaleNotice`) ④ `content:menu-applied` → 셸의 "새로 고치는 중" 안내(`contentReloadNotice`). 반영 성공 뒤 `location.reload()`는 같은 URL이라 해시 보존 로직이 필요 없다.
+3. **URL과 게이트**: 정적 페이지 `/admin/site-page/manage`(`SITE_PAGE` 게이트·`menuUrls` — 불변), 메뉴 `/admin/menu/manage`(지금은 302만 하는 `MenuPageController`, `AdminFeature.MENU.menuUrls`에 이미 있음), **사이트 설정은 새 URL 필요**. `SecurityConfig`는 `/admin/**` ADMIN 캐치올이라 새 ADMIN 전용 페이지에 변경이 없고, 인가 컨벤션(`AdminEndpointAuthorizationConventionTest`)은 **읽기 전용 GET 페이지 핸들러를 면제**한다. 새 페이지 컨트롤러는 `@AdminPage`가 필수(`AdminPageAnnotationConventionTest`).
+4. **사이드바는 이미 그룹(2단)·3단 중첩과 활성 그룹 펼침을 지원**하고(`sidebar.html`), MANAGER는 `MenuVisibility`가 보이는 자식이 없는 그룹을 가지친다(그룹 URL은 판정에 쓰이지 않는다). `SITE_PAGE`만 있는 MANAGER는 그룹 아래 "정적 페이지 관리" 하나만 본다.
+5. **메뉴 행은 관리자가 UI에서 편집·이동·삭제할 수 있는 데이터**라 V58은 V57과 같은 "시드 그대로일 때만(전부-아니면-전무)" 원칙이 필요하다. 신규 설치는 V3·V38·V57·V58이 순서대로 돌아 기존 환경과 같은 결과가 된다.
+6. **테스트 파급**: `ContentManagePageIntegrationTest`(7건, 탭·패널·MANAGER 응답 문자열 단언)는 화면별 시험으로 재작성, `SiteMenuTabBrowserTest`(`#menu`·`#site` URL)·`SiteDefaultTabBrowserTest`(`#site`)는 URL 갱신, `SiteMenuMergeMigrationTest`는 `flyway(null)`을 `flyway("57")`로(V58까지 적용되면 V57 결과가 달라진다), `MenuExposureSidebarIntegrationTest`·`AdminSearchIntegrationTest`는 새 이름·그룹 기준으로 갱신. `ContentScopeAdminBrowserTest`(`/admin/site-page/manage`)·`SitePagePermissionMatrixIntegrationTest`는 URL 불변이라 영향 없음.
+7. **통합 검색**은 사이드바를 평탄화해 이름으로 거른다(그룹 자체는 결과에서 제외, 자식만) — 분리하면 구문 `정적 페이지 관리`·`메뉴 관리`가 다시 일치하고 `사이트 설정`이 새로 일치한다(#150의 검색 회귀가 해소된다).
+
+## U3.3 설계 결정
+
+### U3-1. URL — 사이트 설정은 `/admin/site/manage`, 나머지는 그대로
+- 선택지: (a) `/admin/site/manage` (b) `/admin/site-setting/manage` (c) 사이트 설정을 `/admin/site-page/manage` 아래로(`/admin/site-page/site`).
+- 선택: **(a)**. 사이트 API가 `/admin/api/sites`라 대응되고, `site-page`(정적 페이지)와 이름이 겹치지 않는다. (c)는 위임 가능 `SITE_PAGE` 게이트 안이라 ADMIN 전용 화면이 MANAGER 게이트 경로 안에 들어가는 혼동을 만든다.
+- **카탈로그에 새 기능을 만들지 않는다**: ADMIN 전용 화면은 카탈로그 밖 URL이 곧 "ADMIN만(MANAGER fail-closed)"이고 `exposure`도 `ADMIN_ONLY`로 분류된다(`MENU`가 이미 같은 방식). 새 `AdminFeature`는 과설계다.
+- `/admin/menu/manage`는 302 대신 **실제 화면**을 렌더링하고, 정적 페이지 화면은 URL·게이트·`SITE_PAGE` 판정 키 모두 그대로다.
+
+### U3-2. 셸을 세 개로 쪼갠다 — 조각은 재사용, 결합 코드만 제거
+- 새 셸: `admin/page/manage.html`(정적 페이지 패널만, MANAGER도 같은 화면, h1은 "정적 페이지 관리" 하나라 `sec:authorize` 이중 머리글이 사라진다), `admin/menu/manage.html`(메뉴 패널+모달+jstree CDN+반영 후 새로고침 안내), `admin/site/manage.html`(사이트 패널). ADMIN 전용 화면이라 셸의 `sec:authorize="hasRole('ADMIN')"` 래핑은 두지 않는다(URL 게이트가 최종 판정, 응답에 ADMIN 전용 마크업이 MANAGER에게 가는 경로 자체가 없다).
+- 조각 파일 이름(`*-tab.html`)은 바꾸지 않는다(파일 이동은 diff만 키운다). 문서에 "탭이 아니라 패널 조각"으로 적는다.
+- **제거하는 결합 코드**(분리 뒤 의미가 없고 주석이 사실과 달라지는 것만): 정적 페이지 패널의 `externalLock`·`ContentScreen.isPagePanelBusyOrDirty`·`content:menu-applying` 리스너·`scopeStaleNotice`(+마크업), 사이트 패널의 `externalLock`·`ContentScreen.isSitePanelBusyOrDirty`·`content:menu-applying` 리스너·`notifySitesChanged`와 호출, 메뉴 패널의 `notifyApplying`·`handleApply`의 두 `ContentScreen` 가드·`content:sites-changed` 리스너. **남기는 것**: 메뉴 반영 성공 시 `content:menu-applied`(셸이 새로고침 안내를 띄움), 각 패널 자체의 미저장 보호·`busy`·초안 규칙(메뉴 패널의 "편집할 사이트" 전환 상태 전이 포함).
+- 결합이 사라지는 의미: 사이트 설정 화면에서 사이트를 바꾼 뒤 메뉴·정적 페이지 화면은 **다음 진입 때 새로 읽는다**(각 화면이 로드 시 서버 렌더링·API로 사이트 목록을 읽는다). 한 화면 안에서 실시간 반영하던 동작은 사라진다(수용).
+
+### U3-3. 마이그레이션 `V58__split_site_admin_menu_group.sql` (DML만, 전부-아니면-전무)
+- **적격 판정을 한 번만** `@group_ok`에 담고 모든 문장이 같은 값을 쓴다(V57과 같은 방식, 문자열은 `utf8mb4_nopad_bin`). 모두 만족해야 한다:
+  - **A(옮길 행)**: 관리자 사이트(`site_id=1`)에 URL `/admin/site-page/manage` 행이 **정확히 1개**이고 이름 "정적 페이지 · 메뉴 · 사이트 관리"·아이콘 `fas fa-fw fa-file-alt`·설명 NULL·활성·최상위·자식 없음(V57 결과 그대로).
+  - 같은 사이트에 URL `/admin/menu/manage`·`/admin/site/manage` 행이 **하나도 없다**(이미 있으면 중복이 된다).
+  - 이름이 "사이트 관리"인 행이 없다(관리자가 같은 이름의 그룹을 이미 만들었으면 건드리지 않는다).
+- **실행**(`@group_ok = 1`일 때만): ① 그룹 행 INSERT — 이름 "사이트 관리"·URL NULL·아이콘 `fas fa-fw fa-sitemap`·활성·`ord`는 A와 같은 값·최상위·날짜 NULL ② `SET @group_no = LAST_INSERT_ID()`(② 이후 모든 문장에 `@group_ok = 1` 조건이 있어 INSERT가 0행이어도 이전 세션 값을 쓰지 않는다) ③ A를 그룹 아래로 옮기고(`up_menu_no=@group_no`, `ord=0`) 이름을 "정적 페이지 관리"로 되돌린다 ④ 그룹 아래 "메뉴 관리"(`/admin/menu/manage`, 아이콘 `fas fa-fw fa-bars`, `ord=1`)와 "사이트 설정"(`/admin/site/manage`, 아이콘 `fas fa-fw fa-cog`, `ord=2`) INSERT.
+- 신규 설치는 V3·V38·V57·V58이 순서대로 돌아 같은 결과다. 시드 파일은 수정하지 않는다.
+- **적격하지 않은 환경**(관리자가 V57의 행을 손봤거나 V57이 건너뛰어 두 항목이 남은 환경): 아무것도 바뀌지 않는다. 이 환경에서도 새 코드로 "메뉴 관리"(`/admin/menu/manage`)와 "정적 페이지 관리" 항목은 정상 동작하지만 **"사이트 설정" 화면은 사이드바 진입점이 없다**(ADMIN이 URL로 열거나 메뉴 구조 편집에서 행을 추가) — 롤백·배포 문서에 적는다.
+
+### U3-4. MANAGER 노출은 가지치기가 결정한다 (코드 변경 없음)
+그룹 URL은 NULL이라 노출 판정에 쓰이지 않는다. ADMIN은 그룹 아래 3개, `SITE_PAGE` READ가 있는 MANAGER는 "정적 페이지 관리" 하나(그룹 노출), 권한이 없는 MANAGER는 그룹 전체가 숨겨진다. 시험으로 고정한다.
+
+### U3-5. 하지 않는 것
+`AdminFeature`·`SecurityConfig` 변경, 조각 파일 이름 변경, 사이드바의 다른 항목 재구성, 메뉴 트리 편집 규칙 변경, 사이트별 콘텐츠 규칙 변경, #151 이슈 임의 종료.
+
+## U3.4 테스트 계획
+
+- **`SiteMenuGroupMigrationTest`**(V57까지 적용 → 시나리오 구성 → V58 적용, 제외 시나리오는 `menu` 전체 행 스냅샷 불변): ① V57 결과 그대로 → 그룹 1개·A가 그룹 아래 "정적 페이지 관리"로·그룹 아래 "메뉴 관리"·"사이트 설정"·다른 행 불변 ② 재실행 멱등(적격 판정부터 다시 실행해도 변화 없음) ③ A를 개명·이동·비활성·아이콘 변경한 환경 ④ A에 자식이 달린 환경 ⑤ A가 중복·없음 ⑥ 이미 `/admin/menu/manage`·`/admin/site/manage` 행이 있는 환경 ⑦ 이름이 "사이트 관리"인 행이 있는 환경 ⑧ 대소문자·후행 공백 ⑨ 공개 사이트(`site_id>1`) 행은 불변 ⑩ V57이 건너뛰어 "메뉴 관리"·"정적 페이지 관리"가 따로 남은 환경은 불변 ⑪ 신규 설치(V1부터) 최종 상태(그룹 1·자식 3·`/admin/site-page/manage` 1·합친 이름 행 없음).
+- **`SiteMenuMergeMigrationTest`**: `flyway(null)` → `flyway("57")`로 V57 시점에 고정(시험 의도 불변).
+- **`ContentManagePageIntegrationTest` 재작성**: ADMIN — 정적 페이지 화면은 페이지 패널만(탭·메뉴·사이트 마크업 없음, 중복 id 없음, 스크립트 배치 순서), 메뉴 화면(`/admin/menu/manage`는 302가 아니라 200)은 메뉴 패널·모달 2개(`body` 직계)·jstree·`content:menu-applied` 안내, 사이트 화면(`/admin/site/manage`)은 사이트 패널 / MANAGER — 정적 페이지 200·메뉴·사이트 403 / 비로그인 302 / 응답에 다른 화면의 마크업·API 문자열이 섞이지 않음.
+- **브라우저 시험(Playwright)**: `SiteMenuTabBrowserTest`·`SiteDefaultTabBrowserTest`의 이동 URL 갱신, 분리 뒤에도 메뉴 화면의 사이트 전환·구조 반영 후 새로고침, 사이트 화면의 기본 지정·삭제 흐름이 그대로 통과.
+- **사이드바·검색**: `MenuExposureSidebarIntegrationTest` — ADMIN 사이드바에 그룹 "사이트 관리"와 하위 3개 링크, MANAGER(SITE_PAGE 허용)는 그룹 아래 "정적 페이지 관리"만, SITE_PAGE가 없는 MANAGER는 그룹이 없음 / `AdminSearchIntegrationTest` — 구문 `정적 페이지 관리`·`메뉴 관리`·`사이트 설정`이 각 항목 URL로 일치하고 그룹은 결과에 없음, `정적 페이지 관리`는 SITE_PAGE 권한을 따름.
+- 회귀(무변경 통과): `SitePagePermissionMatrixIntegrationTest`·`ContentScopeAdminBrowserTest`·`AdminPageAnnotationConventionTest`·`AdminEndpointAuthorizationConventionTest`·`SecurityConfigTest`·`MenuServiceTest`·`AdminSidebarAdviceTest`.
+
+## U3.5 실기 검증 계획
+
+개발 DB(V57 상태)에 V58 적용 → ADMIN 사이드바에 그룹 "사이트 관리"(펼침) 아래 3개 → 각 링크 이동·활성 그룹 펼침·탭 없는 화면 → 정적 페이지 등록·수정, 메뉴 구조 드래그 → [반영] → 새로고침 안내·반영 확인, 사이트 설정에서 사이트 생성·기본 지정·삭제 왕복 → 메뉴 화면의 "편집할 사이트"에 새 사이트가 다음 진입 때 보임 → `/admin/menu/manage` 직접 접근이 302가 아니라 화면 → MANAGER(SITE_PAGE만) 화면 → 익명·MANAGER의 메뉴·사이트 화면 직접 접근 차단(302·403). 문서의 롤백 SQL로 왕복(그룹 해체 → 한 항목 복원 → V58 재실행). 스크린샷.
+
+## U3.6 리스크
+
+- **R1 큰 템플릿 수정**: `menu-tab.html`(1,682줄)에서 결합 코드만 제거 — 실수로 다른 동작을 건드릴 위험 → 제거 범위를 위 목록으로 한정하고 브라우저 시험(`SiteMenuTabBrowserTest`)이 사이트 전환·반영 흐름을 고정.
+- **R2 V58 적격하지 않은 환경**: "사이트 설정" 진입점이 사이드바에 없음 → 문서화, 관리자가 메뉴 구조 편집으로 행을 추가할 수 있다.
+- **R3 롤백**: 이전 앱(탭 화면)은 그룹과 "정적 페이지 관리" 항목은 그대로 보이고, "메뉴 관리"(`/admin/menu/manage`)는 옛 302로 동작하지만 "사이트 설정"(`/admin/site/manage`)은 404다 — 롤백 전에 두 행(과 그룹)을 정리하는 수동 SQL을 `docs/migration-guide.md`에 적는다. 구·신 앱 혼합 운영은 금지(사이드바 데이터가 두 코드에 모두 보인다).
+- **R4 사이트 변경의 실시간 반영 상실**: 사이트 화면에서 사이트를 바꿔도 이미 열린 메뉴·정적 페이지 화면은 낡은 선택지를 가진다(다음 진입 때 갱신) → 수용(한 화면 안의 이벤트 결합을 만들지 않는다).
+- **R5 #130 계획과의 방향 전환**: 한 화면 통합 결정을 되돌리는 변경이라 `PLAN-content-menu-unify.md`·루트 `CLAUDE.md`·`com.cms.admin.page`·`com.cms.admin.menu`·`com.cms.admin.site` 지침의 "탭" 서술을 모두 갱신한다.
+
+## U3.7 개정 이력
+- U3-v1 (2026-10-16): 최초 작성 — 쟁점 7건, 결정 U3-1~U3-5.
+
+- U3-v2 (2026-10-16, 라운드 1 — codex `gpt-6.1-sol` no-ship, 7건): **수용 6·결정 필요 1.**
+  - ① [major] V58 비적격 환경(관리자가 V57 결과 행의 이름·아이콘을 바꿈)에서는 `/admin/menu/manage` 행이 V57에서 이미 지워졌으므로 U3 이후 남은 링크가 정적 페이지 화면만 열어 **"메뉴 관리" 진입점까지 사라진다** — U3-3의 "메뉴 관리는 정상 동작" 서술은 틀렸다(수용, 서술 정정). **결정 필요**: 비적격 환경 처리 방식(아래 U3-3 개정안 선택지). 결정 전까지 반영하지 않는다.
+  - ② [major] 롤백 SQL이 "배포 뒤 관리자가 그룹을 옮기거나 자식을 추가한 경우"에 안전하지 않고, V58 성공 이력은 수동 복원과 별개 → **이전 앱 롤백 → 신버전 재배포** 경로 미검증(수용). 롤백 SQL은 ⓐ 대상 행을 `menu_url`+그룹 소속으로 식별하고 ⓑ 그룹에 다른 자식이 있으면 그룹을 지우지 않고 자식만 상위로 올리며 ⓒ 한 트랜잭션으로 실행한다고 `docs/migration-guide.md`에 적고, 실기 검증에 "이전 앱 이미지 기동 → 신버전 재기동" 왕복을 넣는다. V57·V58 파일 수정으로 체크섬을 맞추는 방식은 금지(문서에 명시).
+  - ③ [major] `@group_ok` 공유가 "전부-아니면-전무"의 실패 시 원자성을 증명하지 않음(수용). 시험 `SiteMenuGroupMigrationTest`에 **실패 주입**(그룹 INSERT 뒤 후속 문장 실패를 유도하는 제약 위반 시나리오)을 넣어 Flyway 실행 후 `menu` 스냅샷 불변·이력 상태를 단언한다. MariaDB DDL이 없는 DML 전용 스크립트라 Flyway가 트랜잭션으로 감싸는지(`flyway.group`/문장별 커밋 여부)를 정찰로 먼저 확인하고, 감싸지 않으면 V58을 `START TRANSACTION … COMMIT`으로 묶는다.
+  - ④ [major] `SiteMenuTabBrowserTest`에는 제거 대상 `content:sites-changed`를 직접 발행하고 지연 응답을 기다리는 시험이 있어 "URL만 바꾸면 통과"는 틀렸다(수용). 사라지는 이벤트 계약의 시험은 **삭제**하고, 대체 계약 "사이트 화면에서 변경 후 메뉴 화면에 새로 진입하면 최신 목록을 읽는다"·"삭제된 사이트를 기억한 상태(저장된 선택)로 진입해도 안전하게 기본값으로 떨어진다"를 시험으로 추가한다. U3.4의 브라우저 시험 서술 정정.
+  - ⑤ [minor] `LAST_INSERT_ID()` 설계 자체는 합리적, 다만 반례 시험 부재(수용): 같은 연결에 이전 INSERT ID를 남긴 비적격 실행·비기본 `AUTO_INCREMENT` 값(예: 1000부터)·재실행 뒤 부모 ID 정확성을 `SiteMenuGroupMigrationTest`에 추가.
+  - ⑥ [minor] 메뉴·사이트 조각의 CSS가 `#menuTabPanel`·`#siteTabPanel` 래퍼 ID 아래에서만 적용되고 메뉴 높이는 탭 공간을 감안한 값(수용): 새 셸은 **래퍼 ID를 그대로 유지**하고(`id`만 남기고 탭 의미는 없음) 높이 계산식을 탭 바 제거에 맞춰 조정, 실기 검증에서 높이·스크롤을 스크린샷으로 확인.
+  - ⑦ [minor] `/admin/site-page/manage#menu`·`#site` 북마크가 조용히 정적 페이지 화면을 연다(수용): 정적 페이지 셸에 **작은 호환 스크립트**(해시가 `#menu`/`#site`이고 ADMIN 응답에 해당 이동 링크가 있을 때만 `location.replace`)를 두거나 호환을 종료한다 — 구현 단계에서 ADMIN 전용 마크업 노출 규칙(MANAGER 응답에 메뉴·사이트 문자열 금지)과 충돌하지 않는 쪽으로 하며, 스크립트는 ADMIN 응답에서만 렌더링한다.
+  - ① 결정(사용자, 2026-10-16): **완화된 적격 + 보존.** U3-3 개정 — 적격 = 관리자 사이트(`site_id=1`)에 URL `/admin/site-page/manage` 행이 **정확히 1개**이고 최상위·자식 없음·활성, `/admin/menu/manage`·`/admin/site/manage` 행이 없으며 이름 "사이트 관리"인 행이 없을 것(이름·아이콘·설명은 판정에서 제외). 실행: 그룹 INSERT 후 그 행을 그룹 아래(ord 0)로 옮기되 **이름·아이콘·설명은 건드리지 않는다** — 단 이름이 V57 시드 그대로("정적 페이지 · 메뉴 · 사이트 관리")일 때만 "정적 페이지 관리"로 되돌린다. 메뉴 관리·사이트 설정 행 INSERT는 동일. 시험에 이름·아이콘만 바꾼 환경(이름 보존·진입점 3개 존재) 추가, 이름이 시드 그대로인 환경과 구분.
+- U3-v3 (2026-10-16, 라운드 2 — codex `gpt-6.1-sol` no-ship, 새 지적 1건): **수용 1.** [major] 탭 이동은 DOM을 유지했지만 분리 뒤 사이드바 링크는 문서를 교체하므로, 정적 페이지 저장·삭제 요청이 진행 중(`saving=true`)일 때 `beforeunload`가 경고를 생략(`page-tab.html:523`)해 응답(409·검증 오류) 처리 문맥과 입력이 경고 없이 사라질 수 있다(수용). 그 조건은 메뉴 반영 후 `location.reload()`와 경쟁하지 않게 하려던 탭 시절의 것이라 분리 뒤에는 필요 없다 → **`beforeunload` 경고 조건을 `isDirty() || saving`으로 바꾼다**(정적 페이지·사이트·메뉴 패널 모두 같은 규칙 확인; 메뉴 패널의 반영 성공 `location.reload()` 직전에는 `dirty`·`busy`를 해제하는 기존 처리를 그대로 두고 확인). 사이드바 링크 가로채기(대기/차단)는 만들지 않는다 — 브라우저 표준 이탈 경고로 충분(과설계). 시험: 저장 응답을 지연시킨 채 다른 화면으로 이동 시도 시 `beforeunload` 경고가 발생하고(취소하면 화면·입력 유지) 성공·409·실패 각각 응답 처리 후 입력·안내가 유지되는지 브라우저 시험에 추가.
+- U3-v4 (2026-10-16, 사용자 지시 — 운영 배포 전 확인): **운영 배포가 아직 진행되지 않았다**(개발 DB만 존재). 이에 따라 범위 축소: ① U3-v2 ②의 롤백 SQL은 `docs/migration-guide.md`에 **짧은 참고용**(대상 식별·추가 자식 보존·트랜잭션 원칙 한 단락)으로만 적고, "이전 앱 이미지 기동 → 신버전 재배포" 왕복 시험과 실기 검증의 롤백 왕복은 **생략**한다(롤백할 운영 환경이 없고 개발 DB는 재생성 가능). 구·신 앱 혼합 운영 금지 서술은 문서에 유지. ② **유지**: V58 실패 주입 시험·재실행 멱등 시험·`LAST_INSERT_ID` 반례(비기본 AUTO_INCREMENT·이전 INSERT ID 잔존) 시험·완화된 적격 시나리오 — 배포 시점과 무관한 마이그레이션 정확성이다. ③ U3.6 R3(롤백)은 "운영 배포 전이라 영향 없음, 배포 후 롤백 필요 시 참고 SQL 사용"으로 낮춘다. ④ U3.6 R4(사이트 변경의 실시간 반영 상실)는 **동시성 문제가 아니라 UI 낡음**임을 명확히 한다 — 서버가 사이트 존재를 매번 검증(행 잠금·409)해 데이터는 깨지지 않으며, 두 화면을 동시에 여는 드문 경우에만 낡은 선택지가 보이고 새로고침으로 해소; 별도 동기화는 만들지 않고 "삭제된 사이트를 기억한 채 진입" 시험으로 고정.
+
+## U3 구현·검증 결과 (2026-10-16)
+
+계획 U3-v4(적대적 리뷰 3라운드 ship + 운영 미배포 범위 축소)대로 구현했다. **스키마 변경 없음(데이터 마이그레이션 V58), 인가 정책(`SecurityConfig`·`AdminFeature`·권한관리) 변경 없음.**
+
+- **화면**: `admin/page/manage.html`(정적 페이지 패널만, ADMIN 응답에만 `#menu`·`#site` 북마크 호환 스크립트), `admin/menu/manage.html`(신규 셸, `MenuPageController`가 302 대신 렌더링), `admin/site/manage.html`(신규 셸, `SiteManagePageController` — 정적 페이지 쪽 `SitePageController`와 빈 이름이 겹쳐 이름을 달리했다). 래퍼 id(`menuTabPanel`·`siteTabPanel`·`pagesTabPanel`)는 조각 CSS가 의존하므로 유지, 메뉴 높이는 `calc(100vh - 200px)`.
+- **결합 코드 제거**: `ContentScreen`·`externalLock`·`content:menu-applying`·`content:sites-changed`·`notifyApplying`·`notifySitesChanged`·`scopeStaleNotice`. 남김: `content:menu-applied`(새로고침 안내). 정적 페이지·사이트 패널의 `beforeunload`는 `isDirty() || saving`(U3-v3).
+- **V58**: 완화된 적격(URL 1행·활성·최상위·자식 없음, 이름·아이콘·설명 보존, 시드 이름일 때만 개명), `@group_ok`·`LAST_INSERT_ID` 가드. `SiteMenuGroupMigrationTest` 11건(적격·신규 설치·멱등·값 보존·비적격 10종·후행 공백·공개 사이트 불변·비기본 AUTO_INCREMENT·이전 INSERT ID 잔존·**실패 주입** — 롤백 확인, Flyway 이력에 실패 행이 남아 `repair` 후 재적용).
+- **시험**: `ContentManagePageIntegrationTest` 재작성(8건), `SiteMenuTabBrowserTest`→`SiteMenuScreenBrowserTest`(사라진 `sites-changed` 시험 삭제, "재진입 시 최신 목록"·"삭제된 사이트를 기억한 채 진입" 추가)·`SiteDefaultTabBrowserTest`→`SiteDefaultBrowserTest`, 신규 `PageScreenLeaveGuardBrowserTest`(조건을 되돌리는 변이로 실패 확인), `MenuExposureSidebarIntegrationTest`(그룹 가지치기)·`AdminSearchIntegrationTest`(세 항목 구문 검색) 갱신, `SiteMenuMergeMigrationTest`는 target 57로 고정. **전체 `./gradlew cleanTest test` 통과(15분).**
+- **실기(Playwright, 개발 DB에 V58 적용)**: 사이드바에 "사이트 관리" 그룹(활성 시 펼침) 아래 3개, 세 화면 모두 탭 없이 렌더링, `/admin/menu/manage`가 302가 아닌 화면, `/admin/site-page/manage#site`가 `/admin/site/manage`로 이동. 이슈 #151(긴 이름 줄바꿈)은 항목 이름이 짧아져 해소됨(닫을지는 사용자에게 확인).
+- **운영 배포 전이라 생략**: 이전 앱 롤백→재배포 왕복 시험(롤백 SQL은 `docs/migration-guide.md`에 참고용).

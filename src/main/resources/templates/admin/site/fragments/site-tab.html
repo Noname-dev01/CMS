@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
 <!--
-    사이트 탭의 조각(PLAN-site-menu.md D7). 정적 페이지·메뉴 관리 화면(admin/page/manage.html)의 ADMIN 전용 탭이 포함한다.
+    사이트 탭의 조각(PLAN-site-menu.md D7). 사이트 설정 화면(admin/site/manage.html)이 포함한다.
     조각은 둘이다: sitePanel(마크업·전용 CSS) / siteScript(의존성 로딩 뒤에 포함). 조각 이름을 body·script로 짓지 않는다 — Thymeleaf가 HTML 요소 이름과 구분하지 못해 <body> 전체를 끌어온다.
-    모달이 없다(폼은 패널 안 인라인, 삭제 확인은 confirm). CSS는 #siteTabPanel로 스코프한다(다른 탭에 번지지 않게).
+    모달이 없다(폼은 패널 안 인라인, 삭제 확인은 confirm). CSS는 #siteTabPanel로 스코프한다(래퍼 ID 유지 — 조각 CSS가 의존한다).
     사이트 API는 전부 ADMIN 전용이라 이 탭을 숨기는 것은 UX일 뿐 최종 판정이 아니다.
 -->
 <body>
@@ -119,7 +119,6 @@ $(document).ready(function () {
     let mode = null;           // null | 'create' | 'edit'
     let editing = null;        // 편집 대상 스냅샷(서버 응답) — 삭제·수정의 대상은 폼이 아니라 이 값이다
     let saving = false;
-    let externalLock = false;  // 메뉴 탭의 구조 반영이 진행되는 동안 입력·저장을 막는다(content:menu-applying)
     let listSeq = 0;           // 늦게 도착한 이전 목록 응답을 폐기하는 세대
     let baseline = null;       // 폼을 채운 시점의 값 — 미저장 변경 판정 기준
 
@@ -131,15 +130,6 @@ $(document).ready(function () {
         return mode !== null && baseline !== null && formValues() !== baseline;
     }
 
-    // 메뉴 탭의 구조 반영은 성공하면 문서 전체를 새로고침한다 — 이 패널에 미저장 입력이 있거나 저장·삭제 중이면 반영을 시작하지 않는다.
-    window.ContentScreen = window.ContentScreen || {};
-    window.ContentScreen.isSitePanelBusyOrDirty = function () {
-        return saving || externalLock || isDirty();
-    };
-    window.addEventListener('content:menu-applying', function (event) {
-        externalLock = event.detail === true;
-        refreshUi();
-    });
 
     function csrfHeaders() {
         const headers = { 'Content-Type': 'application/json' };
@@ -167,7 +157,7 @@ $(document).ready(function () {
     }
 
     function refreshUi() {
-        const locked = saving || externalLock;
+        const locked = saving;
         btnNew.disabled = locked;
         btnSave.disabled = locked || mode === null;
         btnDelete.disabled = locked;
@@ -260,7 +250,7 @@ $(document).ready(function () {
             cell(row, site.defaultSite === true ? '기본' : '', 'text-center font-weight-bold');
             cell(row, String(site.menuCount), 'text-right');
             row.addEventListener('click', function () {
-                if (saving || externalLock) {
+                if (saving) {
                     return;
                 }
                 if (isDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 이 사이트를 선택할까요?')) {
@@ -306,9 +296,6 @@ $(document).ready(function () {
         }
     }
 
-    function notifySitesChanged() {
-        window.dispatchEvent(new CustomEvent('content:sites-changed'));
-    }
 
     btnNew.addEventListener('click', function () {
         if (isDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 새 사이트를 작성할까요?')) {
@@ -334,7 +321,7 @@ $(document).ready(function () {
     btnSave.addEventListener('click', async function () {
         hide(formAlert);
         hide(formSuccess);
-        if (saving || externalLock || mode === null) {
+        if (saving || mode === null) {
             return;
         }
         const payload = mode === 'create'
@@ -367,7 +354,6 @@ $(document).ready(function () {
             saving = false;
             startEdit(fresh);
             show(formSuccess, '저장했습니다.');
-            notifySitesChanged();
         } catch (error) {
             show(formAlert, error && error.message ? error.message : '사이트 저장 중 오류가 발생했습니다.');
         } finally {
@@ -380,7 +366,7 @@ $(document).ready(function () {
         hide(formAlert);
         hide(formSuccess);
         const target = editing;
-        if (saving || externalLock || mode !== 'edit' || target === null || isDirty()) {
+        if (saving || mode !== 'edit' || target === null || isDirty()) {
             return;
         }
         saving = true;
@@ -397,7 +383,6 @@ $(document).ready(function () {
             saving = false;
             startEdit(fresh);
             show(formSuccess, '기본 사이트로 지정했습니다. 이제 /는 /' + fresh.siteKey + '로 이동합니다.');
-            notifySitesChanged();
         } catch (error) {
             show(formAlert, error && error.message ? error.message : '기본 사이트 지정 중 오류가 발생했습니다.');
         } finally {
@@ -410,7 +395,7 @@ $(document).ready(function () {
         hide(formAlert);
         hide(formSuccess);
         const target = editing;
-        if (saving || externalLock || mode !== 'edit' || target === null) {
+        if (saving || mode !== 'edit' || target === null) {
             return;
         }
         if (!window.confirm('사이트 "' + target.siteKey + '"을(를) 삭제합니다. 복구할 수 없습니다. 계속할까요?')) {
@@ -427,7 +412,6 @@ $(document).ready(function () {
             reset();
             await loadSites();
             show(formSuccess, response.status === 404 ? '이미 삭제된 사이트입니다.' : '사이트를 삭제했습니다.');
-            notifySitesChanged();
         } catch (error) {
             show(formAlert, error && error.message ? error.message : '사이트 삭제 중 오류가 발생했습니다.');
         } finally {
@@ -438,7 +422,7 @@ $(document).ready(function () {
 
     // 미저장 입력이 있는 채로 페이지를 떠나려 하면 확인창을 띄운다.
     window.addEventListener('beforeunload', function (event) {
-        if (isDirty()) {
+        if (isDirty() || saving) {
             event.preventDefault();
             event.returnValue = '';
         }

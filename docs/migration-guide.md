@@ -63,6 +63,7 @@
 | V55 | `V55__add_content_site_id.sql` | `banner`·`popup`·`faq_category`·`site_page`에 `site_id`(NULL = 공통, FK `RESTRICT`) + `banner`·`faq_category`에 `version`(기본 1) — DDL 4문(아래 "V55") |
 | V56 | `V56__add_board_site_id.sql` | `board.site_id`(NULL = 공통, FK `RESTRICT`) — DDL 1문(아래 "V56") |
 | V57 | `V57__merge_menu_manage_into_site_page.sql` | 사이드바 "메뉴 관리" 행을 "정적 페이지 관리" 행에 합침 — 시드 그대로일 때만(전부-아니면-전무, 순수 DML, 아래 "V57") |
+| V58 | `V58__split_site_admin_menu_group.sql` | 사이드바를 "사이트 관리" 그룹 아래 정적 페이지 관리·메뉴 관리·사이트 설정 세 항목으로 분리 — 적격할 때만(전부-아니면-전무, 순수 DML, 아래 "V58") |
 
 
 ## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
@@ -223,6 +224,14 @@ V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부
      AND menu_name = '정적 페이지 · 메뉴 · 사이트 관리';
   ```
 - **수용한 한계**: 통합 검색에서 구문 `메뉴 관리`·`정적 페이지 관리`는 더 이상 일치하지 않는다(키워드 `메뉴`·`사이트`·`정적`은 합친 항목을 찾는다).
+
+## V58 — 사이드바 "사이트 관리" 그룹 아래 세 항목으로 분리 (2026-10-16, `adversarial-review/plan/PLAN-content-menu-unify.md` 후속 PR 2 U3)
+
+- **배포**: 순수 DML(스키마 변경 없음). 관리자 사이트(`site_id=1`)에 그룹 "사이트 관리"(URL NULL)를 만들고, V57이 합친 `/admin/site-page/manage` 행을 그 아래(`ord=0`)로 옮기며, "메뉴 관리"(`/admin/menu/manage`, `ord=1`)·"사이트 설정"(`/admin/site/manage`, `ord=2`) 행을 추가한다. 화면이 탭 한 화면에서 세 화면으로 나뉜 것(U3)에 맞춘 데이터다. 신규 설치는 V3·V38·V57·V58이 순서대로 돌아 같은 결과다.
+- **적격 판정(전부-아니면-전무)**: 변경 전에 한 번만 `@group_ok`에 담고 모든 문장이 같은 값을 쓴다. `/admin/site-page/manage` 행이 관리자 사이트에 정확히 1개이고 활성·최상위·자식 없음, `/admin/menu/manage`·`/admin/site/manage` 행이 없으며, 이름이 "사이트 관리"인 행이 없을 것(`utf8mb4_nopad_bin`). **이름·아이콘·설명은 판정에 쓰지 않는다** — 관리자가 V57 결과 행을 손봤어도 진입점 세 개를 얻고, 손본 값은 보존한다(이름이 V57 시드 그대로일 때만 "정적 페이지 관리"로 되돌린다). 비적격이면 아무것도 바뀌지 않는다 — 그 환경에서는 "메뉴 관리"·"사이트 설정" 진입점이 사이드바에 없으므로(화면은 URL로 열린다) 배포 뒤 메뉴 구조 편집에서 행을 추가하거나 비적격 사유(자식이 달림 등)를 정리한 뒤 V58의 INSERT/UPDATE를 참고해 수동 적용한다. 배포 전 점검: `SELECT menu_no, menu_name, up_menu_no, use_yn FROM menu WHERE site_id = 1 AND menu_url IN ('/admin/site-page/manage','/admin/menu/manage','/admin/site/manage');`
+- **`LAST_INSERT_ID` 안전**: 그룹 INSERT 직후 `@group_no`에 담고, INSERT가 0행(비적격)일 때 이전 값을 쓰지 않도록 모든 문장에 `@group_ok = 1` 조건이 있다(`SiteMenuGroupMigrationTest` — 비기본 AUTO_INCREMENT·이전 INSERT ID 잔존·재실행 멱등).
+- **실패 시**: 중간 문장이 실패하면 Flyway가 트랜잭션을 롤백하므로 `menu`는 변경 전 그대로이고(실패 주입 시험으로 확인), 이력에는 실패 행이 남는다. 원인을 없앤 뒤 `flyway repair`로 실패 행을 정리하고 다시 기동한다. **V57·V58 파일을 고쳐 체크섬을 맞추지 않는다.**
+- **롤백(참고, 운영 배포 전이라 왕복 시험은 하지 않았다)**: 이전 앱(탭 화면)은 그룹과 "정적 페이지 관리"는 그대로 보이고 "메뉴 관리"는 옛 302로 동작하지만 "사이트 설정"(`/admin/site/manage`)은 404다. 롤백 전에 한 트랜잭션으로 정리한다 — 대상은 URL·부모로 식별하고, **그룹에 관리자가 추가한 다른 자식이 있으면 그룹을 지우지 않고 그 자식을 최상위로 올린다**: 먼저 `UPDATE menu SET up_menu_no = NULL WHERE up_menu_no = <그룹> AND menu_url NOT IN ('/admin/site-page/manage','/admin/menu/manage','/admin/site/manage')`, 이어 `/admin/menu/manage`·`/admin/site/manage` 행 삭제, `/admin/site-page/manage` 행을 최상위로 되돌리고(필요하면 이름 "정적 페이지 · 메뉴 · 사이트 관리"), 남은 자식이 없을 때만 그룹 삭제. 구·신 앱 혼합 운영 금지(사이드바 데이터가 두 코드에 모두 보인다).
 
 ## 환경별 동작
 - **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.

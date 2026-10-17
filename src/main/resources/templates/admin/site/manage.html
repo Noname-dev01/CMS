@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>사이트 설정</title>
+</head>
+<body id="page-top">
+<!--/*
+    사이트 설정 화면의 셸(PLAN-content-menu-unify.md U3). 공개 사이트 생성·수정·비활성화·삭제·기본 공개 사이트 지정(ADMIN 전용 —
+    URL 게이트가 최종 판정, 사이트 API도 ADMIN 전용). 조각의 스크립트는 공통 의존성(jQuery) 뒤에 둔다.
+*/-->
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">사이트 설정</h1>
+                </div>
+
+                <div id="siteTabPanel">
+                    <div th:replace="~{admin/site/fragments/site-tab :: sitePanel}"></div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+
+<th:block th:replace="~{admin/site/fragments/site-tab :: siteScript}"></th:block>
+</body>
+</html>

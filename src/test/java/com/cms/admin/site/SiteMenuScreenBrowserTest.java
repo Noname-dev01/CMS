@@ -25,11 +25,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 메뉴 구조 탭의 사이트 선택 상태 전이를 <b>실제 브라우저</b>로 고정한다(PLAN-site-menu.md D7, 코드 리뷰 R1). MockMvc는 화면 JS를 실행하지 못해
+ * 메뉴 관리·사이트 설정 화면의 상태 전이를 <b>실제 브라우저</b>로 고정한다(PLAN-site-menu.md D7, 코드 리뷰 R1). MockMvc는 화면 JS를 실행하지 못해
  * 이 결함군(저장 직후 셀렉트가 잠긴 채 남음, 지연된 사이트 목록 응답이 현재 선택을 되돌림)을 잡지 못한다.
  */
 @SpringBootTest(classes = CmsTestApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class SiteMenuTabBrowserTest extends BrowserTestSupport {
+class SiteMenuScreenBrowserTest extends BrowserTestSupport {
 
     private static final String KEY = "smb-";
 
@@ -70,8 +70,8 @@ class SiteMenuTabBrowserTest extends BrowserTestSupport {
                 "SMB_" + name, ord, siteId, LocalDateTime.now(), LocalDateTime.now());
     }
 
-    private void openMenuTab() {
-        page.navigate("http://localhost:" + port + "/admin/site-page/manage#menu");
+    private void openMenuScreen() {
+        page.navigate("http://localhost:" + port + "/admin/menu/manage");
         // 첫 트리가 그려지고 셀렉트가 풀릴 때까지(초기에는 전환 중 잠금)
         page.waitForFunction("() => !document.getElementById('siteSelect').disabled"
                 + " && document.querySelectorAll('#menuTree .jstree-anchor').length > 0");
@@ -88,7 +88,7 @@ class SiteMenuTabBrowserTest extends BrowserTestSupport {
     void siteSelectIsEnabledAfterSave() {
         long siteId = insertSite("save");
         insertMenu(siteId, "s-0", 0);
-        openMenuTab();
+        openMenuScreen();
         selectSiteAndWaitTree(siteId, "SMB_s-0");
 
         page.click("#btnNewTop");
@@ -103,38 +103,37 @@ class SiteMenuTabBrowserTest extends BrowserTestSupport {
     }
 
     @Test
-    @DisplayName("선택 사이트가 아닌 사이트가 삭제된 알림의 지연된 목록 응답이 도착해도, 그 사이 전환한 사이트의 선택·트리는 유지된다")
-    void delayedSitesResponseDoesNotRevertCurrentSelection() {
-        long siteA = insertSite("a");
-        long siteB = insertSite("b");
-        insertMenu(siteB, "b-1", 0);
-        insertMenu(siteB, "b-2", 1);
-        insertMenu(siteA, "a-1", 0);
-        openMenuTab();
-        selectSiteAndWaitTree(siteA, "SMB_a-1");
+    @DisplayName("다른 화면에서 사이트가 바뀐 뒤 메뉴 화면에 새로 진입하면 최신 사이트 목록을 읽는다 — 화면 간 실시간 동기화는 없다")
+    void reEnteringMenuScreenReadsLatestSites() {
+        long siteId = insertSite("late");
+        openMenuScreen();
+        assertThat(page.locator("#siteSelect option").allTextContents()).anyMatch(text -> text.contains("SMB late"));
 
-        // 사이트 목록 요청을 붙잡아 둔다(응답이 늦게 도착하는 상황)
-        AtomicReference<Route> held = new AtomicReference<>();
-        page.route("**/admin/api/sites", route -> {
-            if (!held.compareAndSet(null, route)) {
-                route.resume();
-            }
-        });
-        jdbc.update("DELETE FROM menu WHERE site_id = ?", siteA);
-        jdbc.update("DELETE FROM site WHERE id = ?", siteA);
-        page.evaluate("() => window.dispatchEvent(new CustomEvent('content:sites-changed'))");
-        page.waitForCondition(() -> held.get() != null);
+        jdbc.update("DELETE FROM site WHERE id = ?", siteId);
+        long created = insertSite("newer");
+        openMenuScreen();
 
-        // 응답을 기다리는 사이 사용자가 살아 있는 사이트 B로 전환한다
-        selectSiteAndWaitTree(siteB, "SMB_b-1");
-        held.get().resume();
-        page.waitForFunction("() => !document.getElementById('siteSelect').textContent.includes('SMB a')");
+        assertThat(page.locator("#siteSelect option").allTextContents())
+                .noneMatch(text -> text.contains("SMB late")).anyMatch(text -> text.contains("SMB newer"));
+        assertThat(page.inputValue("#siteSelect")).as("이전에 보던 사이트가 사라졌으니 관리자 사이트로 시작").isEqualTo("1");
+        assertThat(created).isNotEqualTo(siteId);
+    }
 
-        assertThat(page.inputValue("#siteSelect")).as("선택은 B로 남는다(옛 선택 A의 삭제로 관리자 사이트로 되돌리지 않는다)")
-                .isEqualTo(String.valueOf(siteB));
-        assertThat(page.locator("#menuTree .jstree-anchor").allTextContents()).extracting(String::trim)
-                .containsExactly("SMB_b-1", "SMB_b-2");
-        assertThat(page.textContent("#treeWarning")).as("삭제 안내(관리자 사이트로 이동)가 뜨지 않는다").doesNotContain("삭제되어");
+    @Test
+    @DisplayName("삭제된 사이트를 기억한 채(sessionStorage) 메뉴 화면에 진입해도 관리자 사이트로 안전하게 시작한다")
+    void rememberedDeletedSiteFallsBackToAdminSite() {
+        long siteId = insertSite("gone");
+        insertMenu(siteId, "g-1", 0);
+        openMenuScreen();
+        selectSiteAndWaitTree(siteId, "SMB_g-1");   // 선택이 sessionStorage에 기억된다
+
+        jdbc.update("DELETE FROM menu WHERE site_id = ?", siteId);
+        jdbc.update("DELETE FROM site WHERE id = ?", siteId);
+        page.reload();
+        page.waitForFunction("() => !document.getElementById('siteSelect').disabled"
+                + " && document.querySelectorAll('#menuTree .jstree-anchor').length > 0");
+
+        assertThat(page.inputValue("#siteSelect")).isEqualTo("1");
     }
 
     @Test
@@ -142,7 +141,7 @@ class SiteMenuTabBrowserTest extends BrowserTestSupport {
     void siteFormStaysLockedUntilDeleteRefreshFinishes() {
         long siteId = insertSite("del");
         page.onDialog(dialog -> dialog.accept());
-        page.navigate("http://localhost:" + port + "/admin/site-page/manage#site");
+        page.navigate("http://localhost:" + port + "/admin/site/manage");
         page.waitForSelector("#siteTableBody tr:has-text('" + KEY + "del')");
         page.click("#siteTableBody tr:has-text('" + KEY + "del')");
         page.waitForFunction("() => !document.getElementById('siteBtnDelete').classList.contains('d-none')");
@@ -169,7 +168,7 @@ class SiteMenuTabBrowserTest extends BrowserTestSupport {
     @DisplayName("저장은 성공했는데 뒤이은 목록 재조회가 실패해도 폼은 저장 전 값으로 되돌아가지 않고, 다시 저장해도 방금 바꾼 설정을 되돌리지 않는다")
     void listRefreshFailureAfterSaveKeepsSavedValues() {
         long siteId = insertSite("fail");
-        page.navigate("http://localhost:" + port + "/admin/site-page/manage#site");
+        page.navigate("http://localhost:" + port + "/admin/site/manage");
         page.waitForSelector("#siteTableBody tr:has-text('" + KEY + "fail')");
         page.click("#siteTableBody tr:has-text('" + KEY + "fail')");
         page.waitForFunction("() => document.getElementById('siteNameInput').value === 'SMB fail'");
