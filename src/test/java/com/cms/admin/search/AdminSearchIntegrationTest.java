@@ -153,23 +153,24 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
                 .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/board/posts')]", hasSize(1)));
     }
 
+
     @Test
-    @DisplayName("합친 사이드바 항목('정적 페이지 · 메뉴 · 사이트 관리')은 키워드 메뉴·사이트·정적으로 찾아지고, 구문 '메뉴 관리'는 더 이상 일치하지 않는다(V57, 수용한 한계)")
-    void mergedSidebarEntry_isFoundByKeywords() throws Exception {
-        for (String keyword : List.of("메뉴", "사이트", "정적")) {
-            mockMvc.perform(get("/admin/api/search-results").param("keyword", keyword).with(TestMembers.asMember(admin)))
+    @DisplayName("'사이트 관리' 그룹 아래 세 항목은 각자 이름 구문으로 찾아지고 그룹 자체는 결과에 없다(V58)")
+    void siteAdminChildren_areFoundByPhrase() throws Exception {
+        for (String[] pair : new String[][]{{"정적 페이지 관리", "/admin/site-page/manage"}, {"메뉴 관리", "/admin/menu/manage"}, {"사이트 설정", "/admin/site/manage"}}) {
+            mockMvc.perform(get("/admin/api/search-results").param("keyword", pair[0]).with(TestMembers.asMember(admin)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/site-page/manage')]", hasSize(1)));
+                    .andExpect(jsonPath("$.menus.items[?(@.url=='" + pair[1] + "')]", hasSize(1)));
         }
-        mockMvc.perform(get("/admin/api/search-results").param("keyword", "메뉴 관리").with(TestMembers.asMember(admin)))
+        mockMvc.perform(get("/admin/api/search-results").param("keyword", "사이트 관리").with(TestMembers.asMember(admin)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/site-page/manage')]", hasSize(0)))
-                .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/menu/manage')]", hasSize(0)));
+                .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/menu/manage')]", hasSize(0)))
+                .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/site/manage')]", hasSize(0)));
     }
 
     @Test
-    @DisplayName("합친 항목의 검색 노출은 정적 페이지 조회 권한(SITE_PAGE)을 따른다 — 권한이 없는 MANAGER에게는 나오지 않고, 받으면 나온다")
-    void mergedSidebarEntry_followsSitePagePermission() throws Exception {
+    @DisplayName("정적 페이지 관리 항목의 검색 노출은 정적 페이지 조회 권한(SITE_PAGE)을 따른다 — 권한이 없는 MANAGER에게는 나오지 않고, 받으면 나온다")
+    void sitePageEntry_followsSitePagePermission() throws Exception {
         mockMvc.perform(get("/admin/api/search-results").param("keyword", "정적").with(TestMembers.asMember(manager)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.menus.items[?(@.url=='/admin/site-page/manage')]", hasSize(0)));

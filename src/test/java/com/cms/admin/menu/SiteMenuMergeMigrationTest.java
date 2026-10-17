@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * V57(사이드바의 "메뉴 관리"를 "정적 페이지 관리"에 합침) — PLAN-content-menu-unify.md "후속 PR — 사이드바 두 항목 통합" U2-2. 시드 그대로인 환경은 한 항목이
  * 되고, 관리자가 손본 환경은 <b>전부-아니면-전무</b>로 두 행의 모든 컬럼이 그대로임을 실제 MariaDB에서 고정한다(제외 시나리오는 삭제 여부가 아니라
- * {@code menu} 전체 행 스냅샷이 같은지로 단언한다).
+ * {@code menu} 전체 행 스냅샷이 같은지로 단언한다). V58이 이 결과를 다시 나누므로 모든 시나리오는 V57 시점(target 57)에 고정한다.
  */
 class SiteMenuMergeMigrationTest extends MariaDbContainerSupport {
 
@@ -96,7 +96,7 @@ class SiteMenuMergeMigrationTest extends MariaDbContainerSupport {
             }
             before = snapshot(st);
         }
-        flyway(null).migrate();
+        flyway("57").migrate();
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(snapshot(st)).as("두 행과 나머지 전체 행이 그대로여야 한다").isEqualTo(before);
             assertThat(count(st, "SELECT COUNT(*) FROM menu WHERE " + A)).as("메뉴 관리 행 보존").isGreaterThanOrEqualTo(1);
@@ -117,7 +117,7 @@ class SiteMenuMergeMigrationTest extends MariaDbContainerSupport {
             topBefore = count(st, "SELECT COUNT(*) FROM menu WHERE up_menu_no IS NULL");
         }
 
-        flyway(null).migrate();
+        flyway("57").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(count(st, "SELECT COUNT(*) FROM menu WHERE " + A)).isZero();
@@ -135,7 +135,7 @@ class SiteMenuMergeMigrationTest extends MariaDbContainerSupport {
     @DisplayName("신규 설치(V1부터): /admin/menu/manage 행이 없고 합친 이름의 행이 정확히 1개다")
     void freshInstall_hasSingleMergedEntry() throws Exception {
         freshSchema();
-        flyway(null).migrate();
+        flyway("57").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(count(st, "SELECT COUNT(*) FROM menu WHERE menu_url = '/admin/menu/manage'")).isZero();
@@ -147,7 +147,7 @@ class SiteMenuMergeMigrationTest extends MariaDbContainerSupport {
     @DisplayName("재실행 멱등: V57 문장을 같은 연결에서 다시 실행해도 아무것도 바뀌지 않는다")
     void rerunIsIdempotent() throws Exception {
         freshSchema();
-        flyway(null).migrate();
+        flyway("57").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             List<String> before = snapshot(st);
@@ -220,7 +220,7 @@ class SiteMenuMergeMigrationTest extends MariaDbContainerSupport {
             st.execute("INSERT INTO menu (menu_name, menu_url, menu_icon, use_yn, ord, site_id) VALUES ('정적 페이지 관리', '/admin/site-page/manage', 'fas fa-fw fa-file-alt', 1, 1, " + pub + ")");
         }
 
-        flyway(null).migrate();
+        flyway("57").migrate();
 
         try (Connection conn = connect(); Statement st = conn.createStatement()) {
             assertThat(count(st, "SELECT COUNT(*) FROM menu WHERE site_id = 1 AND menu_url = '/admin/menu/manage'")).isZero();
