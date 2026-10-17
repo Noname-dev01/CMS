@@ -23,7 +23,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.List;
 
-/** 사이트 관리 API — 전부 ADMIN 전용(위임 불가, PLAN-site-menu.md). 사이트 관리 화면은 정적 페이지·메뉴 관리 화면의 "사이트" 탭이다. */
+/** 사이트 관리 API — 전부 ADMIN 전용(위임 불가, PLAN-site-menu.md). 사이트 설정 화면은 /admin/site/manage다. */
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/admin/api/sites")

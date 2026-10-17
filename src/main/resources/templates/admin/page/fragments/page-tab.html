@@ -21,8 +21,6 @@
 
                 <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
                 <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
-                <!--/* 같은 셸의 사이트 탭이 사이트를 만들거나 바꾸면 표시 대상 선택지가 낡는다 — 새로고침 안내(옵션은 서버가 렌더링한 값) */-->
-                <div id="scopeStaleNotice" class="alert alert-info d-none" role="status">사이트 목록이 바뀌었습니다. 화면을 새로 고치면 표시 대상 선택지에 반영됩니다.</div>
                 <span id="pageScopeData" class="d-none" th:attr="data-default-key=${scopeDefaultKey}"></span>
 
                 <p class="text-muted small">
@@ -124,9 +122,6 @@
     const fScope = document.getElementById("pageSiteScope");
     const scope = ContentScope.create(fScope);        // 표시 대상 선택 박스(없는 사이트 ID는 옵션으로 보존)
     const DEFAULT_KEY = document.getElementById("pageScopeData").dataset.defaultKey || null;
-    const scopeStaleNotice = document.getElementById("scopeStaleNotice");
-    // 사이트 탭이 사이트를 바꾸면 선택지가 낡았음을 알린다
-    window.addEventListener("content:sites-changed", function () { scopeStaleNotice.classList.remove("d-none"); });
 
     /** 페이지의 공개 주소 접두어(예: /main). 공통 페이지는 기본 공개 사이트로, 전용 페이지는 그 사이트로 — 사이트가 비활성이거나 알 수 없으면 null. */
     function publicPrefix(siteId) {
@@ -156,19 +151,6 @@
     let loadingDetail = false;
     let listRequestSeq = 0;     // 늦게 도착한 이전 목록 응답이 최신 목록을 덮어쓰지 않게 하는 세대
     let detailRequestSeq = 0;   // 늦게 도착한 이전 상세 응답이 다른 페이지 선택을 덮어쓰지 않게 하는 세대
-    let externalLock = false;   // 메뉴 탭의 구조 반영 요청이 진행되는 동안 입력·저장·삭제를 막는다(content:menu-applying)
-
-    // 같은 화면의 메뉴 탭과 조정한다(PLAN-content-menu-unify.md 쟁점 9). 메뉴 반영은 성공하면 문서를 통째로 새로고침하므로,
-    // 이 패널에 미저장 입력이 있거나 저장·삭제 중이면 메뉴 쪽이 반영을 시작하지 않는다.
-    window.ContentScreen = window.ContentScreen || {};
-    window.ContentScreen.isPagePanelBusyOrDirty = function () {
-        return saving || loadingDetail || externalLock || isDirty();
-    };
-    // detail=true: 반영 시작. false는 반영이 실패해 이 화면에서 계속 작업할 때만 온다(성공은 문서가 교체될 때까지 잠금 유지).
-    window.addEventListener("content:menu-applying", function (event) {
-        externalLock = event.detail === true;
-        lockUi();
-    });
 
     // 이미지 없는 편집기(PLAN-static-page.md 쟁점 7) — 서버도 저장·출력 시 img를 제거한다
     const editor = NoticeEditor.create(document.getElementById("pageContentEditor"), {
@@ -224,7 +206,7 @@
     }
 
     function lockUi() {
-        const busy = saving || loadingDetail || externalLock;
+        const busy = saving || loadingDetail;
         btnSave.disabled = busy || !(editing ? canUpdate : canCreate);
         btnDelete.disabled = busy;
         btnNew.disabled = busy;
@@ -365,7 +347,7 @@
     }
 
     async function startEdit(id) {
-        if (saving || loadingDetail || externalLock) {
+        if (saving || loadingDetail) {
             return;
         }
         if (!confirmDiscard()) {
@@ -431,7 +413,7 @@
 
     pageForm.addEventListener("submit", async function (event) {
         event.preventDefault();
-        if (saving || loadingDetail || externalLock) {
+        if (saving || loadingDetail) {
             return;
         }
         if (editor.isBusy()) {
@@ -490,7 +472,7 @@
     });
 
     btnDelete.addEventListener("click", async function () {
-        if (!editing || saving || loadingDetail || externalLock) {
+        if (!editing || saving || loadingDetail) {
             return;
         }
         const target = editing;
@@ -521,7 +503,8 @@
     });
 
     window.addEventListener("beforeunload", function (event) {
-        if (isDirty() && !saving) {
+        // 저장·삭제 요청이 진행 중일 때도 경고한다 — 화면이 분리돼 사이드바 이동이 문서를 교체하므로 응답(409·검증 오류) 처리 문맥이 사라질 수 있다
+        if (isDirty() || saving) {
             event.preventDefault();
             event.returnValue = "";
         }

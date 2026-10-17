@@ -1,21 +1,17 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <head th:replace="~{admin/fragments/head :: adminHead}">
-    <title>정적 페이지 · 메뉴 · 사이트 관리</title>
+    <title>정적 페이지 관리</title>
 </head>
 <body id="page-top">
 <!--/*
-    정적 페이지 + 메뉴 구조 + 사이트를 한 화면에서 관리하는 셸(PLAN-content-menu-unify.md, 방법 3′).
+    정적 페이지 관리 화면의 셸(PLAN-content-menu-unify.md U3). 예전 탭 통합 화면에서 정적 페이지 패널만 남았다.
     - 게이트는 정적 페이지 기능(SITE_PAGE)의 URL 그대로다: ADMIN은 항상, MANAGER는 SITE_PAGE 조회 권한이 있을 때 들어온다.
-    - 메뉴 구조 탭·모달·jstree는 ADMIN에게만 서버가 렌더링한다(sec:authorize). 메뉴 API는 따로 ADMIN 전용이라 숨김은 UX일 뿐 최종 판정이 아니다.
-    - 두 패널은 모두 DOM에 마운트한 채 탭으로 보이기만 토글한다(탭을 바꿔도 작성 중 입력·드래그 초안이 사라지지 않는다).
-    - 배치 순서: 페이지 전용 CSS → 패널 body 조각 → 메뉴 modals 조각(탭 패널 밖) → 공통 의존성 → 패널 script 조각 → 셸 스크립트.
-      조각의 스크립트는 반드시 의존성(jQuery·Quill 등) 뒤에 둔다(앞에 두면 $·NoticeEditor가 없는 채 실행된다).
+    - 메뉴 구조·사이트 설정은 각자 화면(/admin/menu/manage, /admin/site/manage)이다. 이 응답에는 그 마크업·API 문자열이 없다.
+      예외로 ADMIN 응답에만 옛 북마크(#menu·#site)를 새 화면으로 옮기는 작은 스크립트가 있다(MANAGER 응답에는 렌더링하지 않는다).
+    - 배치 순서: 페이지 전용 CSS → 패널 body 조각 → 공통 의존성 → 패널 script 조각. 조각의 스크립트는 반드시 의존성(jQuery·Quill 등) 뒤에 둔다.
 */-->
 <link rel="stylesheet" th:href="@{/vendor/quill/quill.snow.css}">
-<th:block sec:authorize="hasRole('ADMIN')">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
-</th:block>
 
 <div id="wrapper">
     <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
@@ -26,43 +22,11 @@
 
             <div class="container-fluid">
                 <div class="d-sm-flex align-items-center justify-content-between mb-4">
-                    <!--/* 머리글은 볼 수 있는 기능과 맞춘다 — MANAGER는 메뉴를 관리할 수 없으므로 "메뉴"를 보이지 않는다. */-->
-                    <h1 class="h3 mb-0 text-gray-800" sec:authorize="hasRole('ADMIN')">정적 페이지 · 메뉴 · 사이트 관리</h1>
-                    <h1 class="h3 mb-0 text-gray-800" sec:authorize="!hasRole('ADMIN')">정적 페이지 관리</h1>
+                    <h1 class="h3 mb-0 text-gray-800">정적 페이지 관리</h1>
                 </div>
 
-                <!--/* 메뉴 구조 반영이 성공하면 문서를 새로 읽는다. 로딩이 멈춘 경우의 수동 복구(잠금은 문서가 교체될 때까지 유지된다). */-->
-                <div id="contentReloadNotice" class="alert alert-info d-none" role="alert">
-                    메뉴 구조를 반영했습니다. 화면을 새로 고치는 중입니다.
-                    멈춘 경우 <button type="button" class="btn btn-sm btn-primary ml-1" id="contentReloadNow">지금 새로고침</button>
-                </div>
-
-                <!--/* 탭은 ADMIN에게만 보인다. MANAGER는 정적 페이지 패널 하나뿐이라 탭 내비게이션을 그리지 않는다. */-->
-                <ul class="nav nav-tabs mb-3" id="contentTabs" role="tablist" sec:authorize="hasRole('ADMIN')">
-                    <li class="nav-item">
-                        <a class="nav-link active" id="pagesTab" data-toggle="tab" href="#pages" data-target="#pagesTabPanel"
-                           role="tab" aria-controls="pagesTabPanel" aria-selected="true">정적 페이지</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" id="menuTab" data-toggle="tab" href="#menu" data-target="#menuTabPanel"
-                           role="tab" aria-controls="menuTabPanel" aria-selected="false">메뉴 구조</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" id="siteTab" data-toggle="tab" href="#site" data-target="#siteTabPanel"
-                           role="tab" aria-controls="siteTabPanel" aria-selected="false">사이트</a>
-                    </li>
-                </ul>
-
-                <div class="tab-content">
-                    <div class="tab-pane active" id="pagesTabPanel" role="tabpanel">
-                        <div th:replace="~{admin/page/fragments/page-tab :: pagePanel}"></div>
-                    </div>
-                    <div class="tab-pane" id="menuTabPanel" role="tabpanel" sec:authorize="hasRole('ADMIN')">
-                        <div th:replace="~{admin/menu/fragments/menu-tab :: menuPanel}"></div>
-                    </div>
-                    <div class="tab-pane" id="siteTabPanel" role="tabpanel" sec:authorize="hasRole('ADMIN')">
-                        <div th:replace="~{admin/site/fragments/site-tab :: sitePanel}"></div>
-                    </div>
+                <div id="pagesTabPanel">
+                    <div th:replace="~{admin/page/fragments/page-tab :: pagePanel}"></div>
                 </div>
             </div>
         </div>
@@ -71,20 +35,12 @@
     </div>
 </div>
 
-<!--/* 메뉴 모달(영구삭제 확인·아이콘 선택)은 탭 패널 밖에 둔다(숨겨지는 패널 안에 있으면 배경막만 남아 화면이 갇힌다). */-->
-<th:block sec:authorize="hasRole('ADMIN')">
-    <th:block th:replace="~{admin/menu/fragments/menu-tab :: menuModals}"></th:block>
-</th:block>
-
 <div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
 
 <script src="/vendor/jquery/jquery.min.js"></script>
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
-<th:block sec:authorize="hasRole('ADMIN')">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
-</th:block>
 <script src="/vendor/quill/quill.js"></script>
 <script src="/js/admin/notice-editor.js"></script>
 <script src="/js/admin/content-scope.js"></script>
@@ -95,44 +51,14 @@
 </script>
 
 <th:block th:replace="~{admin/page/fragments/page-tab :: pageScript}"></th:block>
-<th:block sec:authorize="hasRole('ADMIN')">
-    <th:block th:replace="~{admin/menu/fragments/menu-tab :: menuScript}"></th:block>
-    <th:block th:replace="~{admin/site/fragments/site-tab :: siteScript}"></th:block>
-</th:block>
 
-<script>
-    // 탭 상태는 URL 해시(#pages·#menu·#site)로 표현한다. 기본은 정적 페이지. MANAGER는 탭이 없어(메뉴 패널 자체가 없다) 항상 정적 페이지다.
-    // 메뉴 반영 뒤의 location.reload()는 해시를 보존하므로 새로고침 뒤에도 메뉴 탭이 유지된다.
+<!--/* 탭 시절(/admin/site-page/manage#menu · #site) 북마크 호환 — ADMIN 응답에만 렌더링한다. */-->
+<script sec:authorize="hasRole('ADMIN')">
     (function () {
-        const tabLinks = Array.from(document.querySelectorAll('#contentTabs a[data-toggle="tab"]'));
-        if (tabLinks.length > 0) {
-            // 해시에 맞는 탭을 보인다. 알 수 없는 해시는 정적 페이지 탭이다. 이미 보이는 탭이면 아무것도 하지 않는다.
-            const showTabFromHash = function () {
-                const wanted = window.location.hash === '#menu' ? '#menu' : window.location.hash === '#site' ? '#site' : '#pages';
-                const link = tabLinks.find(function (a) { return a.getAttribute('href') === wanted; });
-                if (link && !link.classList.contains('active')) {
-                    $(link).tab('show');
-                }
-            };
-            showTabFromHash();
-            // 이력을 쌓지 않는다(replaceState) — 뒤로 가기가 탭을 되돌리며 화면 상태와 어긋나는 일을 만들지 않는다.
-            // replaceState는 hashchange를 일으키지 않으므로 아래 리스너와 순환하지 않는다.
-            $(tabLinks).on('shown.bs.tab', function (event) {
-                window.history.replaceState(null, '', event.target.getAttribute('href'));
-            });
-            // 주소창에서 해시를 직접 바꾸거나 해시가 다른 링크를 눌러 같은 문서 안에서 해시만 바뀌는 경우에도 탭이 따라간다.
-            window.addEventListener('hashchange', showTabFromHash);
+        const target = { '#menu': '/admin/menu/manage', '#site': '/admin/site/manage' }[window.location.hash];
+        if (target) {
+            window.location.replace(target);
         }
-
-        // 메뉴 구조 반영이 성공하면(content:menu-applied) 안내와 [지금 새로고침]을 보인다. 시간 초과로 잠금을 풀지 않는다 —
-        // 풀면 문서가 교체되기 전에 입력·저장이 가능해져 교체 때 사라진다. 로딩이 멈췄다면 버튼으로 다시 새로고침한다.
-        const notice = document.getElementById('contentReloadNotice');
-        window.addEventListener('content:menu-applied', function () {
-            notice.classList.remove('d-none');
-        });
-        document.getElementById('contentReloadNow').addEventListener('click', function () {
-            window.location.reload();
-        });
     })();
 </script>
 </body>

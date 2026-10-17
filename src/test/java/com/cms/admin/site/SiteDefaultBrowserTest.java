@@ -23,11 +23,11 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 사이트 탭의 기본 사이트 지정 UI를 실제 브라우저로 고정한다(PLAN-site-menu.md PR ② P2-5 · P4): [기본으로 지정] 버튼은 활성 공개 비기본 사이트에서만,
+ * 사이트 설정 화면의 기본 사이트 지정 UI를 실제 브라우저로 고정한다(PLAN-site-menu.md PR ② P2-5 · P4): [기본으로 지정] 버튼은 활성 공개 비기본 사이트에서만,
  * 미저장 입력이 없을 때만 보이고, 누르면 PATCH 후 목록의 "기본" 표시가 옮겨 가며 버튼이 사라진다. MockMvc는 화면 JS를 실행하지 못한다.
  */
 @SpringBootTest(classes = CmsTestApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class SiteDefaultTabBrowserTest extends BrowserTestSupport {
+class SiteDefaultBrowserTest extends BrowserTestSupport {
 
     private static final String KEY = "sdb-";
 
@@ -63,8 +63,8 @@ class SiteDefaultTabBrowserTest extends BrowserTestSupport {
         return jdbc.queryForObject("SELECT id FROM site WHERE site_key = ?", Long.class, KEY + suffix);
     }
 
-    private void openSiteTab() {
-        page.navigate("http://localhost:" + port + "/admin/site-page/manage#site");
+    private void openSiteScreen() {
+        page.navigate("http://localhost:" + port + "/admin/site/manage");
         page.waitForFunction("() => document.querySelectorAll('#siteTableBody tr').length >= 3");
     }
 
@@ -79,10 +79,10 @@ class SiteDefaultTabBrowserTest extends BrowserTestSupport {
 
     @Test
     @DisplayName("활성 공개 비기본 사이트에서만 [기본으로 지정]이 보이고, 누르면 기본 표시가 옮겨 가며 버튼이 사라진다")
-    void makeDefaultFromTheSiteTab() {
+    void makeDefaultFromTheSiteScreen() {
         long news = insertSite("news", true);
         long off = insertSite("off", false);
-        openSiteTab();
+        openSiteScreen();
 
         selectRow(news);
         assertThat(defaultButtonVisible()).as("활성 공개 비기본").isTrue();

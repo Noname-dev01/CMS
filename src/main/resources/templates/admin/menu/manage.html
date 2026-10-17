@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{admin/fragments/head :: adminHead}">
+    <title>메뉴 관리</title>
+</head>
+<body id="page-top">
+<!--/*
+    메뉴 관리 화면의 셸(PLAN-content-menu-unify.md U3). 메뉴 구조 편집(ADMIN 전용 — URL 게이트가 최종 판정, 메뉴 API도 ADMIN 전용).
+    - 배치 순서: 패널 body 조각 → 모달 조각(body 직계) → 공통 의존성 → 패널 script 조각. 조각의 스크립트는 의존성(jQuery·jstree) 뒤에 둔다.
+    - 구조 반영이 성공하면 문서를 새로 읽는다(content:menu-applied → 안내와 [지금 새로고침]).
+*/-->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css" />
+
+<div id="wrapper">
+    <div th:replace="~{admin/fragments/sidebar :: adminSidebar}"></div>
+
+    <div id="content-wrapper" class="d-flex flex-column">
+        <div id="content">
+            <div th:replace="~{admin/fragments/topbar :: adminTopbar}"></div>
+
+            <div class="container-fluid">
+                <div class="d-sm-flex align-items-center justify-content-between mb-4">
+                    <h1 class="h3 mb-0 text-gray-800">메뉴 관리</h1>
+                </div>
+
+                <!--/* 메뉴 구조 반영이 성공하면 문서를 새로 읽는다. 로딩이 멈춘 경우의 수동 복구(잠금은 문서가 교체될 때까지 유지된다). */-->
+                <div id="contentReloadNotice" class="alert alert-info d-none" role="alert">
+                    메뉴 구조를 반영했습니다. 화면을 새로 고치는 중입니다.
+                    멈춘 경우 <button type="button" class="btn btn-sm btn-primary ml-1" id="contentReloadNow">지금 새로고침</button>
+                </div>
+
+                <div id="menuTabPanel">
+                    <div th:replace="~{admin/menu/fragments/menu-tab :: menuPanel}"></div>
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<th:block th:replace="~{admin/menu/fragments/menu-tab :: menuModals}"></th:block>
+
+<div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
+
+<script src="/vendor/jquery/jquery.min.js"></script>
+<script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+<script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
+<script src="/js/sb-admin-2.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
+
+<th:block th:replace="~{admin/menu/fragments/menu-tab :: menuScript}"></th:block>
+
+<script>
+    // 메뉴 구조 반영이 성공하면(content:menu-applied) 안내와 [지금 새로고침]을 보인다. 시간 초과로 잠금을 풀지 않는다 —
+    // 풀면 문서가 교체되기 전에 입력·저장이 가능해져 교체 때 사라진다. 로딩이 멈췄다면 버튼으로 다시 새로고침한다.
+    (function () {
+        const notice = document.getElementById('contentReloadNotice');
+        window.addEventListener('content:menu-applied', function () {
+            notice.classList.remove('d-none');
+        });
+        document.getElementById('contentReloadNow').addEventListener('click', function () {
+            window.location.reload();
+        });
+    })();
+</script>
+</body>
+</html>
