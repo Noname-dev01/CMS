@@ -73,6 +73,21 @@ class BoardScopeAdminBrowserTest extends BrowserTestSupport {
         return jdbc.queryForObject("SELECT id FROM site WHERE site_key = ?", Long.class, key);
     }
 
+    /** 모달이 완전히 열릴 때까지(열림 전환 끝) 기다린다. */
+    private void waitModalOpen() {
+        page.waitForFunction("() => modalState === 'open'");
+    }
+
+    /** 모달이 완전히 닫힐 때까지 기다린다. 요소의 "숨김" 대기는 열림 초기(display:none)에 거짓으로 통과하므로 쓰지 않는다. */
+    private void waitModalClosed() {
+        page.waitForFunction("() => modalState === 'closed'");
+    }
+
+    private void openRow(String name) {
+        page.locator("#boardList tr", new Page.LocatorOptions().setHasText(name)).click();
+        waitModalOpen();
+    }
+
     private void waitForText(String elementId, String text) {
         page.waitForFunction("args => { const e = document.getElementById(args[0]);"
                 + " return e && !e.classList.contains('d-none') && e.textContent.includes(args[1]); }", List.of(elementId, text));
@@ -93,6 +108,8 @@ class BoardScopeAdminBrowserTest extends BrowserTestSupport {
     @DisplayName("생성: 고른 표시 대상이 요청에 실리고, 공지 게시판 체크박스는 사이트를 고르고 공개일 때만 켜진다")
     void createSendsScopeAndNoticeFlag() {
         List<String> writes = captureWrites();
+        page.click("#btnNew");
+        waitModalOpen();
         page.fill("#boardName", "bui-알파공지");
 
         assertThat(page.locator("#boardNotice").isDisabled()).as("공통 선택 중에는 비활성").isTrue();
@@ -108,7 +125,10 @@ class BoardScopeAdminBrowserTest extends BrowserTestSupport {
         assertThat(writes).hasSize(1);
         assertThat(writes.get(0)).contains("\"siteScope\":\"" + alpha + "\"").contains("\"noticeBoard\":true");
         assertThat(jdbc.queryForObject("SELECT board_key FROM board WHERE name = 'bui-알파공지'", String.class)).isEqualTo("NOTICE:" + alpha);
-        // 저장 뒤 수정 모드로 전환되고 공지 게시판이라 표시 대상 박스가 잠긴다
+        // 저장 뒤 모달이 닫힌다. 다시 열면 수정 모드이고 공지 게시판이라 표시 대상 박스가 잠긴다
+        waitModalClosed();
+        page.waitForFunction("() => document.getElementById('boardList').textContent.includes('bui-알파공지')");
+        openRow("bui-알파공지");
         assertThat(page.locator("#boardSiteScope").isDisabled()).isTrue();
         assertThat(page.locator("#boardNoticeGroup").getAttribute("class")).contains("d-none");
     }
@@ -123,15 +143,19 @@ class BoardScopeAdminBrowserTest extends BrowserTestSupport {
         assertThat(page.locator("#boardList tr", new Page.LocatorOptions().setHasText("bui-전용")).textContent()).contains("bui-alpha");
 
         List<String> writes = captureWrites();
-        page.locator("#boardList tr", new Page.LocatorOptions().setHasText("bui-전용")).click();
+        openRow("bui-전용");
         assertThat(page.locator("#boardSiteScope").inputValue()).isEqualTo(String.valueOf(alpha));
 
         page.fill("#boardName", "bui-전용-개명");
         page.click("#btnSave");
         waitForText("pageSuccess", "게시판을 저장했습니다");
+        waitModalClosed();
         assertThat(writes.get(0)).as("대상을 안 바꾸면 siteScope 없음").doesNotContain("siteScope");
         assertThat(jdbc.queryForObject("SELECT site_id FROM board WHERE id = ?", Long.class, id)).isEqualTo(alpha);
 
+        // 저장 뒤 모달이 닫히므로 같은 행을 다시 열어 대상을 바꾼다
+        page.waitForFunction("() => document.getElementById('boardList').textContent.includes('bui-전용-개명')");
+        openRow("bui-전용-개명");
         page.selectOption("#boardSiteScope", String.valueOf(beta));
         page.click("#btnSave");
         page.waitForFunction("() => document.getElementById('boardList').textContent.includes('bui-beta')");
@@ -146,7 +170,7 @@ class BoardScopeAdminBrowserTest extends BrowserTestSupport {
                 "NOTICE:" + alpha, alpha);
         page.click("#btnReload");
         page.waitForFunction("() => document.getElementById('boardList').textContent.includes('bui-공지')");
-        page.locator("#boardList tr", new Page.LocatorOptions().setHasText("bui-공지")).click();
+        openRow("bui-공지");
 
         assertThat(page.locator("#boardList tr", new Page.LocatorOptions().setHasText("bui-공지")).textContent()).contains("공지");
         assertThat(page.locator("#boardSiteScope").isDisabled()).isTrue();
