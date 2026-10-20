@@ -140,6 +140,23 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
                 + " return e && !e.classList.contains('d-none') && e.textContent.includes(text); }", text);
     }
 
+    /** 모달 상태(data-state)가 원하는 값이 될 때까지 기다린다. 요소의 보임 여부는 열림 초기에 거짓으로 통과하므로 쓰지 않는다. */
+    private void waitModalState(String state) {
+        page.waitForFunction("s => document.getElementById('faqModal').dataset.state === s", state);
+    }
+
+    /** [새 카테고리]를 눌러 모달이 완전히 열릴 때까지 기다린다. */
+    private void openCategoryModal() {
+        page.click("#btnCatNew");
+        waitModalState("open");
+    }
+
+    /** 모달이 떠 있는 동안의 오류는 모달 안(modalAlert)에 보인다. */
+    private void waitForModalError(String text) {
+        page.waitForFunction("text => { const e = document.getElementById('modalAlert');"
+                + " return e && !e.classList.contains('d-none') && e.textContent.includes(text); }", text);
+    }
+
     private void waitUntilIdle() {
         page.waitForFunction("() => !document.getElementById('btnReload').disabled");
     }
@@ -309,6 +326,7 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         int before = jdbc.queryForObject("SELECT COUNT(*) FROM faq_category", Integer.class);
 
         failNextList.set(true);
+        openCategoryModal();
         page.fill("#catName", "새카테고리");
         page.click("#btnCatSave");
         waitForError("저장은 완료됐지만");
@@ -335,7 +353,7 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         page.selectOption("#faqCategory", String.valueOf(c2));
         page.fill("#faqAnswerEditor .ql-editor", "");           // 보이는 내용이 없는 답변 → 서버 400
         page.click("#btnFaqSave");
-        waitForError("본문은 공백일 수 없습니다");
+        waitForModalError("본문은 공백일 수 없습니다");
         page.waitForFunction("() => !document.getElementById('faqFieldset').disabled");
 
         assertThat(page.inputValue("#faqCategory")).as("거절된 저장 뒤에도 선택이 유지된다").isEqualTo(String.valueOf(c2));
@@ -363,6 +381,7 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         });
         openManage();
 
+        openCategoryModal();
         page.fill("#catName", "본문유실");
         page.click("#btnCatSave");
         waitForSuccess("카테고리를 등록했습니다");
@@ -387,14 +406,17 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         int before = jdbc.queryForObject("SELECT COUNT(*) FROM faq_category", Integer.class);
 
         abortNextPost.set(true);
+        openCategoryModal();
         page.fill("#catName", "응답유실");
         page.click("#btnCatSave");
-        waitForError("저장 여부를 확인할 수 없습니다");
+        waitForModalError("저장 여부를 확인할 수 없습니다");
 
         assertThat(fieldsetDisabled("catFieldset")).as("자동 재전송 방지 — 폼 잠금").isTrue();
         assertThat(page.inputValue("#catName")).as("입력은 보존").isEqualTo("응답유실");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM faq_category", Integer.class)).isEqualTo(before);
 
+        page.click("#btnModalClose");                       // 모달이 열려 있는 동안 [새로고침]은 배경 뒤에 있다 — 닫은 뒤(입력은 사라진다) 새로고침한다
+        waitModalState("closed");
         page.click("#btnReload");
         page.waitForFunction("() => !document.getElementById('catFieldset').disabled");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM faq_category", Integer.class)).as("재전송 없이 복구").isEqualTo(before);
