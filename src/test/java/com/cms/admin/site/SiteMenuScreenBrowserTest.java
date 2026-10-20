@@ -144,6 +144,7 @@ class SiteMenuScreenBrowserTest extends BrowserTestSupport {
         page.navigate("http://localhost:" + port + "/admin/site/manage");
         page.waitForSelector("#siteTableBody tr:has-text('" + KEY + "del')");
         page.click("#siteTableBody tr:has-text('" + KEY + "del')");
+        page.waitForFunction("() => document.getElementById('siteModal').dataset.state === 'open'");
         page.waitForFunction("() => !document.getElementById('siteBtnDelete').classList.contains('d-none')");
 
         // 삭제 응답 뒤의 목록 재조회(GET)를 붙잡아 둔다
@@ -165,12 +166,13 @@ class SiteMenuScreenBrowserTest extends BrowserTestSupport {
     }
 
     @Test
-    @DisplayName("저장은 성공했는데 뒤이은 목록 재조회가 실패해도 폼은 저장 전 값으로 되돌아가지 않고, 다시 저장해도 방금 바꾼 설정을 되돌리지 않는다")
+    @DisplayName("저장은 성공했는데 뒤이은 목록 재조회가 실패해도 다시 연 행은 저장 전 값으로 돌아가지 않고, 다시 저장해도 방금 바꾼 설정을 되돌리지 않는다")
     void listRefreshFailureAfterSaveKeepsSavedValues() {
         long siteId = insertSite("fail");
         page.navigate("http://localhost:" + port + "/admin/site/manage");
         page.waitForSelector("#siteTableBody tr:has-text('" + KEY + "fail')");
         page.click("#siteTableBody tr:has-text('" + KEY + "fail')");
+        page.waitForFunction("() => document.getElementById('siteModal').dataset.state === 'open'");
         page.waitForFunction("() => document.getElementById('siteNameInput').value === 'SMB fail'");
 
         // 목록 조회(GET)만 실패시킨다 — 저장(PATCH /admin/api/sites/{id})은 그대로 나간다
@@ -180,15 +182,18 @@ class SiteMenuScreenBrowserTest extends BrowserTestSupport {
         page.uncheck("#siteAllowExternal", new Page.UncheckOptions().setForce(true));
         page.click("#siteBtnSave");
         page.waitForFunction("() => document.getElementById('siteFormSuccess').textContent.includes('저장했습니다')");
+        page.waitForFunction("() => document.getElementById('siteModal').dataset.state === 'closed'");
 
-        assertThat(page.inputValue("#siteNameInput")).as("폼은 저장된 값").isEqualTo("SMB 새 이름");
+        // 저장 뒤 모달이 닫힌다. 목록 재조회가 실패했어도 저장 응답으로 보정된 행을 다시 열면 저장된 값이다
+        page.click("#siteTableBody tr:has-text('" + KEY + "fail')");
+        page.waitForFunction("() => document.getElementById('siteModal').dataset.state === 'open'");
+        assertThat(page.inputValue("#siteNameInput")).as("다시 연 폼은 저장된 값").isEqualTo("SMB 새 이름");
         assertThat(page.isChecked("#siteAllowExternal")).as("외부 링크 허용도 저장된 값(해제)").isFalse();
 
         // 다른 필드를 고쳐 다시 저장해도 방금 해제한 외부 링크 허용이 되살아나지 않는다
         page.fill("#siteNameInput", "SMB 두번째");
         page.click("#siteBtnSave");
-        page.waitForFunction("() => document.getElementById('siteNameInput').value === 'SMB 두번째'");
-        page.waitForFunction("() => !document.getElementById('siteBtnSave').disabled");
+        page.waitForFunction("() => document.getElementById('siteModal').dataset.state === 'closed'");
         assertThat(jdbc.queryForObject("SELECT allow_external_link FROM site WHERE id = ?", Boolean.class, siteId)).isFalse();
         assertThat(jdbc.queryForObject("SELECT site_name FROM site WHERE id = ?", String.class, siteId)).isEqualTo("SMB 두번째");
     }
