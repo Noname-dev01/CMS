@@ -14,6 +14,7 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.FilePayload;
+import com.microsoft.playwright.options.WaitForSelectorState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -75,6 +76,22 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
         page.waitForFunction("() => !document.getElementById('popupList').textContent.includes('불러오는 중')");
     }
 
+    /** [새 팝업]을 눌러 모달이 완전히 열릴 때까지(열림 전환 끝) 기다린다. */
+    private void openCreateModal() {
+        page.click("#btnNew");
+        waitModalOpen();
+    }
+
+    private void waitModalOpen() {
+        page.waitForFunction("() => modalState === 'open'");
+    }
+
+    /** [닫기]로 모달을 닫고 완전히 닫힐 때까지 기다린다. */
+    private void closeModalAndWait() {
+        page.click("#btnModalClose");
+        page.waitForSelector("#popupModal", new Page.WaitForSelectorOptions().setState(WaitForSelectorState.HIDDEN));
+    }
+
     private boolean formValid() {
         return (Boolean) page.evaluate("() => document.getElementById('popupForm').checkValidity()");
     }
@@ -105,6 +122,7 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
     /** 목록 행을 눌러 수정 모드로 들어가고, 상세가 도착해 폼이 채워질 때까지 기다린다. */
     private void startEdit(String title, long id) {
         page.locator("#popupList .popup-row").filter(new Locator.FilterOptions().setHasText(title)).click();
+        waitModalOpen();
         page.waitForFunction("id => document.getElementById('formTitle').textContent.includes('#' + id + ' 수정')"
                 + " && !document.getElementById('btnSave').disabled", String.valueOf(id));
     }
@@ -113,6 +131,7 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
     @DisplayName("HTML형에서 범위 밖 높이를 넣고 이미지형으로 전환해도 높이 입력은 비활성이라 폼이 유효하고 이미지 팝업이 등록된다 (코드 리뷰 R2 회귀)")
     void switchingToImageTypeDisablesHiddenHeight_soRegistrationIsNotBlocked() throws Exception {
         openManage();
+        openCreateModal();
 
         page.check("#typeHtml");
         page.fill("#popupHeight", "100");              // 하한(144) 미만 — HTML형이었다면 브라우저가 거부할 값
@@ -136,6 +155,7 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
     @DisplayName("종류를 HTML ↔ 이미지로 오가면 높이 입력의 활성 상태가 종류를 따라간다")
     void heightInputFollowsTheSelectedType() {
         openManage();
+        openCreateModal();
 
         assertThat(page.isDisabled("#popupHeight")).as("기본(이미지형)").isTrue();
         page.check("#typeHtml");
@@ -151,6 +171,7 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
     @DisplayName("HTML형 높이가 범위(144~1000) 밖이면 브라우저가 제출을 막고(요청 없음·높이 입력에 포커스), 범위 안이면 등록된다")
     void htmlHeightIsValidatedByTheBrowser() {
         openManage();
+        openCreateModal();
         List<String> posts = new ArrayList<>();
         page.onRequest(request -> {
             if ("POST".equals(request.method()) && request.url().endsWith("/admin/api/popups")) {
@@ -183,7 +204,7 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
     }
 
     @Test
-    @DisplayName("수정 모드: 이미지형은 종류·높이·업로드가 잠기고 미리보기가 보이며, HTML형은 높이·편집기가 보이고, [새 팝업 작성]으로 돌아오면 다시 열린다")
+    @DisplayName("수정 모드: 이미지형은 종류·높이·업로드가 잠기고 미리보기가 보이며, HTML형은 높이·편집기가 보이고, 닫았다 [새 팝업]으로 열면 다시 열린다")
     void editModeShowsControlsForTheTypeOfThePopup() throws Exception {
         long imageId = insertImagePopup("이미지 팝업");
         long htmlId = insertHtmlPopup("HTML 팝업", 200);
@@ -198,6 +219,7 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
         assertThat(page.isVisible("#linkGroup")).isTrue();
         assertThat(page.isVisible("#editorGroup")).isFalse();
 
+        closeModalAndWait();                              // 모달이 열려 있는 동안 목록 행은 배경 뒤에 있다
         startEdit("HTML 팝업", htmlId);
         assertThat(page.isDisabled("#popupHeight")).as("HTML형은 높이를 쓴다").isFalse();
         assertThat(page.isVisible("#popupHeight")).isTrue();
@@ -207,8 +229,9 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
         assertThat(page.isVisible("#previewGroup")).isFalse();
         assertThat(page.isDisabled("#typeHtml")).isTrue();
 
-        page.click("#btnNew");
-        page.waitForFunction("() => document.getElementById('formTitle').textContent.includes('새 팝업')");
+        closeModalAndWait();
+        openCreateModal();
+        assertThat(page.textContent("#formTitle")).contains("새 팝업");
         assertThat(page.isDisabled("#typeImage")).as("작성 모드에서는 종류를 고를 수 있다").isFalse();
         assertThat(page.isDisabled("#typeHtml")).isFalse();
         assertThat(page.isChecked("#typeImage")).as("기본은 이미지형").isTrue();
