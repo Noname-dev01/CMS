@@ -3,6 +3,7 @@
 <head th:replace="~{admin/fragments/head :: adminHead}">
     <title>배너 관리</title>
 </head>
+<link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
 <body id="page-top">
 <!-- 페이지 전용 CSS는 body 시작 지점에 둔다(menu/manage.html 컨벤션 — th:replace가 head를 통째로 치환한다). -->
 <style>
@@ -38,11 +39,12 @@
                 </p>
 
                 <div class="row">
-                    <div class="col-lg-7 mb-4">
+                    <div class="col-12 mb-4">
                         <div class="banner-card">
                             <div class="card-header py-3 d-flex justify-content-between align-items-center">
                                 <h6 class="m-0 font-weight-bold text-primary">배너 목록</h6>
                                 <div>
+                                    <button type="button" class="btn btn-sm btn-primary" id="btnNew">새 배너</button>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
                                 </div>
                             </div>
@@ -66,13 +68,32 @@
                         </div>
                     </div>
 
-                    <div class="col-lg-5 mb-4">
-                        <div class="banner-card">
-                            <div class="card-header py-3">
-                                <h6 class="m-0 font-weight-bold text-primary" id="formTitle">새 배너</h6>
-                            </div>
-                            <div class="card-body">
-                                <form id="bannerForm">
+                </div>
+            </div>
+        </div>
+
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<!-- 등록·수정 모달: 배경 클릭·ESC로 닫히지 않는다(입력 보호). 푸터 [등록/저장]은 form 속성으로 폼에 연결해 브라우저 기본 검증을 유지한다. -->
+<div class="modal fade admin-detail-modal" id="bannerModal" tabindex="-1" role="dialog" aria-labelledby="formTitle" aria-hidden="true"
+     data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="detail-hero">
+                    <div class="detail-hero-copy">
+                        <h5 class="modal-title" id="formTitle">새 배너</h5>
+                    </div>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close" id="btnModalCloseX">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="modalAlert" class="alert alert-danger d-none" role="alert"></div>
+                <form id="bannerForm">
                                     <div class="form-group">
                                         <label for="bannerTitle">제목 (이미지 대체 텍스트)</label>
                                         <input type="text" class="form-control" id="bannerTitle" maxlength="200" required>
@@ -123,18 +144,14 @@
                                         <label>현재 이미지</label><br>
                                         <img id="bannerPreview" class="img-fluid border" alt="배너 미리보기">
                                     </div>
-                                    <button type="submit" class="btn btn-primary" id="btnSave">등록</button>
-                                    <button type="button" class="btn btn-outline-secondary d-none" id="btnNew">새 배너 작성</button>
-                                    <button type="button" class="btn btn-outline-danger d-none" id="btnDelete">삭제</button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger mr-auto d-none" id="btnDelete">삭제</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal" id="btnModalClose">닫기</button>
+                <button type="submit" class="btn btn-primary" id="btnSave" form="bannerForm">등록</button>
             </div>
         </div>
-
-        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
     </div>
 </div>
 
@@ -216,6 +233,10 @@
     const btnOrderCancel = document.getElementById("btnOrderCancel");
     const pageAlert = document.getElementById("pageAlert");
     const pageSuccess = document.getElementById("pageSuccess");
+    const modalEl = document.getElementById("bannerModal");
+    const modalAlert = document.getElementById("modalAlert");
+    const btnModalClose = document.getElementById("btnModalClose");
+    const btnModalCloseX = document.getElementById("btnModalCloseX");
 
     const canCreate = MY_PERMISSIONS.has("BANNER:CREATE");
     const canUpdate = MY_PERMISSIONS.has("BANNER:UPDATE");
@@ -229,6 +250,10 @@
     let editBase = null;       // {id, version} 또는 null
     let saving = false;
     let listRequestSeq = 0;    // 늦게 도착한 이전 목록 응답이 최신 목록을 덮어쓰지 않게 하는 세대
+    // 모달 상태: closed → opening(show 호출~shown) → open → closing(hide 시작~hidden) → closed.
+    // Bootstrap 4는 전환 중(opening·closing)의 show/hide를 무시하므로 상태가 closed일 때만 새로 열고, 닫기는 closeModal()을 거친다.
+    let modalState = "closed";
+    let pendingClose = false;
 
     function csrfHeaders(json) {
         const token = document.querySelector('meta[name="_csrf"]');
@@ -255,10 +280,52 @@
         }
     }
 
+    // 모달이 떠 있는 동안의 오류는 모달 안에 보인다(페이지 상단 알림은 배경 뒤에 가려진다). 모달 밖 오류(목록 조회·순서 저장)는 페이지 상단.
     function showError(message) {
+        if (modalState === "opening" || modalState === "open") {
+            modalAlert.textContent = message;
+            modalAlert.classList.remove("d-none");
+            return;
+        }
         pageSuccess.classList.add("d-none");
         pageAlert.textContent = message;
         pageAlert.classList.remove("d-none");
+    }
+
+    function hideModalAlert() {
+        modalAlert.classList.add("d-none");
+        modalAlert.textContent = "";
+    }
+
+    function closeModal() {
+        if (modalState === "open") {
+            $(modalEl).modal("hide");
+        } else if (modalState === "opening") {
+            pendingClose = true;                          // 열림 전환 중의 hide()는 무시되므로 shown 이후에 닫는다
+        }
+    }
+
+    $(modalEl).on("shown.bs.modal", function () {
+        modalState = "open";
+        if (pendingClose) {
+            pendingClose = false;
+            $(modalEl).modal("hide");
+        }
+    });
+    $(modalEl).on("hide.bs.modal", function () {
+        modalState = "closing";
+    });
+    $(modalEl).on("hidden.bs.modal", function () {
+        modalState = "closed";
+        pendingClose = false;
+        hideModalAlert();
+        resetForm();                                      // 다음에 열 때 이전 입력·편집 대상이 남지 않게 한다
+        render();
+    });
+
+    function openModal() {
+        modalState = "opening";
+        $(modalEl).modal("show");
     }
 
     function showSuccess(message) {
@@ -338,6 +405,9 @@
         btnSave.disabled = locked || !(editing ? canUpdate : canCreate);
         btnDelete.disabled = locked;
         btnNew.disabled = locked;
+        btnNew.classList.toggle("d-none", !canCreate);
+        btnModalClose.disabled = saving;                  // 저장 중에는 닫을 수 없다(응답 처리와 모달 상태가 어긋나지 않게)
+        btnModalCloseX.disabled = saving;
         btnReload.disabled = saving || orderDraft !== null;
         orderBar.classList.toggle("d-none", orderDraft === null);
         // 저장 중에는 입력도 잠근다 — 이미 전송된 요청에 담기지 않은 추가 입력이 성공 처리 뒤 조용히 사라지거나 저장된 것으로 오인되는 것을 막는다
@@ -416,7 +486,8 @@
         lockUi();
     }
 
-    function startCreate() {
+    // 폼을 새 배너 작성 상태로 되돌린다(모달은 열지 않는다).
+    function resetForm() {
         editing = null;
         formTitle.textContent = "새 배너";
         bannerForm.reset();
@@ -427,15 +498,25 @@
         imageGroup.classList.remove("d-none");
         previewGroup.classList.add("d-none");
         btnSave.textContent = "등록";
-        btnNew.classList.add("d-none");
         btnDelete.classList.add("d-none");
-        render();
     }
 
-    function startEdit(banner) {
-        if (saving || orderDraft !== null) {
+    function startCreate() {
+        if (modalState !== "closed" || saving || orderDraft !== null || !canCreate) {
             return;
         }
+        resetForm();
+        hideModalAlert();
+        render();
+        openModal();
+    }
+
+    // 진입(행 클릭)은 수정 권한을 요구하지 않는다 — READ 전용은 내용을 보고, READ+DELETE는 [삭제]에 도달한다. 저장은 btnSave.disabled가 판정한다.
+    function startEdit(banner) {
+        if (modalState !== "closed" || saving || orderDraft !== null) {
+            return;
+        }
+        hideModalAlert();
         editing = banner;
         editBase = { id: banner.id, version: banner.version };
         formTitle.textContent = "배너 #" + banner.id + " 수정";
@@ -450,9 +531,9 @@
         preview.src = BANNERS_URL + "/" + encodeURIComponent(banner.id) + "/image";
         previewGroup.classList.remove("d-none");
         btnSave.textContent = "저장";
-        btnNew.classList.remove("d-none");
         btnDelete.classList.toggle("d-none", !canDelete);
         render();
+        openModal();
     }
 
     async function loadList() {
@@ -476,9 +557,9 @@
                 const fresh = banners.find(function (b) { return b.id === editing.id; });
                 if (fresh) {
                     editing = fresh;
-                } else {
-                    startCreate();
-                    return;
+                } else if (modalState === "opening" || modalState === "open") {
+                    // 열린 폼을 생성 모드로 비우지 않는다 — 입력은 두고 안내만 한다. 저장하면 서버가 404로 답한다.
+                    showError("이 배너가 삭제되었거나 목록에 없습니다. 저장하면 실패할 수 있으니 닫고 목록을 확인해 주세요.");
                 }
             }
             render();
@@ -550,17 +631,14 @@
             if (response.ok) {
                 const saved = await response.json();
                 showSuccess(target ? "배너를 저장했습니다: #" + saved.id : "배너를 등록했습니다: #" + saved.id);
-                if (target) {
-                    // 폼은 방금 저장한 값과 같으므로 새 버전을 다음 저장의 기준으로 삼는다
-                    editBase = { id: saved.id, version: saved.version };
+                // 목록 재조회가 실패해도 다시 연 행이 저장 전 값·옛 version이 되지 않게, 저장 응답으로 목록 스냅샷을 먼저 보정한다
+                const index = banners.findIndex(function (b) { return b.id === saved.id; });
+                if (index >= 0) {
+                    banners[index] = saved;
                 } else {
-                    editing = null;
-                    editBase = null;
-                    bannerForm.reset();
-                    scope.reset();
-                    setPickedImage(null);
-                    fUse.checked = true;
+                    banners.push(saved);
                 }
+                closeModal();
                 await loadList();
             } else {
                 showError(await errorMessage(response, "저장에 실패했습니다."));
@@ -588,8 +666,7 @@
             });
             if (response.ok || response.status === 204 || response.status === 404) {
                 showSuccess(response.status === 404 ? "이미 삭제된 배너입니다." : "배너를 삭제했습니다: #" + target.id);
-                editing = null;
-                startCreate();
+                closeModal();
                 await loadList();
             } else {
                 showError(await errorMessage(response, "삭제에 실패했습니다."));
@@ -645,7 +722,7 @@
 
     btnNew.addEventListener("click", startCreate);
     btnReload.addEventListener("click", loadList);
-    startCreate();
+    resetForm();
     loadList();
 </script>
 </body>

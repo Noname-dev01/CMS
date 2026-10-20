@@ -91,6 +91,17 @@ class ContentScopeAdminBrowserTest extends BrowserTestSupport {
         page.waitForFunction("id => !document.getElementById(id).textContent.includes('불러오는 중')", listId);
     }
 
+    /** 배너 행을 눌러 수정 모달이 완전히 열릴 때까지 기다린다. */
+    private void openBannerRow(String title) {
+        page.locator(".banner-row", new Page.LocatorOptions().setHasText(title)).click();
+        page.waitForFunction("() => modalState === 'open'");   // 열림 전환(shown)이 끝나야 닫기 동작을 시험할 수 있다
+    }
+
+    /** 모달이 완전히 닫힐 때까지 기다린다(저장 성공 뒤 자동으로 닫힌다). */
+    private void waitBannerModalClosed() {
+        page.waitForSelector("#bannerModal", new Page.WaitForSelectorOptions().setState(com.microsoft.playwright.options.WaitForSelectorState.HIDDEN));
+    }
+
     private void waitForText(String elementId, String text) {
         page.waitForFunction("args => { const e = document.getElementById(args[0]);"
                 + " return e && !e.classList.contains('d-none') && e.textContent.includes(args[1]); }", List.of(elementId, text));
@@ -99,20 +110,23 @@ class ContentScopeAdminBrowserTest extends BrowserTestSupport {
     // ===== 배너 =====
 
     @Test
-    @DisplayName("배너: 선택 박스로 바꾼 대상이 요청에 실려 저장되고, 저장 뒤에는 새 버전으로 이어서 다시 저장할 수 있다")
+    @DisplayName("배너: 선택 박스로 바꾼 대상이 요청에 실려 저장되고, 저장 뒤 모달을 닫았다 다시 열어 새 버전으로 이어서 저장할 수 있다")
     void bannerScopeChangeIsSentAndBaseAdvances() {
         long id = banner("scope-banner");
         open("/admin/banner/manage", "bannerList");
-        page.locator(".banner-row").first().click();
+        openBannerRow("scope-banner");
         assertThat(page.locator("#bannerSiteScope").inputValue()).isEqualTo("COMMON");
 
         page.selectOption("#bannerSiteScope", String.valueOf(alpha));
         page.click("#btnSave");
         waitForText("pageSuccess", "배너를 저장했습니다");
+        waitBannerModalClosed();
         assertThat(jdbc.queryForObject("SELECT site_id FROM banner WHERE id = ?", Long.class, id)).as("선택한 대상이 저장됐다").isEqualTo(alpha);
         assertThat(jdbc.queryForObject("SELECT version FROM banner WHERE id = ?", Integer.class, id)).isEqualTo(2);
 
-        // 같은 폼에서 이어서 다시 저장 — 저장 응답의 새 version이 기준이 되어 409가 나지 않는다
+        // 저장 뒤 모달이 닫힌다. 같은 행을 다시 열어 이어서 저장 — 목록의 새 version이 기준이 되어 409가 나지 않는다
+        openBannerRow("scope-banner");
+        assertThat(page.locator("#bannerSiteScope").inputValue()).isEqualTo(String.valueOf(alpha));
         page.selectOption("#bannerSiteScope", String.valueOf(beta));
         page.click("#btnSave");
         page.waitForFunction("() => document.getElementById('bannerList').textContent.includes('ui-beta')");
@@ -121,25 +135,28 @@ class ContentScopeAdminBrowserTest extends BrowserTestSupport {
     }
 
     @Test
-    @DisplayName("배너: 다른 관리자가 대상을 바꾼 뒤 [새로고침]만 하고 옛 폼을 저장하면 거부되어 대상이 되돌려지지 않고, 행을 다시 눌러 불러오면 저장된다")
+    @DisplayName("배너: 다른 관리자가 대상을 바꾼 뒤 옛 폼을 저장하면 거부되어(모달에 안내, 모달 유지) 대상이 되돌려지지 않고, 닫았다 다시 열어 불러오면 저장된다")
     void bannerStaleFormAfterListRefreshIsRejected() {
         long id = banner("stale-banner");
         open("/admin/banner/manage", "bannerList");
-        page.locator(".banner-row").first().click();
+        openBannerRow("stale-banner");
 
-        // 다른 관리자가 이 배너를 사이트 전용으로 바꿨다
+        // 다른 관리자가 이 배너를 사이트 전용으로 바꿨다 — 열려 있는 폼은 옛 값·옛 version 그대로다
         jdbc.update("UPDATE banner SET site_id = ?, version = version + 1 WHERE id = ?", beta, id);
-        page.click("#btnReload");                       // 목록만 갱신 — 폼 입력과 검증 기준은 그대로여야 한다
-        page.waitForFunction("() => document.getElementById('bannerList').textContent.includes('ui-beta')");
 
         page.fill("#bannerTitle", "stale-edit");
         page.click("#btnSave");
-        waitForText("pageAlert", "먼저 수정");
+        waitForText("modalAlert", "먼저 수정");
+        assertThat(page.locator("#bannerModal.show").count()).as("오류가 나도 모달은 유지되어 입력이 남는다").isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT site_id FROM banner WHERE id = ?", Long.class, id)).as("공통으로 되돌려지지 않았다").isEqualTo(beta);
         assertThat(jdbc.queryForObject("SELECT title FROM banner WHERE id = ?", String.class, id)).isEqualTo("stale-banner");
 
-        // 행을 다시 눌러 최신 값을 불러오면(스냅샷 재설정) 저장된다
-        page.locator(".banner-row").first().click();
+        // 모달을 닫고 목록을 새로 읽은 뒤 행을 다시 열면 최신 값을 불러와 저장된다
+        page.click("#btnModalClose");
+        waitBannerModalClosed();
+        page.click("#btnReload");
+        page.waitForFunction("() => document.getElementById('bannerList').textContent.includes('ui-beta')");
+        openBannerRow("stale-banner");
         assertThat(page.locator("#bannerSiteScope").inputValue()).isEqualTo(String.valueOf(beta));
         page.fill("#bannerTitle", "fresh-edit");
         page.click("#btnSave");
@@ -158,7 +175,7 @@ class ContentScopeAdminBrowserTest extends BrowserTestSupport {
 
         page.click("#btnReload");
         page.waitForFunction("() => document.getElementById('bannerList').textContent.includes('gamma-banner')");
-        page.locator(".banner-row").first().click();
+        openBannerRow("gamma-banner");
 
         assertThat(page.locator("#bannerSiteScope").inputValue()).as("선택이 비워져 공통으로 보이지 않는다").isEqualTo(String.valueOf(gamma));
         assertThat(page.locator("#bannerSiteScope option:checked").textContent()).contains("목록에 없음");
