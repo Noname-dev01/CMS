@@ -4,6 +4,7 @@
     <title>FAQ 관리</title>
 </head>
 <body id="page-top">
+<link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
 <!--/* 페이지 전용 CSS는 body 시작 지점에 둔다(banner/manage.html 컨벤션 — th:replace가 head를 통째로 치환한다). PLAN-faq.md 쟁점 13. */-->
 <link rel="stylesheet" th:href="@{/vendor/quill/quill.snow.css}">
 <style>
@@ -50,11 +51,13 @@
                 </p>
 
                 <div class="row">
-                    <div class="col-lg-7 mb-4">
+                    <div class="col-12 mb-4">
                         <div class="faq-card">
                             <div class="card-header py-3 d-flex justify-content-between align-items-center">
                                 <h6 class="m-0 font-weight-bold text-primary">카테고리·FAQ <small class="text-muted" id="faqCount"></small></h6>
                                 <div>
+                                    <button type="button" class="btn btn-sm btn-primary" id="btnCatNew">새 카테고리</button>
+                                    <button type="button" class="btn btn-sm btn-primary" id="btnFaqNew">새 FAQ</button>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
                                 </div>
                             </div>
@@ -70,13 +73,34 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
 
-                    <div class="col-lg-5 mb-4">
-                        <div class="faq-card mb-4">
-                            <div class="card-header py-3">
-                                <h6 class="m-0 font-weight-bold text-primary" id="catFormTitle">새 카테고리</h6>
-                            </div>
-                            <div class="card-body">
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<!-- 항목 등록·수정 모달(카테고리·FAQ 모드 하나씩): 배경 클릭·ESC로 닫히지 않는다(입력 보호). 푸터 [등록/저장]은 form 속성으로 폼에 연결해 브라우저 기본 검증을 유지한다. -->
+<div class="modal fade admin-detail-modal" id="faqModal" tabindex="-1" role="dialog" aria-labelledby="catFormTitle faqFormTitle" aria-hidden="true"
+     data-backdrop="static" data-keyboard="false" data-state="closed">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="detail-hero">
+                    <div class="detail-hero-copy">
+                        <h5 class="modal-title" id="catFormTitle">새 카테고리</h5>
+                        <h5 class="modal-title d-none" id="faqFormTitle">새 FAQ</h5>
+                    </div>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close" id="btnModalCloseX">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="modalAlert" class="alert alert-danger d-none" role="alert"></div>
+
+                <div id="catSection">
                                 <form id="catForm">
                                     <fieldset id="catFieldset">
                                         <div class="form-group">
@@ -96,19 +120,11 @@
                                             <input type="checkbox" class="form-check-input" id="catUse" checked>
                                             <label class="form-check-label" for="catUse">노출 (끄면 이 카테고리의 FAQ가 모두 공개되지 않음)</label>
                                         </div>
-                                        <button type="submit" class="btn btn-primary" id="btnCatSave">등록</button>
-                                        <button type="button" class="btn btn-outline-secondary d-none" id="btnCatNew">새 카테고리 작성</button>
-                                        <button type="button" class="btn btn-outline-danger d-none" id="btnCatDelete">삭제</button>
                                     </fieldset>
                                 </form>
-                            </div>
-                        </div>
+                </div>
 
-                        <div class="faq-card">
-                            <div class="card-header py-3">
-                                <h6 class="m-0 font-weight-bold text-primary" id="faqFormTitle">새 FAQ</h6>
-                            </div>
-                            <div class="card-body">
+                <div id="faqSection" class="d-none">
                                 <form id="faqForm">
                                     <fieldset id="faqFieldset">
                                         <div class="form-group">
@@ -129,19 +145,18 @@
                                             <input type="checkbox" class="form-check-input" id="faqUse" checked>
                                             <label class="form-check-label" for="faqUse">노출</label>
                                         </div>
-                                        <button type="submit" class="btn btn-primary" id="btnFaqSave">등록</button>
-                                        <button type="button" class="btn btn-outline-secondary d-none" id="btnFaqNew">새 FAQ 작성</button>
-                                        <button type="button" class="btn btn-outline-danger d-none" id="btnFaqDelete">삭제</button>
                                     </fieldset>
                                 </form>
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger mr-auto d-none" id="btnCatDelete">삭제</button>
+                <button type="button" class="btn btn-danger mr-auto d-none" id="btnFaqDelete">삭제</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal" id="btnModalClose">닫기</button>
+                <button type="submit" class="btn btn-primary" id="btnCatSave" form="catForm">등록</button>
+                <button type="submit" class="btn btn-primary d-none" id="btnFaqSave" form="faqForm">등록</button>
+            </div>
         </div>
-
-        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
     </div>
 </div>
 
@@ -162,7 +177,7 @@
 <script>
     const FAQS_URL = "/admin/api/faqs";
     const CATEGORIES_URL = "/admin/api/faq-categories";
-    const UNKNOWN_RESULT_MESSAGE = "저장 여부를 확인할 수 없습니다. [새로고침]으로 목록을 다시 불러온 뒤 반영되었는지 직접 확인하세요.";
+    const UNKNOWN_RESULT_MESSAGE = "저장 여부를 확인할 수 없습니다. 모달을 닫고 [새로고침]으로 목록을 다시 불러온 뒤 반영되었는지 직접 확인하세요. 입력은 닫으면 사라지니 필요하면 복사해 두세요.";
 
     const canCreate = MY_PERMISSIONS.has("FAQ:CREATE");
     const canUpdate = MY_PERMISSIONS.has("FAQ:UPDATE");
@@ -198,6 +213,13 @@
     const btnFaqNew = document.getElementById("btnFaqNew");
     const btnFaqDelete = document.getElementById("btnFaqDelete");
 
+    const modalEl = document.getElementById("faqModal");
+    const modalAlert = document.getElementById("modalAlert");
+    const btnModalClose = document.getElementById("btnModalClose");
+    const btnModalCloseX = document.getElementById("btnModalCloseX");
+    const catSection = document.getElementById("catSection");
+    const faqSection = document.getElementById("faqSection");
+
     // 이미지 없는 편집기(PLAN-faq.md 쟁점 7) — 서버도 저장·출력 시 img를 제거한다
     const editor = NoticeEditor.create(document.getElementById("faqAnswerEditor"), {
         allowImages: false,
@@ -220,6 +242,13 @@
     let editingFaq = null;      // 상세 응답(null이면 새 FAQ)
     let faqBase = null;         // {id, categoryId} 또는 null — 편집을 시작할 때의 소속 카테고리
     let dragState = null;
+    // 모달 상태: closed → opening(show 호출~shown) → open → closing(hide 시작~hidden) → closed.
+    // Bootstrap 4는 전환 중(opening·closing)의 show/hide를 무시하므로 새로 여는 동작은 closed일 때만 하고, 닫기는 closeModal()을 거친다.
+    // 상태는 data-state에도 남겨 브라우저 시험이 열림 전환이 끝났는지 읽을 수 있게 한다.
+    let modalState = "closed";
+    let pendingClose = false;
+    let modalMode = "category";   // 'category' | 'faq' — 한 모달에 두 폼이 있고 한 번에 하나만 보인다
+    let writing = false;          // write()의 요청이 응답을 기다리는 동안(후속 재조회·상세 조회 중에는 닫을 수 있다)
 
     // ===================== 공통 =====================
 
@@ -248,10 +277,30 @@
         }
     }
 
-    function showError(message) {
+    // 페이지 상단 알림(모달 밖) — 모달을 닫으면서 안내할 때(상세 조회 실패·상세와 트리 불일치)에 쓴다.
+    function showPageError(message) {
         pageSuccess.classList.add("d-none");
         pageAlert.textContent = message;
         pageAlert.classList.remove("d-none");
+    }
+
+    function modalIsShowing() {
+        return modalState === "opening" || modalState === "open";
+    }
+
+    // 모달이 떠 있는 동안의 오류는 모달 안에 보인다(페이지 상단 알림은 배경 뒤에 가려진다). 닫히는 중·닫힌 뒤는 페이지 상단.
+    function showError(message) {
+        if (modalIsShowing()) {
+            modalAlert.textContent = message;
+            modalAlert.classList.remove("d-none");
+            return;
+        }
+        showPageError(message);
+    }
+
+    function hideModalAlert() {
+        modalAlert.classList.add("d-none");
+        modalAlert.textContent = "";
     }
 
     /** 성공 응답의 본문을 읽지 못해(null) 항목 ID를 모를 때도 성공 처리가 예외 없이 끝나게 한다. */
@@ -301,6 +350,10 @@
         faqFieldset.disabled = locked;
         editor.quill.enable(!locked);                      // 편집기는 fieldset으로 잠기지 않는다(R4-2)
         btnReload.disabled = busy || loadingDetail || isDirty();
+        btnCatNew.disabled = locked;                       // 순서 초안·쓰기·상세 조회·결과 불명 중에는 새 모달을 열 수 없다
+        btnFaqNew.disabled = locked;
+        btnModalClose.disabled = writing;                  // 쓰기 요청이 응답을 기다리는 동안에는 닫을 수 없다(재조회·상세 조회 중에는 닫을 수 있다)
+        btnModalCloseX.disabled = writing;
         const dirty = isDirty();
         draftBar.classList.toggle("d-none", !dirty);
         draftBar.classList.toggle("d-flex", dirty);
@@ -309,13 +362,15 @@
         refreshFormButtons();
     }
 
+    // 한 푸터에 두 모드의 버튼이 함께 있다 — 현재 모드의 것만 보이고, 저장 버튼은 권한이 없으면 숨는다. [새 …]는 목록 카드 헤더에 있다.
     function refreshFormButtons() {
-        btnCatSave.classList.toggle("d-none", editingCategoryId === null ? !canCreate : !canUpdate);
-        btnCatDelete.classList.toggle("d-none", editingCategoryId === null || !canDelete);
-        btnCatNew.classList.toggle("d-none", editingCategoryId === null);
-        btnFaqSave.classList.toggle("d-none", editingFaq === null ? !canCreate : !canUpdate);
-        btnFaqDelete.classList.toggle("d-none", editingFaq === null || !canDelete);
-        btnFaqNew.classList.toggle("d-none", editingFaq === null);
+        const category = modalMode === "category";
+        btnCatSave.classList.toggle("d-none", !category || (editingCategoryId === null ? !canCreate : !canUpdate));
+        btnCatDelete.classList.toggle("d-none", !category || editingCategoryId === null || !canDelete);
+        btnFaqSave.classList.toggle("d-none", category || (editingFaq === null ? !canCreate : !canUpdate));
+        btnFaqDelete.classList.toggle("d-none", category || editingFaq === null || !canDelete);
+        btnCatNew.classList.toggle("d-none", !canCreate);
+        btnFaqNew.classList.toggle("d-none", !canCreate);
     }
 
     window.addEventListener("beforeunload", function (event) {
@@ -357,11 +412,12 @@
             category.faqs.forEach(function (faq) { faqById.set(faq.id, faq); });
         });
         order = serverOrder();
-        if (editingCategoryId !== null && !categoryById.has(editingCategoryId)) {
-            startCategoryCreate();
-        }
-        if (editingFaq !== null && !faqById.has(editingFaq.id)) {
-            startFaqCreate();
+        // 편집 중이던 항목이 새 트리에 없다(다른 관리자가 지웠다) — 열린 폼을 생성 모드로 비우지 않고 안내만 한다(입력은 둔다). 저장하면 서버가 거부한다.
+        // 모달이 닫히는 중이거나 닫힌 뒤에는 안내하지 않는다(닫힘 처리가 폼을 초기화한다).
+        if (modalIsShowing()
+                && ((modalMode === "category" && editingCategoryId !== null && !categoryById.has(editingCategoryId))
+                    || (modalMode === "faq" && editingFaq !== null && !faqById.has(editingFaq.id)))) {
+            showError("이 항목이 삭제되었거나 목록에 없습니다. 저장하면 실패할 수 있으니 닫고 목록을 확인해 주세요.");
         }
         render();
     }
@@ -393,31 +449,37 @@
      */
     async function write(url, request, successMessage, onSuccess) {
         busy = true;
+        writing = true;
         sync();
         let response;
         try {
             response = await fetch(url, request);
         } catch (e) {
             busy = false;
+            writing = false;
             syncFailed = true;
             showError(UNKNOWN_RESULT_MESSAGE);
             render();
             sync();
             return { ok: false, body: null };
         }
+        writing = false;                                    // 응답이 왔다 — 이후 재조회가 지연돼도 모달을 닫을 수 있다(아래 sync()들이 닫기 버튼을 갱신한다)
         if (!response.ok) {
             const message = await errorMessage(response, "저장에 실패했습니다.");
             busy = false;
             showError(message);
             if (response.status === 409) {
-                // 낡은 화면·상한·자식 있는 카테고리 등 — 서버 상태가 바뀌었을 수 있어 목록을 다시 읽는다(초안은 버려진다)
+                // 낡은 화면·상한·자식 있는 카테고리 등 — 서버 상태가 바뀌었을 수 있어 목록을 다시 읽는다(초안은 버려진다).
+                // 모달이 열려 있으면 닫지 않고 입력을 보존한다(PLAN-admin-form-modal-faq.md 설계 7). busy는 재조회가 끝날 때까지 이 호출이 소유하므로
+                // 그동안 새 모달·저장은 시작할 수 없어, 늦은 해제가 새 요청의 잠금을 푸는 일이 없다(설계 8).
                 const status = response.status;
                 busy = true;
                 sync();
                 const loaded = await fetchTree();
                 busy = false;
                 syncFailed = !loaded;
-                showError(message + (loaded ? " (서버의 최신 목록으로 새로고침했습니다.)" : ""));
+                showError(message + (loaded ? " (서버의 최신 목록으로 새로고침했습니다.)" : "")
+                    + (modalIsShowing() ? " 입력한 내용은 그대로 두었으니 복사해 두고, 닫은 뒤 다시 선택해 최신 내용을 불러오세요." : ""));
                 render();
                 sync();
                 return { ok: false, body: null, status: status };
@@ -553,6 +615,15 @@
         // 카테고리를 바꾼 채 저장했다가 400을 받은 폼이 원래 카테고리로 돌아가, 재시도에서 이동이 조용히 취소된다(코드 리뷰 R1-1).
         if (previous !== "" && categoryById.has(Number(previous))) {
             fFaqCategory.value = previous;
+        } else if (previous !== "" && modalIsShowing() && modalMode === "faq") {
+            // 선택했던 카테고리가 새 트리에서 사라졌다(다른 관리자가 지웠다) — 다른 카테고리가 조용히 자동 선택되지 않도록 임시 옵션으로 보존한다.
+            // 제출은 이 값이 트리에 없으면 요청 없이 막는다(PLAN-admin-form-modal-faq.md 설계 13).
+            const missing = document.createElement("option");
+            missing.value = previous;
+            missing.textContent = "삭제된 카테고리 #" + previous;
+            missing.dataset.missing = "true";
+            fFaqCategory.appendChild(missing);
+            fFaqCategory.value = previous;
         }
     }
 
@@ -667,9 +738,61 @@
         clearDropMarks();
     });
 
+    // ===================== 모달 =====================
+
+    function setModalState(state) {
+        modalState = state;
+        modalEl.dataset.state = state;
+    }
+
+    /** 모달을 연다 — 새로 여는 동작은 모달이 완전히 닫혀 있고 폼이 잠겨 있지 않을 때만 호출한다(호출자가 가드한다). */
+    function openModal(mode) {
+        modalMode = mode;
+        const category = mode === "category";
+        catSection.classList.toggle("d-none", !category);
+        faqSection.classList.toggle("d-none", category);
+        catFormTitle.classList.toggle("d-none", !category);
+        faqFormTitle.classList.toggle("d-none", category);
+        refreshFormButtons();
+        setModalState("opening");
+        $(modalEl).modal("show");
+    }
+
+    function closeModal() {
+        if (modalState === "open") {
+            $(modalEl).modal("hide");
+        } else if (modalState === "opening") {
+            pendingClose = true;                            // 열림 전환 중의 hide()는 무시되므로 shown 이후에 닫는다
+        }
+    }
+
+    $(modalEl).on("shown.bs.modal", function () {
+        setModalState("open");
+        if (pendingClose) {
+            pendingClose = false;
+            $(modalEl).modal("hide");
+        }
+    });
+    $(modalEl).on("hide.bs.modal", function () {
+        setModalState("closing");
+    });
+    $(modalEl).on("hidden.bs.modal", function () {
+        setModalState("closed");
+        pendingClose = false;
+        hideModalAlert();
+        // 상세 조회 중에 닫아도 세대를 올리고 loadingDetail을 풀어, 늦게 온 응답이 새 폼을 덮지 못하고(세대 불일치로 finally의 해제가
+        // 건너뛰어져도) 다음 수정 진입이 막히지 않는다.
+        detailSeq++;
+        loadingDetail = false;
+        resetCategoryForm();
+        resetFaqForm();
+        sync();
+    });
+
     // ===================== 카테고리 폼 =====================
 
-    function startCategoryCreate() {
+    /** 카테고리 폼을 새 카테고리 작성 상태로 되돌린다(모달은 열지 않는다). */
+    function resetCategoryForm() {
         editingCategoryId = null;
         catFormTitle.textContent = "새 카테고리";
         btnCatSave.textContent = "등록";
@@ -677,14 +800,23 @@
         fCatUse.checked = true;
         scope.reset();
         categoryBase = null;
-        if (server) { render(); } else { refreshFormButtons(); }
     }
 
+    function startCategoryCreate() {
+        if (modalState !== "closed" || formLocked()) { return; }
+        hideModalAlert();
+        resetCategoryForm();
+        openModal("category");
+        sync();
+    }
+
+    // 진입(행 클릭)은 수정 권한을 요구하지 않는다 — 저장 버튼이 권한이 없으면 숨는다.
     function startCategoryEdit(id) {
-        if (formLocked() || !categoryById.has(id)) {
+        if (modalState !== "closed" || formLocked() || !categoryById.has(id)) {
             return;
         }
         const category = categoryById.get(id);
+        hideModalAlert();
         editingCategoryId = id;
         catFormTitle.textContent = "카테고리 수정 #" + id;
         btnCatSave.textContent = "저장";
@@ -692,7 +824,8 @@
         fCatUse.checked = category.useYn;
         scope.set(category.siteId);
         categoryBase = { id: category.id, version: category.version };
-        render();
+        openModal("category");
+        sync();
     }
 
     catForm.addEventListener("submit", async function (event) {
@@ -703,31 +836,26 @@
             ? { name: fCatName.value, useYn: fCatUse.checked, siteScope: scope.value() }
             : { name: fCatName.value, useYn: fCatUse.checked, siteScope: scope.value(), version: categoryBase.version });
         const url = editingId === null ? CATEGORIES_URL : CATEGORIES_URL + "/" + encodeURIComponent(editingId);
-        const result = await write(url, { method: editingId === null ? "POST" : "PUT", headers: csrfHeaders(true), body: payload },
+        // 성공하면 응답 직후 모달을 닫는다(재조회를 기다리지 않는다) — 닫힘 처리가 폼을 초기화하므로 새 버전 기준 갱신은 필요 없다
+        await write(url, { method: editingId === null ? "POST" : "PUT", headers: csrfHeaders(true), body: payload },
             function (saved) { return (editingId === null ? "카테고리를 등록했습니다" : "카테고리를 저장했습니다") + idLabel(saved); },
-            // 폼은 방금 저장한 값과 같으므로 새 버전을 다음 저장의 기준으로 삼는다
-            function (saved) { if (editingId !== null && saved) { categoryBase = { id: saved.id, version: saved.version }; } });
-        if (result.ok && editingId === null) {
-            startCategoryCreate();
-        }
+            function () { closeModal(); });
     });
 
     btnCatDelete.addEventListener("click", async function () {
         if (formLocked() || editingCategoryId === null) { return; }
         const id = editingCategoryId;
         if (!confirm("카테고리 #" + id + "을(를) 삭제하시겠습니까?\nFAQ가 남아 있으면 삭제되지 않습니다.")) { return; }
-        const result = await write(CATEGORIES_URL + "/" + encodeURIComponent(id), { method: "DELETE", headers: csrfHeaders(false) },
-            "카테고리를 삭제했습니다: #" + id, null);
-        if (result.ok) {
-            startCategoryCreate();
-        }
+        await write(CATEGORIES_URL + "/" + encodeURIComponent(id), { method: "DELETE", headers: csrfHeaders(false) },
+            "카테고리를 삭제했습니다: #" + id, function () { closeModal(); });
     });
 
-    btnCatNew.addEventListener("click", function () { if (!formLocked()) { startCategoryCreate(); } });
+    btnCatNew.addEventListener("click", function () { startCategoryCreate(); });
 
     // ===================== FAQ 폼 =====================
 
-    function startFaqCreate() {
+    /** FAQ 폼을 새 FAQ 작성 상태로 되돌린다(모달은 열지 않는다). 카테고리 선택은 건드리지 않는다. */
+    function resetFaqForm() {
         editingFaq = null;
         faqBase = null;
         faqFormTitle.textContent = "새 FAQ";
@@ -735,35 +863,51 @@
         fFaqQuestion.value = "";
         fFaqUse.checked = true;
         editor.setHtml("");
-        if (server) { render(); } else { refreshFormButtons(); }
     }
 
+    function startFaqCreate() {
+        if (modalState !== "closed" || formLocked()) { return; }
+        hideModalAlert();
+        resetFaqForm();
+        openModal("faq");
+        sync();
+    }
+
+    // 진입(행 클릭)은 수정 권한을 요구하지 않는다. 수정 모달은 연 직후 상세를 읽는다 — 그동안 loadingDetail이 폼과 편집기를 통째로 잠근다(R4-2).
     async function startFaqEdit(id) {
-        if (formLocked() || !faqById.has(id)) {
+        if (modalState !== "closed" || formLocked() || !faqById.has(id)) {
             return;
         }
         const seq = ++detailSeq;
-        loadingDetail = true;                              // 상세를 가져오는 동안 폼과 편집기를 통째로 잠근다(R4-2)
+        loadingDetail = true;
+        hideModalAlert();
+        faqFormTitle.textContent = "FAQ를 불러오는 중…";
+        openModal("faq");
         sync();
         try {
             const response = await fetch(FAQS_URL + "/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } });
             if (seq !== detailSeq) { return; }
             if (!response.ok) {
-                showError(await errorMessage(response, "FAQ를 불러오지 못했습니다."));
+                // 불러오지 못한 FAQ는 보여 줄 것이 없다 — 모달을 닫는다. 404면 목록을 다시 읽고, 재조회가 성공하면 알림을 지우므로
+                // 안내는 재조회가 끝난 뒤에 띄운다(PLAN-admin-form-modal-faq.md R2-1).
+                const message = await errorMessage(response, "FAQ를 불러오지 못했습니다.");
+                loadingDetail = false;
+                closeModal();
                 if (response.status === 404) {
-                    loadingDetail = false;
                     await reload();
                 }
+                showPageError(message);
                 return;
             }
             const detail = await response.json();
             if (seq !== detailSeq) { return; }
             if (!categoryById.has(detail.categoryId)) {
                 // 상세(최신)와 트리(옛 조회)가 어긋났다 — 선택 박스가 항목의 소속 카테고리를 복원하지 못하면 다른 카테고리로 조용히 이동 저장될 수 있으므로
-                // 저장하지 않고 목록을 다시 읽는다(PLAN-site-menu.md v5). 다시 항목을 눌러 열면 된다.
+                // 저장하지 않고 모달을 닫고 목록을 다시 읽는다(PLAN-site-menu.md v5). 다시 항목을 눌러 열면 된다.
                 loadingDetail = false;
+                closeModal();
                 await reload();                               // 재조회 성공이 알림을 지우므로 안내는 재조회 뒤에 띄운다
-                showError("FAQ의 카테고리가 화면 목록에 없습니다. 최신 목록으로 새로고침했습니다. 다시 선택해 주세요.");
+                showPageError("FAQ의 카테고리가 화면 목록에 없습니다. 최신 목록으로 새로고침했습니다. 다시 선택해 주세요.");
                 return;
             }
             editingFaq = detail;
@@ -779,7 +923,8 @@
             }
         } catch (e) {
             if (seq === detailSeq) {
-                showError("FAQ를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+                showPageError("FAQ를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+                closeModal();
             }
         } finally {
             if (seq === detailSeq) {
@@ -796,6 +941,13 @@
             showError("편집기가 아직 처리 중입니다. 잠시 후 다시 시도해 주세요.");
             return;
         }
+        // 선택한 카테고리가 사라졌다(임시 옵션) — 요청 없이 막는다. 복구 수단은 모드마다 다르다(PLAN-admin-form-modal-faq.md 설계 13).
+        if (!categoryById.has(Number(fFaqCategory.value))) {
+            showError(editingFaq === null
+                ? "선택한 카테고리가 삭제되었습니다. 존재하는 다른 카테고리를 선택해 주세요."
+                : "선택한 카테고리가 삭제되었습니다. 닫은 뒤 이 FAQ를 다시 선택해 최신 내용을 불러오세요.");
+            return;
+        }
         const target = editingFaq;                         // 요청 시작 시점의 대상을 고정한다
         const base = faqBase;                              // 낡은 화면 검사 기준도 함께 고정한다
         const payload = JSON.stringify({
@@ -807,33 +959,20 @@
             useYn: fFaqUse.checked
         });
         const url = target === null ? FAQS_URL : FAQS_URL + "/" + encodeURIComponent(target.id);
-        const result = await write(url, { method: target === null ? "POST" : "PUT", headers: csrfHeaders(true), body: payload },
+        await write(url, { method: target === null ? "POST" : "PUT", headers: csrfHeaders(true), body: payload },
             function (saved) { return (target === null ? "FAQ를 등록했습니다" : "FAQ를 저장했습니다") + idLabel(saved); },
-            function (saved) {
-                if (target !== null && saved) {
-                    editingFaq = saved;
-                    faqBase = { id: saved.id, categoryId: saved.categoryId };   // 폼 = 방금 저장한 값이므로 새 소속을 다음 저장의 기준으로 삼는다
-                }
-            });
-        if (result.ok && target === null) {
-            const keepCategory = fFaqCategory.value;
-            startFaqCreate();
-            fFaqCategory.value = keepCategory;
-        }
+            function () { closeModal(); });
     });
 
     btnFaqDelete.addEventListener("click", async function () {
         if (formLocked() || editingFaq === null) { return; }
         const id = editingFaq.id;
         if (!confirm("FAQ #" + id + "을(를) 삭제하시겠습니까?\n복구할 수 없습니다.")) { return; }
-        const result = await write(FAQS_URL + "/" + encodeURIComponent(id), { method: "DELETE", headers: csrfHeaders(false) },
-            "FAQ를 삭제했습니다: #" + id, null);
-        if (result.ok) {
-            startFaqCreate();
-        }
+        await write(FAQS_URL + "/" + encodeURIComponent(id), { method: "DELETE", headers: csrfHeaders(false) },
+            "FAQ를 삭제했습니다: #" + id, function () { closeModal(); });
     });
 
-    btnFaqNew.addEventListener("click", function () { if (!formLocked()) { startFaqCreate(); } });
+    btnFaqNew.addEventListener("click", function () { startFaqCreate(); });
     btnReload.addEventListener("click", reload);
 
     (async function init() {

@@ -234,8 +234,10 @@ class ContentScopeAdminBrowserTest extends BrowserTestSupport {
         jdbc.update("UPDATE faq SET category_id = ? WHERE id = ?", scoped, faq);
 
         page.locator(".faq-row-question", new Page.LocatorOptions().setHasText("moved-q")).click();
-        waitForText("pageAlert", "화면 목록에 없습니다");
+        waitForText("pageAlert", "화면 목록에 없습니다");   // 모달을 닫고 목록을 다시 읽은 뒤 페이지 상단에 안내한다
         page.waitForFunction("() => document.getElementById('faqTree').textContent.includes('scoped-cat')");   // 목록을 다시 읽었다
+        // 모달 요소의 "숨김" 대기는 열림 초기(display:none)에 거짓으로 통과하므로 data-state로 닫힘을 확인한다
+        page.waitForFunction("() => document.getElementById('faqModal').dataset.state === 'closed'");
         assertThat(jdbc.queryForObject("SELECT category_id FROM faq WHERE id = ?", Long.class, faq)).as("항목은 옮겨진 전용 카테고리에 그대로").isEqualTo(scoped);
         assertThat(page.locator("#faqFormTitle").textContent()).as("편집 폼이 열리지 않았다").contains("새 FAQ");
     }
