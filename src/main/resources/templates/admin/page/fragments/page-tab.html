@@ -3,6 +3,7 @@
 <!--
     정적 페이지 탭의 조각(PLAN-content-menu-unify.md). 정적 페이지 관리 화면(admin/page/manage.html)이 body는 패널 위치에,
     script는 공통 의존성(jQuery·Bootstrap·Quill·notice-editor.js) 로딩 뒤에 포함한다. 위임 권한 키 MY_PERMISSIONS는 셸이 먼저 선언한다.
+    조각은 셋이다: pagePanel(목록 마크업·전용 CSS) / pageModal(등록·수정 모달 — 화면 셸이 컨테이너 밖(body 쪽)에 따로 포함한다, 컨테이너 안에 두면 배경 뒤로 깔릴 수 있다) / pageScript.
 -->
 <body>
 
@@ -30,11 +31,14 @@
                 </p>
 
                 <div class="row">
-                    <div class="col-lg-5 mb-4">
+                    <div class="col-12 mb-4">
                         <div class="page-card">
                             <div class="card-header py-3 d-flex justify-content-between align-items-center">
                                 <h6 class="m-0 font-weight-bold text-primary">페이지 목록</h6>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
+                                <div>
+                                    <button type="button" class="btn btn-sm btn-primary" id="btnNew">새 페이지</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="table-responsive">
@@ -50,60 +54,76 @@
                             </div>
                         </div>
                     </div>
+                </div>
+</div>
 
-                    <div class="col-lg-7 mb-4">
-                        <div class="page-card">
-                            <div class="card-header py-3">
-                                <h6 class="m-0 font-weight-bold text-primary" id="formTitle">새 페이지</h6>
-                            </div>
-                            <div class="card-body">
-                                <form id="pageForm">
-                                    <div class="form-group">
-                                        <label for="pageSlug">슬러그 (소문자·숫자·하이픈, 2~50자 · 만든 뒤 변경 불가)</label>
-                                        <input type="text" class="form-control" id="pageSlug" maxlength="50"
-                                               placeholder="privacy-policy" autocomplete="off" required>
-                                        <small class="form-text text-muted" id="slugLink"></small>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="pageTitle">제목</label>
-                                        <input type="text" class="form-control" id="pageTitle" maxlength="200" required>
-                                    </div>
-                                    <div class="form-group">
-                                        <label>본문</label>
-                                        <div class="page-editor"><div id="pageContentEditor"></div></div>
-                                        <small class="form-text text-muted">보이는 글자 50,000자 이하. 이미지는 지원하지 않습니다.</small>
-                                    </div>
-                                    <div class="form-group">
-                                        <label for="pageSiteScope">표시 대상</label>
-                                        <select class="form-control" id="pageSiteScope" aria-describedby="pageSiteScopeHint">
-                                            <option value="COMMON">공통 (모든 사이트)</option>
-                                            <option th:each="site : ${scopeSites}" th:value="${site.id()}"
-                                                    th:attr="data-key=${site.key()}, data-active=${site.active()}"
-                                                    th:text="${site.active()} ? ${site.name()} : ${site.name() + ' (비활성)'}"></option>
-                                        </select>
-                                        <small class="form-text text-muted" id="pageSiteScopeHint">공통은 모든 공개 사이트에, 사이트를 고르면 그 사이트에서만 보입니다(푸터 링크도 같습니다). 슬러그는 모든 사이트에서 유일합니다.</small>
-                                    </div>
-                                    <div class="form-group form-check">
-                                        <input type="checkbox" class="form-check-input" id="pageUse" checked>
-                                        <label class="form-check-label" for="pageUse">노출 (끄면 현재 버전과 개정 이력 모두 공개되지 않음)</label>
-                                    </div>
-                                    <div class="form-group form-check">
-                                        <input type="checkbox" class="form-check-input" id="pageFooter">
-                                        <label class="form-check-label" for="pageFooter">공개 메인 하단 푸터에 링크 (만든 순서대로 표시)</label>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary" id="pageBtnSave">등록</button>
-                                    <button type="button" class="btn btn-outline-secondary d-none" id="btnNew">새 페이지 작성</button>
-                                    <button type="button" class="btn btn-outline-danger d-none" id="btnDelete">삭제</button>
-                                </form>
-
-                                <div class="mt-4 d-none" id="revisionGroup">
-                                    <h6 class="font-weight-bold">개정 이력 <small class="text-muted" id="revisionSummary"></small></h6>
-                                    <ul class="list-group" id="revisionList"></ul>
-                                </div>
-                            </div>
-                        </div>
+<!-- 등록·수정 모달: 배경 클릭·ESC로 닫히지 않는다(입력 보호). 푸터 [등록/저장]은 form 속성으로 폼에 연결해 브라우저 기본 검증을 유지한다. 미저장 입력이 있으면 닫기 전에 확인한다. -->
+<div th:fragment="pageModal">
+<div class="modal fade admin-detail-modal" id="pageModal" tabindex="-1" role="dialog" aria-labelledby="formTitle" aria-hidden="true"
+     data-backdrop="static" data-keyboard="false" data-state="closed">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="detail-hero">
+                    <div class="detail-hero-copy">
+                        <h5 class="modal-title" id="formTitle">새 페이지</h5>
                     </div>
                 </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close" id="btnModalCloseX">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="modalAlert" class="alert alert-danger d-none" role="alert"></div>
+                <form id="pageForm">
+                    <div class="form-group">
+                        <label for="pageSlug">슬러그 (소문자·숫자·하이픈, 2~50자 · 만든 뒤 변경 불가)</label>
+                        <input type="text" class="form-control" id="pageSlug" maxlength="50"
+                               placeholder="privacy-policy" autocomplete="off" required>
+                        <small class="form-text text-muted" id="slugLink"></small>
+                    </div>
+                    <div class="form-group">
+                        <label for="pageTitle">제목</label>
+                        <input type="text" class="form-control" id="pageTitle" maxlength="200" required>
+                    </div>
+                    <div class="form-group">
+                        <label>본문</label>
+                        <div class="page-editor"><div id="pageContentEditor"></div></div>
+                        <small class="form-text text-muted">보이는 글자 50,000자 이하. 이미지는 지원하지 않습니다.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="pageSiteScope">표시 대상</label>
+                        <select class="form-control" id="pageSiteScope" aria-describedby="pageSiteScopeHint">
+                            <option value="COMMON">공통 (모든 사이트)</option>
+                            <option th:each="site : ${scopeSites}" th:value="${site.id()}"
+                                    th:attr="data-key=${site.key()}, data-active=${site.active()}"
+                                    th:text="${site.active()} ? ${site.name()} : ${site.name() + ' (비활성)'}"></option>
+                        </select>
+                        <small class="form-text text-muted" id="pageSiteScopeHint">공통은 모든 공개 사이트에, 사이트를 고르면 그 사이트에서만 보입니다(푸터 링크도 같습니다). 슬러그는 모든 사이트에서 유일합니다.</small>
+                    </div>
+                    <div class="form-group form-check">
+                        <input type="checkbox" class="form-check-input" id="pageUse" checked>
+                        <label class="form-check-label" for="pageUse">노출 (끄면 현재 버전과 개정 이력 모두 공개되지 않음)</label>
+                    </div>
+                    <div class="form-group form-check">
+                        <input type="checkbox" class="form-check-input" id="pageFooter">
+                        <label class="form-check-label" for="pageFooter">공개 메인 하단 푸터에 링크 (만든 순서대로 표시)</label>
+                    </div>
+                </form>
+
+                <div class="mt-4 d-none" id="revisionGroup">
+                    <h6 class="font-weight-bold">개정 이력 <small class="text-muted" id="revisionSummary"></small></h6>
+                    <ul class="list-group" id="revisionList"></ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger mr-auto d-none" id="btnDelete">삭제</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal" id="btnModalClose">닫기</button>
+                <button type="submit" class="btn btn-primary" id="pageBtnSave" form="pageForm">등록</button>
+            </div>
+        </div>
+    </div>
+</div>
 </div>
 
 <th:block th:fragment="pageScript">
@@ -135,6 +155,10 @@
     const btnNew = document.getElementById("btnNew");
     const btnDelete = document.getElementById("btnDelete");
     const btnReload = document.getElementById("btnReload");
+    const btnModalClose = document.getElementById("btnModalClose");
+    const btnModalCloseX = document.getElementById("btnModalCloseX");
+    const modalEl = document.getElementById("pageModal");
+    const modalAlert = document.getElementById("modalAlert");
     const revisionGroup = document.getElementById("revisionGroup");
     const revisionSummary = document.getElementById("revisionSummary");
     const revisionList = document.getElementById("revisionList");
@@ -151,6 +175,12 @@
     let loadingDetail = false;
     let listRequestSeq = 0;     // 늦게 도착한 이전 목록 응답이 최신 목록을 덮어쓰지 않게 하는 세대
     let detailRequestSeq = 0;   // 늦게 도착한 이전 상세 응답이 다른 페이지 선택을 덮어쓰지 않게 하는 세대
+    // 모달 상태: closed → opening(show 호출~shown) → open → closing(hide 시작~hidden) → closed.
+    // Bootstrap 4는 전환 중(opening·closing)의 show/hide를 무시하므로 상태가 closed일 때만 새로 열고, 닫기는 closeModal()을 거친다.
+    // 상태는 data-state에도 남겨 브라우저 시험이 열림 전환이 끝났는지 읽을 수 있게 한다(이 스크립트는 클로저라 변수를 밖에서 읽을 수 없다).
+    let modalState = "closed";
+    let pendingClose = false;
+    let forceClose = false;     // 저장·삭제 뒤의 프로그램 닫기는 미저장 확인을 거치지 않는다
 
     // 이미지 없는 편집기(PLAN-static-page.md 쟁점 7) — 서버도 저장·출력 시 img를 제거한다
     const editor = NoticeEditor.create(document.getElementById("pageContentEditor"), {
@@ -183,10 +213,26 @@
         }
     }
 
-    function showError(message) {
+    // 페이지 상단 알림(모달 밖) — 모달을 닫으면서 안내할 때(상세 조회 실패)에 쓴다.
+    function showPageError(message) {
         pageSuccess.classList.add("d-none");
         pageAlert.textContent = message;
         pageAlert.classList.remove("d-none");
+    }
+
+    // 모달이 떠 있는 동안의 오류는 모달 안에 보인다(페이지 상단 알림은 배경 뒤에 가려진다). 닫히는 중·닫힌 뒤는 페이지 상단.
+    function showError(message) {
+        if (modalState === "opening" || modalState === "open") {
+            modalAlert.textContent = message;
+            modalAlert.classList.remove("d-none");
+            return;
+        }
+        showPageError(message);
+    }
+
+    function hideModalAlert() {
+        modalAlert.classList.add("d-none");
+        modalAlert.textContent = "";
     }
 
     function showSuccess(message) {
@@ -210,7 +256,10 @@
         btnSave.disabled = busy || !(editing ? canUpdate : canCreate);
         btnDelete.disabled = busy;
         btnNew.disabled = busy;
+        btnNew.classList.toggle("d-none", !canCreate);
         btnReload.disabled = busy;
+        btnModalClose.disabled = saving;                  // 저장 중에는 닫을 수 없다(상세 조회 중에는 닫을 수 있다)
+        btnModalCloseX.disabled = saving;
         // 슬러그는 새 페이지에서만 입력할 수 있다
         fSlug.disabled = busy || editing !== null;
         [fTitle, fUse, fFooter, fScope].forEach(function (field) { field.disabled = busy; });
@@ -295,8 +344,59 @@
         });
     }
 
-    function startCreate() {
-        detailRequestSeq++;
+    function setModalState(state) {
+        modalState = state;
+        modalEl.dataset.state = state;
+    }
+
+    function closeModal() {
+        forceClose = true;
+        if (modalState === "open") {
+            $(modalEl).modal("hide");
+        } else if (modalState === "opening") {
+            pendingClose = true;                          // 열림 전환 중의 hide()는 무시되므로 shown 이후에 닫는다
+        }
+    }
+
+    function openModal() {
+        forceClose = false;
+        setModalState("opening");
+        $(modalEl).modal("show");
+    }
+
+    $(modalEl).on("shown.bs.modal", function () {
+        setModalState("open");
+        if (pendingClose) {
+            pendingClose = false;
+            $(modalEl).modal("hide");
+        } else if (editing === null && !loadingDetail) {
+            fSlug.focus();                                // 새 페이지는 슬러그부터
+        }
+    });
+    // ×·[닫기]로 닫을 때 미저장 입력이 있으면 확인한다. 취소하면 닫힘을 막는다(preventDefault).
+    // 상세 조회 중에는 입력이 기본값이라 isDirty()가 거짓이므로 확인 없이 닫을 수 있다.
+    $(modalEl).on("hide.bs.modal", function (event) {
+        if (!forceClose && isDirty() && !confirm("저장하지 않은 변경이 있습니다. 버리고 닫으시겠습니까?")) {
+            event.preventDefault();
+            return;
+        }
+        setModalState("closing");
+    });
+    $(modalEl).on("hidden.bs.modal", function () {
+        setModalState("closed");
+        pendingClose = false;
+        forceClose = false;
+        hideModalAlert();
+        // 상세 조회 중에 닫아도 resetFormState()가 세대를 올리고 loadingDetail을 풀어, 늦게 온 응답이 폼을 채우지 못하고
+        // (세대 불일치로 finally의 해제가 건너뛰어져도) 다음 수정 진입이 막히지 않는다.
+        resetFormState();
+        renderList();
+    });
+
+    // 폼과 편집 상태를 새 페이지 작성 상태로 되돌린다(모달은 열지 않는다).
+    function resetFormState() {
+        detailRequestSeq++;                               // 진행 중인 상세 응답을 폐기한다
+        loadingDetail = false;
         editing = null;
         formTitle.textContent = "새 페이지";
         pageForm.reset();
@@ -306,10 +406,18 @@
         editor.setHtml("");
         slugLink.textContent = "";
         btnSave.textContent = "등록";
-        btnNew.classList.add("d-none");
         btnDelete.classList.add("d-none");
         renderRevisions();
+    }
+
+    function startCreate() {
+        if (modalState !== "closed" || saving || loadingDetail || !canCreate) {
+            return;
+        }
+        resetFormState();
+        hideModalAlert();
         renderList();
+        openModal();
     }
 
     function applyDetail(detail) {
@@ -326,13 +434,12 @@
             ? "공개 주소 없음 (소속 사이트가 비활성이거나 기본 공개 사이트가 없어 방문자에게 보이지 않습니다)"
             : "공개 주소: " + prefix + "/pages/" + detail.slug + (detail.useYn ? "" : " (비노출 중이라 방문자에게 404)");
         btnSave.textContent = "저장";
-        btnNew.classList.remove("d-none");
         btnDelete.classList.toggle("d-none", !canDelete);
         renderRevisions();
         renderList();
     }
 
-    /** 저장하지 않은 입력이 있는가 — 이탈(beforeunload)과 화면 안 전환(목록 선택·새 페이지 작성)이 같은 기준을 쓴다. */
+    /** 저장하지 않은 입력이 있는가 — 이탈(beforeunload)과 모달 닫기·화면 안 전환이 같은 기준을 쓴다. */
     function isDirty() {
         // 신규 작성에서도 노출·푸터를 기본값(켜짐·꺼짐)에서 바꿨으면 미저장 변경이다(R2-1 — 빠뜨리면 플래그만 바꾼 채 메뉴 반영·이탈이 경고 없이 값을 버린다)
         return editing === null
@@ -346,8 +453,9 @@
         return !isDirty() || confirm("저장하지 않은 변경이 있습니다. 버리고 이동하시겠습니까?");
     }
 
+    // 진입(행 클릭)은 수정 권한을 요구하지 않는다 — READ 전용은 내용을 보고, READ+DELETE는 [삭제]에 도달한다. 저장은 btnSave.disabled가 판정한다.
     async function startEdit(id) {
-        if (saving || loadingDetail) {
+        if (modalState !== "closed" || saving || loadingDetail) {
             return;
         }
         if (!confirmDiscard()) {
@@ -355,14 +463,22 @@
         }
         const seq = ++detailRequestSeq;
         loadingDetail = true;
+        hideModalAlert();
+        formTitle.textContent = "페이지를 불러오는 중…";
         lockUi();
+        openModal();                                      // 상세는 모달을 연 뒤에 읽는다 — 그동안 loadingDetail이 입력·저장·삭제를 잠근다
         try {
             const response = await fetch(PAGES_URL + "/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } });
             if (seq !== detailRequestSeq) {
                 return;
             }
             if (!response.ok) {
-                showError(await errorMessage(response, "페이지를 불러오지 못했습니다."));
+                // 불러오지 못한 페이지는 보여 줄 것이 없다 — 모달을 닫고 페이지 상단에 안내한다(404면 목록도 다시 읽는다)
+                showPageError(await errorMessage(response, "페이지를 불러오지 못했습니다."));
+                closeModal();
+                if (response.status === 404) {
+                    await loadList();
+                }
                 return;
             }
             const detail = await response.json();
@@ -372,7 +488,8 @@
             applyDetail(detail);
         } catch (e) {
             if (seq === detailRequestSeq) {
-                showError("페이지를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+                showPageError("페이지를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
+                closeModal();
             }
         } finally {
             if (seq === detailRequestSeq) {
@@ -397,7 +514,7 @@
             if (seq !== listRequestSeq) {
                 return;
             }
-            pages = loaded;
+            pages = loaded;                                // 목록 응답은 열린 폼을 건드리지 않는다
             renderList();
         } catch (e) {
             if (seq === listRequestSeq) {
@@ -455,12 +572,14 @@
             if (response.ok) {
                 const saved = await response.json();
                 showSuccess(target ? "페이지를 저장했습니다 (개정 " + saved.currentRevisionNo + ")." : "페이지를 등록했습니다: " + saved.slug);
-                applyDetail(saved);                          // 최신 version·개정 목록을 바로 받는다
+                closeModal();                                // 저장 뒤 모달을 닫는다 — 개정 이력은 목록에서 다시 열어 본다
                 await loadList();
             } else if (response.status === 409 && target) {
-                // 낡은 화면 — 입력 중인 내용은 지우지 않는다. 목록에서 다시 선택하면 최신 내용을 불러온다.
-                showError((await errorMessage(response, "다른 관리자가 먼저 저장했습니다.")) + " 입력한 내용은 그대로 두었으니 복사해 두고, 목록에서 이 페이지를 다시 선택해 최신 내용을 불러오세요.");
-                await loadList();
+                // 낡은 화면 — 모달을 닫지 않고 입력 중인 내용을 지우지 않는다. 닫은 뒤 목록에서 다시 선택하면 최신 내용을 불러온다.
+                showError((await errorMessage(response, "다른 관리자가 먼저 저장했습니다.")) + " 입력한 내용은 그대로 두었으니 복사해 두고, 닫은 뒤 목록에서 이 페이지를 다시 선택해 최신 내용을 불러오세요.");
+                // 목록 재조회를 기다리지 않는다 — 기다리면 재조회가 지연되는 동안 닫기·입력이 잠기고, 그사이 닫았다 다시 연 뒤 시작한
+                // 새 요청의 잠금을 이 핸들러의 늦은 finally가 풀어 버린다(PLAN-admin-form-modal-page.md R1-1·R2-1)
+                loadList();
             } else {
                 showError(await errorMessage(response, "저장에 실패했습니다."));
             }
@@ -487,12 +606,12 @@
             });
             if (response.ok || response.status === 204 || response.status === 404) {
                 showSuccess(response.status === 404 ? "이미 삭제된 페이지입니다." : "페이지를 삭제했습니다: " + target.slug);
-                startCreate();
+                closeModal();
                 await loadList();
             } else {
                 showError(await errorMessage(response, "삭제에 실패했습니다."));
                 if (response.status === 409) {
-                    await loadList();
+                    loadList();                              // 기다리지 않는다 — 저장 409와 같은 이유(잠금 해제를 재조회와 분리)
                 }
             }
         } catch (e) {
@@ -516,7 +635,7 @@
         }
     });
     btnReload.addEventListener("click", loadList);
-    startCreate();
+    resetFormState();
     loadList();
 })();
 </script>

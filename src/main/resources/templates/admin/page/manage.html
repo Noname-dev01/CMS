@@ -11,6 +11,7 @@
       예외로 ADMIN 응답에만 옛 북마크(#menu·#site)를 새 화면으로 옮기는 작은 스크립트가 있다(MANAGER 응답에는 렌더링하지 않는다).
     - 배치 순서: 페이지 전용 CSS → 패널 body 조각 → 공통 의존성 → 패널 script 조각. 조각의 스크립트는 반드시 의존성(jQuery·Quill 등) 뒤에 둔다.
 */-->
+<link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
 <link rel="stylesheet" th:href="@{/vendor/quill/quill.snow.css}">
 
 <div id="wrapper">
@@ -34,6 +35,8 @@
         <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
     </div>
 </div>
+
+<div th:replace="~{admin/page/fragments/page-tab :: pageModal}"></div>
 
 <div th:replace="~{admin/fragments/logout-modal :: logoutModal}"></div>
 

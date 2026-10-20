@@ -205,6 +205,10 @@ class ContentScopeAdminBrowserTest extends BrowserTestSupport {
         assertThat(page.locator("#slugLink").textContent()).contains("/ui-alpha/pages/ui-scoped");
         assertThat(page.locator("#revisionList a").first().getAttribute("href")).isEqualTo("/ui-alpha/pages/ui-scoped/revisions/1");
 
+        // 열린 모달 뒤의 목록 행은 누를 수 없다 — 모달을 완전히 닫은 뒤 다음 행을 연다(열림·닫힘 전환 상태는 data-state)
+        page.waitForFunction("() => document.getElementById('pageModal').dataset.state === 'open'");
+        page.click("#btnModalClose");
+        page.waitForFunction("() => document.getElementById('pageModal').dataset.state === 'closed'");
         page.locator(".page-row", new Page.LocatorOptions().setHasText("ui-common")).click();
         page.waitForFunction("() => document.getElementById('slugLink').textContent.includes('ui-common')");
         assertThat(page.locator("#slugLink").textContent()).contains("/main/pages/ui-common");
