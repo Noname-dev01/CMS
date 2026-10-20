@@ -59,7 +59,8 @@ class PageScreenLeaveGuardBrowserTest extends BrowserTestSupport {
 
     private void openPageScreen() {
         page.navigate("http://localhost:" + port + "/admin/site-page/manage");
-        page.waitForSelector("#pageForm");
+        // 폼은 모달 안에 있어 열기 전에는 보이지 않는다 — 목록 로딩이 끝나 이벤트 핸들러가 모두 연결된 뒤에 조작한다
+        page.waitForFunction("() => !document.getElementById('pageList').textContent.includes('불러오는 중')");
     }
 
     @Test
@@ -71,6 +72,8 @@ class PageScreenLeaveGuardBrowserTest extends BrowserTestSupport {
             dialogTypes.add(dialog.type());
             dialog.dismiss();   // 이동 취소
         });
+        page.click("#btnNew");
+        page.waitForFunction("() => document.getElementById('pageModal').dataset.state === 'open'");
         page.fill("#pageSlug", "leave-save");
         page.fill("#pageTitle", "이탈 경고 시험");
 
