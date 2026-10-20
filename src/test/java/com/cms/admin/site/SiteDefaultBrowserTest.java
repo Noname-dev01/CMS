@@ -68,8 +68,23 @@ class SiteDefaultBrowserTest extends BrowserTestSupport {
         page.waitForFunction("() => document.querySelectorAll('#siteTableBody tr').length >= 3");
     }
 
+    /** 모달 상태(data-state)가 원하는 값이 될 때까지 기다린다. 요소의 보임 여부는 열림 초기에 거짓으로 통과하므로 쓰지 않는다. */
+    private void waitModalState(String state) {
+        page.waitForFunction("s => document.getElementById('siteModal').dataset.state === s", state);
+    }
+
+    /** 열린 모달이 있으면 [닫기]로 닫는다(미저장 입력이 없을 때) — 열려 있는 동안 목록 행은 배경 뒤에 있다. */
+    private void closeModalIfOpen() {
+        if ("open".equals(page.evaluate("() => document.getElementById('siteModal').dataset.state"))) {
+            page.click("#siteBtnClose");
+            waitModalState("closed");
+        }
+    }
+
     private void selectRow(long id) {
+        closeModalIfOpen();
         page.click("#siteTableBody tr[data-site-id='" + id + "']");
+        waitModalState("open");
         page.waitForFunction("() => document.getElementById('siteFormModeLabel').textContent.startsWith('사이트 수정')");
     }
 
@@ -103,6 +118,7 @@ class SiteDefaultBrowserTest extends BrowserTestSupport {
 
         page.click("#siteBtnDefault");
         page.waitForFunction("() => document.getElementById('siteFormSuccess').textContent.includes('기본 사이트로 지정했습니다')");
+        waitModalState("closed");                       // 지정이 끝나면 모달이 닫히고 안내는 페이지 상단에 남는다
 
         assertThat(jdbc.queryForObject("SELECT default_yn FROM site WHERE id = ?", Boolean.class, news)).isTrue();
         assertThat(jdbc.queryForObject("SELECT default_yn FROM site WHERE id = 2", Boolean.class)).isFalse();
