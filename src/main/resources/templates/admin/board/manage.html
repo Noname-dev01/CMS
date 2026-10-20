@@ -5,6 +5,7 @@
 </head>
 <body id="page-top">
 <!-- 페이지 전용 CSS는 body 시작 지점에 둔다(menu/manage.html 컨벤션 — th:replace가 head를 통째로 치환한다). -->
+<link rel="stylesheet" th:href="@{/css/admin/admin-manage.css}">
 <style>
     .board-card {
         background: white;
@@ -37,11 +38,14 @@
                 </p>
 
                 <div class="row">
-                    <div class="col-lg-7 mb-4">
+                    <div class="col-12 mb-4">
                         <div class="board-card">
                             <div class="card-header py-3 d-flex justify-content-between align-items-center">
                                 <h6 class="m-0 font-weight-bold text-primary">게시판 목록</h6>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
+                                <div>
+                                    <button type="button" class="btn btn-sm btn-primary" id="btnNew">새 게시판</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btnReload">새로고침</button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="table-responsive">
@@ -57,14 +61,32 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
 
-                    <div class="col-lg-5 mb-4">
-                        <div class="board-card">
-                            <div class="card-header py-3">
-                                <h6 class="m-0 font-weight-bold text-primary" id="formTitle">새 게시판</h6>
-                            </div>
-                            <div class="card-body">
-                                <form id="boardForm">
+        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
+    </div>
+</div>
+
+<!-- 등록·수정 모달: 배경 클릭·ESC로 닫히지 않는다(입력 보호). 푸터 [생성/저장]은 form 속성으로 폼에 연결해 브라우저 기본 검증을 유지한다. 게시판 정의는 ADMIN 전용이다. -->
+<div class="modal fade admin-detail-modal" id="boardModal" tabindex="-1" role="dialog" aria-labelledby="formTitle" aria-hidden="true"
+     data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="detail-hero">
+                    <div class="detail-hero-copy">
+                        <h5 class="modal-title" id="formTitle">새 게시판</h5>
+                    </div>
+                </div>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close" id="btnModalCloseX">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div id="modalAlert" class="alert alert-danger d-none" role="alert"></div>
+                <form id="boardForm">
                                     <div class="form-group">
                                         <label for="boardName">이름</label>
                                         <input type="text" class="form-control" id="boardName" maxlength="100" required>
@@ -91,18 +113,14 @@
                                         <input type="checkbox" class="form-check-input" id="boardAttachment" checked>
                                         <label class="form-check-label" for="boardAttachment">첨부 허용</label>
                                     </div>
-                                    <button type="submit" class="btn btn-primary" id="btnSave">생성</button>
-                                    <button type="button" class="btn btn-outline-secondary d-none" id="btnNew">새 게시판 작성</button>
-                                    <button type="button" class="btn btn-outline-danger d-none" id="btnDelete">삭제</button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger mr-auto d-none" id="btnDelete">삭제</button>
+                <button type="button" class="btn btn-secondary" data-dismiss="modal" id="btnModalClose">닫기</button>
+                <button type="submit" class="btn btn-primary" id="btnSave" form="boardForm">생성</button>
             </div>
         </div>
-
-        <div th:replace="~{admin/fragments/footer :: adminFooter}"></div>
     </div>
 </div>
 
@@ -133,10 +151,20 @@
     const btnReload = document.getElementById("btnReload");
     const pageAlert = document.getElementById("pageAlert");
     const pageSuccess = document.getElementById("pageSuccess");
+    const modalEl = document.getElementById("boardModal");
+    const modalAlert = document.getElementById("modalAlert");
+    const btnModalClose = document.getElementById("btnModalClose");
+    const btnModalCloseX = document.getElementById("btnModalCloseX");
 
+    // 서버 응답 스냅샷(목록 순서) — 저장 응답으로 먼저 보정하므로 재조회가 실패해도 다시 연 행이 저장 전 값이 되지 않는다
+    let boards = [];
     // 편집 대상: 목록에서 고른 게시판의 서버 응답 스냅샷(null이면 새 게시판 작성)
     let editing = null;
     let saving = false;
+    // 모달 상태: closed → opening(show 호출~shown) → open → closing(hide 시작~hidden) → closed.
+    // Bootstrap 4는 전환 중(opening·closing)의 show/hide를 무시하므로 상태가 closed일 때만 새로 열고, 닫기는 closeModal()을 거친다.
+    let modalState = "closed";
+    let pendingClose = false;
     // 목록 요청 세대: 늦게 도착한 이전 요청 응답이 최신 목록을 덮어쓰지 않게 한다
     let listRequestSeq = 0;
 
@@ -159,10 +187,57 @@
         }
     }
 
-    function showError(message) {
+    // 페이지 상단 알림(모달 밖) — 모달을 닫으면서 안내할 때(저장·삭제 대상이 이미 없음)와 목록 조회 오류에 쓴다.
+    function showPageError(message) {
         pageSuccess.classList.add("d-none");
         pageAlert.textContent = message;
         pageAlert.classList.remove("d-none");
+    }
+
+    // 모달이 떠 있는 동안의 오류는 모달 안에 보인다(페이지 상단 알림은 배경 뒤에 가려진다). 닫히는 중·닫힌 뒤는 페이지 상단.
+    function showError(message) {
+        if (modalState === "opening" || modalState === "open") {
+            modalAlert.textContent = message;
+            modalAlert.classList.remove("d-none");
+            return;
+        }
+        showPageError(message);
+    }
+
+    function hideModalAlert() {
+        modalAlert.classList.add("d-none");
+        modalAlert.textContent = "";
+    }
+
+    function closeModal() {
+        if (modalState === "open") {
+            $(modalEl).modal("hide");
+        } else if (modalState === "opening") {
+            pendingClose = true;                          // 열림 전환 중의 hide()는 무시되므로 shown 이후에 닫는다
+        }
+    }
+
+    $(modalEl).on("shown.bs.modal", function () {
+        modalState = "open";
+        if (pendingClose) {
+            pendingClose = false;
+            $(modalEl).modal("hide");
+        }
+    });
+    $(modalEl).on("hide.bs.modal", function () {
+        modalState = "closing";
+    });
+    $(modalEl).on("hidden.bs.modal", function () {
+        modalState = "closed";
+        pendingClose = false;
+        hideModalAlert();
+        resetForm();                                      // 다음에 열 때 이전 입력·편집 대상이 남지 않게 한다
+        renderList(boards);
+    });
+
+    function openModal() {
+        modalState = "opening";
+        $(modalEl).modal("show");
     }
 
     function showSuccess(message) {
@@ -225,10 +300,11 @@
                 showError(await extractErrorMessage(response, "게시판 목록을 불러오지 못했습니다."));
                 return;
             }
-            const boards = await response.json();
+            const loaded = await response.json();
             if (seq !== listRequestSeq) {
                 return;
             }
+            boards = loaded;                               // 목록 응답은 열린 폼을 건드리지 않는다(이 화면은 처음부터 폼을 초기화하지 않는다)
             renderList(boards);
         } catch (e) {
             if (seq === listRequestSeq) {
@@ -237,10 +313,12 @@
         }
     }
 
+    // 게시판 정의는 ADMIN 전용이라 권한 분기가 없다. 행 클릭은 수정 모달을 연다.
     function startEdit(board) {
-        if (saving) {
+        if (modalState !== "closed" || saving) {
             return;
         }
+        hideModalAlert();
         editing = board;
         formTitle.textContent = "게시판 수정 #" + board.id;
         boardName.value = board.name;
@@ -251,15 +329,13 @@
         boardNoticeGroup.classList.add("d-none");           // 공지 게시판 만들기는 생성 모드에서만
         syncScopeControls();
         btnSave.textContent = "저장";
-        btnNew.classList.remove("d-none");
         btnDelete.classList.remove("d-none");
-        loadList();
+        renderList(boards);                                 // 편집 중인 행 강조
+        openModal();
     }
 
-    function startCreate() {
-        if (saving) {
-            return;
-        }
+    // 폼과 편집 상태를 새 게시판 작성 상태로 되돌린다(모달은 열지 않는다).
+    function resetForm() {
         editing = null;
         formTitle.textContent = "새 게시판";
         boardForm.reset();
@@ -270,9 +346,16 @@
         boardNoticeGroup.classList.remove("d-none");
         syncScopeControls();
         btnSave.textContent = "생성";
-        btnNew.classList.add("d-none");
         btnDelete.classList.add("d-none");
-        loadList();
+    }
+
+    function startCreate() {
+        if (modalState !== "closed" || saving) {
+            return;
+        }
+        hideModalAlert();
+        resetForm();
+        openModal();
     }
 
     // 표시 대상 박스·공지 게시판 체크박스의 활성 조건: 공지 게시판(키 있는 게시판)의 대상은 바꿀 수 없고, 공지 게시판 만들기는 사이트를 고르고 공개일 때만 된다
@@ -291,7 +374,7 @@
     // 저장 중에는 입력·작성 대상 전환을 잠가 응답 반영 시 초안이 덮어써지지 않게 한다
     function setSaving(value) {
         saving = value;
-        [boardName, boardPublic, boardAttachment, btnSave, btnNew, btnDelete].forEach(function (el) { el.disabled = value; });
+        [boardName, boardPublic, boardAttachment, btnSave, btnNew, btnDelete, btnModalClose, btnModalCloseX].forEach(function (el) { el.disabled = value; });
         syncScopeControls();
     }
 
@@ -327,12 +410,20 @@
             if (response.ok) {
                 const data = await response.json();
                 showSuccess((target ? "게시판을 저장했습니다: #" : "게시판을 만들었습니다: #") + data.id);
-                setSaving(false);
-                startEdit(data);
+                // 목록 재조회가 실패해도 다시 연 행이 저장 전 값이 되지 않게, 저장 응답으로 목록 스냅샷을 먼저 보정한다
+                const index = boards.findIndex(function (b) { return b.id === data.id; });
+                if (index >= 0) {
+                    boards[index] = data;
+                } else {
+                    boards.push(data);
+                }
+                closeModal();
+                await loadList();
             } else if (response.status === 404) {
-                showError(await extractErrorMessage(response, "게시판을 찾을 수 없습니다."));
-                setSaving(false);
-                startCreate();
+                // 수정하던 게시판이 이미 없다 — 보존할 대상이 없으므로 모달을 닫고(생성 모드로 바꾸지 않는다) 페이지 상단에 안내한다
+                showPageError(await extractErrorMessage(response, "게시판을 찾을 수 없습니다."));
+                closeModal();
+                await loadList();
             } else {
                 showError(await extractErrorMessage(response, "저장에 실패했습니다."));
             }
@@ -358,14 +449,11 @@
                 method: "DELETE",
                 headers: getCsrfHeaders()
             });
-            if (response.ok || response.status === 204) {
-                showSuccess("게시판을 삭제했습니다: #" + target.id);
-                setSaving(false);
-                startCreate();
-            } else if (response.status === 404) {
-                showError(await extractErrorMessage(response, "게시판을 찾을 수 없습니다."));
-                setSaving(false);
-                startCreate();
+            if (response.ok || response.status === 204 || response.status === 404) {
+                // 404(이미 삭제됨)도 원하던 결과이므로 성공으로 흡수한다(배너·팝업과 같다)
+                showSuccess(response.status === 404 ? "이미 삭제된 게시판입니다." : "게시판을 삭제했습니다: #" + target.id);
+                closeModal();
+                await loadList();
             } else {
                 showError(await extractErrorMessage(response, "삭제에 실패했습니다."));
             }
