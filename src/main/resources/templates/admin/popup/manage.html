@@ -308,6 +308,8 @@
     // Bootstrap 4는 전환 중(opening·closing)의 show/hide를 무시하므로 상태가 closed일 때만 새로 열고, 닫기는 closeModal()을 거친다.
     let modalState = "closed";
     let pendingClose = false;
+    let forceClose = false;    // 저장·삭제 성공이나 상세 조회 실패 같은 프로그램 닫기는 미저장 확인을 거치지 않는다
+    let baseline = null;       // 폼을 채운 직후의 입력 스냅샷. null이면 변경 없음으로 본다(상세 조회 중·닫힌 뒤)
 
     function csrfHeaders(json) {
         const token = document.querySelector('meta[name="_csrf"]');
@@ -356,7 +358,24 @@
         modalAlert.textContent = "";
     }
 
+    // 폼 입력 스냅샷. 본문 편집기는 값이 아니라 editor.isChanged()로 따로 판정한다(로드 시 정규화된 HTML이 기준이다).
+    function formSnapshot() {
+        const file = fImage.files && fImage.files.length > 0 ? fImage.files[0] : null;
+        return JSON.stringify([
+            fTitle.value, selectedType(), fLink.value, fPosX.value, fPosY.value, fWidth.value, fHeight.value,
+            fStartDate.value, fStartHour.value, fStartMinute.value, fEndDate.value, fEndHour.value, fEndMinute.value,
+            fUse.checked, scope.value(),
+            file === null ? null : [file.name, file.size],
+            pickedImage === null ? null : pickedImage.id
+        ]);
+    }
+
+    function isFormDirty() {
+        return baseline !== null && (formSnapshot() !== baseline || editor.isChanged());
+    }
+
     function closeModal() {
+        forceClose = true;
         if (modalState === "open") {
             $(modalEl).modal("hide");
         } else if (modalState === "opening") {
@@ -371,12 +390,18 @@
             $(modalEl).modal("hide");
         }
     });
-    $(modalEl).on("hide.bs.modal", function () {
+    // ×·[닫기]로 닫을 때 미저장 입력이 있으면 확인한다. 취소하면 닫힘을 막는다(preventDefault).
+    $(modalEl).on("hide.bs.modal", function (event) {
+        if (!forceClose && isFormDirty() && !confirm("저장하지 않은 변경이 있습니다. 버리고 닫으시겠습니까?")) {
+            event.preventDefault();
+            return;
+        }
         modalState = "closing";
     });
     $(modalEl).on("hidden.bs.modal", function () {
         modalState = "closed";
         pendingClose = false;
+        forceClose = false;
         hideModalAlert();
         // 상세 조회 중에 닫아도 resetFormState()가 세대를 올리고 loadingDetail을 풀어, 늦게 온 응답이 폼을 채우지 못하고
         // (세대 불일치로 finally의 해제가 건너뛰어져도) 다음 수정 진입이 막히지 않는다.
@@ -385,6 +410,7 @@
     });
 
     function openModal() {
+        forceClose = false;
         modalState = "opening";
         $(modalEl).modal("show");
     }
@@ -581,6 +607,7 @@
         applyTypeUi("IMAGE", false);
         btnSave.textContent = "등록";
         btnDelete.classList.add("d-none");
+        baseline = formSnapshot();                        // 새 팝업의 기본값이 기준이다(열 때마다, 닫힌 뒤에도 같은 값이라 변경 없음으로 판정된다)
     }
 
     function startCreate() {
@@ -600,6 +627,7 @@
         }
         const seq = ++detailRequestSeq;
         loadingDetail = true;
+        baseline = null;                                  // 상세가 도착해 폼을 채울 때까지는 변경 없음 — 확인 없이 닫을 수 있다
         hideModalAlert();
         editing = summary;                                // 상세가 도착할 때까지 목록 강조·잠금용으로만 쓴다
         formTitle.textContent = "팝업 #" + summary.id + " 수정";
@@ -645,6 +673,7 @@
             } else {
                 editor.setHtml(detail.contentHtml || "");
             }
+            baseline = formSnapshot();                    // 서버 값으로 채운 직후가 기준이다(편집기는 setHtml이 자체 기준을 잡는다)
         } catch (e) {
             if (seq === detailRequestSeq) {
                 showPageError("팝업을 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");
