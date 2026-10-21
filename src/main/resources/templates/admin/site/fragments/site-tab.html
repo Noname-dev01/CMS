@@ -239,7 +239,7 @@ $(document).ready(function () {
     });
     // ×·[닫기]로 닫을 때 미저장 입력이 있으면 확인한다. 취소하면 닫힘을 막는다(preventDefault).
     $(modalEl).on('hide.bs.modal', function (event) {
-        if (!forceClose && isDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 닫을까요?')) {
+        if (!forceClose && isDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 닫으시겠습니까?')) {
             event.preventDefault();
             return;
         }
