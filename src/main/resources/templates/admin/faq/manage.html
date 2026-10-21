@@ -249,6 +249,10 @@
     let pendingClose = false;
     let modalMode = "category";   // 'category' | 'faq' — 한 모달에 두 폼이 있고 한 번에 하나만 보인다
     let writing = false;          // write()의 요청이 응답을 기다리는 동안(후속 재조회·상세 조회 중에는 닫을 수 있다)
+    let forceClose = false;       // 저장·삭제 성공이나 상세 조회 실패 같은 프로그램 닫기는 미저장 확인을 거치지 않는다
+    // 폼을 채운 직후의 입력 스냅샷 {kind:'category'|'faq', value}. null이면 변경 없음으로 본다(상세 조회 중·닫힌 뒤).
+    // 판정은 modalMode가 아니라 기준값의 kind를 따른다 — startCategoryEdit는 필드를 채운 뒤 openModal을 부르고 modalMode는 hidden에서도 되돌리지 않는다.
+    let baseline = null;
 
     // ===================== 공통 =====================
 
@@ -747,6 +751,7 @@
 
     /** 모달을 연다 — 새로 여는 동작은 모달이 완전히 닫혀 있고 폼이 잠겨 있지 않을 때만 호출한다(호출자가 가드한다). */
     function openModal(mode) {
+        forceClose = false;
         modalMode = mode;
         const category = mode === "category";
         catSection.classList.toggle("d-none", !category);
@@ -758,7 +763,26 @@
         $(modalEl).modal("show");
     }
 
+    function categorySnapshot() {
+        return JSON.stringify([fCatName.value, fCatUse.checked, scope.value()]);
+    }
+
+    // 답변 편집기는 값이 아니라 editor.isChanged()로 따로 판정한다(로드 시 정규화된 HTML이 기준이다).
+    function faqSnapshot() {
+        return JSON.stringify([fFaqCategory.value, fFaqQuestion.value, fFaqUse.checked]);
+    }
+
+    function isFormDirty() {
+        if (baseline === null) {
+            return false;
+        }
+        return baseline.kind === "category"
+            ? categorySnapshot() !== baseline.value
+            : faqSnapshot() !== baseline.value || editor.isChanged();
+    }
+
     function closeModal() {
+        forceClose = true;
         if (modalState === "open") {
             $(modalEl).modal("hide");
         } else if (modalState === "opening") {
@@ -773,12 +797,19 @@
             $(modalEl).modal("hide");
         }
     });
-    $(modalEl).on("hide.bs.modal", function () {
+    // ×·[닫기]로 닫을 때 미저장 입력이 있으면 확인한다. 취소하면 닫힘을 막는다(preventDefault).
+    $(modalEl).on("hide.bs.modal", function (event) {
+        if (!forceClose && isFormDirty() && !confirm("저장하지 않은 변경이 있습니다. 버리고 닫으시겠습니까?")) {
+            event.preventDefault();
+            return;
+        }
         setModalState("closing");
     });
     $(modalEl).on("hidden.bs.modal", function () {
         setModalState("closed");
         pendingClose = false;
+        forceClose = false;
+        baseline = null;
         hideModalAlert();
         // 상세 조회 중에 닫아도 세대를 올리고 loadingDetail을 풀어, 늦게 온 응답이 새 폼을 덮지 못하고(세대 불일치로 finally의 해제가
         // 건너뛰어져도) 다음 수정 진입이 막히지 않는다.
@@ -808,6 +839,7 @@
         resetCategoryForm();
         openModal("category");
         sync();
+        baseline = { kind: "category", value: categorySnapshot() };
     }
 
     // 진입(행 클릭)은 수정 권한을 요구하지 않는다 — 저장 버튼이 권한이 없으면 숨는다.
@@ -824,6 +856,7 @@
         fCatUse.checked = category.useYn;
         scope.set(category.siteId);
         categoryBase = { id: category.id, version: category.version };
+        baseline = { kind: "category", value: categorySnapshot() };   // 필드를 채운 직후 — openModal이 modalMode를 바꾸기 전이라 kind를 명시한다
         openModal("category");
         sync();
     }
@@ -871,6 +904,7 @@
         resetFaqForm();
         openModal("faq");
         sync();
+        baseline = { kind: "faq", value: faqSnapshot() };       // 카테고리 선택 박스가 render()로 다시 만들어진 뒤라야 선택값이 안정된다
     }
 
     // 진입(행 클릭)은 수정 권한을 요구하지 않는다. 수정 모달은 연 직후 상세를 읽는다 — 그동안 loadingDetail이 폼과 편집기를 통째로 잠근다(R4-2).
@@ -880,6 +914,7 @@
         }
         const seq = ++detailSeq;
         loadingDetail = true;
+        baseline = null;                                  // 상세가 도착해 폼을 채울 때까지는 변경 없음 — 확인 없이 닫을 수 있다
         hideModalAlert();
         faqFormTitle.textContent = "FAQ를 불러오는 중…";
         openModal("faq");
@@ -921,6 +956,7 @@
             if (categoryById.has(detail.categoryId)) {
                 fFaqCategory.value = String(detail.categoryId);   // 상세를 처음 채울 때만 저장된 카테고리를 고른다
             }
+            baseline = { kind: "faq", value: faqSnapshot() };     // 서버 값으로 채운 직후가 기준이다(편집기는 setHtml이 자체 기준을 잡는다)
         } catch (e) {
             if (seq === detailSeq) {
                 showPageError("FAQ를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요.");

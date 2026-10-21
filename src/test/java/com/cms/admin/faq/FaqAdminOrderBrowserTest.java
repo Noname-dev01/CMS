@@ -415,8 +415,16 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         assertThat(page.inputValue("#catName")).as("입력은 보존").isEqualTo("응답유실");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM faq_category", Integer.class)).isEqualTo(before);
 
+        // 폼이 잠긴 결과 불명 상태에서도 입력이 남아 있으면 닫을 때 미저장 확인을 거친다(PLAN-admin-form-dirty-close.md 설계 8)
+        List<String> dialogs = new java.util.concurrent.CopyOnWriteArrayList<>();
+        page.onDialog(dialog -> {
+            dialogs.add(dialog.message());
+            dialog.accept();
+        });
         page.click("#btnModalClose");                       // 모달이 열려 있는 동안 [새로고침]은 배경 뒤에 있다 — 닫은 뒤(입력은 사라진다) 새로고침한다
         waitModalState("closed");
+        assertThat(dialogs).as("잠긴 폼이어도 남은 입력은 닫을 때 확인한다").hasSize(1);
+        assertThat(dialogs.get(0)).contains("저장하지 않은 변경이 있습니다");
         page.click("#btnReload");
         page.waitForFunction("() => !document.getElementById('catFieldset').disabled");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM faq_category", Integer.class)).as("재전송 없이 복구").isEqualTo(before);
