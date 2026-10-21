@@ -327,9 +327,6 @@ $(document).ready(function () {
                 if (saving) {
                     return;
                 }
-                if (isDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 이 사이트를 선택할까요?')) {
-                    return;
-                }
                 startEdit(site);
             });
             tbody.appendChild(row);
@@ -373,9 +370,6 @@ $(document).ready(function () {
 
 
     btnNew.addEventListener('click', function () {
-        if (isDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 새 사이트를 작성할까요?')) {
-            return;
-        }
         startCreate();
     });
 

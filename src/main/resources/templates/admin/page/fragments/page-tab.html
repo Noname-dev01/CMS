@@ -439,7 +439,7 @@
         renderList();
     }
 
-    /** 저장하지 않은 입력이 있는가 — 이탈(beforeunload)과 모달 닫기·화면 안 전환이 같은 기준을 쓴다. */
+    /** 저장하지 않은 입력이 있는가 — 이탈(beforeunload)과 모달 닫기가 같은 기준을 쓴다. */
     function isDirty() {
         // 신규 작성에서도 노출·푸터를 기본값(켜짐·꺼짐)에서 바꿨으면 미저장 변경이다(R2-1 — 빠뜨리면 플래그만 바꾼 채 메뉴 반영·이탈이 경고 없이 값을 버린다)
         return editing === null
@@ -448,17 +448,9 @@
                         || scope.value() !== (editing.siteId === null || editing.siteId === undefined ? ContentScope.COMMON : String(editing.siteId)));
     }
 
-    /** 사용자가 직접 하는 전환 전에 미저장 입력을 버려도 되는지 묻는다(코드 리뷰 R2). 저장·삭제 성공 뒤의 내부 초기화는 묻지 않는다. */
-    function confirmDiscard() {
-        return !isDirty() || confirm("저장하지 않은 변경이 있습니다. 버리고 이동하시겠습니까?");
-    }
-
     // 진입(행 클릭)은 수정 권한을 요구하지 않는다 — READ 전용은 내용을 보고, READ+DELETE는 [삭제]에 도달한다. 저장은 btnSave.disabled가 판정한다.
     async function startEdit(id) {
         if (modalState !== "closed" || saving || loadingDetail) {
-            return;
-        }
-        if (!confirmDiscard()) {
             return;
         }
         const seq = ++detailRequestSeq;
@@ -630,9 +622,7 @@
     });
 
     btnNew.addEventListener("click", function () {
-        if (confirmDiscard()) {
-            startCreate();
-        }
+        startCreate();
     });
     btnReload.addEventListener("click", loadList);
     resetFormState();
