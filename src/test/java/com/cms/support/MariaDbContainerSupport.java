@@ -1,5 +1,7 @@
 package com.cms.support;
 
+import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -35,7 +37,13 @@ public abstract class MariaDbContainerSupport {
                     // 기본 max_connections(151)는 캐시된 스프링 컨텍스트마다 쥐는 Hikari 풀(최대 10)의 합이 넘기 쉽다 — 컨텍스트가 하나 늘어난 변경
                     // (게시글 예약 게시의 MutableClock 컨텍스트, 2026-10-11)이 전체 실행에서만 "Too many connections"를 내 LockWaitObserverTest 5건을
                     // 깨뜨렸다(단독 실행은 통과). 컨텍스트 수에 여유를 두고 한도를 올린다.
-                    .withCommand("--max-connections=500");
+                    .withCommand("--max-connections=500")
+                    // 데이터 디렉터리를 메모리(tmpfs)에 둔다 — 일회용 컨테이너라 내구성이 필요 없고, 디스크 I/O가 DDL 비용을 지배해
+                    // V1부터 다시 적용하는 마이그레이션 시험이 약 6배 빨라졌다(2026-10-21 실측, SiteMenuMergeMigrationTest 113초 → 18초).
+                    // InnoDB 내구성 옵션(flush_log_at_trx_commit=0·doublewrite=0)은 tmpfs 위에서 추가 효과가 없어 넣지 않았다.
+                    // 크기를 지정하지 않으면 상한이 Docker VM 메모리의 절반이라 1g로 묶는다 — 전체 실행 최대 사용량은 426MB였다(같은 날
+                    // 실측, 스키마를 DROP해도 InnoDB 공용 파일은 줄지 않아 실행 내내 증가). 넘치면 "디스크 가득 참"으로 실패하니 그때 올린다.
+                    .withTmpFs(Map.of("/var/lib/mysql", "rw,size=1g"));
 
     static {
         MARIA_DB.start();
