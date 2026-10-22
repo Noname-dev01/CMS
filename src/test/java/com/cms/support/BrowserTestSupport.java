@@ -16,6 +16,7 @@ import java.net.URI;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.junit.jupiter.api.Tag;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
@@ -33,6 +34,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
  * 전환 시간이 0이어도 완료를 비동기로 알린다. 전환 자체가 시험 조건인 시험은 화면 이동 뒤 {@link #restoreModalTransitions}를 부른다.
  * 브라우저 시험은 느리므로 브라우저가 필요한 동작에만 쓰고, 서버 로직은 기존 MockMvc·통합 시험에 둔다.
  */
+@Tag("browser")   // CI는 이 태그로 브라우저 시험을 별도 job으로 나눈다(build.gradle -PbrowserTests, .github/workflows/ci.yml)
 public abstract class BrowserTestSupport extends MariaDbContainerSupport {
 
     /** 브라우저 시험 회원의 로그인 비밀번호. */
