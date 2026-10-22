@@ -96,7 +96,18 @@ tasks.register('installPlaywrightBrowsers', JavaExec) {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    // CI는 브라우저 시험(@Tag("browser") — BrowserTestSupport 상속 클래스)을 별도 job으로 나눠 병렬로 돌린다
+    // (.github/workflows/ci.yml): -PbrowserTests=exclude | only. 지정하지 않으면 지금처럼 전체를 돌린다(로컬 기본).
+    def browserTests = findProperty('browserTests')
+    useJUnitPlatform {
+        if (browserTests == 'exclude') {
+            excludeTags 'browser'
+        } else if (browserTests == 'only') {
+            includeTags 'browser'
+        } else if (browserTests != null) {
+            throw new GradleException("browserTests는 exclude 또는 only만 허용한다: ${browserTests}")
+        }
+    }
     // application.yml의 spring.profiles.active가 기본값 없이 ${SPRING_PROFILES_ACTIVE}로
     // 바뀌어(PLAN-prod-profile.md 결정 1) 프로파일 미지정 기동이 fail-fast하므로,
     // 로컬 실행도 CI(.github/workflows/ci.yml)와 동일하게 dev를 명시한다.

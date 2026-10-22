@@ -33,12 +33,9 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
-      # 브라우저 시험(Playwright)이 쓰는 Chromium과 시스템 의존성을 미리 설치한다 — 시험 안에서 설치하면 apt 권한 없이 실패할 수 있다.
-      - name: Install Playwright browsers
-        run: ./gradlew installPlaywrightBrowsers
-
+      # 브라우저 시험(@Tag("browser"))은 browser-test job이 병렬로 돌린다 — 이 job은 Playwright 설치도 하지 않는다.
       - name: Run tests
-        run: ./gradlew test
+        run: ./gradlew test -PbrowserTests=exclude
         env:
           SPRING_PROFILES_ACTIVE: dev
 
@@ -47,6 +44,51 @@ jobs:
         if: always()
         with:
           name: test-report
+          path: build/reports/tests/test/
+          retention-days: 14
+
+  # 브라우저 E2E 시험(BrowserTestSupport 상속 클래스, @Tag("browser")). test job과 병렬로 돌아 PR 대기 시간을 줄인다.
+  # 머지 차단은 브랜치 보호의 필수 체크에 이 job을 등록해야 성립한다(docs/branching.md).
+  browser-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Gradle cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      # 브라우저 시험(Playwright)이 쓰는 Chromium과 시스템 의존성을 미리 설치한다 — 시험 안에서 설치하면 apt 권한 없이 실패할 수 있다.
+      - name: Install Playwright browsers
+        run: ./gradlew installPlaywrightBrowsers
+
+      - name: Run browser tests
+        run: ./gradlew test -PbrowserTests=only
+        env:
+          SPRING_PROFILES_ACTIVE: dev
+
+      - name: Upload browser test report
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: browser-test-report
           path: build/reports/tests/test/
           retention-days: 14
 
