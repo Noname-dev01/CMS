@@ -172,6 +172,60 @@ public abstract class BrowserTestSupport extends MariaDbContainerSupport {
     }
 
     /**
+     * 모달이 화면에 표시된 직후(대화상자 전환 중, {@code shown.bs.modal} 전)에 상세 조회가 404로 실패하게 한다 — {@code urlPattern}(JS 정규식 원문)에 맞는 첫
+     * GET {@code fetch}를 가짜 404 응답으로 바꿔 두고, 페이지 안 {@code MutationObserver}가 {@code modalSelector} 요소에 {@code show} 클래스가 붙는 순간
+     * 그 응답을 넘긴다(PLAN-modal-shown-race-test.md 설계 1). 시험 쪽에서 기다렸다 넘기면 왕복 시간 때문에 {@code shown} 뒤로 밀릴 수 있어 브라우저 안에서
+     * 넘긴다 — 관찰자 콜백은 {@code show} 클래스가 붙은 태스크의 마이크로태스크이고 {@code shown}은 전환 완료라는 이후 매크로태스크다(모달에 {@code fade}
+     * 클래스가 있을 때). 가짜 응답의 {@code json()}은 즉시 해결되게 덮어써 앱의 닫기 요청까지 마이크로태스크만으로 끝난다.
+     *
+     * <p>{@link #assertClosedThroughPendingClose}가 읽을 증거를 {@code window.__race}에 모은다: 넘긴 순간의 상태, 상세 {@code fetch}가 불린 시점에 이미
+     * 표시 중이었는지, 그리고 Bootstrap {@code Modal.prototype.hide} 호출이 {@code shown.bs.modal} 발생 안에서 일어났는지. 화면을 옮긴 뒤 한 번만 부른다.
+     */
+    protected static void failDetailWhenModalShows(Page page, String urlPattern, String modalSelector) {
+        page.evaluate("args => { const re = new RegExp(args[0]); const modal = document.querySelector(args[1]);"
+                + " const st = window.__race = { delivered: null, fetchedWhileShowing: false, shownCount: 0, inShown: false, hides: [] };"
+                // 'shown.bs.modal' 발생(동기)을 감싸 횟수와 "발생 중" 표지를 만든다 — 앱의 shown 핸들러가 부르는 hide()가 이 안에서 일어난다
+                + " const trigger = $.fn.trigger; $.fn.trigger = function (event) {"
+                + "   if (this[0] === modal && /^shown\\.bs\\.modal/.test(String(event && event.type ? event.type : event))) {"
+                + "     st.shownCount++; st.inShown = true; try { return trigger.apply(this, arguments); } finally { st.inShown = false; }"
+                + "   } return trigger.apply(this, arguments); };"
+                + " const proto = $.fn.modal.Constructor.prototype; const hide = proto.hide;"
+                + " proto.hide = function () { if (this._element === modal) { st.hides.push({ inShown: st.inShown }); } return hide.apply(this, arguments); };"
+                + " let release = null;"
+                + " new MutationObserver(() => { if (release && modal.classList.contains('show')) {"
+                + "   st.delivered = { showClass: true, displayBlock: modal.style.display === 'block', shownCount: st.shownCount };"
+                + "   const run = release; release = null; run(); } }).observe(modal, { attributes: true, attributeFilter: ['class'] });"
+                + " const orig = window.fetch; let taken = false;"
+                + " window.fetch = function (url, options) {"
+                + "   if (taken || !re.test(String(url)) || (options && options.method)) { return orig(url, options); }"
+                + "   taken = true; if (modal.classList.contains('show')) { st.fetchedWhileShowing = true; }"
+                + "   return new Promise(resolve => { release = () => { const r = new Response('{}', { status: 404 }); r.json = () => Promise.resolve({}); resolve(r); };"
+                + "     if (st.fetchedWhileShowing) { st.delivered = { showClass: true, displayBlock: modal.style.display === 'block', shownCount: st.shownCount }; const run = release; release = null; run(); } }); }; }",
+                java.util.List.of(urlPattern, modalSelector));
+    }
+
+    /**
+     * {@link #failDetailWhenModalShows}가 모은 증거로, 모달이 {@code shown.bs.modal} 전에 들어온 실패 응답 때문에 <b>미뤄 둔 닫기(pendingClose)</b> 경로로 닫혔음을
+     * 단언한다. 모달이 {@code closed}가 된 <b>뒤에</b> 부른다. 응답이 표시 중·{@code shown} 전에 넘어갔고(상세 {@code fetch}가 그보다 먼저 불렸다), Bootstrap의
+     * {@code hide()} 호출이 하나 이상이며 모두 {@code shown} 발생 안에서 일어났다 — 열림 전환 중에 직접 부른 {@code hide()}(Bootstrap이 무시)나
+     * {@code shown} 뒤의 일반 닫기는 구간 밖 호출로 잡힌다.
+     */
+    @SuppressWarnings("unchecked")
+    protected static void assertClosedThroughPendingClose(Page page) {
+        java.util.Map<String, Object> race = (java.util.Map<String, Object>) page.evaluate("() => JSON.parse(JSON.stringify(window.__race))");
+        java.util.Map<String, Object> delivered = (java.util.Map<String, Object>) race.get("delivered");
+        assertThat(delivered).as("실패 응답이 모달 표시(show 클래스) 뒤에 넘어갔다").isNotNull();
+        assertThat(delivered.get("showClass")).isEqualTo(true);
+        assertThat(delivered.get("displayBlock")).as("표시 중(display:block)이었다").isEqualTo(true);
+        assertThat(((Number) delivered.get("shownCount")).intValue()).as("넘길 때 shown.bs.modal은 아직 오지 않았다").isZero();
+        assertThat(race.get("fetchedWhileShowing")).as("상세 fetch는 표시보다 먼저 불렸다 — 아니면 시험이 다른 구간을 본다").isEqualTo(false);
+        java.util.List<java.util.Map<String, Object>> hides = (java.util.List<java.util.Map<String, Object>>) race.get("hides");
+        assertThat(hides).as("Bootstrap hide() 호출이 있었다").isNotEmpty();
+        assertThat(hides).as("모든 hide() 호출이 shown.bs.modal 발생 안(미뤄 둔 닫기 경로)에서 일어났다")
+                .allSatisfy(call -> assertThat(call.get("inShown")).isEqualTo(true));
+    }
+
+    /**
      * 요청 장벽 —페이지에서 표지 요청을 하나 보내고 그 요청이 시험 쪽 요청 이벤트로 도착할 때까지 기다린다. 앱이 직전 동기 처리에서 보낸 요청은 표지보다
      * 먼저 발행되므로, 장벽 뒤에 센 요청 수로 "요청이 나가지 않았다"를 단언한다(설계 4 B·I, 검출력은 변이 실험으로 확인).
      */

@@ -349,9 +349,11 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         restoreModalTransitions(page);                       // 이 시험은 열림 전환 중의 응답이 조건이다 — 기본으로 꺼 둔 전환을 되살린다
         // 상세 조회(GET /admin/api/faqs/{id})가 열림 전환(약 300ms)보다 훨씬 빨리 404로 끝나도록 즉시 해결되는 응답으로 바꾼다 —
         // 서버 왕복은 전환이 끝난 뒤에 도착할 수 있어 "전환 중 hide() 무시"를 결정적으로 재현하지 못한다.
+        // json()도 즉시 해결되게 덮어써, 클릭부터 closeModal()까지가 마이크로태스크만으로 끝나 열림 전환 앞 구간(배경막 단계)에 고정되게 한다 —
+        // 네이티브 본문 소비는 완료 시점이 보장되지 않는다(PLAN-modal-shown-race-test.md R1-1).
         page.evaluate("() => { const orig = window.fetch; window.fetch = function (url, options) {"
-                + " return /\\/admin\\/api\\/faqs\\/\\d+$/.test(String(url)) && !(options && options.method)"
-                + " ? Promise.resolve(new Response('{}', { status: 404 })) : orig(url, options); }; }");
+                + " if (!(/\\/admin\\/api\\/faqs\\/\\d+$/.test(String(url)) && !(options && options.method))) { return orig(url, options); }"
+                + " const r = new Response('{}', { status: 404 }); r.json = () => Promise.resolve({}); return Promise.resolve(r); }; }");
 
         page.click(".faq-row[data-faq-id='" + a + "'] .faq-row-question");
         // 모달 요소의 "숨김" 대기는 쓰지 않는다 — 열림 전환 초기에는 요소가 아직 display:none이라 닫히지 않았는데도 바로 통과한다.
@@ -360,6 +362,23 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         waitUntilIdle();                                     // 404 뒤 재조회까지 끝났다 — 재조회의 안내 정리는 busy 해제와 같은 동기 연속이다
         assertThat(page.locator("#pageAlert").isVisible()).as("재조회가 안내를 지우지 않았다").isTrue();
         assertThat(dialogMessages).as("프로그램이 닫는 경로(상세 조회 실패)는 미저장 확인을 거치지 않는다").isEmpty();
+    }
+
+    @Test
+    @DisplayName("모달이 표시된 뒤·shown 전에 상세 조회가 404로 실패해도 미뤄 둔 닫기(pendingClose)로 모달이 닫히고, 재조회가 끝난 뒤에도 안내가 남는다")
+    void detailFailureWhileModalShowingClosesThroughPendingClose() {
+        trackDialogs();
+        open(admin);
+        restoreModalTransitions(page);                       // 이 시험은 실제 전환 시간(약 300ms) 중의 응답이 조건이다
+        failDetailWhenModalShows(page, "/admin/api/faqs/\\d+$", "#faqModal");
+
+        page.click(".faq-row[data-faq-id='" + a + "'] .faq-row-question");
+        waitModalState("closed");                            // 직접 hide()를 부르면 Bootstrap이 무시해 open에 멈춘다 — 시간 초과로 실패
+        waitForText("pageAlert", "불러오지 못했습니다");
+        waitUntilIdle();
+        assertThat(page.locator("#pageAlert").isVisible()).as("재조회가 안내를 지우지 않았다").isTrue();
+        assertThat(dialogMessages).as("프로그램이 닫는 경로(상세 조회 실패)는 미저장 확인을 거치지 않는다").isEmpty();
+        assertClosedThroughPendingClose(page);
     }
 
     @Test
