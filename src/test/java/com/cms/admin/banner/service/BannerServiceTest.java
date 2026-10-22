@@ -218,7 +218,7 @@ class BannerServiceTest {
     }
 
     @Test
-    @DisplayName("등록: 가드 행이 없으면(V34 시드 누락) IllegalStateException — 조용히 잠금 없이 진행하지 않는다")
+    @DisplayName("등록: 가드 행이 없으면(가드 행 시드 누락) IllegalStateException — 조용히 잠금 없이 진행하지 않는다")
     void create_missingGuardRow_failsClosed() throws Exception {
         given(bannerLockRepository.findByIdForUpdate(BannerLock.SINGLETON_ID)).willReturn(Optional.empty());
 
