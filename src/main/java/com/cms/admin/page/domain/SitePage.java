@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 정적 페이지 메타(V37, PLAN-static-page.md 쟁점 2). 본문·제목은 {@link SitePageRevision}에만 있고 {@link #currentRevisionNo}가 현재
+ * 정적 페이지 메타(PLAN-static-page.md 쟁점 2). 본문·제목은 {@link SitePageRevision}에만 있고 {@link #currentRevisionNo}가 현재
  * 개정을 가리킨다. 슬러그는 생성 후 바뀌지 않는다. {@link #version}은 낡은 화면 검출용 변경 버전으로 본문·노출·푸터 중 무엇이든
  * 바뀌면 오른다 — 개정 번호와는 다른 값이다(메타만 바뀌면 개정 번호는 그대로이고 버전만 오른다).
  */
@@ -45,7 +45,7 @@ public class SitePage {
     @Column(name = "footer_yn", nullable = false)
     private Boolean footerYn;
 
-    /** 소속 사이트(V55). {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
+    /** 소속 사이트. {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
     @Column(name = "site_id")
     private Long siteId;
 

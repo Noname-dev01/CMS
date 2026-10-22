@@ -50,13 +50,13 @@
 
 **열람 시점 권한(D11 확장 없음)**: 권한을 회수당한 MANAGER에게 기존 문의 알림이 남을 수 있다. 문장이 상수라 노출되는 것은 "문의가 왔다"는 사실뿐이고 링크는 403이다 — 알림 필터를 권한 인지형으로 일반화하는 변경은 범위 밖이라 수용했다.
 
-## 스키마 (V47~V48)
+## 스키마
 
-`inquiry(id, name 50, email 100, title 100, body TEXT, status varchar(20), consent_at, create_date, update_date)` + 인덱스 `(status, id)`(상태 탭·미처리 COUNT), 모두 NOT NULL, 하드 삭제. V47 = DDL 1문, V48 = 메뉴 시드(`/admin/inquiry/manage` '문의함', 최상위 맨 끝, 멱등). 롤백·복구는 `docs/migration-guide.md` "V47~V48"과 `docs/deployment.md` "문의 폼".
+`inquiry(id, name 50, email 100, title 100, body TEXT, status varchar(20), consent_at, create_date, update_date)` + 인덱스 `(status, id)`(상태 탭·미처리 COUNT), 모두 NOT NULL, 하드 삭제. 메뉴는 V2 시드(`/admin/inquiry/manage` '문의함'). 운영 주의는 `docs/deployment.md` "문의 폼".
 
 ## 시험
 
-`InquiryInputPolicyTest`·`InquiryAdminApiIntegrationTest`(목록·상세·상태·삭제·감사·본문 비변형·PATCH/DELETE 동시성)·`InquiryPermissionMatrixIntegrationTest`(핸들러 4 × 권한 6조합)·`InquiryNotificationIntegrationTest`(수신자·변형 행·락 대기 상한)·`AdminInquiryTemplateConventionTest`·`InquiryMigrationTest`. 공개 쪽은 `com.cms.publicweb.inquiry`의 `CLAUDE.md`.
+`InquiryInputPolicyTest`·`InquiryAdminApiIntegrationTest`(목록·상세·상태·삭제·감사·본문 비변형·PATCH/DELETE 동시성)·`InquiryPermissionMatrixIntegrationTest`(핸들러 4 × 권한 6조합)·`InquiryNotificationIntegrationTest`(수신자·변형 행·락 대기 상한)·`AdminInquiryTemplateConventionTest`. 공개 쪽은 `com.cms.publicweb.inquiry`의 `CLAUDE.md`.
 
 ## 남은 한계
 

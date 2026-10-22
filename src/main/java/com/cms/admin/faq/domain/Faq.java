@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * FAQ 한 건(V41, PLAN-faq.md 쟁점 1). 연관관계 매핑 없이 {@link #categoryId}만 가진다. {@link #ord}는 카테고리 안에서 항상 0..n-1이다.
+ * FAQ 한 건(PLAN-faq.md 쟁점 1). 연관관계 매핑 없이 {@link #categoryId}만 가진다. {@link #ord}는 카테고리 안에서 항상 0..n-1이다.
  * 답변은 저장 시 정리된 HTML이고(이미지 불허) 출력 시에도 한 번 더 정리한다. 하드 삭제.
  */
 @Entity

@@ -24,7 +24,7 @@ import java.time.LocalDateTime;
 @Builder
 public class Board {
 
-    /** 공지 게시판의 {@link #boardKey}. V32가 만든다. */
+    /** 공지 게시판의 {@link #boardKey}. 공통 공지 게시판(id=1)은 V2가 시드한다. */
     public static final String NOTICE_KEY = "NOTICE";
 
     @Id
@@ -44,14 +44,14 @@ public class Board {
     private Boolean deleted;
 
     /**
-     * 시스템 게시판 키(V31). null이면 일반 게시판이다. 공지 게시판은 {@link #NOTICE_KEY}이며 공개 {@code /notices}가 이 게시판에 의존하므로
+     * 시스템 게시판 키. null이면 일반 게시판이다. 공지 게시판은 {@link #NOTICE_KEY}이며 공개 {@code /notices}가 이 게시판에 의존하므로
      * 삭제·비공개 전환을 서비스가 막는다(PLAN-notice-to-board.md 쟁점 1·2).
      */
     @Column(name = "board_key", length = 30)
     private String boardKey;
 
     /**
-     * 소속 사이트(V56). null = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리키며 서비스(ContentSiteScope)가 검증한다.
+     * 소속 사이트. null = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리키며 서비스(ContentSiteScope)가 검증한다.
      * 소프트 삭제하면 비워진다 — 삭제된 게시판은 어느 사이트에도 속하지 않아 사이트 삭제의 FK RESTRICT에 걸리지 않는다.
      */
     @Column(name = "site_id")

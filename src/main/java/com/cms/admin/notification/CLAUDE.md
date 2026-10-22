@@ -27,7 +27,7 @@
 - **E3(비밀번호 임박)**: `expiresAt = passwordChangedAt + 90일`이 `(now, now+7일]`이면 생성(기존 만료 쿼리와 같은 시·분·초 기준 — 날짜 차이로 계산하지 않는다). 판정 기준은 로그인 재확인이 읽은 fresh 스냅샷(`MemberSnapshot.passwordChangedAt`)이고, 저장은 **"회원의 현재 `password_changed_at`이 스냅샷과 같을 때만"** 조건부 `INSERT … SELECT … ON DUPLICATE KEY UPDATE id = notification.id`다(**`id = id`는 `member.id`·`notification.id`가 모호해 오류**). `dedupe_key = "PASSWORD_EXPIRY:" + passwordChangedAt`로 **비밀번호 주기당 1건**이다. 반환값(행 수)에 의존하지 않는다 — 중복 시 값이 드라이버 설정에 달라진다.
 - **로그인 경로는 `REQUIRES_NEW`를 쓰지 않는다**(요청당 커넥션 2개 금지 — `LoginFailureService.unlockIfLockExpired` 주석의 풀 고갈 규칙). 성공 핸들러는 트랜잭션 밖이라 `recordPasswordExpiryIfNear`와 `purgeOldReadNotifications`는 **서로 다른 `@Transactional`(REQUIRED) 메서드**로 각각 자기 트랜잭션을 열고, 핸들러가 각각 try/catch로 감싸 한쪽 실패가 다른 쪽과 로그인을 막지 않는다. **정리(D7·D8)**: 읽은 지 90일이 지난 본인 알림만 삭제(미읽음은 지우지 않음). 스케줄러가 없어 로그인하지 않는 회원의 오래된 알림은 남는다.
 
-- **`INQUIRY_RECEIVED`(새 문의, 무인증 공개 경로에서 발생)**: 문장은 **상수**이고 문의 내용·방문자 정보를 담지 않는다. 컨트롤러가 접수 트랜잭션(`InquiryService.submit`)이 **끝난 뒤** 트랜잭션 없는 `InquiryNotifier.notifyReceived()`를 부르고, 이 클래스가 `recordInquiryReceived()`(`READ_COMMITTED`, REQUIRED — 호출자에 트랜잭션이 없어 새 트랜잭션 하나)를 호출한다. `AFTER_COMMIT` 리스너의 `REQUIRES_NEW`는 제출 트랜잭션의 커넥션을 쥔 채 두 번째 커넥션을 요구해 풀 크기만큼의 동시 제출이 풀 획득 대기로 응답을 막기 때문이다(로그인 경로의 "요청당 커넥션 2개 금지"와 같은 규칙, `PublicInquirySmallPoolIntegrationTest`). 수신자 INSERT 한 문장은 `SET STATEMENT max_statement_time=3, innodb_lock_wait_timeout=1 FOR INSERT …`로 감싸 FK 검사의 락 대기가 접수 응답을 오래 붙잡지 못하게 한다 — `innodb_lock_wait_timeout`은 락마다 새로 계산돼 합산 상한이 아니라서 문장 전체 상한이 필요하다(대략의 상한이지 엄밀한 벽시계 상한은 아니다). 초과·실패는 `InquiryNotifier`가 삼킨다. **D11(열람 시점 권한)을 이 종류에는 확장하지 않았다** — 권한을 회수당한 MANAGER에게 기존 문의 알림이 남을 수 있고 노출되는 것은 "문의가 왔다"는 사실뿐이다(링크는 403). 상세는 `com.cms.admin.inquiry`의 `CLAUDE.md`. **롤백 주의**: `Notification.type`이 `@Enumerated(STRING)`이라 이전 앱이 `INQUIRY_RECEIVED` 행을 읽으면 알림 목록 조회가 실패한다 — 롤백 전 `DELETE FROM notification WHERE type = 'INQUIRY_RECEIVED'`(`docs/deployment.md` "문의 폼").
+- **`INQUIRY_RECEIVED`(새 문의, 무인증 공개 경로에서 발생)**: 문장은 **상수**이고 문의 내용·방문자 정보를 담지 않는다. 컨트롤러가 접수 트랜잭션(`InquiryService.submit`)이 **끝난 뒤** 트랜잭션 없는 `InquiryNotifier.notifyReceived()`를 부르고, 이 클래스가 `recordInquiryReceived()`(`READ_COMMITTED`, REQUIRED — 호출자에 트랜잭션이 없어 새 트랜잭션 하나)를 호출한다. `AFTER_COMMIT` 리스너의 `REQUIRES_NEW`는 제출 트랜잭션의 커넥션을 쥔 채 두 번째 커넥션을 요구해 풀 크기만큼의 동시 제출이 풀 획득 대기로 응답을 막기 때문이다(로그인 경로의 "요청당 커넥션 2개 금지"와 같은 규칙, `PublicInquirySmallPoolIntegrationTest`). 수신자 INSERT 한 문장은 `SET STATEMENT max_statement_time=3, innodb_lock_wait_timeout=1 FOR INSERT …`로 감싸 FK 검사의 락 대기가 접수 응답을 오래 붙잡지 못하게 한다 — `innodb_lock_wait_timeout`은 락마다 새로 계산돼 합산 상한이 아니라서 문장 전체 상한이 필요하다(대략의 상한이지 엄밀한 벽시계 상한은 아니다). 초과·실패는 `InquiryNotifier`가 삼킨다. **D11(열람 시점 권한)을 이 종류에는 확장하지 않았다** — 권한을 회수당한 MANAGER에게 기존 문의 알림이 남을 수 있고 노출되는 것은 "문의가 왔다"는 사실뿐이다(링크는 403). 상세는 `com.cms.admin.inquiry`의 `CLAUDE.md`. **새 알림 종류의 롤백 주의**: `Notification.type`이 `@Enumerated(STRING)`이라 그 종류를 모르는 이전 앱이 행을 읽으면 알림 목록 조회가 실패한다 — 새 종류를 도입한 버전을 되돌릴 때는 그 종류의 행을 먼저 지운다(`docs/deployment.md` "문의 폼").
 
 ## 리스너 실행 순서 — 메서드 `@Order`, 그리고 `AFTER_COMMIT`이 `AFTER_COMPLETION`보다 먼저
 
@@ -53,9 +53,9 @@
 
 **D11 — 열람 시점 권한**: ADMIN 전용 종류(`ADMIN_ACCOUNT_LOCKED`, 다른 계정 아이디·잠금 시각)는 **요청 시점에 ADMIN인 사용자에게만** 보인다. 목록·`unreadCount`·단건·전체 읽음 쿼리의 **조건**으로 걸러(조회 후 응답에서 거르지 않는다 — `hasMore`·count·커서가 어긋나지 않게) 강등되면 E4가 보이지 않고 미읽음 수에서도 빠지며, 단건 읽음은 404, 전체 읽음은 보이는 행만 갱신(숨겨진 E4는 미읽음으로 남아 재승격 시 다시 보인다).
 
-## 스키마 (V20)
+## 스키마
 
-`notification(member_id FK ON DELETE CASCADE, type, message, link_url, dedupe_key, read_at, create_date)` + `UNIQUE (member_id, dedupe_key)` + 인덱스 `(member_id, id)`(목록 커서)·`(member_id, read_at, id)`(미읽음 수·정리). **FK가 CASCADE인 이유**: 앱은 회원을 하드 삭제하지 않지만(`DELETED` 상태 전이만), 회원 행을 직접 지우는 시험·운영 SQL이 알림 때문에 조용히 실패하지 않게 한다(`member_permission`은 RESTRICT지만 알림은 회원 없이 의미가 없는 종속 데이터). 실패 복구·롤백은 `docs/migration-guide.md` "V20 실패 복구".
+`notification(member_id FK ON DELETE CASCADE, type, message, link_url, dedupe_key, read_at, create_date)` + `UNIQUE (member_id, dedupe_key)` + 인덱스 `(member_id, id)`(목록 커서)·`(member_id, read_at, id)`(미읽음 수·정리). **FK가 CASCADE인 이유**: 앱은 회원을 하드 삭제하지 않지만(`DELETED` 상태 전이만), 회원 행을 직접 지우는 시험·운영 SQL이 알림 때문에 조용히 실패하지 않게 한다(`member_permission`은 RESTRICT지만 알림은 회원 없이 의미가 없는 종속 데이터).
 
 ## 화면 (`static/js/admin/topbar-notification.js`)
 
@@ -63,7 +63,7 @@
 
 ## 시험
 
-`NotificationMigrationTest`(V20 적용·실패 복구), `NotificationRepositoryDataJpaTest`(커서·D11·원자적 읽음·정리·E3 조건부 INSERT), `NotificationServiceTest`·`NotificationControllerTest`, `NotificationApiIntegrationTest`(IDOR·D11 강등/재승격·동시 읽음·커서), `NotificationGenerationIntegrationTest`(E1·E2·E4·롤백·저장 실패 격리·리스너 순서), `NotificationLoginIntegrationTest`(E3 경계·스냅샷 불일치·동시 중복·정리), `NotificationMessagesTest`. 회원을 직접 지우는 기존 시험은 FK CASCADE로 별도 수정이 필요 없다.
+ `NotificationRepositoryDataJpaTest`(커서·D11·원자적 읽음·정리·E3 조건부 INSERT), `NotificationServiceTest`·`NotificationControllerTest`, `NotificationApiIntegrationTest`(IDOR·D11 강등/재승격·동시 읽음·커서), `NotificationGenerationIntegrationTest`(E1·E2·E4·롤백·저장 실패 격리·리스너 순서), `NotificationLoginIntegrationTest`(E3 경계·스냅샷 불일치·동시 중복·정리), `NotificationMessagesTest`. 회원을 직접 지우는 기존 시험은 FK CASCADE로 별도 수정이 필요 없다.
 
 ## 남은 한계
 

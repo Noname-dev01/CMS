@@ -280,13 +280,11 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 | SQL 로그(`show-sql`) | `true` | `false` |
 | 초기 관리자 계정 | `TestMemberLoader`(고정 `admin`/`1234`, 회원 0명일 때만) | `AdminBootstrapLoader`(환경변수 기반, `ROLE_ADMIN`+`ACTIVE`/`LOCKED`/`PASSWORD_EXPIRED` 중 하나도 없을 때만 — 감사 H-01, 위 "초기 관리자 계정" 절 참조) |
 
-## 정적 페이지 (V37~V38, 2026-10-11, adversarial-review/plan/PLAN-static-page.md)
+## 정적 페이지 (2026-10-11, adversarial-review/plan/PLAN-static-page.md)
 
 - **새 공개 경로**: `GET·HEAD /pages/{slug}`·`/pages/{slug}/revisions`·`/pages/{slug}/revisions/{no}`가 무인증이다(`SecurityConfig` 승인 2026-10-11, `/pages`·`/pages/**`의 그 외 메서드는 `denyAll`). 공개 메인(`/`) 하단 푸터에는 푸터로 지정한 노출 중 페이지 링크가 붙는다. 리버스 프록시·ingress가 `/pages`를 막고 있다면 확인한다. 레이트리밋 규칙 `public-page`(`/pages/**` 120/60초)가 IP별로 걸린다.
 - **저장**: 페이지 메타 `site_page`와 개정 `site_page_revision`은 DB에만 있고 파일 볼륨을 쓰지 않는다(본문 이미지는 지원하지 않는다). 개정은 본문이 바뀐 저장마다 쌓이고 페이지 삭제 때만 함께 지워진다 — **DB 백업(`make prod-backup`)에 두 테이블이 그대로 들어간다**. 개정 한 건은 본문이 최대 약 500KB라 개정이 많이 쌓이면 DB 용량이 늘 수 있다(상한을 두지 않았다 — 요청된 적 없음, 모니터링 포인트).
 - **이전 개정은 계속 공개된다**: 노출 중인 페이지의 모든 이전 개정이 `/pages/{slug}/revisions/{no}`로 열린다. 실수로 넣은 민감 정보를 **그 개정만** 가리는 기능은 없고 페이지 비노출(`useYn=false`)·삭제만 수단이다. 비노출이면 현재 버전·이력·이전 개정이 모두 404다.
-- **롤백(정적 페이지 도입 전 앱으로)**: V37·V38은 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `SitePageMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `SITE_PAGE` 기능 행을 diff에서 제외하므로 롤백 중 "전체 회수"를 해도 그 행이 남고, 신버전을 다시 배포하면 **회수한 정적 페이지 권한이 되살아난다**(배너 `BANNER`와 같은 문제). 재배포 전에 위 "사용자별 권한 전환 > 롤백했다가 신버전을 다시 배포할 때(필수 정리)"의 정리 트랜잭션을 그대로 수행하고 기동 후 ADMIN이 권한을 다시 부여한다. 롤백 중에는 **공개 `/pages/**`가 404가 되고 메뉴 행은 클릭 시 404**다(필요하면 메뉴 관리에서 비활성화). roll-forward가 기본이다.
-- **V37 실패 복구**: `docs/migration-guide.md` "V37~V38".
 - **본문 상한**: 정적 페이지 본문은 보이는 글자 50,000자·정리 후 500,000바이트·요청 원문 600,000바이트다(게시글은 10,000자). 리버스 프록시의 요청 본문 크기 제한(`client_max_body_size` 등)이 1MB 미만이면 큰 본문 저장이 프록시에서 막힌다.
 
 ## 무인증 공개 엔드포인트 레이트리밋
@@ -326,7 +324,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 새 CVE가 공개돼 `prod-smoke`가 빨개지면 (1) 수정 버전으로 상향, (2) 불가하면 `.trivyignore.yaml`에 CVE ID·`paths`·사유·책임자·`expired_at`을 적어 예외 처리한다. 예외 없이 우회하려면 필수 체크 설정을 임시 해제하는 방법뿐이며, 그 사실을 PR에 기록한다. Spring Boot BOM이 관리하는 라이브러리는 `build.gradle`의 `ext['tomcat.version']`·`ext['jackson-bom.version']`(Jackson 3)·`ext['jackson-2-bom.version']`(Jackson 2, SpringDoc 경유) 오버라이드로 올리며(Boot가 이 버전 이상을 관리하게 되면 제거), 현재 값과 사유는 해당 파일 주석에 있다.
 
 
-## 쪽지 서버 로그 비유출의 JDBC·세션 설정 전제 (쪽지 V21, adversarial-review/plan/PLAN-admin-message.md R4-1·R5-1)
+## 쪽지 서버 로그 비유출의 JDBC·세션 설정 전제 (쪽지, adversarial-review/plan/PLAN-admin-message.md R4-1·R5-1)
 
 쪽지 제목·본문은 다른 회원이 쓴 대화 내용이다. 감사 로그(`admin_action_log`)에는 제목·본문이 없고 실패 `errorMessage`도 고정 문구(`@AdminActionLogged.safeErrorMessage`)지만, Hibernate가 JDBC 예외를 변환하며 서버 로그에 찍는 출력은 코드로 막을 수 없다. 따라서 **서버 로그에 쪽지 내용이 남지 않는다는 보장은 아래 설정이 유지될 때에 한한다** — 운영 `DB_URL`·MariaDB 설정은 코드가 강제하지 않는 외부 값이므로 배포 전 점검한다.
 
@@ -336,164 +334,108 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 시험(`AdminMessageSendIntegrationTest.send_roundTripsFourByteCharacters`·`AdminMessageInstrumentedIntegrationTest`)은 **테스트 연결에서** 문자셋·strict 모드·4바이트 문자 왕복과 로그 비유출(FK 위반·`beforeCommit` 롤백 주입)을 단언한다 — 운영 연결 설정을 대신 증명하지 않는다.
 
-## 권한관리 롤백 주의 (권한관리 PR ①~④, adversarial-review/plan/PLAN-menu-permission-management.md "롤백 호환표")
+## 권한 운영 주의 (adversarial-review/plan/PLAN-member-permission.md · PLAN-board.md)
 
-MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 ADMIN이 `/admin/permission/manage`(권한 관리)에서 바꾼다. **판정기가 없는 앱(PR ① 이전)으로 되돌리면 회수한 권한이 되살아날 수 있으므로** 되돌리기 전에 아래를 확인한다. **기본은 roll-forward(수정 버전 배포)**다.
+MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_permission`, 게시판 단위 위임은 `member_board_permission`이고 ADMIN이 `/admin/permission/manage`(권한 관리)에서 준다. 새로 만든 MANAGER는 권한이 없다(대시보드·내 정보만). **기본은 roll-forward(수정 버전 배포)**다.
 
-> **V22(2026-10-06) 이후에는 이 절의 역할 단위 롤백 경로가 모두 없다** — `role_permission`·`permission_role`이 지워져 이 절에 나오는 앱(PR ①~④, 사용자별 전환 이전)은 전부 기동에 실패한다(아래 "사용자별 권한 전환" 참조). 이 절은 V22 이전 DB에만 해당한다.
-
-- **③ 이후 → ②**: 안전. 권한 테이블은 ②도 읽어 회수 결과가 유지된다. 권한관리 화면·API만 사라지고 V15가 만든 "권한 관리" 메뉴는 남아 ADMIN 사이드바에 링크가 보이지만 핸들러가 없어 404다(표시 회귀). 필요하면 메뉴 관리에서 그 메뉴를 비활성화한다.
-- **③ 이후 → ①**: 보안 회귀는 없다(판정기 유지). 다만 ①은 `menu.access_role`을 매핑해 V15 메뉴(`access_role NULL`)를 ALL로 정규화하므로 **MANAGER 사이드바에 "권한 관리" 링크가 보이고 누르면 403**이다(표시 회귀). 메뉴를 비활성화해 숨긴다.
-- **① 이전(판정기 없는 앱)으로 되돌리기**: 권한 회수 이력이 있으면 **금지가 기본**이다 — 회수가 무효화돼 MANAGER 공지 CRUD가 전부 열린다. 되돌리기 전에 회수 여부를 확인한다. **감사 이력만으로 판단하지 않는다** — 감사 저장은 최선 노력이라 회수는 성공했는데 감사가 유실됐을 수 있다. 감사와 **현재 DB의 NOTICE 유효 허용 집합을 정확 일치로 함께** 확인한다:
-  ```sql
-  -- 회수 이력(감사)
-  SELECT create_at, action_user_id, action_result, target_label FROM admin_action_log
-  WHERE action_type = 'PERMISSION_UPDATE' ORDER BY id DESC;
-  -- 현재 유효 허용 집합: 정확히 4행(READ·CREATE·UPDATE·DELETE)이어야 시드 상태 (BINARY로 general_ci 비교를 피한다) — V22 이전 DB 전용
-  SELECT action FROM role_permission
-  WHERE BINARY role = 'ROLE_MANAGER' AND BINARY feature = 'NOTICE' AND BINARY action IN ('READ','CREATE','UPDATE','DELETE');
-  ```
-  4행이 아니면 회수된 것이다. 4행이어도 과거에 회수했다가 다시 부여했을 수 있고 감사가 유실됐을 수 있으므로 **이력이 불확실하면 되돌리지 않고 roll-forward 한다**. 불가피하면 MANAGER 계정 상태를 잠금·비활성으로 바꿔 로그인을 막거나, 공지 권한 개방을 감수한다는 승인을 받는다.
-- **④(V16 `DROP COLUMN access_role`) 이후 → ①**: 불가 — ①은 `access_role`을 매핑하므로 컬럼이 없으면 `ddl-auto: validate`로 기동에 실패한다. V16 실행 전 DB 백업이 필수다(복원: `ALTER TABLE menu ADD COLUMN access_role VARCHAR(20) NULL` 후 백업에서 값 복원 — 절차는 `docs/migration-guide.md` "V16 배포 전 백업과 복구").
-- **V14 재실행 금지**: 권한 복구·재부여는 권한관리 화면/`PUT`으로만 한다(V14 SQL을 수동 재실행하면 회수한 권한이 되살아난다 — `docs/migration-guide.md` 참조).
-- **변형 행 정리**: 권한관리 저장이 "권한 테이블에 형식이 올바르지 않은 행이 있어 저장할 수 없습니다"로 409를 내면 수동 삽입된 대소문자·공백 변형 행(예: `read`)이 있는 것이다. 해당 행을 확인한 뒤 수동 SQL로 정리하고 다시 저장한다(자동 삭제하지 않는다).
-- **다중 인스턴스 미지원**: 저장 시 다른 인스턴스의 권한 캐시는 무효화되지 않는다(세션 레지스트리·레이트리밋과 같은 단일 인스턴스 전제).
-
-### 사용자별 권한 전환(V17~V19, 2026-10-03, adversarial-review/plan/PLAN-member-permission.md)
-
-권한이 **역할 단위(`role_permission`)에서 회원 단위(`member_permission`)로** 바뀌었다. 배포 직후 기존 MANAGER는 V19 복사로 **동작이 같고**, 배포 후 새로 만든 MANAGER는 권한이 없다(대시보드·내 정보만). `role_permission`·`permission_role`은 **V22(2026-10-06, PR B)가 지운다**.
-
-- **앱 롤백(전환 이후 → 전환 이전, V22 이전 DB에서만 가능)**: 이전 앱은 `role_permission`을 읽으므로 **회원별로 회수·부여한 결과는 사라지고 배포 시점의 역할 단위 권한으로 돌아간다**(회수한 권한이 되살아날 수 있다). 회원별 회수 이력이 생긴 뒤에는 되돌리기보다 **roll-forward가 기본**이다. **실기 확인(2026-10-06, 일회용 MariaDB)**: 전환 직전 앱(`3679f86`, Boot 3.5)은 V17~V21이 적용된 DB에서 Flyway 검증을 통과해 기동했고(`Schema … has a version (21) that is newer than the latest available migration (16)` 경고만), 회원별 권한 0개인 MANAGER가 역할 단위 시드 4행 때문에 `GET /admin/api/notices` **200**을 받았다(위 서술이 실제로 일어남).
-- **V22 이후**: 전환 이전 앱은 **기동 불가**(`Schema-validation: missing table [permission_role]`, 2026-10-06 실기 관측) — 되돌리는 수단은 백업 복원뿐이고, 복원 순서(V22 없는 이미지로 컨테이너를 먼저 교체한 뒤 복원)는 `docs/migration-guide.md` "V22 배포 전 백업과 복구". 사용자별 전환 이후 앱(V22 파일 없음)으로 되돌리는 것은 그대로 기동한다(이력의 미래 버전 무시, 실기·`RolePermissionDropMigrationTest`).
-- **롤백했다가 신버전을 다시 배포할 때(필수 정리)**: 구버전 운영 중의 역할 변경·회원 생성은 `member_permission`에 반영되지 않고 V19는 재실행되지 않아 **낡은 행이 되살아난다**. 다음 순서를 지킨다.
+- **위임 기능이 추가된 버전을 롤백했다가 다시 배포할 때(필수 정리)**: 이전 앱의 권한관리는 자기 카탈로그에 없는 기능 행을 diff에서 제외하므로 롤백 중 "전체 회수"를 해도 그 행이 DB에 남고, 신버전을 다시 배포하면 **회수한 권한이 되살아난다**. 롤백 중의 역할 변경·회원 생성도 이전 앱이 모르는 테이블에는 반영되지 않는다. 재배포는 다음 순서를 지킨다.
   1. **앱 정지**(구버전 인스턴스가 떠 있지 않은지 확인)
   2. 한 트랜잭션으로 정리 — 허용 행이 0개인 회원까지 **전원의 버전을 올려야** 정리 전에 권한 화면을 열어 둔 ADMIN의 오래된 PUT이 과거 권한을 복원하지 못한다:
      ```sql
      START TRANSACTION;
      DELETE FROM member_permission;
-     DELETE FROM member_board_permission;   -- V26 이후(게시판별 권한, 2026-10-08) — 구버전은 이 테이블을 몰라 역할 변경 때 지우지 못한다
+     DELETE FROM member_board_permission;
      UPDATE member SET permission_version = permission_version + 1;
      COMMIT;
      ```
   3. **신버전 기동**. 정리 전에 신버전이 먼저 떠서 낡은 행을 캐시에 적재했다면 **앱을 재시작해야 캐시가 폐기된다**(직접 SQL은 캐시 무효화 이벤트를 내지 않고, 이후 같은 집합 PUT은 "변경 없음"이라 무효화하지 않는다).
-  4. **확인**: 정리 전에 공지 권한이 있던 MANAGER 계정으로 `GET /admin/api/notices`가 **실제 403**인지 확인한다(SQL 실행 기록만으로 완료 처리하지 않는다). 이후 ADMIN이 권한관리 화면에서 필요한 매니저에게 다시 부여한다(fail-closed — 정리 직후 MANAGER 전원이 권한 0개).
-  V19 재실행은 회수한 권한을 되살리므로 쓰지 않는다.
-- **V17·V18 실패 복구**: `docs/migration-guide.md` "V17~V19 실패 복구".
-- **역할 변경과 권한**: ADMIN이 MANAGER의 역할을 바꾸면(승격 등) 그 회원의 개별 권한은 삭제되고 다시 MANAGER로 강등해도 되살아나지 않는다 — 강등 후 권한은 권한관리에서 다시 부여한다.
-- **게시판별 권한(V26, 2026-10-08, adversarial-review/plan/PLAN-board.md)**: MANAGER의 게시판 권한은 별도 테이블 `member_board_permission`에 있고 권한관리 화면의 "게시판별 권한" 표에서 준다. 역할을 바꾸면 이 행도 함께 지워진다. 위 재배포 정리 SQL에 이 테이블이 포함돼 있다.
-- **직접 SQL 주의**: `member_permission`·`member_board_permission`을 수동으로 바꿔도 캐시는 무효화되지 않는다(앱 재시작이 곧 폐기). 수동 삽입된 대소문자·공백 변형 행(`read`, `'READ '`, `notice`)은 판정기가 무시하고 권한관리 저장이 409로 거부한다 — 확인 뒤 수동 SQL로 정리한다.
+  4. **확인**: 정리 전에 권한이 있던 MANAGER 계정으로 그 기능의 API가 **실제 403**인지 확인한다(SQL 실행 기록만으로 완료 처리하지 않는다). 이후 ADMIN이 권한관리 화면에서 필요한 매니저에게 다시 부여한다(fail-closed — 정리 직후 MANAGER 전원이 권한 0개).
+- **역할 변경과 권한**: ADMIN이 MANAGER의 역할을 바꾸면(승격 등) 그 회원의 기능·게시판 권한 행은 삭제되고 다시 MANAGER로 강등해도 되살아나지 않는다 — 강등 후 권한은 권한관리에서 다시 부여한다.
+- **권한 복구·재부여는 권한관리 화면/`PUT`으로만 한다**. 수동 SQL로 넣으면 캐시가 무효화되지 않는다(앱 재시작이 곧 폐기).
+- **변형 행 정리**: 권한관리 저장이 "권한 테이블에 형식이 올바르지 않은 행이 있어 저장할 수 없습니다"로 409를 내면 수동 삽입된 대소문자·공백 변형 행(`read`, `'READ '` 등)이 있는 것이다. 판정기는 이런 행을 무시한다. 해당 행을 확인한 뒤 수동 SQL로 정리하고 다시 저장한다(자동 삭제하지 않는다).
+- **다중 인스턴스 미지원**: 저장 시 다른 인스턴스의 권한 캐시는 무효화되지 않는다(세션 레지스트리·레이트리밋과 같은 단일 인스턴스 전제).
 
-## 공지 → 공지 게시판 흡수 배포 (V31~V32, 2026-10-09, adversarial-review/plan/PLAN-notice-to-board.md)
+## 공지 게시판 (2026-10-09, adversarial-review/plan/PLAN-notice-to-board.md)
 
-공지(`notice`·`notice_attachment`)가 `board_key='NOTICE'`인 "공지" 게시판의 게시글(`post`·`post_attachment`)로 옮겨진다. **되돌리기 어려운 배포**이므로 다음 순서를 지킨다.
+공지는 `board_key='NOTICE'`인 "공지사항" 게시판(V2 시드, id=1)의 게시글이다. 공개 `/{siteKey}/notices`가 이 게시판에 위임한다.
 
-1. **사전 점검(기존 게시글 URL 파손 여부)**: 공지 ID를 그대로 쓰려고 그 범위(`id <= MAX(notice.id)`)에 이미 있던 게시글·게시글 첨부는 V32가 범위 밖으로 재번호한다 — 그 글의 공개 URL(`/boards/{b}/posts/{id}`·첨부)이 바뀐다. 게시판 기능이 운영 미배포(실배포 전)면 보통 0건이다.
-   ```sql
-   SELECT (SELECT COUNT(*) FROM post WHERE id <= (SELECT COALESCE(MAX(id), 0) FROM notice)) AS conflicting_posts,
-          (SELECT COUNT(*) FROM post_attachment WHERE id <= (SELECT COALESCE(MAX(id), 0) FROM notice_attachment)) AS conflicting_attachments;
-   ```
-   0이 아니면 그 글이 외부에 공유됐는지 확인하고 파손을 허용할 때만 배포한다(감사 로그의 옛 `targetId`도 어긋난다).
-2. **앱 정지 → 정지 상태에서 정규 백업 → 신버전 기동**: `make prod-backup`은 앱을 멈추지 않고 DB 덤프 뒤 파일 볼륨을 압축하므로, 그 사이 첨부 삭제가 커밋되면 복원 시 행은 있고 파일이 없다(위 "정규 백업" 절의 이유). 앱을 먼저 멈추고 쓰기가 끝난 것을 확인한 뒤 백업을 만들고 신버전을 띄운다(V31 DDL → V32 DML 한 트랜잭션).
-3. **기동 뒤 대조**: 공지 건수(`SELECT COUNT(*) FROM post WHERE board_id = (SELECT id FROM board WHERE board_key='NOTICE')`)가 이관 전 `notice` 건수와 같은지, `/notices/{기존 ID}`·첨부 다운로드가 같은 ID로 열리는지, 공지 권한이 있던 MANAGER가 권한관리 화면에서 공지 게시판에 같은 동작을 갖는지 확인한다.
+- **동결 테이블**: 옛 `notice`·`notice_attachment` 테이블이 남아 있다(앱이 읽지 않고 비어 있다). 수동 회수 절차(아래)는 이 테이블을 보존 목록에 쓰지 않는다. 제거는 별도 마이그레이션으로 한다.
+- **옛 주소**: `/admin/notice/manage[?id=]`는 공지 게시판의 게시글 관리 화면으로 302한다. `/admin/api/notices/**`는 없다(ADMIN 404, MANAGER 403).
 
-- **앱만 이전 버전으로 되돌리는 롤백은 지원하지 않는다**(V22 선례): 권한(`member_permission`의 NOTICE 행은 게시판 권한으로 **이동**해 지워진다)·본문 이미지 출처(공지 이미지는 `BOARD`+공지 게시판 출처로, 참조는 `POST`로 이동)·이관 뒤 쓴 공지가 서로 얽혀 안전한 왕복 절차가 없다. 복구는 ① 수정 버전 배포(roll-forward) ② **2번에서 만든 정지 상태 백업의 복원**뿐이다 — 복원 시 V32가 다시 실행되지 않도록 V30 이하 이미지로 컨테이너를 먼저 교체한다(`docs/migration-guide.md` "V31~V32").
-- **동결 테이블**: `notice`·`notice_attachment`는 이관 시점 스냅샷으로 남는다(앱이 읽지 않는다, 대조용). DROP은 후속 PR이다. 수동 회수 절차(아래)는 이 테이블을 보존 목록에 쓰지 않는다.
-- **메뉴**: '공지사항 관리' 메뉴 행은 대체 메뉴('게시글 관리')가 정상이면 삭제(자식이 있으면 URL만 비움)되고, 정상이 아니면 '게시글 관리' 링크로 전환된다.
-- **옛 주소**: `/admin/notice/manage[?id=]`는 공지 게시판의 게시글 관리 화면으로 302한다. `/admin/api/notices/**`는 사라졌다(ADMIN 404, MANAGER 403).
-
-## 공개 메인(`/`)과 배너 (V33~V34, 2026-10-10, adversarial-review/plan/PLAN-public-home-banner.md)
+## 공개 메인(`/`)과 배너 (2026-10-10, adversarial-review/plan/PLAN-public-home-banner.md)
 
 - **새 공개 경로**: `GET·HEAD /`(정확 경로 1개)와 `GET·HEAD /banners/{id}/image`가 무인증이다(`SecurityConfig` 승인 2026-10-09). 리버스 프록시·ingress가 `/`를 로그인 리다이렉트로 가정하고 있었다면 확인한다. 레이트리밋 규칙 `public-home`(120/60초)·`banner-image`(240/60초)가 IP별로 걸리며 공유 IP(사내망 등)에서는 한도를 넘으면 이미지가 429로 깨질 수 있다.
 - **배너 이미지 저장**: 같은 파일 볼륨의 **`banner/` 하위 디렉터리**(네임스페이스, `profile/`과 같은 방식)에 저장된다. 볼륨 백업·복구는 기존 절차에 그대로 포함된다. 배너 이미지는 업로드 시 파일당 2MB·한 변 2560px 이하, 배너는 최대 10개다.
-- **수동 회수(아래 절차) 주의**: ⑤는 `banner/`를 제외하고 **⑤-3이 `banner` 테이블 대조로 따로 회수**한다. 이 제외가 없던 이전 판의 ⑤를 그대로 실행하면 **정상 배너 이미지가 삭제**된다(비노출·만료 배너 포함).
-- **롤백(배너 도입 전 앱으로)**: V33·V34는 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `BannerMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `BANNER` 기능 행을 diff에서 제외하므로 롤백 중 "전체 회수"를 해도 그 행이 DB에 남고, 신버전을 다시 배포하면 **회수한 배너 권한이 되살아난다**(PLAN R2-1). 재배포 전에 위 "사용자별 권한 전환 > 롤백했다가 신버전을 다시 배포할 때(필수 정리)"의 정리 트랜잭션(`DELETE FROM member_permission; … UPDATE member SET permission_version = permission_version + 1;`)을 그대로 수행하고 신버전 기동 후 배너 권한을 ADMIN이 다시 부여한다(`MemberPermissionMigrationTest`가 BANNER 행 케이스를 고정). roll-forward가 기본이다.
-- **세션 관리 메뉴(V35, 2026-10-10, PLAN-session-management.md 쟁점 10)**: V35는 `menu` 행 1개(`/admin/session/manage`)를 넣는 순수 DML이고 스키마·권한 행은 바꾸지 않는다(`SESSION`은 영구 ADMIN 전용 — `member_permission`을 쓰지 않아 배너 같은 권한 정리가 필요 없다). **세션 관리 도입 전 앱으로 롤백하면 이 메뉴 행이 남아 클릭 시 404**가 난다(이전 앱은 그 URL을 모른다) — 기동에는 영향이 없다(배너 메뉴 행과 같은 취급 — `BannerMigrationTest`의 롤백 호환 시험이 "새 마이그레이션의 메뉴 행이 남은 최신 DB를 이전 앱 파일로 validate·migrate"해도 실패하지 않음을 고정한다). 필요하면 메뉴 관리 화면에서 그 행을 비활성화한다. 세션 레지스트리는 **단일 인스턴스 메모리**라 앱을 재시작하면 모든 세션이 소멸하고(강제 만료와 무관하게 전원 재로그인) 다중 인스턴스에서는 이 화면이 접속한 인스턴스의 세션만 보여 준다.
+- **수동 회수(아래 절차) 주의**: ⑤는 `banner/`를 제외하고 **⑤-3이 `content_image` 대조로 따로 회수**한다(비노출·만료 배너 이미지도 보존).
+- **세션 관리(2026-10-10, PLAN-session-management.md 쟁점 10)**: `SESSION`은 영구 ADMIN 전용이라 `member_permission`을 쓰지 않는다. 세션 레지스트리는 **단일 인스턴스 메모리**라 앱을 재시작하면 모든 세션이 소멸하고(강제 만료와 무관하게 전원 재로그인) 다중 인스턴스에서는 이 화면이 접속한 인스턴스의 세션만 보여 준다.
 - **배너 삭제**: 행을 지운 뒤 커밋 후 파일을 지운다. 파일 삭제가 실패하면 "행 없는 파일"이 남고 ⑤-3이 다음 회수 때 정리한다.
 
-## 게시글 예약 게시 (V36, 2026-10-11, adversarial-review/plan/PLAN-post-publish-period.md)
+## 게시글 예약 게시 (2026-10-11, adversarial-review/plan/PLAN-post-publish-period.md)
 
 - **동작**: 게시글의 공개 노출은 `useYn ∧ 노출 기간 [publishStart, publishEnd)`이다(시작 포함·종료 미포함, 한쪽이 비면 그쪽은 열림, 둘 다 비면 `useYn`만). 판정은 스케줄러 없이 **조회 시점의 서버 KST `Clock`**으로 한다 — 서버 시계가 틀리면 공개 시각도 틀어진다. 공개 경로 다섯 곳(`/boards` 목록·검색·COUNT, 상세, 첨부 다운로드, 공개 메인의 공지·새 글, 본문 이미지 `/content-images/{id}`)과 `/notices/**`가 모두 같은 조건을 쓴다. 새 공개 경로·`SecurityConfig`·레이트리밋 변경은 없다.
-- **스키마**: V36은 `post`에 `publish_start`·`publish_end datetime(6) NULL` 2개를 더한다(기존 행은 NULL = 제한 없음이라 **기존 공개 동작은 그대로**). 인덱스는 추가하지 않았다. 입력은 2000-01-01 이상 2100-01-01 미만, 분 단위로 절단, 오프셋 없는 한국 시각 문자열만 받는다.
-- **롤백 주의(필수)**: V36 이후 **이전 앱은 `publish_*` 컬럼을 모르고 `useYn`만 본다**(`ddl-auto: validate`는 엔티티에 없는 여분 컬럼을 허용해 기동은 된다). 그대로 되돌리면 **시작 전 글이 즉시 공개되고 만료 글이 다시 보인다.** roll-forward를 우선하고, 불가피하게 되돌릴 때는 아래 순서를 지킨다.
-  1. **쓰기 동결** — 관리자 쓰기(특히 게시글 수정)를 멈춘다(정리 중 진행 중이던 수정이 글을 다시 켜는 틈은 이것으로만 막힌다).
-  2. 새 버전 인스턴스를 정지한다.
-  3. 기간이 걸린 글의 현재 `use_yn`을 백업한다: `CREATE TABLE post_period_rollback_backup AS SELECT id, use_yn FROM post WHERE publish_start IS NOT NULL OR publish_end IS NOT NULL;` (결과를 파일로도 덤프해 둔다).
-  4. 해당 글을 비노출로: `UPDATE post SET use_yn = 0 WHERE publish_start IS NOT NULL OR publish_end IS NOT NULL;`
-  5. **잔여 0건 검증**: `SELECT COUNT(*) FROM post WHERE (publish_start IS NOT NULL OR publish_end IS NOT NULL) AND use_yn = 1;` 이 0이어야 이전 버전을 기동한다.
-  6. 롤백 기간 중 이전 앱 관리 화면에서 **그 글들을 다시 켜지 않는다**(이전 앱은 예약 제약을 알려 주지 않는다).
-  7. 다시 신버전으로 재전진한 뒤 원래 설정을 복원한다: `UPDATE post p JOIN post_period_rollback_backup b ON b.id = p.id SET p.use_yn = b.use_yn;` → 확인 후 `DROP TABLE post_period_rollback_backup;`
+- **스키마**: `post.publish_start`·`publish_end`(`datetime(6) NULL`, NULL = 그쪽 제한 없음). 인덱스는 두지 않았다. 입력은 2000-01-01 이상 2100-01-01 미만, 분 단위로 절단, 오프셋 없는 한국 시각 문자열만 받는다.
 - **수용한 한계**: 기간은 통째 교체 + 마지막 저장 우선이다(게시글에 낙관적 락이 없어, 낡은 편집 화면이 다른 관리자가 줄인 기간을 되돌릴 수 있다). 다운로드가 시작된 뒤 종료 시각이 지나도 진행 중 전송은 끝까지 간다(기존 공개 첨부의 약한 보장과 같다).
 - **VM·컨테이너 시계**: DB 컨테이너 시계가 UTC여도 앱은 KST `Clock`을 쓰므로 영향이 없다. 다만 SQL로 기간을 직접 넣을 때는 앱 기준 KST 벽시계 값을 리터럴로 쓴다(`NOW()`는 9시간 어긋난다).
 
-## 공개 메인 팝업 (V39~V40, 2026-10-12, adversarial-review/plan/PLAN-popup.md)
+## 공개 메인 팝업 (2026-10-12, adversarial-review/plan/PLAN-popup.md)
 
 - **새 공개 경로**: `GET·HEAD /popups/{id}/image`가 무인증이다(`SecurityConfig` 승인 2026-10-12). `/popups`·`/popups/**`의 나머지 경로·메서드는 `denyAll`이다. 리버스 프록시·ingress가 경로를 허용 목록으로 관리한다면 이 경로를 추가한다. 레이트리밋 규칙 `popup-image`(120/60초). 공개 메인(`/`)은 노출 중인 팝업을 등록 순서대로 **최대 5개**까지 그리고, 그 스크립트는 정적 파일 `/js/public/home-popup.js`(기존 `/js/**` 공개 범위)다.
 - **팝업 이미지 저장**: 같은 파일 볼륨의 **`popup/` 하위 디렉터리**(네임스페이스, `banner/`·`profile/`과 같은 방식)에 저장된다. 볼륨 백업·복구는 기존 절차에 그대로 포함된다. 이미지형만 파일이 있고 HTML형은 본문이 DB(`popup.content_html`)에만 있다.
-- **수동 회수(위 절차) 주의**: ⑤는 `popup/`도 제외하고 **⑤-4가 `popup` 테이블 대조로 따로 회수**한다(비노출·만료 팝업도 행이 있으면 보존). 이 제외가 없는 이전 판의 ⑤를 그대로 실행하면 **정상 팝업 이미지가 전부 삭제**된다.
-- **롤백 중에는 구버전 문서의 수동 회수 ⑤를 실행하지 않는다**: 팝업 도입 전 앱(V38 이하)으로 되돌려도 `popup` 테이블과 `popup/` 파일은 DB·볼륨에 남는다. 구버전 ⑤는 `content_image`·`post_attachment`만 보존하고 `profile/`·`banner/`만 제외하므로 `popup/`의 모든 파일을 고아로 삭제하고, 신버전으로 재전진해도 복구되지 않는다(`ready` 가드는 V32 성공만 확인해 막지 못한다). 롤백 기간에 회수가 필요하면 이 문서의 신버전 절차(⑤에 `popup/` 제외, ⑤-4 포함)만 쓴다.
-- **미디어 라이브러리 도입 후 수동 회수(2026-10-12)**: 위 ②·⑤·⑤-3·⑤-4는 `content_image`(namespace별) 기준으로 개정됐다. 이 개정이 없는 이전 판 ⑤-3·⑤-4를 그대로 실행하면 **배너·팝업이 지워졌지만 게시글이 아직 참조하는 이미지 파일이 고아로 분류돼 삭제**된다(상세는 아래 "미디어 라이브러리").
-- **롤백(팝업 도입 전 앱으로)**: V39·V40은 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `PopupMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `POPUP` 행을 모르고 "전체 회수"가 그 행을 남기므로, 재배포 시 되살아날 수 있다. 앱 정지 후 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'POPUP'; UPDATE member SET permission_version = permission_version + 1;`을 실행하고(전원의 버전을 올려 정리 전 화면의 오래된 PUT이 과거 권한을 복원하지 못하게 한다) 기동한다 — 위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL(`DELETE FROM member_permission; …`)을 이미 실행했다면 별도 조치는 필요 없다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다.
+- **수동 회수(아래 절차) 주의**: ⑤는 `popup/`도 제외하고 **⑤-4가 `content_image` 대조로 따로 회수**한다(비노출·만료 팝업 이미지도 보존).
 - **팝업 삭제**: 행을 지운 뒤 커밋 후 파일을 지운다. 파일 삭제가 실패하면 "행 없는 파일"이 남고 ⑤-4가 다음 회수 때 정리한다.
 - **수정과 "오늘 하루 보지 않기"**: 방문자 브라우저의 숨김 상태(`localStorage`)는 서버가 모른다. 팝업을 수정하면 `popup.revision`이 올라가 이전에 숨긴 방문자에게도 다시 표시된다. DB를 직접 고쳐 내용을 바꿀 때는 `revision`도 함께 올려야 같은 효과가 난다.
 
-## FAQ (V41~V42, 2026-10-12, adversarial-review/plan/PLAN-faq.md)
+## FAQ (2026-10-12, adversarial-review/plan/PLAN-faq.md)
 
 - **새 공개 경로**: `GET·HEAD /faq`가 무인증이다(`SecurityConfig` 승인 2026-10-12, **정확 경로 1개**). `/faq`의 그 외 메서드와 `/faq/**` 하위 경로는 `denyAll`이다(비인증은 로그인 302, 인증은 403). 리버스 프록시·ingress가 경로를 허용 목록으로 관리한다면 `/faq`를 추가한다. 레이트리밋 규칙 `public-faq`(120/60초). 노출 중인 카테고리·FAQ만 보이고 답변은 출력 시 한 번 더 정리된다. 공개 스크립트는 정적 파일 `/js/public/faq.js`(기존 `/js/**` 공개 범위)다.
 - **파일 저장 없음**: FAQ는 DB 행뿐이고 이미지(답변에 이미지 불가)·첨부가 없어 파일 볼륨·수동 회수 절차에 영향이 없다. 백업·복구는 DB 덤프에 그대로 포함된다.
-- **가드 행(`faq_lock`)**: V42가 시드하는 id=1 행이 없으면 FAQ·카테고리 쓰기가 모두 서버 오류가 된다. DB를 수동으로 복구·정리할 때 이 행을 지우지 않는다(지웠다면 `INSERT INTO faq_lock (id, version) VALUES (1, 0);`). `version`은 구조(등록·삭제·카테고리 이동·순서)가 바뀔 때만 올라가므로 **SQL로 FAQ 순서나 소속을 직접 바꿀 때는 `UPDATE faq_lock SET version = version + 1;`도 함께 실행**해야 순서 초안을 만든 열린 관리 화면이 낡았음을 알 수 있다(안 올려도 데이터는 안전하고, 낡은 화면이 409 없이 순서를 덮을 수 있을 뿐이다).
-- **롤백(FAQ 도입 전 앱으로)**: V41·V42는 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 테이블·메뉴 행 1개가 남는다, `FaqMigrationTest`가 고정). **다만 권한 정리가 필요하다** — 이전 앱의 권한관리는 카탈로그에 없는 `FAQ` 행을 모르고 "전체 회수"가 그 행을 남기므로, 재배포 시 되살아날 수 있다. 앱 정지 후 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'FAQ'; UPDATE member SET permission_version = permission_version + 1;`을 실행하고 기동한다 — 위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL(`DELETE FROM member_permission; …`)을 이미 실행했다면 별도 조치는 필요 없다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다.
+- **가드 행(`faq_lock`)**: V2가 시드하는 id=1 행이 없으면 FAQ·카테고리 쓰기가 모두 서버 오류가 된다. DB를 수동으로 복구·정리할 때 이 행을 지우지 않는다(지웠다면 `INSERT INTO faq_lock (id, version) VALUES (1, 0);`). `version`은 구조(등록·삭제·카테고리 이동·순서)가 바뀔 때만 올라가므로 **SQL로 FAQ 순서나 소속을 직접 바꿀 때는 `UPDATE faq_lock SET version = version + 1;`도 함께 실행**해야 순서 초안을 만든 열린 관리 화면이 낡았음을 알 수 있다(안 올려도 데이터는 안전하고, 낡은 화면이 409 없이 순서를 덮을 수 있을 뿐이다).
 - **상한**: 카테고리 30개·FAQ 200개(초과 시 관리 API 409). 공개 페이지가 노출 중인 FAQ 전체를 한 번에 내려주므로 총량을 묶은 값이다(답변 하나는 정리 후 30KB 이하, 최악 ≈ 6MB).
 
-## 문의 폼 (V47~V48, 2026-10-12, adversarial-review/plan/PLAN-inquiry.md)
+## 문의 폼 (2026-10-12, adversarial-review/plan/PLAN-inquiry.md)
 
 - **새 공개 경로 — 두 번째 무인증 POST**: `GET·HEAD·POST /inquiry`가 무인증이다(`SecurityConfig` 승인 2026-10-12, **정확 경로 1개**). `/inquiry`의 그 외 메서드와 `/inquiry/**`는 `denyAll`이다(비인증은 로그인 302, 인증은 403). CSRF는 그대로 활성이고 폼 GET이 방문자마다 세션을 만든다. 리버스 프록시·ingress가 경로·메서드를 허용 목록으로 관리한다면 `/inquiry`의 GET·POST를 추가한다. 레이트리밋 `inquiry-submit`(POST, 용량 10 / 3600초)·`public-inquiry`(GET·HEAD, 120/60초) — 키가 `getRemoteAddr()`라 프록시 뒤에서는 모든 방문자가 한 IP로 보이므로 ingress 도입 때 IP 해석(`ClientIpResolver`)을 함께 재검토한다.
 - **기본은 닫힘(안전한 기본값)**: `CMS_INQUIRY_TURNSTILE_ENABLED` 기본값이 `false`이고 이때 `GET·POST /inquiry`가 모두 503이다 — 캡차 없이 제출을 받는 상태는 만들 수 없다. 열려면 **`ENABLED=true`와 Cloudflare 대시보드에서 발급한 실제 사이트 키·시크릿 키(`0x4…`)** 가 모두 필요하다. 키가 비었거나 prod에서 Cloudflare **공개 테스트 키**(`1x0…`·`2x0…`·`3x0…`)이면 **앱이 기동 실패**한다(테스트 키를 복사해 넣으면 캡차가 무력화되므로). 세 변수는 `docker-compose.prod.yml`이 명시 매핑하고 `scripts/_prod-env-guard.sh`가 호스트 셸 값을 막는다. 시크릿 값은 `.env.prod`에만 둔다.
 - **Cloudflare 의존과 프라이버시**: 폼 페이지가 `challenges.cloudflare.com`의 스크립트를 로드하고, 서버가 방문자 IP와 토큰을 Cloudflare로 보내 검증한다(5초 상한, 실패·타임아웃은 **fail-closed** — Cloudflare 장애 시 문의가 일시 중단된다). **개인정보처리방침에 Cloudflare 전송(위탁/제3자) 고지가 필요하다** — 문구는 운영자가 정적 페이지로 관리한다(법률 판단은 이 문서의 범위 밖).
 - **수집 항목과 보존**: 이름·이메일·제목·본문과 동의 시각을 저장한다(방문자 IP·User-Agent는 저장하지 않는다). **스케줄러가 없어 자동 삭제가 없다** — 처리가 끝난 문의는 문의함에서 DELETE 권한자가 직접 삭제한다(하드 삭제가 유일한 파기 수단). 보존 기간은 개인정보처리방침에 맞춰 운영자가 정하고 주기적으로 삭제한다. 미처리(답변 완료가 아닌) 문의가 **1,000건**에 이르면 새 문의를 받지 않는다(503, 소프트 상한). **개인정보가 DB에 있으므로 `prod-backup.sh` 백업에도 포함된다** — 백업 보관·파기 정책도 처리방침과 맞춘다.
 - **새 문의 알림**: ADMIN 전원과 `INQUIRY` 조회 권한 MANAGER에게 상수 문장 알림이 간다(문의 내용 없음, 회원당 미읽음 최대 1건).
-- **롤백(문의 도입 전 앱으로)**: V47·V48은 새 테이블과 시드 행뿐이라 이전 앱은 그대로 기동한다(미사용 `inquiry` 테이블·메뉴 행 1개가 남는다). **다만 두 가지 정리가 필요하다.** ① **알림 행**: `Notification.type`이 `@Enumerated(STRING)`이라 이전 앱이 `INQUIRY_RECEIVED` 행을 읽으면 enum 매핑 예외로 **알림 목록 조회가 실패**한다 — 롤백 전(또는 직후, 앱 정지 상태에서) `DELETE FROM notification WHERE type = 'INQUIRY_RECEIVED';`를 실행한다. ② **권한 행**: 이전 앱의 권한관리는 카탈로그에 없는 `INQUIRY` 행을 모르고 "전체 회수"가 그 행을 남겨 재배포 시 권한이 되살아날 수 있다 — 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'INQUIRY'; UPDATE member SET permission_version = permission_version + 1;`(위 "롤백했다가 신버전을 다시 배포할 때"의 전체 정리 SQL을 이미 실행했다면 불필요)를 실행하고 기동한다. 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다. `inquiry` 테이블에는 방문자 개인정보가 남으므로 롤백 때 테이블을 보존할지 삭제할지는 운영자가 결정한다.
+- **알림 종류를 추가한 버전의 롤백 주의**: `Notification.type`은 `@Enumerated(STRING)`이라, 그 종류를 모르는 이전 앱이 그 행을 읽으면 enum 매핑 예외로 **알림 목록 조회가 실패**한다. 새 알림 종류(예: `INQUIRY_RECEIVED`)를 도입한 버전을 되돌릴 때는 앱 정지 상태에서 `DELETE FROM notification WHERE type = '<새 종류>';`를 먼저 실행한다.
 
-## 사이트 설정 — 사이트 모델과 사이트별 메뉴 (V50~V52, 2026-10-13, adversarial-review/plan/PLAN-site-menu.md PR ①)
+## 사이트 설정 — 사이트 모델과 사이트별 메뉴 (2026-10-13, adversarial-review/plan/PLAN-site-menu.md PR ①)
 
-- **무엇이 바뀌나**: `site` 테이블(관리자 사이트 1·기본 공개 `main` 2 시드)과 `menu.site_id`. 정적 페이지·메뉴 관리 화면에 ADMIN 전용 "사이트" 탭이 생기고 메뉴 구조 탭에서 편집할 사이트를 고른다. **공개 화면·`SecurityConfig`·레이트리밋은 바뀌지 않았다**(공개 경로 `/{siteKey}/…`는 PR ②). 공개 사이트 메뉴는 편집만 되고 PR ⑤ 전까지 어디에도 렌더링되지 않는다.
-- **배포**: 배포 전 백업. 마이그레이션 중간 실패 복구는 `docs/migration-guide.md` "V50~V52".
-- **롤백 주의**: 공개 사이트 메뉴가 하나라도 있으면 V52 이전 앱으로 롤백하지 않는다(비활성화로는 보호되지 않는다). 공개 사이트 메뉴를 전부 영구삭제한 뒤 롤백하거나 V52 이전 백업을 복구한다. 구·신 앱 동시 실행 배포 금지. 상세는 `docs/migration-guide.md`.
+- **모델**: `site` 테이블(V2 시드 — 관리자 사이트 `id=1`·기본 공개 `main` `id=2`)과 `menu.site_id`(사이트마다 메뉴 트리). 사이트는 사이트 설정 화면(`/admin/site/manage`, ADMIN 전용)에서, 메뉴는 메뉴 관리 화면에서 편집할 사이트를 골라 관리한다.
 - **운영 메모**: 메뉴·사이트 쓰기는 사이트 행을 `FOR UPDATE`로 먼저 잠그고 `READ_COMMITTED`로 실행한다 — 같은 사이트의 메뉴 편집은 직렬화되고 서로 다른 사이트는 병렬이다. 사이트 키는 공개 경로 접두어가 될 값이라 예약어(`SiteKey.RESERVED`)를 쓸 수 없고 생성 후 바꿀 수 없다.
 
-## 공개 경로 `/{siteKey}/…` 이전 (V53·V54, 2026-10-13, adversarial-review/plan/PLAN-site-menu.md PR ②)
+## 공개 경로 `/{siteKey}/…` (2026-10-13, adversarial-review/plan/PLAN-site-menu.md PR ②)
 
-- **무엇이 바뀌나**: 공개 화면 경로가 `/{siteKey}/…` 아래로 이동했다 — 공지 `/main/notices`, 게시판 `/main/boards/{id}`, 정적 페이지 `/main/pages/{slug}`, FAQ `/main/faq`, 문의 `/main/inquiry`, 공개 메인 `/main`. **`/`는 기본 공개 사이트로 302**하고 **접두어 없는 옛 URL(`/notices` 등)은 404로 종료**된다. 이미지(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`)와 정적 리소스는 사이트 무관 경로 그대로다. `site.default_yn` 컬럼이 추가되고 시드 `main`이 기본 사이트다(V53 DDL, V54 DML — 멱등).
+- **경로**: 공개 화면은 `/{siteKey}/…` 아래에 있다 — 공지 `/main/notices`, 게시판 `/main/boards/{id}`, 정적 페이지 `/main/pages/{slug}`, FAQ `/main/faq`, 문의 `/main/inquiry`, 공개 메인 `/main`. **`/`는 기본 공개 사이트로 302**하고 **접두어 없는 옛 URL(`/notices` 등)은 404로 종료**된다. 이미지(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`)와 정적 리소스는 사이트 무관 경로다. 기본 사이트는 `site.default_yn`이 표시하고 시드 `main`이 기본이다.
 - **인가 정책 변경(2026-10-13 승인)**: `SecurityConfig`에 사이트 범위 무인증 경로가 생겼고 옛 permit 5묶음은 "GET·HEAD 열림 → 404" 종료 규칙으로 바뀌었다. 레이트리밋 패턴이 `/*/…` 접두어를 포함하고 사이트 홈 규칙 `public-site-home`이 추가됐다. 점 없는 임의의 단일 세그먼트 `GET /xxx`가 비인증 302 대신 404를 돌려준다. 표는 `com.cms.config`의 `CLAUDE.md`.
-- **배포 전 확인**: ① 관리자가 저장해 둔 **배너·팝업·메뉴의 내부 링크 URL**(예: `/boards/2`, `/faq`)을 새 경로(`/main/boards/2`)로 고친다 — 옛 경로는 404가 된다. ② 외부에 공유된 공개 URL(메일·QR 등)이 있으면 옛 경로가 끊긴다(실배포 전이라는 전제). ③ 로드밸런서·모니터링의 헬스체크는 `/actuator/health`라 영향 없다.
-- **혼합 버전 운영 금지**: 새 URL과 옛 URL의 성공 여부가 인스턴스마다 달라지므로 롤링·블루그린 겹침 없이 **일괄 교체**한다. 롤백도 일괄이며, 이전 앱은 옛 경로를 되살리고 `/{key}/…`는 사라진다(V53은 가산 컬럼이라 데이터 손상은 없다).
+- **링크 입력**: 배너·팝업·메뉴의 내부 링크는 `/main/boards/2`처럼 사이트 접두어를 붙여 저장한다(접두어 없는 경로는 404). 로드밸런서·모니터링의 헬스체크는 `/actuator/health`다.
+- **혼합 버전 운영 금지**: 공개 경로 체계가 다른 앱 버전을 섞으면 URL의 성공 여부가 인스턴스마다 달라지므로 롤링·블루그린 겹침 없이 **일괄 교체**한다.
 - **기본 사이트 운영**: 관리자 사이트 탭에서 [기본으로 지정]으로 바꾼다(ADMIN 전용). 기본 표시가 정확히 1개의 활성 공개 사이트가 아니면 `/`는 404(오류 로그 `기본 공개 사이트 표시가 정확히 1개가 아닙니다`)이므로 DB를 직접 고치지 않는다.
 - **새 사이트 = 새 무인증 경로**: 활성 공개 사이트를 만들면 즉시 `/{siteKey}/…`가 공개된다. 콘텐츠(배너·팝업·FAQ·정적 페이지·푸터)는 PR ③부터 `site_id`로 사이트마다 분리되고(공통은 모든 사이트, 아래 "사이트별 콘텐츠") 게시판·공지도 PR ④부터 `board.site_id`로 사이트마다 분리된다(아래 "사이트별 게시판·공지") — 의도하지 않은 사이트는 비활성화한다.
 
-## 사이트별 콘텐츠 (V55, 2026-10-13, adversarial-review/plan/PLAN-site-menu.md PR ③)
+## 사이트별 콘텐츠 (2026-10-13, adversarial-review/plan/PLAN-site-menu.md PR ③)
 
-- **무엇이 바뀌나**: 배너·팝업·FAQ 카테고리·정적 페이지에 소속 사이트 `site_id`(NULL = 모든 공개 사이트 공통, FK `ON DELETE RESTRICT`)가 생겼다. **기존 행은 전부 공통이라 배포 직후 공개 화면은 이전과 같다.** 관리자가 관리 화면의 "표시 대상"에서 사이트를 고르면 그 사이트에서만 보인다. 배너·FAQ 카테고리에는 낡은 화면 검사용 `version`(기본 1)이 함께 생겼다. 인가 정책(`SecurityConfig`·레이트리밋)·권한 카탈로그 변경은 없다.
-- **관리 API 계약 변경**: 배너·팝업·FAQ 카테고리·정적 페이지의 수정(PUT)에 `siteScope`(`COMMON` 또는 사이트 ID)가 **필수**이고, 배너·FAQ 카테고리는 `version`, 팝업은 `revision`(시작값 0), FAQ **항목** 수정은 `baseCategoryId`도 필수다(없으면 400, 낡은 값이면 409). API를 직접 호출하는 스크립트·외부 도구가 있다면 배포 전에 갱신한다. 등록(POST)은 `siteScope`를 생략하면 공통이다.
-- **롤백 조건(중요)**: 사이트 전용(`site_id IS NOT NULL`) 콘텐츠가 하나라도 있으면 **V55 이전 앱(PR ② 앱 포함)으로 롤백하지 않는다** — 이전 앱은 `site_id`를 모르므로 사이트 전용 콘텐츠가 **모든 사이트에 노출**된다. 롤백 전 점검: `SELECT 'banner' t, COUNT(*) FROM banner WHERE site_id IS NOT NULL UNION ALL SELECT 'popup', COUNT(*) FROM popup WHERE site_id IS NOT NULL UNION ALL SELECT 'faq_category', COUNT(*) FROM faq_category WHERE site_id IS NOT NULL UNION ALL SELECT 'site_page', COUNT(*) FROM site_page WHERE site_id IS NOT NULL;` 0이 아니면 먼저 전용 콘텐츠를 **삭제**하거나 백업을 복구한다. `site_id`를 NULL로 바꾸는 것은 대안이 아니다(공통 공개가 된다). FAQ는 카테고리가 항목이 남아 있으면 삭제를 거부하므로 **항목 → 카테고리 순**으로 지운다. 이전 앱은 `version`을 올리지 않지만 읽지도 않으므로 무해하다(재배포하면 낡은 화면 검사만 잠시 약해진다).
+- **모델**: 배너·팝업·FAQ 카테고리·정적 페이지에 소속 사이트 `site_id`(NULL = 모든 공개 사이트 공통, FK `ON DELETE RESTRICT`)가 있다. 관리자가 관리 화면의 "표시 대상"에서 사이트를 고르면 그 사이트에서만 보인다. 배너·FAQ 카테고리에는 낡은 화면 검사용 `version`(기본 1)이 있다. **`site_id`를 NULL로 바꾸면 모든 사이트에 공개된다** — 전용 콘텐츠를 숨기려면 비노출·삭제한다.
+- **관리 API 계약**: 배너·팝업·FAQ 카테고리·정적 페이지의 수정(PUT)에 `siteScope`(`COMMON` 또는 사이트 ID)가 **필수**이고, 배너·FAQ 카테고리는 `version`, 팝업은 `revision`(시작값 0), FAQ **항목** 수정은 `baseCategoryId`도 필수다(없으면 400, 낡은 값이면 409). 등록(POST)은 `siteScope`를 생략하면 공통이다.
 - **사이트 삭제**: 배너·팝업·FAQ 카테고리·정적 페이지 중 하나라도 그 사이트 전용이면 삭제할 수 없다(409, FK도 `RESTRICT`). 비활성화하면 전용 콘텐츠가 모든 공개 경로(이미지 id 경로 포함)에서 사라진다.
 - **알려진 한계**: 정적 페이지 슬러그는 사이트 간에 유일하다(같은 `privacy`를 사이트마다 둘 수 없다). 배너 10·팝업 30·FAQ 카테고리 30·FAQ 200 상한은 사이트별이 아니라 전체 합계다. 위임받은 MANAGER(`BANNER`·`POPUP`·`FAQ`·`SITE_PAGE`)는 모든 표시 대상을 지정할 수 있다(사이트별 위임 없음). 이미지 URL(`/banners/{id}/image` 등)은 사이트 맥락이 없어 노출 중이면 다른 사이트 접두어 아래에서도 id로 열린다.
 
-## 사이트별 게시판·공지 (V56, 2026-10-14, adversarial-review/plan/PLAN-site-menu.md PR ④)
+## 사이트별 게시판·공지 (2026-10-14, adversarial-review/plan/PLAN-site-menu.md PR ④)
 
-- **무엇이 바뀌나**: 게시판에 소속 사이트 `board.site_id`(NULL = 모든 공개 사이트 공통, FK `ON DELETE RESTRICT`)가 생겼다. **기존 게시판(공지 게시판 포함)은 전부 공통이라 배포 직후 공개 화면은 이전과 같다.** 관리자가 게시판 관리 화면의 "표시 대상"에서 사이트를 고르면 그 게시판은 그 사이트의 `/{siteKey}/boards/{id}`·메인 "새 글"에만 나온다(다른 사이트에서는 없는 ID와 같은 404). **사이트 공지 게시판**을 만들면(게시판 만들기에서 사이트를 고르고 "이 사이트의 공지 게시판으로 만들기") 그 사이트의 `/{siteKey}/notices`와 메인 "공지" 섹션이 **공통 공지 대신 이 게시판**을 보여 준다(사이트마다 하나, 키 `NOTICE:{siteId}`). 전용 공지 게시판이 없는 사이트는 지금처럼 공통 공지를 본다. 인가 정책(`SecurityConfig`·레이트리밋)·권한 카탈로그·새 URL 변경은 없다.
-- **관리 API 계약**: 게시판 생성에 선택 필드 `siteScope`(`COMMON` 또는 사이트 ID, 누락 = 공통)·`noticeBoard`가 생겼고, 수정(PATCH)은 `siteScope`를 **명시한 경우에만** 대상을 바꾼다(누락 = 유지, 공지 게시판은 변경 400). 응답에 `siteId`·`noticeBoard`가 추가됐다. 기존 호출자는 그대로 동작한다.
+- **모델**: 게시판에 소속 사이트 `board.site_id`(NULL = 모든 공개 사이트 공통, FK `ON DELETE RESTRICT`)가 있다. 시드 공지 게시판은 공통이다. 관리자가 게시판 관리 화면의 "표시 대상"에서 사이트를 고르면 그 게시판은 그 사이트의 `/{siteKey}/boards/{id}`·메인 "새 글"에만 나온다(다른 사이트에서는 없는 ID와 같은 404). **사이트 공지 게시판**을 만들면(게시판 만들기에서 사이트를 고르고 "이 사이트의 공지 게시판으로 만들기") 그 사이트의 `/{siteKey}/notices`와 메인 "공지" 섹션이 **공통 공지 대신 이 게시판**을 보여 준다(사이트마다 하나, 키 `NOTICE:{siteId}`). 전용 공지 게시판이 없는 사이트는 공통 공지를 본다.
+- **관리 API 계약**: 게시판 생성의 선택 필드 `siteScope`(`COMMON` 또는 사이트 ID, 누락 = 공통)·`noticeBoard`. 수정(PATCH)은 `siteScope`를 **명시한 경우에만** 대상을 바꾼다(누락 = 유지, 공지 게시판은 변경 400). 응답에 `siteId`·`noticeBoard`가 있다.
 - **삭제 규칙**: 공통 공지 게시판은 계속 삭제할 수 없다(409). **사이트 전용 공지 게시판은 살아 있는 글이 없으면 삭제할 수 있다** — 삭제하면 그 사이트는 공통 공지로 돌아간다(막으면 사이트를 지울 수 없다). 게시판을 삭제(소프트)하면 `site_id`와(전용 공지의) 키가 비워진다.
-- **롤백 조건(중요)**: 사이트 전용(`site_id IS NOT NULL`) 게시판이 하나라도 있으면 **V56 이전 앱으로 롤백하지 않는다** — 이전 앱은 `site_id`를 모르므로 전용 게시판이 `/boards/{id}`·메인 새 글로 **모든 사이트에 노출**된다(사이트 전용 공지 게시판은 이전 앱도 공통 공지 키(`NOTICE`)만 찾으므로 `/notices`는 안전하다). 롤백 전 점검: `SELECT id, name, board_key, site_id, deleted FROM board WHERE site_id IS NOT NULL;` 0행이 아니면 먼저 전용 게시판의 글(첨부 → 글)을 지우고 게시판을 삭제하거나 백업을 복구한다. `site_id`를 NULL로 바꾸는 것은 대안이 아니다(공통 공개가 된다).
-- **롤백 중 이전 앱이 게시판을 지운 경우**: 이전 앱의 소프트 삭제는 `site_id`를 비우지 않으므로 그 행이 사이트 삭제를 막는다(사이트 삭제 409). 재배포 뒤 `UPDATE board SET site_id = NULL, board_key = NULL WHERE deleted = 1 AND site_id IS NOT NULL;`로 정리한다(삭제된 행이라 노출에 영향 없음).
 - **사이트 삭제**: 배너·팝업·FAQ 카테고리·정적 페이지에 더해 **게시판**이 그 사이트 전용이면 삭제할 수 없다(409, FK도 `RESTRICT`).
 - **알려진 한계**: 본문 이미지(`/content-images/{id}`)는 사이트 맥락이 없어 공개 글이 참조하면 다른 사이트 접두어 아래에서도 id로 열린다(소속 사이트가 비활성이면 404). 전용 공지 게시판은 공통 공지와 합쳐 보이지 않고 **대체**한다. 게시글 관리 화면의 "내 게시판" 선택에는 사이트 표시가 없다(이름과 `#id`로 구분). 옛 관리자 주소 `/admin/notice/manage`는 공통 공지 게시판으로 간다.
 
 ## 편집기 본문 이미지 (2026-10-07, adversarial-review/plan/PLAN-html-editor.md)
 
-공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 게시글이 참조하는지 — `owner_type` = `POST`; 공지 흡수(V32, 2026-10-09) 이전에는 공지 참조 `NOTICE`도 있었다)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
+공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 소유자가 참조하는지 — 게시글 `POST`·배너 `BANNER`·팝업 `POPUP`)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
 
-- **배포 시**: V25가 기존 공지 본문을 HTML로 일괄 변환한다 — 배포 전 `make prod-backup`. 구버전으로 롤백하면 **공지 쓰기를 동결**해야 한다(`docs/migration-guide.md` "V25 이후 구버전 롤백").
-- **업로드 출처(V27, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = `NOTICE` 또는 게시판 `BOARD` + `scope_id`)이 기록된다. 게시글 본문에는 같은 게시판 출처 이미지만 넣을 수 있다(다른 출처면 저장 400). **V32(2026-10-09) 이후** 공지도 공지 게시판의 게시글이라 `scope_type='NOTICE'` 행은 모두 `BOARD`+공지 게시판으로 바뀌었고 새 `NOTICE` 출처는 생기지 않는다(DB 기본값만 구버전 호환으로 남는다). 아래 롤백 하한 설명은 V27 이전 앱에 대한 것이다. **롤백 하한**: 게시판 이미지(`scope_type='BOARD'`)가 하나라도 생긴 뒤에는 V27 이전 앱(출처 판정 없음)으로 되돌리지 않는다 — 되돌리면 NOTICE 조회 권한자가 비공개 게시판 이미지를 볼 수 있다. roll-forward만 한다(`docs/migration-guide.md` "V26~V28").
-- **게시글 첨부·참조(V29, 2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 7)**: 게시글 첨부(`post_attachment`)도 공지 첨부와 같은 **스토리지 루트**에 저장된다(네임스페이스가 아님). 그래서 아래 회수 절차의 ② 대상 확정은 **살아 있는 게시글(`post.deleted=0`)이 참조하는 이미지를 제외**하고, ⑤ 행 없는 파일 정리는 **`post_attachment`의 키를 보존 목록에 포함**한다 — 이 두 조건이 빠진 절차를 쓰면 게시글 본문 이미지·첨부 파일이 지워진다. PR A 시점의 절차는 게시글 테이블이 있으면 중단하는 가드를 가졌고(이 문서의 이전 판), 지금 절차가 그 가드를 대체한다. PR B → PR A 앱 롤백은 허용되지만(`docs/migration-guide.md` "V29~V30"), 롤백한 상태에서는 **이 문서의 절차를 쓰지 않는다**(PR A 앱은 게시글을 모른다) — roll-forward 뒤에 실행한다.
+- **업로드 출처(2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = 게시판 `BOARD` + `scope_id`, 또는 `LIBRARY`·`BANNER`·`POPUP`)이 기록된다. 게시글 본문에는 같은 게시판 출처 이미지(또는 라이브러리 계열 이미지)만 넣을 수 있다(다른 출처면 저장 400). 공지도 공지 게시판의 게시글이라 `BOARD`+공지 게시판 출처다(컬럼 기본값 `NOTICE`는 옛 공지 출처의 흔적이고 앱은 항상 값을 넣는다).
+- **게시글 첨부·참조(2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 7)**: 게시글 첨부(`post_attachment`)도 본문 이미지와 같은 **스토리지 루트**에 저장된다(네임스페이스가 아님). 그래서 아래 회수 절차의 ② 대상 확정은 **살아 있는 게시글(`post.deleted=0`)이 참조하는 이미지를 제외**하고, ⑤ 행 없는 파일 정리는 **`post_attachment`의 키를 보존 목록에 포함**한다 — 이 두 조건이 빠진 절차를 쓰면 게시글 본문 이미지·첨부 파일이 지워진다.
 - **상한 도달(업로드 409)**: 저장하지 않은 편집 중 이미지·본문에서 지운 이미지·삭제된 게시글의 이미지는 **자동으로 정리되지 않는다**. 다만 2026-10-12부터 ADMIN이 **미디어 라이브러리**(`/admin/media/manage`)에서 출처 "게시판 본문" + "사용 안 함만" 필터로 이런 이미지를 직접 지울 수 있다(사용 중이면 삭제가 409로 막히고 사용처가 보인다) — 아래 수동 회수는 앱을 정지하고 일괄로 정리해야 할 때 쓴다. 상한(전체 1GB·1만 개)은 배너·팝업·라이브러리 이미지까지 **하나의 카운터**로 센다.
 
 ### 수동 회수 절차 (dev에서 2026-10-07 실제 수행 검증)
@@ -505,18 +447,10 @@ MANAGER의 공지 권한은 2026-10-02부터 DB(`role_permission`)가 정하고 
 # SQL은 stdin으로 넘기며, 접속·인증·쿼리 실패는 0이 아닌 종료 코드가 된다.
 db() { docker exec -i cms-db-prod sh -c 'exec mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE" -N'; }
 # 삭제 단계 직전 가드: ① 백업 완료 표지가 있고 앱이 정지 상태일 때만 통과한다.
-# (게시글 테이블이 있는 DB에서도 아래 ②·⑤가 게시글 참조·첨부를 보존하므로 통과한다 — PR A 시점의 "게시글 테이블이 있으면 중단" 가드는
-#  PR B에서 이 보존 조건으로 대체됐다, adversarial-review/plan/PLAN-board.md 리뷰 R4-1)
+# (아래 ②·⑤가 게시글 참조·첨부를 보존한다, adversarial-review/plan/PLAN-board.md 리뷰 R4-1)
 ready() {
   [ -f reclaim-backup.ok ] && [ "$(docker inspect -f '{{.State.Running}}' cms-app-prod)" = false ] ||
   { echo "중단: ① 백업 미완료이거나 앱이 실행 중이다"; return 1; }
-  # 공지 흡수(V32) 성공 확인 — 이 절차는 공지가 게시글로 이관된 DB 전용이다. 이관 전·실패 DB에서 실행하면 아래 ②가 공지 참조를, ⑤가
-  # 공지 첨부 키를 보존하지 않아 SQL 오류 없이 사용 중인 파일을 지운다(PLAN-notice-to-board.md 리뷰 R4-1). 이관 전 DB에는 이 문서의 이전 판 절차를 쓴다.
-  [ "$(db <<'SQL'
-SELECT COUNT(*) FROM flyway_schema_history WHERE version = '32' AND success = 1;
-SQL
-)" = 1 ] ||
-  { echo "중단: V32(공지 흡수) 성공 이력을 확인하지 못했다 — 조회 실패이거나 이관 전 DB"; return 1; }
 }
 # 이 블록의 삭제 단계는 모두 && 체인이다 — 서브셸 + set -e로 바꾸지 않는다(`( set -e; … ) || …`처럼
 # || 목록 안에서는 bash가 set -e를 무시해 실패 뒤에도 다음 명령이 실행된다)
@@ -529,7 +463,7 @@ docker stop cms-app-prod && make prod-backup && touch reclaim-backup.ok
 #    소유자 = 삭제되지 않은 게시글(POST — 노출 여부·게시판 공개 여부와 무관, 비노출·비공개 게시판 글의 이미지도 운영자가 다시 켜면 쓰이므로 회수하지 않는다),
 #    존재하는 배너(BANNER)·팝업(POPUP). 배너·팝업이 직접 올렸다가 소유자가 사라진 이미지(BANNER/POPUP 출처)도 대상이다.
 #    **라이브러리 직접 업로드(scope_type='LIBRARY')는 일부러 참조 없이 쌓아 두는 자산이라 대상에서 제외한다** — 라이브러리 화면에서 직접 지운다.
-#    공지는 공지 게시판의 게시글이다 — V32가 공지 참조(owner_type='NOTICE')를 게시글 참조(POST)로 옮기고 지웠으므로 NOTICE 조건이 없다.
+#    공지는 공지 게시판의 게시글이라 참조도 게시글 참조(POST)다 — 별도 NOTICE 조건이 없다.
 #    출력은 "id <탭> 스토리지 루트 기준 상대 경로"다 — 루트 영역(namespace='')은 키 그대로, banner/·popup/은 접두어를 붙인다(④가 이 경로를 지운다).
 db > reclaim-targets.tsv <<'SQL'
 SELECT i.id, CONCAT(IF(i.namespace = '', '', CONCAT(i.namespace, '/')), i.storage_key) FROM content_image i
@@ -563,8 +497,8 @@ echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일�
 # ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
 #    보존 대상 = **루트 영역(namespace='')** content_image + post_attachment의 storage_key, profile/·banner/·popup/ 네임스페이스는 제외(⑤-2·⑤-3·⑤-4가 따로 다룬다 — 제외하지 않으면 정상 배너·팝업 이미지가 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1·PLAN-popup.md R3-1).
 #    banner/·popup/ 네임스페이스의 content_image 행은 보존 목록에 넣지 않는다 — 같은 키 문자열이 루트의 고아 파일을 우연히 보존하게 만들 수 있다(PLAN-media-library.md R4-1).
-#    notice_attachment는 V32 이후 이관 시점의 동결 스냅샷일 뿐 앱이 읽지 않으므로 보존 목록에 넣지 않는다 — 넣으면 삭제 실패로 남은
-#    "행 없는 파일"이 동결 행 때문에 영구 보존된다(PLAN-notice-to-board.md 리뷰 R3-1). 공지 첨부는 post_attachment로 이관됐다.
+#    notice_attachment는 앱이 읽지 않는 동결 테이블이라 보존 목록에 넣지 않는다 — 넣으면 삭제 실패로 남은
+#    "행 없는 파일"이 동결 행 때문에 영구 보존된다(PLAN-notice-to-board.md 리뷰 R3-1). 공지 첨부는 post_attachment다.
 #    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
 #    orphan-files.txt가 만들어지지 않고, 아래 삭제는 그 파일이 없으면 아무것도 지우지 않는다.
 rm -f keep-keys.txt disk-keys.txt orphan-files.txt
@@ -602,7 +536,7 @@ ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work al
   while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/profile/$k";; esac; done < /work/profile-orphans.txt'
 
 # ⑤-3 배너 파일 대조(2026-10-10, PLAN-public-home-banner.md R4-1 — 일회용 스키마·볼륨에서 이 블록을 그대로 실행해 비노출·만료 배너 파일 보존과 행 없는 파일만 삭제됨을 확인): 배너 이미지는 banner/ 네임스페이스에 저장되어 위 ⑤가 제외하므로 여기서 따로 대조한다.
-#      보존 대상 = content_image의 namespace='banner' 행의 storage_key(네임스페이스 로컬 키 — 미디어 라이브러리 도입(V44) 이후 배너와 이미지의 연결은 content_image_ref 한 곳이고 banner.storage_key는 새 행에서 NULL이다.
+#      보존 대상 = content_image의 namespace='banner' 행의 storage_key(네임스페이스 로컬 키 — 배너와 이미지의 연결은 content_image_ref 한 곳이고 banner.storage_key는 쓰지 않는다(NULL).
 #      **비노출·만료 배너도, 배너가 지워졌어도 게시글이 아직 참조하는 이미지도 행이 있으면 보존**), 디스크 = banner/ 아래 파일(접두어 제거).
 #      차이만 고아 목록이 된다. 앞 단계와 같은 ready 가드 + && 체인 — 조회가 실패하면 목록이 만들어지지 않고 아래 삭제는 아무것도 지우지 않는다.
 rm -f banner-keep.txt banner-disk.txt banner-orphans.txt
@@ -646,18 +580,17 @@ docker start cms-app-prod
 
 ## 미디어 라이브러리 (2026-10-12, adversarial-review/plan/PLAN-media-library.md)
 
-배너·팝업·편집기 본문 이미지를 `content_image` 한 테이블로 모았다(`/admin/media/manage`, 위임 기능 `MEDIA`). 파일은 옮기지 않는다 — 기존 파일은 `banner/`·`popup/`·루트에 그대로 있고 `content_image.namespace`(빈 문자열 = 루트)에 위치만 기록된다. 공개 URL(`/content-images/{id}`·`/banners/{id}/image`·`/popups/{id}/image`)과 `SecurityConfig`는 바뀌지 않았다.
-
-- **배포 시**: V43(DDL: `content_image` 컬럼 2개 + `UNIQUE(namespace, storage_key)` 교체) → V44(백필 DML, 멱등: 기존 배너·이미지형 팝업을 이미지 행+참조 행으로 등록하고 **카운터를 `content_image` 원본에서 재계산**) → V45(DDL: `banner.storage_key/content_type/file_size` NULL 허용) → V46(메뉴 시드). 배포 전 `make prod-backup`. 중간 실패 복구는 `docs/migration-guide.md` "V43~V46". 이 마이그레이션에는 파일 이동이 없어 볼륨 작업이 필요 없다.
-- **롤백은 지원하지 않는다(roll-forward만)**: V43 이전 앱은 배너·팝업 삭제 때 `banner.storage_key`/`popup.storage_key`로 파일을 지우는데, 새 행은 그 컬럼이 NULL이고 같은 이미지를 여러 소유자(배너·팝업·게시글)가 함께 쓸 수 있다. 되돌리면 파일이 남거나(NULL 키) 공유 중인 파일을 지울 수 있다. 롤백이 불가피하면 먼저 신버전에서 `SELECT COUNT(*) FROM content_image_ref WHERE owner_type IN ('BANNER','POPUP')`와 배너·팝업 행 수를 대조해 두고, 구버전 기동 중에는 배너·팝업 쓰기를 동결한다.
-- **권한 정리(롤백 후 재배포 시)**: 이전 앱의 권한관리는 카탈로그에 없는 `MEDIA` 행을 모르고 "전체 회수"가 그 행을 남기므로 되살아날 수 있다. 앱 정지 후 같은 트랜잭션에서 `DELETE FROM member_permission WHERE feature = 'MEDIA'; UPDATE member SET permission_version = permission_version + 1;`을 실행하고 기동한다(전체 정리 SQL을 이미 실행했다면 불필요). 앱이 켜진 채 SQL을 실행했다면 재시작이 캐시 폐기다.
+배너·팝업·편집기 본문 이미지는 `content_image` 한 테이블이 원본이다(`/admin/media/manage`, 위임 기능 `MEDIA`). 파일은 `banner/`·`popup/`·루트에 있고 `content_image.namespace`(빈 문자열 = 루트)에 위치가 기록된다. 배너·팝업·게시글과 이미지의 연결은 `content_image_ref` 한 곳이고 같은 이미지를 여러 소유자가 함께 쓸 수 있다(`banner.storage_key`·`popup.storage_key` 등 옛 직접 저장 컬럼은 쓰지 않는다).
 - **위임 규칙**: `MEDIA` 읽기가 있는 MANAGER는 라이브러리 계열(라이브러리 업로드·배너·팝업 출처) 이미지만 보고 고를 수 있다. **게시판 본문 이미지(`BOARD` 출처)는 ADMIN만 목록·삭제할 수 있다**(다른 게시판의 비공개 이미지가 권한 밖으로 새지 않게). 배너·팝업·게시글에서 라이브러리 이미지를 **고르는 것**은 저장 시점에 현재 `MEDIA` 읽기 권한을 다시 판정한다 — 회수하면 새로 고를 수 없지만 이미 쓰고 있는 이미지는 유지된다.
 - **삭제 규칙**: 사용 중인 이미지는 삭제할 수 없다(409, 메시지에 사용처 요약). 배너·팝업을 지우면 그 배너·팝업이 직접 올린(`BANNER`/`POPUP` 출처) 이미지는 다른 소유자가 없을 때 이미지 행·파일·카운터까지 함께 정리되고, 라이브러리에 올린(`LIBRARY` 출처) 이미지는 남는다.
 - **운영 확인 SQL**(읽기 전용):
   ```sql
-  -- 카운터가 원본과 일치하는지(어긋나면 앱이 정지된 상태에서 재계산: V44의 ③ 문장)
+  -- 카운터가 원본과 일치하는지
   SELECT u.total_bytes, u.total_count, COALESCE(SUM(i.file_size), 0) AS real_bytes, COUNT(i.id) AS real_count
   FROM content_image_usage u LEFT JOIN content_image i ON 1 = 1 WHERE u.id = 1;
+  -- 어긋나면 앱이 정지된 상태에서 원본으로 재계산한다(쓰기 SQL)
+  -- UPDATE content_image_usage SET total_bytes = (SELECT COALESCE(SUM(file_size), 0) FROM content_image),
+  --        total_count = (SELECT COUNT(*) FROM content_image) WHERE id = 1;
   -- 이미지형인데 참조가 없는 배너·팝업(공개에서 제외되고 관리 화면에 이미지가 비어 보인다)
   SELECT 'BANNER', b.id FROM banner b WHERE NOT EXISTS (SELECT 1 FROM content_image_ref r WHERE r.owner_type = 'BANNER' AND r.owner_id = b.id)
   UNION ALL

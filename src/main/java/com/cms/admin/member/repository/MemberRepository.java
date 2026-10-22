@@ -193,7 +193,7 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
      * 프로필 이미지 1회성 이관 러너(ProfileImageMigrationRunner) 전용 — 대상 id만 조회한다
      * (엔티티 전체가 아니라 스칼라 반환. LONGTEXT 값을 한 번에 메모리에 올리지 않기 위함,
      * adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 6). 관리자 수가 적어
-     * 페이지네이션 없이 전체 조회한다. profile_image_kind 인덱스(V11)로 가볍다.
+     * 페이지네이션 없이 전체 조회한다. profile_image_kind 인덱스(idx_member_profile_image_kind)로 가볍다.
      */
     @Query("select m.id from Member m where m.profileImageKind = :kind order by m.id")
     List<Long> findIdsByProfileImageKind(@Param("kind") ProfileImageKind kind);

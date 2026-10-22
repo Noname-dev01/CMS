@@ -37,7 +37,7 @@ import java.lang.reflect.Method;
 @RequiredArgsConstructor
 public class AdminActionLogAspect {
 
-    /** admin_action_log.target_label 컬럼 길이(V12)와 일치해야 한다. */
+    /** admin_action_log.target_label 컬럼 길이(V1 기준 스키마의 varchar(500))와 일치해야 한다. */
     private static final int MAX_TARGET_LABEL_LENGTH = 500;
 
     private final AdminActionLogService adminActionLogService;

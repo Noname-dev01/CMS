@@ -282,7 +282,7 @@ public class BannerService {
 
     private void lockGuard() {
         bannerLockRepository.findByIdForUpdate(BannerLock.SINGLETON_ID)
-                .orElseThrow(() -> new IllegalStateException("banner_lock 가드 행이 없습니다(V34 시드 누락)."));
+                .orElseThrow(() -> new IllegalStateException("banner_lock 가드 행이 없습니다(V2 시드 누락)."));
     }
 
     /**

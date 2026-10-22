@@ -118,7 +118,7 @@ public class ProfileImageMigrationRunner implements CommandLineRunner {
         String rawValue = member.getProfileImageUrl();
         Matcher matcher = DATA_URI_PATTERN.matcher(rawValue == null ? "" : rawValue);
         if (!matcher.matches()) {
-            // data: 형태가 아닌 잔여값(V11 catch-all로 분류된 손상값 등) — 이관 대상이 아니다.
+            // data: 형태가 아닌 잔여값(프로필 종류 분류에서 catch-all로 남은 손상값 등) — 이관 대상이 아니다.
             return false;
         }
 

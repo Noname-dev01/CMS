@@ -153,7 +153,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("findByIdAndBoardIdAndDeletedFalseAndUseYnTrue는 비노출·삭제·다른 게시판 글을 반환하지 않고 노출·미삭제 글만 반환한다 (공개 상세 전용)")
+    @DisplayName("findPublishedById는 비노출·삭제·다른 게시판 글을 반환하지 않고 노출·미삭제 글만 반환한다 (공개 상세 전용)")
     void findPublished_filters() {
         Post hidden = savePost("공개상세비노출검증" + System.nanoTime(), false, false);
         Post deleted = savePost("공개상세삭제검증" + System.nanoTime(), true, true);
@@ -305,7 +305,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
     @DisplayName("findLatestPublished: excludeSystemBoards면 시스템 게시판(공통·전용 공지)을 뺀다 — 새 글 섹션용")
     void findLatestPublished_excludeSystemBoards() {
         Post inBoard = savePost(boardId, "일반 게시판 글", true, false);
-        Long commonNotice = boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();   // V32가 시드한 공통 공지 게시판
+        Long commonNotice = boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();   // V2가 시드한 공통 공지 게시판
         Long siteNotice = boardRepository.save(Board.builder().name("전용 공지").publicYn(true).attachmentYn(true).deleted(false).boardKey("NOTICE:2").siteId(2L).build()).getId();
         Post inCommonNotice = savePost(commonNotice, "공통 공지 글", true, false);
         Post inSiteNotice = savePost(siteNotice, "전용 공지 글", true, false);
@@ -341,7 +341,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
     void findNoticeBoardId_siteThenCommon() {
         Site alpha = savePublicSite("notice-alpha", true);
         Site beta = savePublicSite("notice-beta", true);
-        Long commonNotice = boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();   // V32가 시드한 공통 공지 게시판
+        Long commonNotice = boardRepository.findIdByBoardKey(Board.NOTICE_KEY).orElseThrow();   // V2가 시드한 공통 공지 게시판
         Long alphaNotice = boardRepository.save(Board.builder().name("알파 공지").publicYn(true).attachmentYn(true).deleted(false)
                 .boardKey(Board.noticeKeyFor(alpha.getId())).siteId(alpha.getId()).build()).getId();
 

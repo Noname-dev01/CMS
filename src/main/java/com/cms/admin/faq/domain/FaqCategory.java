@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * FAQ 카테고리(V41, PLAN-faq.md 쟁점 1). {@link #ord}는 전체 안에서 항상 0..n-1이다. 노출을 끄면 그 안의 FAQ가 공개 화면에서 모두 숨는다.
+ * FAQ 카테고리(PLAN-faq.md 쟁점 1). {@link #ord}는 전체 안에서 항상 0..n-1이다. 노출을 끄면 그 안의 FAQ가 공개 화면에서 모두 숨는다.
  * 하드 삭제이고 FAQ가 하나도 없을 때만 지울 수 있다(서비스가 판정, FK는 RESTRICT).
  */
 @Entity
@@ -38,11 +38,11 @@ public class FaqCategory {
     @Column(name = "use_yn", nullable = false)
     private Boolean useYn;
 
-    /** 소속 사이트(V55). {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
+    /** 소속 사이트. {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
     @Column(name = "site_id")
     private Long siteId;
 
-    /** 낡은 화면 검사용(V55) — 이름·노출·대상 교체({@link #replace})마다 +1. {@code ord} 변경은 올리지 않는다. */
+    /** 낡은 화면 검사용 — 이름·노출·대상 교체({@link #replace})마다 +1. {@code ord} 변경은 올리지 않는다. */
     @Column(nullable = false)
     @Builder.Default
     private Integer version = 1;

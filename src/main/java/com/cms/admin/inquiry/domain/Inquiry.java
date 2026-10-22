@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 공개 문의 폼으로 들어온 문의(V47, PLAN-inquiry.md). 이름·이메일·제목·본문은 모두 <b>방문자가 쓴 평문</b>이다 — 서버는 정책 검증을 거친 원문 그대로 저장하고,
+ * 공개 문의 폼으로 들어온 문의(PLAN-inquiry.md). 이름·이메일·제목·본문은 모두 <b>방문자가 쓴 평문</b>이다 — 서버는 정책 검증을 거친 원문 그대로 저장하고,
  * 표시 계층(관리자 화면)이 텍스트로만 출력한다. 방문자 IP·User-Agent는 저장하지 않는다. 하드 삭제라 소프트 삭제 컬럼이 없다.
  */
 @Entity
