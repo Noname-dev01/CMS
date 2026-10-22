@@ -66,7 +66,7 @@ public class Member {
     private String profileImageUrl;
 
     /**
-     * profileImageUrl 값이 지금 무엇을 의미하는지(없음/프리셋/업로드됨/미이관 레거시) 명시한다.
+     * profileImageUrl 값이 지금 무엇을 의미하는지(없음/프리셋/업로드됨) 명시한다.
      * {@link ProfileImageKind#UPLOADED}만 FileStorage 접근이 허용되는 상태다(쟁점 2 참조).
      *
      * <p>{@code @Builder.Default}가 없으면 {@code Member.builder()...build()}를 쓰는 기존
@@ -170,20 +170,6 @@ public class Member {
         this.profileImageUrl = null;
         this.profileImageContentType = null;
         this.updateDate = now;
-    }
-
-    /**
-     * 1회성 이관 러너(ProfileImageMigrationRunner) 전용 — 미이관 레거시 data URI를 FileStorage로
-     * 옮긴 뒤 호출한다. {@link #changeUploadedProfileImage}와 달리 <b>updateDate를 갱신하지
-     * 않는다</b> — 사용자가 아무 것도 바꾸지 않았는데 배경 마이그레이션만으로 "최근 수정" 시각이
-     * 바뀌면 오해를 부른다(쟁점 6).
-     */
-    public void migrateProfileImageToStorage(String storageKey, String contentType) {
-        requireNonBlank(storageKey, "storageKey");
-        requireNonBlank(contentType, "contentType");
-        this.profileImageKind = ProfileImageKind.UPLOADED;
-        this.profileImageUrl = storageKey;
-        this.profileImageContentType = contentType;
     }
 
     private static void requireNonBlank(String value, String fieldName) {

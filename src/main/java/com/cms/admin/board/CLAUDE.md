@@ -27,7 +27,7 @@
 
 ## 공지 게시판 흡수 (①-2, 2026-10-09, `adversarial-review/plan/PLAN-notice-to-board.md` — 적대적 리뷰 5라운드 ship)
 
-공지는 **시스템 게시판 `board_key='NOTICE'`("공지사항")의 게시글**이다. 옛 `com.cms.admin.notice` 패키지(엔티티·서비스·컨트롤러·`notice/manage.html`·`NoticeContentImageController`)는 삭제됐고 `notice`·`notice_attachment` 테이블은 **동결 테이블**로 남는다(앱이 읽지 않고 비어 있음, 제거는 별도 마이그레이션).
+공지는 **시스템 게시판 `board_key='NOTICE'`("공지사항")의 게시글**이다. 옛 `com.cms.admin.notice` 패키지(엔티티·서비스·컨트롤러·`notice/manage.html`·`NoticeContentImageController`)는 삭제됐고 `notice`·`notice_attachment` 테이블은 V3(2026-10-22)에서 제거됐다.
 
 - **시스템 게시판**(`board.board_key` UNIQUE, `Board.isSystem()`): 키가 있는 게시판은 **비공개 전환 400**(`updateBoard`의 `publicYn=false`)이고, **공통 공지(`NOTICE`)만 삭제 409**(`deleteBoard`, 게시글 검사보다 먼저)다 — 사이트 전용 공지(`NOTICE:{siteId}`, PR ④)는 글이 없으면 삭제할 수 있다(아래 "사이트별 게시판·공지"). 이름·`attachmentYn`은 바꿀 수 있다. 공개 `/notices`가 이 게시판에 의존하기 때문이다(`BoardRepository.findIdByBoardKey` — 삭제된 게시판이면 empty).
 - **관리 화면·API**: 공지 관리는 게시글 관리(`/admin/board/posts?boardId=공지게시판`)가 대신한다. 옛 `GET /admin/notice/manage[?id=]`는 **`NoticeRedirectController`가 302**로 보낸다(`@RestController` + `ResponseEntity` — 페이지가 아니라 사이드바 모델 주입이 필요 없다, `id`는 `^[1-9][0-9]{0,15}$`만 유지). 이 경로는 `AdminFeature.BOARD`의 게이트(기능 단위 READ = 어느 게시판이든 조회 권한)에 **정확 경로 1개**로 들어 있고 `menuUrls`에는 없다(`AdminEndpointAuthorizationConventionTest`의 `REDIRECT_ONLY_GATE_PATHS` 예외). `/admin/api/notices/**`는 사라졌다(ADMIN 404, MANAGER 403 — 게이트가 없어 `/admin/**` ADMIN 캐치올).

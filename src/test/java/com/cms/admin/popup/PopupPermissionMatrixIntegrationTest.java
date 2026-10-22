@@ -73,10 +73,8 @@ class PopupPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
     }
 
     private void cleanPopups() {
-        for (String key : jdbc.queryForList("SELECT storage_key FROM popup WHERE storage_key IS NOT NULL", String.class)) {
-            fileStorage.delete(key, PopupService.STORAGE_NAMESPACE);
-        }
         jdbc.update("DELETE FROM popup");
+        MediaTestSupport.cleanLibrary(jdbc, fileStorage);
     }
 
     private RequestPostProcessor asManager() {

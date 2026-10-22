@@ -108,9 +108,11 @@ class PopupAdminFormBrowserTest extends BrowserTestSupport {
     /** 이미지 팝업 하나를 DB에 직접 넣는다(파일 포함 — 관리 화면의 미리보기가 읽는다). */
     private long insertImagePopup(String title) throws Exception {
         String key = fileStorage.store(png(), "p.png", PopupService.STORAGE_NAMESPACE);
-        jdbc.update("INSERT INTO popup (title, revision, popup_type, storage_key, content_type, file_size, pos_x, pos_y, width, use_yn, create_date, update_date) "
-                + "VALUES (?, 0, 'IMAGE', ?, 'image/png', 10, 10, 10, 300, 1, ?, ?)", title, key, LocalDateTime.now(), LocalDateTime.now());
-        return jdbc.queryForObject("SELECT MAX(id) FROM popup", Long.class);
+        jdbc.update("INSERT INTO popup (title, revision, popup_type, pos_x, pos_y, width, use_yn, create_date, update_date) "
+                + "VALUES (?, 0, 'IMAGE', 10, 10, 300, 1, ?, ?)", title, LocalDateTime.now(), LocalDateTime.now());
+        long id = jdbc.queryForObject("SELECT MAX(id) FROM popup", Long.class);
+        MediaTestSupport.attachImage(jdbc, "POPUP", id, key, 10);
+        return id;
     }
 
     private long insertHtmlPopup(String title, Integer height) {

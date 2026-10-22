@@ -22,7 +22,7 @@ public final class ProfileImageUrls {
 
     /**
      * 본인(SELF) 컨텍스트용 URL. {@code kind=UPLOADED}일 때만 다운로드 라우트를 가리키고,
-     * 그 외(PRESET/LEGACY_INLINE)는 원값을 그대로 pass-through, NONE이면 null.
+     * 그 외(PRESET)는 원값을 그대로 pass-through, NONE이면 null.
      */
     public static String resolveSelfUrl(Member member) {
         return resolve(member, "/admin/api/members/me/profile-image");
@@ -40,7 +40,7 @@ public final class ProfileImageUrls {
             String token = versionToken(member.getProfileImageUrl());
             return downloadBasePath + "?v=" + token;
         }
-        // PRESET/LEGACY_INLINE은 그대로 pass-through, NONE은 null(값 자체가 null이므로 그대로 반환).
+        // PRESET은 그대로 pass-through, NONE은 null(값 자체가 null이므로 그대로 반환).
         return member.getProfileImageUrl();
     }
 

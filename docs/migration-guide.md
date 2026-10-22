@@ -16,8 +16,11 @@
 |---|---|---|
 | V1 | `V1__baseline_schema.sql` | 기준 스키마 — 테이블 28개·인덱스·FK·CHECK(DDL만). 테이블마다 설계 이유를 주석으로 둔다 |
 | V2 | `V2__baseline_seed.sql` | 기준 시드 — 사이트 2행(`id=1 admin`·`id=2 main`)·관리자 사이드바 메뉴·공통 공지 게시판·배너/FAQ 가드 행·이미지 카운터(순수 DML, id 명시) |
+| V3 | `V3__drop_legacy_schema.sql` | 옛 스키마 정리(2026-10-22, `PLAN-legacy-schema-removal.md`) — 동결 테이블 `notice`·`notice_attachment`, `banner`·`popup`의 옛 `storage_key`·`content_type`·`file_size`와 유니크, `member.profile_image_kind`의 `LEGACY_INLINE`과 그 인덱스, `content_image.scope_type`의 기본값 `'NOTICE'` |
 
-V1~V2는 옛 V1~V58(2026-07-10~2026-10-16)을 합친 것이다. 옛 파일과 각 변경의 이유·배포 절차는 git 이력(합치기 직전 커밋 `96baec2`)에 있다. 새로 설치한 결과는 `BaselineSchemaTest`가 고정한다.
+V3는 순수 DDL이고 **실패할 수 있는 문장(`member` enum 축소)이 맨 앞**이다 — `profile_image_kind = 'LEGACY_INLINE'` 행이 있으면(옛 Base64 프로필 이관 러너가 이관하지 못한 행) 엄격 모드(`SET STATEMENT sql_mode='STRICT_ALL_TABLES'`)에서 그 문장이 오류로 멈추고 **아무것도 바뀌지 않는다**. 그 행을 `NONE`(이미지 없음)으로 정리한 뒤 `flyway repair` → 재기동한다(아래 "DDL 실패 복구"). 나머지 문장은 `IF EXISTS`라 다시 실행해도 막히지 않는다. 업그레이드 경로는 `LegacySchemaRemovalUpgradeTest`가 고정한다 — 첫 실배포 직전 마지막 합치기 때 V3는 V1에 흡수되고 이 시험도 함께 지운다.
+
+V1~V2는 옛 V1~V58(2026-07-10~2026-10-16)을 합친 것이다. 옛 파일과 각 변경의 이유·배포 절차는 git 이력(합치기 직전 커밋 `96baec2`)에 있다. 새로 설치한 결과는 `BaselineSchemaTest`가 고정한다(V3 포함).
 
 ## 합치기 후 기존 DB (2026-10-21)
 
