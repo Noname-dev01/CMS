@@ -36,13 +36,8 @@ spring:
         core-size: 4
         max-size: 4
         queue-capacity: 20
-  flyway:
-    # 빈 DB(CI·신규 환경)는 V1부터 전체 실행된다.
-    # 기존 DB 전환 시에만 일회성으로 SPRING_FLYWAY_BASELINE_ON_MIGRATE=true를
-    # 붙여 기동한다 (docs/migration-guide.md 사전 점검 체크리스트 필수).
-    # baseline-on-migrate를 상시 설정하지 않는 이유: 점검을 건너뛴 기존 DB가
-    # 조용히 영구 baseline되는 것을 막기 위함.
-    baseline-version: 1
+  # Flyway는 Boot 기본값을 쓴다 — 빈 DB는 V1부터 전체 실행된다. baseline-on-migrate는 켜지 않는다
+  # (이력 없는 비어 있지 않은 DB를 검증 없이 기준 스키마로 간주한다, docs/migration-guide.md).
   jpa:
     # OSIV를 끈다 — 켜 두면(Boot 기본값) 서비스 @Transactional이 끝난 뒤에도 요청이 끝날 때까지
     # JDBC 연결을 붙잡아, 공개 첨부 다운로드처럼 응답 전송이 긴 요청이 풀을 점유한다(스파이크 실측:

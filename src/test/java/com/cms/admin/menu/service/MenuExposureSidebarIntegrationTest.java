@@ -128,11 +128,11 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
         // 이 시험의 MANAGER는 위임 가능 기능 전체의 READ를 받으므로(setBoardRead) "사이트 관리" 그룹 아래 "정적 페이지 관리"(SITE_PAGE 판정 키)만 본다 — 권한이 없으면 안 보이는 것은 검색 시험이 고정한다
         assertThat(manager).contains("href=\"/admin/site-page/manage\"");
         assertThat(manager).doesNotContain("href=\"/admin/log/manage\"");
-        assertThat(manager).as("V15 권한 관리 메뉴는 위임 불가라 MANAGER에게 보이지 않는다").doesNotContain("href=\"/admin/permission/manage\"");
+        assertThat(manager).as("시드 권한 관리 메뉴는 위임 불가라 MANAGER에게 보이지 않는다").doesNotContain("href=\"/admin/permission/manage\"");
 
         String admin = dashboardHtml(Role.ROLE_ADMIN);
         assertThat(admin).contains("href=\"" + NOTICE_URL + "\"").contains("href=\"/admin/permission/manage\"");
-        // V58: "사이트 관리" 그룹 아래 정적 페이지 관리·메뉴 관리·사이트 설정 세 화면
+        // 시드: "사이트 관리" 그룹 아래 정적 페이지 관리·메뉴 관리·사이트 설정 세 화면
         assertThat(admin).contains("href=\"/admin/site-page/manage\"").contains("href=\"/admin/menu/manage\"").contains("href=\"/admin/site/manage\"")
                 .contains("사이트 관리").contains("사이트 설정").doesNotContain("정적 페이지 · 메뉴 · 사이트 관리");
     }
@@ -151,7 +151,7 @@ class MenuExposureSidebarIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("'사이트 관리' 그룹: SITE_PAGE만 있는 MANAGER는 그룹 아래 '정적 페이지 관리' 하나만, SITE_PAGE가 없으면 그룹 전체가 숨겨진다(V58, 가지치기)")
+    @DisplayName("'사이트 관리' 그룹: SITE_PAGE만 있는 MANAGER는 그룹 아래 '정적 페이지 관리' 하나만, SITE_PAGE가 없으면 그룹 전체가 숨겨진다(가지치기)")
     void siteAdminGroupIsPrunedForManager() throws Exception {
         jdbc.update("DELETE FROM member_permission WHERE member_id = ?", manager.getId());
         jdbc.update("INSERT INTO member_permission (member_id, feature, action) VALUES (?, 'SITE_PAGE', 'READ')", manager.getId());

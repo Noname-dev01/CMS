@@ -152,7 +152,7 @@ class AdminActionLogAspectTest {
     }
 
     @Test
-    @DisplayName("targetLabel은 500자를 넘으면 500자로 자른다 (컬럼 길이 V12)")
+    @DisplayName("targetLabel은 500자를 넘으면 500자로 자른다 (컬럼 길이 500)")
     void logSuccess_truncatesTargetLabelTo500() throws Exception {
         adminActionLogAspect.logSuccess(null, labeledAnnotation(), new LabeledResult("가".repeat(501)));
 

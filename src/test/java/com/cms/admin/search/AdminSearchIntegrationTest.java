@@ -155,7 +155,7 @@ class AdminSearchIntegrationTest extends MariaDbContainerSupport {
 
 
     @Test
-    @DisplayName("'사이트 관리' 그룹 아래 세 항목은 각자 이름 구문으로 찾아지고 그룹 자체는 결과에 없다(V58)")
+    @DisplayName("'사이트 관리' 그룹 아래 세 항목은 각자 이름 구문으로 찾아지고 그룹 자체는 결과에 없다")
     void siteAdminChildren_areFoundByPhrase() throws Exception {
         for (String[] pair : new String[][]{{"정적 페이지 관리", "/admin/site-page/manage"}, {"메뉴 관리", "/admin/menu/manage"}, {"사이트 설정", "/admin/site/manage"}}) {
             mockMvc.perform(get("/admin/api/search-results").param("keyword", pair[0]).with(TestMembers.asMember(admin)))
