@@ -8,10 +8,11 @@ import com.cms.admin.message.repository.AdminMessageRepository;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
 import com.cms.support.TestMembers;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -33,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 대조군은 삭제 열을 인덱스에 넣지 않은 단순 인덱스로 같은 질의가 이 기준을 위반함을 보여, 측정 장치가 위반을 실제로 잡는다는 것을 증명한다.
  */
 @SpringBootTest(classes = CmsTestApplication.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)   // 시험이 모두 읽기 측정이라 30만 행 준비를 클래스당 한 번만 한다
 class AdminMessageIndexCostIntegrationTest extends MariaDbContainerSupport {
 
     /** 통과 기준 — 첫 페이지·커서 페이지·집계의 핸들러 읽기 합. 정상 인덱스는 보이는 행(수십 건)만 읽는다. */
@@ -52,7 +54,7 @@ class AdminMessageIndexCostIntegrationTest extends MariaDbContainerSupport {
     private Member recipient2;
     private final List<Long> memberIds = new ArrayList<>();
 
-    @BeforeEach
+    @BeforeAll
     void setUp() {
         sender = member("cost-s1");
         recipient = member("cost-r1");
@@ -76,7 +78,7 @@ class AdminMessageIndexCostIntegrationTest extends MariaDbContainerSupport {
         jdbc.execute("ANALYZE TABLE admin_message, admin_message_send_log");
     }
 
-    @AfterEach
+    @AfterAll
     void cleanUp() {
         TestMembers.delete(jdbc, memberIds);
     }
