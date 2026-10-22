@@ -359,7 +359,7 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 
 공지는 `board_key='NOTICE'`인 "공지사항" 게시판(V2 시드, id=1)의 게시글이다. 공개 `/{siteKey}/notices`가 이 게시판에 위임한다.
 
-- **동결 테이블**: 옛 `notice`·`notice_attachment` 테이블이 남아 있다(앱이 읽지 않고 비어 있다). 수동 회수 절차(아래)는 이 테이블을 보존 목록에 쓰지 않는다. 제거는 별도 마이그레이션으로 한다.
+- **옛 테이블**: 공지 흡수 전 데이터의 동결 스냅샷이던 `notice`·`notice_attachment`는 V3(2026-10-22, `PLAN-legacy-schema-removal.md`)가 지웠다. 공지 첨부는 `post_attachment`다.
 - **옛 주소**: `/admin/notice/manage[?id=]`는 공지 게시판의 게시글 관리 화면으로 302한다. `/admin/api/notices/**`는 없다(ADMIN 404, MANAGER 403).
 
 ## 공개 메인(`/`)과 배너 (2026-10-10, adversarial-review/plan/PLAN-public-home-banner.md)
@@ -434,7 +434,7 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 
 공지·게시판 편집기에서 올린 이미지는 첨부파일(공지 첨부·게시글 첨부)과 같은 파일 볼륨(`notice_attachments_*`)의 루트에 저장되고, `content_image` 행·`content_image_ref`(어느 소유자가 참조하는지 — 게시글 `POST`·배너 `BANNER`·팝업 `POPUP`)·`content_image_usage`(전체 바이트·개수 카운터)로 관리된다. 공개 게시판(공지 게시판 포함)의 공개 게시글이 참조하는 이미지만 `/content-images/{id}`로 무인증 공개된다.
 
-- **업로드 출처(2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = 게시판 `BOARD` + `scope_id`, 또는 `LIBRARY`·`BANNER`·`POPUP`)이 기록된다. 게시글 본문에는 같은 게시판 출처 이미지(또는 라이브러리 계열 이미지)만 넣을 수 있다(다른 출처면 저장 400). 공지도 공지 게시판의 게시글이라 `BOARD`+공지 게시판 출처다(컬럼 기본값 `NOTICE`는 옛 공지 출처의 흔적이고 앱은 항상 값을 넣는다).
+- **업로드 출처(2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 9)**: 이미지 행에 올린 곳(`scope_type` = 게시판 `BOARD` + `scope_id`, 또는 `LIBRARY`·`BANNER`·`POPUP`)이 기록된다. 게시글 본문에는 같은 게시판 출처 이미지(또는 라이브러리 계열 이미지)만 넣을 수 있다(다른 출처면 저장 400). 공지도 공지 게시판의 게시글이라 `BOARD`+공지 게시판 출처다(`scope_type`은 기본값이 없어 앱이 항상 값을 넣어야 한다 — 옛 기본값 `NOTICE`는 V3가 없앴다).
 - **게시글 첨부·참조(2026-10-08, adversarial-review/plan/PLAN-board.md 쟁점 7)**: 게시글 첨부(`post_attachment`)도 본문 이미지와 같은 **스토리지 루트**에 저장된다(네임스페이스가 아님). 그래서 아래 회수 절차의 ② 대상 확정은 **살아 있는 게시글(`post.deleted=0`)이 참조하는 이미지를 제외**하고, ⑤ 행 없는 파일 정리는 **`post_attachment`의 키를 보존 목록에 포함**한다 — 이 두 조건이 빠진 절차를 쓰면 게시글 본문 이미지·첨부 파일이 지워진다.
 - **상한 도달(업로드 409)**: 저장하지 않은 편집 중 이미지·본문에서 지운 이미지·삭제된 게시글의 이미지는 **자동으로 정리되지 않는다**. 다만 2026-10-12부터 ADMIN이 **미디어 라이브러리**(`/admin/media/manage`)에서 출처 "게시판 본문" + "사용 안 함만" 필터로 이런 이미지를 직접 지울 수 있다(사용 중이면 삭제가 409로 막히고 사용처가 보인다) — 아래 수동 회수는 앱을 정지하고 일괄로 정리해야 할 때 쓴다. 상한(전체 1GB·1만 개)은 배너·팝업·라이브러리 이미지까지 **하나의 카운터**로 센다.
 
@@ -497,8 +497,7 @@ echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일�
 # ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
 #    보존 대상 = **루트 영역(namespace='')** content_image + post_attachment의 storage_key, profile/·banner/·popup/ 네임스페이스는 제외(⑤-2·⑤-3·⑤-4가 따로 다룬다 — 제외하지 않으면 정상 배너·팝업 이미지가 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1·PLAN-popup.md R3-1).
 #    banner/·popup/ 네임스페이스의 content_image 행은 보존 목록에 넣지 않는다 — 같은 키 문자열이 루트의 고아 파일을 우연히 보존하게 만들 수 있다(PLAN-media-library.md R4-1).
-#    notice_attachment는 앱이 읽지 않는 동결 테이블이라 보존 목록에 넣지 않는다 — 넣으면 삭제 실패로 남은
-#    "행 없는 파일"이 동결 행 때문에 영구 보존된다(PLAN-notice-to-board.md 리뷰 R3-1). 공지 첨부는 post_attachment다.
+#    공지 첨부는 post_attachment다(옛 notice_attachment 테이블은 V3가 지웠다).
 #    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
 #    orphan-files.txt가 만들어지지 않고, 아래 삭제는 그 파일이 없으면 아무것도 지우지 않는다.
 rm -f keep-keys.txt disk-keys.txt orphan-files.txt
@@ -536,7 +535,7 @@ ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work al
   while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/profile/$k";; esac; done < /work/profile-orphans.txt'
 
 # ⑤-3 배너 파일 대조(2026-10-10, PLAN-public-home-banner.md R4-1 — 일회용 스키마·볼륨에서 이 블록을 그대로 실행해 비노출·만료 배너 파일 보존과 행 없는 파일만 삭제됨을 확인): 배너 이미지는 banner/ 네임스페이스에 저장되어 위 ⑤가 제외하므로 여기서 따로 대조한다.
-#      보존 대상 = content_image의 namespace='banner' 행의 storage_key(네임스페이스 로컬 키 — 배너와 이미지의 연결은 content_image_ref 한 곳이고 banner.storage_key는 쓰지 않는다(NULL).
+#      보존 대상 = content_image의 namespace='banner' 행의 storage_key(네임스페이스 로컬 키 — 배너와 이미지의 연결은 content_image_ref 한 곳이고 옛 banner.storage_key 컬럼은 V3가 지웠다).
 #      **비노출·만료 배너도, 배너가 지워졌어도 게시글이 아직 참조하는 이미지도 행이 있으면 보존**), 디스크 = banner/ 아래 파일(접두어 제거).
 #      차이만 고아 목록이 된다. 앞 단계와 같은 ready 가드 + && 체인 — 조회가 실패하면 목록이 만들어지지 않고 아래 삭제는 아무것도 지우지 않는다.
 rm -f banner-keep.txt banner-disk.txt banner-orphans.txt
@@ -580,7 +579,7 @@ docker start cms-app-prod
 
 ## 미디어 라이브러리 (2026-10-12, adversarial-review/plan/PLAN-media-library.md)
 
-배너·팝업·편집기 본문 이미지는 `content_image` 한 테이블이 원본이다(`/admin/media/manage`, 위임 기능 `MEDIA`). 파일은 `banner/`·`popup/`·루트에 있고 `content_image.namespace`(빈 문자열 = 루트)에 위치가 기록된다. 배너·팝업·게시글과 이미지의 연결은 `content_image_ref` 한 곳이고 같은 이미지를 여러 소유자가 함께 쓸 수 있다(`banner.storage_key`·`popup.storage_key` 등 옛 직접 저장 컬럼은 쓰지 않는다).
+배너·팝업·편집기 본문 이미지는 `content_image` 한 테이블이 원본이다(`/admin/media/manage`, 위임 기능 `MEDIA`). 파일은 `banner/`·`popup/`·루트에 있고 `content_image.namespace`(빈 문자열 = 루트)에 위치가 기록된다. 배너·팝업·게시글과 이미지의 연결은 `content_image_ref` 한 곳이고 같은 이미지를 여러 소유자가 함께 쓸 수 있다(`banner`·`popup`의 옛 직접 저장 컬럼은 V3가 지웠다).
 - **위임 규칙**: `MEDIA` 읽기가 있는 MANAGER는 라이브러리 계열(라이브러리 업로드·배너·팝업 출처) 이미지만 보고 고를 수 있다. **게시판 본문 이미지(`BOARD` 출처)는 ADMIN만 목록·삭제할 수 있다**(다른 게시판의 비공개 이미지가 권한 밖으로 새지 않게). 배너·팝업·게시글에서 라이브러리 이미지를 **고르는 것**은 저장 시점에 현재 `MEDIA` 읽기 권한을 다시 판정한다 — 회수하면 새로 고를 수 없지만 이미 쓰고 있는 이미지는 유지된다.
 - **삭제 규칙**: 사용 중인 이미지는 삭제할 수 없다(409, 메시지에 사용처 요약). 배너·팝업을 지우면 그 배너·팝업이 직접 올린(`BANNER`/`POPUP` 출처) 이미지는 다른 소유자가 없을 때 이미지 행·파일·카운터까지 함께 정리되고, 라이브러리에 올린(`LIBRARY` 출처) 이미지는 남는다.
 - **운영 확인 SQL**(읽기 전용):
