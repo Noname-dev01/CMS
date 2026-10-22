@@ -209,7 +209,7 @@ make logs-prod   # prod 로그
 ## DB 스키마 관리 (Flyway)
 
 - 스키마 변경은 **Flyway 마이그레이션 파일로만** 한다 (`src/main/resources/db/migration/`). Hibernate `ddl-auto`는 `validate`로 고정.
-- 빈 DB는 기동 시 자동으로 전체 마이그레이션이 적용된다. 기존 DB 전환 절차와 작성 규칙은 [docs/migration-guide.md](docs/migration-guide.md) 참고.
+- 빈 DB는 기동 시 자동으로 전체 마이그레이션이 적용된다. 2026-10-21에 기준 스키마(V1·V2)로 합쳤으므로 그 전에 만든 로컬 DB는 다시 만들어야 한다. 재생성 절차와 작성 규칙은 [docs/migration-guide.md](docs/migration-guide.md) 참고.
 
 ---
 

@@ -1,302 +1,66 @@
 # Flyway 마이그레이션 가이드
 
-> 작성일: 2026-07-10 (Flyway 도입 PR)
+> 작성일: 2026-07-10 (Flyway 도입 PR) · 2026-10-21 기준 스키마로 합침(`adversarial-review/plan/PLAN-migration-squash.md`)
 
 ## 기본 원칙
 
 - **스키마 변경은 Flyway 마이그레이션 파일로만 한다.** `ddl-auto`는 `validate`로 고정되어 있어 Hibernate가 스키마를 변경하지 않는다.
 - 마이그레이션 파일 위치: `src/main/resources/db/migration/`
 - 파일명 규칙: `V{버전}__{설명}.sql` (버전은 마지막 버전 +1, 설명은 snake_case)
-- 한 번 머지된 마이그레이션 파일은 **절대 수정하지 않는다** (체크섬 불일치로 기동 실패). 수정이 필요하면 새 버전을 추가한다.
+- 한 번 머지된 마이그레이션 파일은 **수정하지 않는다** (체크섬 불일치로 기동 실패). 수정이 필요하면 새 버전을 추가한다.
+  - **유일한 예외 — 실배포 전 기준 스키마로 합치기.** 운영 DB가 없는 동안에는 쌓인 마이그레이션을 기준 스키마로 합칠 수 있다. 2026-10-21에 V1~V58을 합쳤고(아래), **첫 실배포 직전에 그 사이 생긴 V3~Vn을 마지막으로 한 번 더 합친다. 그 뒤로는 예외가 없다.** 합칠 때는 옛 체인과 새 기준 스키마로 만든 DB가 같음을 검증한다(컬럼·인덱스·FK·CHECK·AUTO_INCREMENT·시드 행, `flyway_schema_history` 제외 — 절차는 계획 문서 설계 3).
 
 ## 현재 마이그레이션 구성
 
 | 버전 | 파일 | 내용 |
 |---|---|---|
-| V1 | `V1__init_schema.sql` | baseline 스키마 (member, menu, admin_action_log, visit_log — 인덱스 포함, dev DB 실물 추출) |
-| V2 | `V2__backfill_menu_access_role.sql` | 방어적 `ADD COLUMN IF NOT EXISTS` + access_role 3단계 백필 (멱등). 컬럼은 권한관리 PR ②부터 엔티티에서 매핑하지 않고 V16에서 제거된다 |
-| V3 | `V3__seed_default_menus.sql` | 기본 메뉴 시드 — menu 테이블이 완전히 빌 때만 실행 (보충 기능 없음) |
-| V4~V12 | (파일명 참조) | 공지·첨부·감사 로그 라벨 등 — `src/main/resources/db/migration/` 참조 |
-| V13 | `V13__create_permission_tables.sql` | 권한 테이블 `permission_role`·`role_permission` (DDL만) |
-| V14 | `V14__seed_manager_notice_permissions.sql` | MANAGER × 공지 4동작 시드 — **일회성 초기화이며 복구 수단이 아니다**(수동 재실행은 회수한 권한을 되살린다) |
-| V15 | `V15__seed_permission_menu.sql` | "권한 관리" 메뉴 시드(멱등, 최상위 맨 끝, `ord`는 INT 상한으로 제한) |
-| V16 | `V16__drop_menu_access_role.sql` | `menu.access_role` 컬럼 제거(`DROP COLUMN IF EXISTS`, **되돌릴 수 없음 — 아래 백업 필수**) |
-| V17 | `V17__add_member_permission_version.sql` | `member.permission_version`(회원별 권한 낙관적 버전, DDL 1문) |
-| V18 | `V18__create_member_permission.sql` | 회원별 허용 행 테이블 `member_permission`(DDL 1문) |
-| V19 | `V19__copy_manager_permissions_to_members.sql` | 배포 시점의 `ROLE_MANAGER` 허용 행을 `DELETED`가 아닌 기존 MANAGER 전원에게 복사 — **일회성 초기화이며 복구 수단이 아니다**(수동 재실행은 회수한 권한을 되살린다) |
-| V20 | `V20__create_notification.sql` | 상단바 알림 테이블 `notification`(DDL 1문) |
-| V21 | `V21__create_admin_message.sql` | 쪽지 테이블 `admin_message`·`admin_message_sender_state`·`admin_message_send_log`(DDL 3문 — 실패 복구는 아래 "V21 실패 복구") |
-| V22 | `V22__drop_role_permission_tables.sql` | 역할 단위 권한 테이블 `role_permission`·`permission_role` 제거(`DROP TABLE IF EXISTS`, 자식 먼저, **되돌릴 수 없음 — 아래 백업 필수**) |
-| V23 | `V23__expand_notice_content.sql` | `notice.content` TEXT → MEDIUMTEXT(DDL 1문, 넓히는 방향이라 구버전 앱 호환) |
-| V24 | `V24__create_content_image.sql` | 편집기 본문 이미지 테이블 `content_image`·`content_image_ref`·`content_image_usage`(DDL 3문 — 실패 복구는 아래 "V23·V24 실패 복구") |
-| V25 | `V25__convert_notice_content_to_html.sql` | 본문 이미지 카운터 행 시드 + **기존 공지 본문 평문 → HTML 일괄 변환**(DML — 롤백 주의는 아래 "V25 이후 구버전 롤백") |
-| V26 | `V26__create_board.sql` | 게시판 `board`·게시판별 권한 `member_board_permission`(DDL 2문 — 실패 복구는 아래 "V26~V28") |
-| V27 | `V27__add_content_image_scope.sql` | `content_image`에 업로드 출처 `scope_type`(기본 `NOTICE`)·`scope_id` 추가(DDL 1문, 기본값이라 구버전 INSERT 호환) |
-| V28 | `V28__seed_board_admin_menu.sql` | 게시판 관리 메뉴 시드(멱등 DML) |
-| V29 | `V29__create_post.sql` | 게시글 `post`·게시글 첨부 `post_attachment`(DDL 2문 — 실패 복구는 아래 "V29~V30") |
-| V30 | `V30__seed_board_post_menu.sql` | 게시글 관리 메뉴 시드(멱등 DML) |
-| V31 | `V31__add_board_key.sql` | `board.board_key`(시스템 게시판 키, UNIQUE, NULL=일반 게시판) — DDL 1문 |
-| V32 | `V32__absorb_notice_into_board.sql` | **공지 → 공지 게시판 이관**(공지·첨부 복사, 본문 이미지 출처·참조 이동, MANAGER 공지 권한 이동, 메뉴 정리) — 순수 DML 한 트랜잭션, **되돌릴 수 없음 — 아래 "V31~V32" 백업 필수** |
-| V33 | `V33__create_banner.sql` | 배너 `banner`·동시성 가드 `banner_lock`(DDL 2문 — 실패 복구는 아래 "V33~V34") |
-| V34 | `V34__seed_banner_lock_and_menu.sql` | 가드 행(id=1)·배너 관리 메뉴 시드(멱등 DML) |
-| V35 | `V35__seed_session_menu.sql` | 세션 관리 메뉴 시드(멱등 DML) |
-| V36 | `V36__add_post_publish_period.sql` | `post.publish_start`·`publish_end` — DDL 1문(아래 "V36") |
-| V37 | `V37__create_site_page.sql` | 정적 페이지 `site_page`·개정 `site_page_revision`(DDL 2문 — 실패 복구는 아래 "V37~V38") |
-| V38 | `V38__seed_site_page_menu.sql` | 정적 페이지 관리 메뉴 시드(멱등 DML) |
-| V39 | `V39__create_popup.sql` | 공개 메인 팝업 `popup`(DDL 1문 — 실패 복구는 아래 "V39~V40") |
-| V40 | `V40__seed_popup_menu.sql` | 팝업 관리 메뉴 시드(멱등 DML) |
-| V41 | `V41__create_faq.sql` | FAQ 카테고리 `faq_category`·FAQ `faq`·동시성 가드 `faq_lock`(DDL 3문 — 실패 복구는 아래 "V41~V42") |
-| V42 | `V42__seed_faq_menu.sql` | FAQ 가드 행(id=1)·FAQ 관리 메뉴 시드(멱등 DML) |
-| V43 | `V43__media_library_columns.sql` | 미디어 라이브러리 — `content_image`에 `namespace`(빈 문자열 = 루트)·`original_name` 추가, 단독 `storage_key` UNIQUE를 `UNIQUE(namespace, storage_key)`로 교체(ALTER 1문, 실패 복구는 아래 "V43~V46") |
-| V44 | `V44__media_library_backfill.sql` | 기존 배너·이미지형 팝업을 이미지 행+`content_image_ref`로 등록하고 카운터를 `content_image` 원본에서 재계산(문장별 독립 멱등 DML) |
-| V45 | `V45__media_library_relax_banner_copy.sql` | `banner.storage_key/content_type/file_size` NULL 허용(ALTER 1문) |
-| V46 | `V46__seed_media_menu.sql` | 미디어 라이브러리 메뉴 시드(멱등 DML) |
-| V47 | `V47__create_inquiry.sql` | 문의 `inquiry` 테이블(DDL 1문 — 방문자 개인정보 포함, 실패 복구는 아래 "V47~V48") |
-| V48 | `V48__seed_inquiry_menu.sql` | 문의함 메뉴 시드(멱등 DML) |
-| V49 | `V49__add_view_download_counts.sql` | `post.view_count`·`post_attachment.download_count` 누적 카운터 — DDL 2문(아래 "V49", 롤백 호환) |
+| V1 | `V1__baseline_schema.sql` | 기준 스키마 — 테이블 28개·인덱스·FK·CHECK(DDL만). 테이블마다 설계 이유를 주석으로 둔다 |
+| V2 | `V2__baseline_seed.sql` | 기준 시드 — 사이트 2행(`id=1 admin`·`id=2 main`)·관리자 사이드바 메뉴·공통 공지 게시판·배너/FAQ 가드 행·이미지 카운터(순수 DML, id 명시) |
 
-| V50 | `V50__create_site.sql` | 사이트 `site` 테이블(DDL 1문, 아래 "V50~V52") |
-| V51 | `V51__seed_site.sql` | 시드 사이트 2행 — 관리자 `id=1 admin`·기본 공개 `id=2 main`(고정 ID, 멱등 DML) |
-| V52 | `V52__add_menu_site_id.sql` | `menu.site_id NOT NULL DEFAULT 1` + FK `ON DELETE RESTRICT`(DDL 1문 — 기존 메뉴는 전부 관리자 사이트가 된다) |
-| V53 | `V53__add_site_default.sql` | `site.default_yn bit(1) NOT NULL DEFAULT 0`(DDL 1문, 롤백 호환) |
-| V54 | `V54__seed_default_site.sql` | 시드 `main`(id=2)을 기본 공개 사이트로 지정 — 기본이 이미 있으면 건드리지 않는 멱등 DML |
-| V55 | `V55__add_content_site_id.sql` | `banner`·`popup`·`faq_category`·`site_page`에 `site_id`(NULL = 공통, FK `RESTRICT`) + `banner`·`faq_category`에 `version`(기본 1) — DDL 4문(아래 "V55") |
-| V56 | `V56__add_board_site_id.sql` | `board.site_id`(NULL = 공통, FK `RESTRICT`) — DDL 1문(아래 "V56") |
-| V57 | `V57__merge_menu_manage_into_site_page.sql` | 사이드바 "메뉴 관리" 행을 "정적 페이지 관리" 행에 합침 — 시드 그대로일 때만(전부-아니면-전무, 순수 DML, 아래 "V57") |
-| V58 | `V58__split_site_admin_menu_group.sql` | 사이드바를 "사이트 관리" 그룹 아래 정적 페이지 관리·메뉴 관리·사이트 설정 세 항목으로 분리 — 적격할 때만(전부-아니면-전무, 순수 DML, 아래 "V58") |
+V1~V2는 옛 V1~V58(2026-07-10~2026-10-16)을 합친 것이다. 옛 파일과 각 변경의 이유·배포 절차는 git 이력(합치기 직전 커밋 `96baec2`)에 있다. 새로 설치한 결과는 `BaselineSchemaTest`가 고정한다.
 
+## 합치기 후 기존 DB (2026-10-21)
 
-## V16 배포 전 백업과 복구 (menu.access_role 제거, 권한관리 PR 4/4)
+합치기 전에 만든 DB는 이력의 V1 체크섬이 달라 **기동이 실패한다**(`validate` 단계). 실배포 전이라 지킬 데이터가 없으므로 다시 만든다.
 
-V16은 `menu.access_role` 컬럼을 지운다. 사이드바 노출은 PR ②부터 권한 판정기가 정하고 앱은 이 컬럼을 읽지 않지만, **컬럼 값은 되돌릴 수 없이 사라지고 PR ① 이전 코드는 이 컬럼을 매핑해 기동에 실패한다**(롤백 호환표: `docs/deployment.md` "권한관리 롤백 주의").
+- **dev DB** (`cms_db_data_dev`): `make dev-down` 후 `docker volume rm cms_db_data_dev`, 다시 `make dev-db`(또는 `make dev-up`). 첨부·프로필 파일 볼륨(`cms_notice_attachments_dev`)은 DB가 비면 고아 파일만 남으므로 함께 지워도 된다(`docker volume rm cms_notice_attachments_dev`). 초기 관리자는 `TestMemberLoader`가 다시 만든다.
+- **prod 검증 볼륨** (`cms_db_data_prod`, 있는 경우): `make prod-down` 후 `docker volume rm cms_db_data_prod`(첨부 볼륨 `cms_notice_attachments_prod`도 같다).
+- **기존 백업** (`BACKUP_DIR`, 기본 `./backups`): 옛 체인 DB의 덤프라 새 앱으로 복원하면 같은 이유로 기동이 실패한다. 복원 대상으로 쓰지 않는다.
+- CI는 매번 빈 DB라 영향이 없다.
 
-- **배포 전 필수**: DB 백업을 먼저 받는다(`make prod-backup` — `docs/deployment.md` "백업", 논리 덤프에 `menu` 테이블 전체가 들어간다). 추가로 값만 따로 남기려면 `SELECT menu_no, menu_url, access_role FROM menu;` 결과를 파일로 저장해 둔다.
-- 확인: 배포 직전에 V15까지 적용돼 있는지(`SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;`), 이 PR 이전 코드로 되돌릴 계획이 없는지 점검한다. 되돌려야 하면 아래 복구를 먼저 한다.
-- **복구(이전 코드로 되돌려야 할 때만)**: ① `ALTER TABLE menu ADD COLUMN access_role VARCHAR(20) NULL;` ② 백업(또는 저장해 둔 값)에서 `UPDATE`로 값을 복원 ③ 이전 앱 배포. `flyway_schema_history`의 V16 기록은 그대로 두면 이전 코드(마이그레이션 파일에 V16이 없는 버전)가 `validate`에서 이력 불일치로 실패할 수 있으므로, 이 경우는 **되돌리기보다 roll-forward(수정 버전 배포)를 기본**으로 한다.
-- **`IF EXISTS`는 SQL을 다시 돌릴 때만 멱등이다** — 컬럼이 이미 없는 환경(수동 삭제 등)에서 V16 SQL이 실패하지 않는다는 뜻이지, 실패한 마이그레이션의 재기동 복구가 된다는 뜻이 아니다.
-- **V16 실패 복구(`flyway_schema_history`에 `success=0` 기록이 남은 경우)**: 잠금 대기 초과(`ALTER`가 장시간 메타데이터 잠금에 막힘) 등으로 V16이 실패하면 Flyway가 실패 기록을 남기고, **다음 기동의 `migrate`는 SQL을 실행하기 전에 "failed migration to version 16"으로 중단한다 — 단순 재기동으로는 복구되지 않는다**(원인을 없애도 마찬가지, `MenuAccessRoleDropMigrationTest`가 재현). ① 실패 원인 제거(예: 긴 트랜잭션·잠금 해소, 앱 인스턴스 정지) ② 실제 상태 확인 — `SHOW COLUMNS FROM menu LIKE 'access_role';`(컬럼이 남아 있어야 정상 실패, 이미 없으면 DDL이 적용된 것)와 `SELECT version, success FROM flyway_schema_history WHERE version = '16';` ③ **같은 마이그레이션 구성(`locations`·접속 정보)으로 `flyway repair`**(실패 기록 제거) ④ 재기동(`migrate` 재실행)으로 성공을 확인한다. 부분 적용 흔적이 없는 단일 `ALTER`라 별도 수동 정리는 필요 없다(V13과 달리).
+## 시험 정책
 
-## V22 배포 전 백업과 복구 (역할 단위 권한 테이블 제거, 사용자별 권한 PR B)
-
-V22는 `role_permission`·`permission_role`을 지운다. 2026-10-03(V17~V19)부터 권한은 회원 단위(`member_permission`)이고 앱은 두 테이블을 읽지 않으며, 당시 값은 V19가 기존 MANAGER에게 복사했다. **V22 이후 사용자별 전환 이전 앱(`3679f86` 이하)은 `Schema-validation: missing table [permission_role]`로 기동에 실패한다**(2026-10-06 실기 관측). 사용자별 전환 이후 앱(V22 파일 없음)은 V22가 적용된 DB에서 정상 기동한다(Flyway가 이력의 미래 버전을 기본값으로 무시 — `RolePermissionDropMigrationTest`·실기).
-
-- **배포 전 필수**: DB 백업(`make prod-backup`). 논리 덤프에 두 테이블 전체가 들어간다.
-- **V22 이전 상태로 되돌려야 할 때(백업 복원)**: `scripts/prod-restore.sh`는 복구 뒤 **그 시점의 앱 컨테이너를 기동**한다. 앱 컨테이너가 V22를 가진 이미지인 채로 V21 백업을 복원하면, 복원된 이력에 V22가 없어 **기동하면서 V22가 다시 실행돼 테이블이 또 지워진다**(health는 정상 — 2026-10-06 실기에서 재현). 순서: ① 앱 정지 ② **V22 파일이 없는 버전의 이미지로 앱 컨테이너를 재생성하되 기동하지 않는다** ③ `prod-restore.sh` ④ `SHOW TABLES LIKE '%permission%';`(세 테이블)와 `SELECT MAX(version+0) FROM flyway_schema_history;`(21)로 확인. 백업 시점 이후의 데이터는 사라지므로 **roll-forward가 기본**이다.
-- **`IF EXISTS`의 의미**: 첫 DROP이 커밋된 뒤 이력 기록 전에 중단돼도(MariaDB DDL은 문마다 암묵 커밋) 다음 기동의 `migrate`가 같은 SQL을 그대로 다시 실행해 성공한다. 지우는 마이그레이션이라 잔여 상태가 무엇이든 목표 상태(둘 다 없음)가 같아 **수동 DROP 분기가 필요 없다**(V13·V17~V19와 다른 점).
-- **V22 실패 복구(`success=0`이 남은 경우)**: 잠금 대기 초과나 두 테이블을 참조하는 외부 FK 등으로 실패하면 다음 기동이 SQL 실행 전에 "failed migration to version 22"로 중단된다. ① 앱 정지·원인 제거(긴 트랜잭션·잠금 해소, 수동으로 만든 참조 FK 제거) ② 상태 확인 — `SHOW TABLES LIKE '%permission%';`, `SELECT version, success FROM flyway_schema_history WHERE version = '22';` ③ 같은 마이그레이션 구성으로 `flyway repair` ④ 재기동. 남은 테이블이 하나든 둘이든 그대로 두면 된다. `RolePermissionDropMigrationTest`가 부분 적용 재실행·FK로 인한 실패 → repair 복구·롤백 호환을 고정한다.
-
-## V23~V25 — HTML 편집기 (2026-10-07, `adversarial-review/plan/PLAN-html-editor.md`)
-
-- **배포 전 백업 권장**: V25는 모든 공지 본문(삭제 공지 포함)을 평문에서 HTML로 바꾼다(`&`·`<`·`>`·`"` 이스케이프, 줄마다 `<p>`, 빈 줄 `<p><br></p>`). 변환은 결정적이고 원문 텍스트를 잃지 않지만, 되돌리는 마이그레이션은 없다. `make prod-backup`으로 직전 상태를 남긴다. 변환 결과는 MEDIUMTEXT(V23) 덕분에 컬럼 상한을 넘을 수 없다(기존 10,000자 평문의 최악값 ≈ 110KB — `NoticeContentHtmlMigrationTest`가 반례로 고정).
-- **V23·V24 실패 복구**: V23은 DDL 1문, V24는 DDL 3문이다(문마다 암묵 커밋). ① 앱 정지 ② 상태 확인 — `SELECT version, success FROM flyway_schema_history WHERE version IN ('23','24','25');`, `SHOW COLUMNS FROM notice LIKE 'content';`(V23 적용 시 `mediumtext`), `SHOW TABLES LIKE 'content_image%';` ③ 분기: (a) `success=1`인 버전의 객체는 건드리지 않는다 (b) V23이 `success=0`·이력 없음인데 컬럼이 이미 `mediumtext`면 그대로 둔다(되돌릴 필요 없음 — 넓히는 변경) (c) V24가 `success=0`·이력 없음이면 남은 `content_image*` 테이블이 **비어 있는지 확인한 뒤**(V25 이전이라 업로드가 있을 수 없다) `DROP TABLE IF EXISTS content_image_ref; DROP TABLE IF EXISTS content_image_usage; DROP TABLE IF EXISTS content_image;` ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. V25는 DML만이라 실패하면 전체가 롤백된다(`repair` 후 재기동).
-- **V25 이후 구버전 롤백**: 구버전 앱(V23~V25 파일 없음)은 기동되지만(이력의 미래 버전을 무시), 본문 HTML을 평문으로 보여 주고(태그가 글자로 보임) 새로 쓰는 본문을 평문으로 저장하며 이미지 참조를 갱신하지 않는다. 신버전을 다시 배포해도 V25는 재실행되지 않으므로, 롤백 중 쓰인 평문은 HTML로 해석된다(예: 본문의 `<h2>` 글자가 제목이 됨 — sanitizer는 XSS만 막는다). **롤백하는 동안 공지 생성·수정을 동결**하고, 동결이 깨졌다면 재배포 전에 `SELECT id, title, update_date FROM notice WHERE update_date > '<롤백 시각>';`로 찾은 행을 V25와 같은 규칙으로 다시 변환한다(PLAN-html-editor.md 쟁점 15).
-
-## V26~V28 — 게시판 정의·게시판별 권한·본문 이미지 출처 (2026-10-08, `adversarial-review/plan/PLAN-board.md` PR A)
-
-- **실패 복구**: V26은 DDL 2문(`board` → `member_board_permission`, 문마다 암묵 커밋), V27은 DDL 1문이다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version IN ('26','27','28');` ③ **`success=1`인 버전의 객체는 건드리지 않고** 실패·이력 없는 버전의 잔여 객체만 정리한다 — V26 실패면 `DROP TABLE IF EXISTS member_board_permission; DROP TABLE IF EXISTS board;`(자식 먼저), V27 실패면 `scope_type`·`scope_id` 중 생긴 컬럼만 `ALTER TABLE content_image DROP COLUMN …` ④ `flyway repair` ⑤ 앱 기동. V28은 멱등 DML이라 재실행해도 메뉴가 늘지 않는다.
-- **롤백 하한(V27)**: 게시판 이미지(`content_image.scope_type='BOARD'`)가 하나라도 생긴 뒤에는 **V27 이전 앱으로 되돌리지 않는다** — 구버전은 출처를 모르고 "NOTICE 조회 권한이면 모든 이미지 200"이라 비공개 게시판 이미지가 노출된다(쓰기 동결로 막을 수 없는 조회 경로). roll-forward만 한다. 게시판 이미지가 아직 없으면(PR A만 배포된 상태 포함) 구버전 앱은 새 테이블·컬럼을 무시하고 기동한다(`BoardMigrationTest`). 금지를 어기고 되돌렸다면 재배포 전에 출처가 다른 참조를 찾는다:
-  ```sql
-  SELECT r.owner_type, r.owner_id, r.image_id, i.scope_type, i.scope_id FROM content_image_ref r JOIN content_image i ON i.id = r.image_id
-  WHERE r.owner_type = 'NOTICE' AND i.scope_type <> 'NOTICE';
-  ```
-  재배포 후 공개 판정이 출처 일치를 요구하므로 이 참조로는 익명 공개되지 않지만, 해당 공지를 편집 화면에서 저장하면 400이 나므로 운영자가 본문에서 그 이미지를 빼거나 다시 올린다.
-- **롤백했다가 다시 배포할 때**: 구버전 운영 중 역할 변경은 `member_board_permission`을 지우지 못한다 — `docs/deployment.md` "롤백했다가 신버전을 다시 배포할 때"의 정리 SQL(이 테이블 포함)을 실행한다.
-
-## V29~V30 — 게시글·게시글 첨부 (2026-10-08, `adversarial-review/plan/PLAN-board.md` PR B)
-
-- **실패 복구**: V29는 DDL 2문(`post` → `post_attachment`, 문마다 암묵 커밋)이다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version IN ('29','30');` ③ **`success=1`인 버전의 객체는 건드리지 않고** 실패·이력 없는 버전의 잔여 객체만 정리한다 — **정리 전에 데이터가 비어 있는지 확인한다**: `SELECT (SELECT COUNT(*) FROM post) + (SELECT COUNT(*) FROM post_attachment);` (존재하는 테이블만 질의). 게시글이 든 테이블은 DROP하지 않고 백업 후 원인(복원 시점 불일치 등)을 확인한다. 비어 있고 V29가 `success=1`이 아니면 `DROP TABLE IF EXISTS post_attachment; DROP TABLE IF EXISTS post;`(자식 먼저) ④ `flyway repair` ⑤ 앱 기동. V30은 멱등 DML이라 재실행해도 메뉴가 늘지 않는다.
-- **롤백 하한(PR B → PR A)**: PR A 앱(V28 이하 파일만)은 `post`·`post_attachment`를 몰라도 기동한다(Flyway는 적용된 미래 버전을 무시하고 Hibernate `validate`는 매핑된 엔티티만 본다 — `BoardMigrationTest`). 이 롤백은 **허용**된다 — PR A 앱이 본문 이미지 출처 판정(V27)을 갖고 있어 게시판 출처 이미지가 NOTICE 조회 권한자에게 404이고 공지 본문에 넣으면 400이기 때문이다. 반면 **PR A 이전 앱으로는 게시판 이미지가 생긴 뒤 되돌리지 않는다**(위 "V26~V28"의 롤백 하한).
-- **PR A 앱으로 롤백한 동안**: PR A 앱은 게시글을 모르므로 게시글 관리 화면·API·게시판 삭제 API·공개 `/boards`가 없다(게시글 데이터는 DB에 그대로 남는다). 본문 이미지 수동 회수는 `docs/deployment.md`의 **현재 판**(살아 있는 게시글 참조 제외 + `post_attachment` 보존 포함)만 쓴다 — PR A 시점의 이전 판은 `post`·`post_attachment` 테이블이 있으면 스스로 중단하는 가드를 가졌고, 게시글이 있는 DB에서 가드 없는 더 오래된 판을 쓰면 게시글 참조 이미지와 첨부가 지워진다.
-- **재배포 전 점검(출처가 다른 참조)**: 금지를 어기고 PR A 이전 앱으로 되돌렸다가 다시 배포하는 경우, 게시글 참조까지 포함해 출처가 다른 참조를 찾는다:
-  ```sql
-  SELECT r.owner_type, r.owner_id, r.image_id, i.scope_type, i.scope_id
-  FROM content_image_ref r JOIN content_image i ON i.id = r.image_id
-  WHERE (r.owner_type = 'NOTICE' AND i.scope_type <> 'NOTICE')
-     OR (r.owner_type = 'POST' AND NOT EXISTS (SELECT 1 FROM post p
-                                               WHERE p.id = r.owner_id AND i.scope_type = 'BOARD' AND i.scope_id = p.board_id));
-  ```
-  재배포 후 공개 판정이 출처 일치를 요구하므로 이 참조로는 익명 공개되지 않지만, 해당 공지·게시글을 편집 화면에서 저장하면 400이 나므로 운영자가 본문에서 그 이미지를 빼거나 다시 올린다.
-- **게시글 데이터와 삭제**: 게시글은 소프트 삭제(`deleted`)이고 첨부가 남은 게시글은 삭제할 수 없다(409). 게시판 삭제는 **살아 있는 게시글이 없을 때만** 가능하며 그 게시판의 MANAGER 권한 행도 함께 지운다. 삭제된 게시판·게시글의 행은 테이블에 남는다(복원 API는 없다).
-
-## V31~V32 — 공지 → 공지 게시판 이관 (2026-10-09, `adversarial-review/plan/PLAN-notice-to-board.md`)
-
-- **V31**(DDL 1문 `ALTER TABLE board ADD COLUMN board_key … UNIQUE`)은 단독이다. 실패 복구: `SELECT version, success FROM flyway_schema_history WHERE version = '31';` → `success=1`이면 건드리지 않는다. 이력이 없거나 `success=0`인데 `board.board_key` 컬럼이 이미 있으면(DDL 암묵 커밋) `ALTER TABLE board DROP INDEX uk_board_board_key, DROP COLUMN board_key;`로 잔여를 지우고(`board_key`가 모두 NULL인지 먼저 확인) `flyway repair` 후 재기동한다.
-- **V32**는 **한 트랜잭션**의 순수 DML이다 — 중간 실패는 전부 롤백되어 V31 상태로 남고, `success=0` 이력이 남으면 원인을 고친 뒤 `flyway repair` → 재기동한다. 하는 일: ① 공지 게시판(`board_key='NOTICE'`, 이름 '공지사항', 공개·첨부 허용) 생성 ② `id <= MAX(notice.id)`인 기존 게시글·게시글 첨부를 `+offset`으로 재번호(`SET FOREIGN_KEY_CHECKS=0` 구간, 충돌이 없으면 무변경) ③ `notice`→`post`·`notice_attachment`→`post_attachment` **같은 ID로 복사**(`storage_key`는 같은 값, 파일은 옮기지 않음) ④ `content_image`의 `NOTICE` 출처를 `BOARD`+공지 게시판으로, `content_image_ref`의 `NOTICE` 참조를 `POST`로 **이동** ⑤ `member_permission`의 NOTICE 행(READ가 있는 활성 MANAGER)을 `member_board_permission`(공지 게시판)으로 **이동**하고 해당 회원 `permission_version`+1, NOTICE 행 전부 삭제 ⑥ '공지사항 관리' 메뉴 정리(대체 메뉴가 깨끗하면 삭제·자식 있으면 URL만 비움, 아니면 '게시글 관리' 링크로 전환).
-- **되돌릴 수 없다 — 배포 전 정지 상태 정규 백업 필수**(순서와 사전 점검 SQL은 `docs/deployment.md` "공지 → 공지 게시판 흡수 배포"). **앱만 이전 버전으로 되돌리는 롤백은 지원하지 않는다** — 이전 앱(V30 이하 파일만)은 기동은 하지만(Flyway는 적용된 미래 버전을 무시하고 `validate`는 매핑된 엔티티만 본다) NOTICE 권한 행이 없어 MANAGER가 공지에 접근하지 못하고, 공지 이미지는 출처가 바뀌어 비공개가 되며, 동결된 `notice` 테이블은 이관 전 스냅샷이다.
-- **백업 복원 순서(V22와 같은 형식)**: ① V30 이하 이미지로 컨테이너를 먼저 교체한다(V31·V32가 다시 실행되지 않도록) ② 정지 상태 백업(DB + 파일 볼륨)을 복원한다 ③ 수정한 신버전을 배포해 V31·V32를 다시 적용한다.
-- **동결 테이블**: `notice`·`notice_attachment`는 지우지 않는다(이관 시점 스냅샷, 앱이 읽지 않음). 후속 PR이 DROP한다 — 그 전에는 수동 회수 절차가 이 테이블을 보존 목록에 쓰지 않는다.
-- **시험**: `NoticeAbsorbMigrationTest`(같은 ID·플래그·날짜·첨부 바이트, 충돌 재번호와 연결 유지, AUTO_INCREMENT, 이미지·권한·메뉴 이동, 회수 가드 SQL). 과거 마이그레이션 시험(`MemberPermissionMigrationTest`·`RolePermissionDropMigrationTest`·`BoardMigrationTest`)은 NOTICE 행·공지 출처를 다루므로 **V31(또는 V30)까지만 적용**한다.
-
-
-## V33~V34 — 공개 메인 배너 (2026-10-10, `adversarial-review/plan/PLAN-public-home-banner.md`)
-
-- **V33**(DDL 2문: `banner`, `banner_lock`)은 문마다 암묵 커밋이다. 실패 복구: `SELECT version, success FROM flyway_schema_history WHERE version = '33';`에서 이력이 없거나 `success=0`이면 **이력 없는 쪽의 잔여 테이블만** `DROP TABLE IF EXISTS banner_lock; DROP TABLE IF EXISTS banner;`(자식 없음, FK 없음)한 뒤 `flyway repair` → 재기동. `success=1`인 버전의 객체는 건드리지 않는다(V17~V19 복구와 같은 원칙).
-- **V34**는 순수 DML이다(가드 행 `banner_lock(id=1)` + 메뉴 '배너 관리' 최상위 맨 끝, 둘 다 `WHERE NOT EXISTS`로 멱등). **가드 행이 없으면 배너 생성·삭제·순서 저장이 `IllegalStateException`으로 실패**한다(조용히 잠금 없이 진행하지 않는다) — 수동으로 지웠다면 `INSERT INTO banner_lock (id) VALUES (1);`.
-- **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다(`BannerMigrationTest.rollbackToAppWithoutBanner_startsAgainstLatestDatabase`). 이전 앱으로 롤백했다가 다시 배포할 때의 **권한 정리**와 **수동 회수 ⑤의 `banner/` 제외**는 `docs/deployment.md` "공개 메인(`/`)과 배너".
-- **시험**: `BannerMigrationTest`(테이블·가드 행 1개·메뉴 최상위 맨 끝 1개, 시드 멱등, 컬럼 제약·`datetime(6)`, V32 이하 앱 롤백 기동 호환).
-
-## V36 — 게시글 노출 기간 컬럼 (2026-10-11, `adversarial-review/plan/PLAN-post-publish-period.md`)
-
-- **V36**은 `ALTER TABLE post ADD COLUMN publish_start, publish_end`(둘 다 `datetime(6) NULL`) 한 문이다. 기존 행은 NULL이라 기존 공개 동작이 그대로다. 되돌릴 때는 **이전 앱이 예약·만료 글을 공개한다** — 반드시 `docs/deployment.md` "게시글 예약 게시"의 롤백 순서(쓰기 동결·백업·비노출·잔여 0건 검증)를 따른다.
-- **실패 복구**: DDL 커밋 후 이력 기록 전에 프로세스가 끊기면 "컬럼은 있고 성공 이력은 없는" 상태나 `success=0` 이력이 남는다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version = '36';`와 `SHOW COLUMNS FROM post LIKE 'publish_%';` ③ **`success=1`이면 컬럼을 건드리지 않는다**(기간이 든 실제 데이터가 있을 수 있다). 이력이 없거나 `success=0`인데 컬럼만 있으면 이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 값이 모두 NULL이므로 `ALTER TABLE post DROP COLUMN publish_end, DROP COLUMN publish_start;`(이미 있는 쪽만) ④ `flyway repair` ⑤ 재기동.
-- **시험**: `PostPublishPeriodMigrationTest`(V35 → 최신: 기존 행 NULL·use_yn/삭제 상태 불변·기존 공개 조건이 그대로 노출 글 하나만 고름, 컬럼이 `datetime(6)` NULL 허용, 저장 범위 왕복). 이전 앱 코드로 기동하는 호환은 코드가 없어 시험하지 못한다 — `ddl-auto: validate`가 여분 컬럼을 허용한다는 점에 의존한다.
-
-## V49 — 조회수·다운로드 수 카운터 컬럼 (2026-10-13, `adversarial-review/plan/PLAN-view-download-count.md`)
-
-- **V49**는 `ALTER TABLE post ADD COLUMN view_count bigint NOT NULL DEFAULT 0`과 `ALTER TABLE post_attachment ADD COLUMN download_count bigint NOT NULL DEFAULT 0` 두 문이다. 기존 행은 0으로 시작한다. **롤백 가능**: 이전 앱은 컬럼을 모르지만 DEFAULT 0이라 INSERT가 호환되고, 롤백 중에는 카운트만 멈추며 값은 보존된다(권한·공개 노출 변화 없음).
-- **실패 복구**: DDL 두 문은 각각 암묵 커밋이라 첫 문만 성공하고 끊기면 `post.view_count`만 있고 `success=0` 이력이 남는다. ① 앱 정지 ② `SELECT version, success FROM flyway_schema_history WHERE version = '49';`와 `SHOW COLUMNS FROM post LIKE 'view_count'; SHOW COLUMNS FROM post_attachment LIKE 'download_count';` ③ **`success=1`이면 컬럼을 건드리지 않는다**(집계된 값이 있다). 이력이 없거나 `success=0`이면 이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 값이 모두 0이므로 있는 쪽 컬럼만 `ALTER TABLE post DROP COLUMN view_count;` / `ALTER TABLE post_attachment DROP COLUMN download_count;` ④ `flyway repair` ⑤ 재기동.
-- **시험**: `ContentCountMigrationTest`(V48 → 최신: 기존 행 0·`NOT NULL`·새 컬럼을 모르는 INSERT가 0으로 들어가는 롤백 호환).
-
-## V37~V38 — 정적 페이지 (2026-10-11, `adversarial-review/plan/PLAN-static-page.md`)
-
-- **V37**(DDL 2문: `site_page`, `site_page_revision`)은 문마다 암묵 커밋이다. 두 번째 문이 실패하면 **첫 테이블만 남고 `success=0` 이력이 남는다 — 단순 재기동은 "failed migration to version 37"로 중단된다.** 복구: ① 앱 정지·원인 제거 ② `SELECT version, success FROM flyway_schema_history WHERE version = '37';`와 `SHOW TABLES LIKE 'site_page%';` ③ **이력이 없거나 `success=0`인 경우에만** 잔여 객체를 자식→부모 순으로 `DROP TABLE IF EXISTS site_page_revision; DROP TABLE IF EXISTS site_page;` (이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 데이터가 없다) ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. **`success=1`인 버전의 테이블은 개정 이력이 든 실제 데이터일 수 있으므로 절대 건드리지 않는다**(V17~V19·V33 복구와 같은 원칙).
-- **V38**은 순수 DML(메뉴 '정적 페이지 관리' 최상위 맨 끝, `WHERE NOT EXISTS`로 멱등)이다.
-- **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다. 롤백 후 재배포 시 **권한 정리**는 `docs/deployment.md` "정적 페이지".
-- **시험**: `SitePageMigrationTest`(V36→V38 테이블·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(슬러그 유일·복합 PK·FK RESTRICT), V36 이하 앱 롤백 기동 호환, **V37 부분 적용 실패 → repair 복구**).
-
-## V39~V40 — 공개 메인 팝업 (2026-10-12, `adversarial-review/plan/PLAN-popup.md`)
-
-- **V39**(DDL 1문: `popup`)는 문 하나라 부분 적용 상태가 생기지 않지만, 문 실행 중 실패해 `success=0` 이력이 남을 수 있다. 복구: ① 앱 정지·원인 제거 ② `SELECT version, success FROM flyway_schema_history WHERE version = '39';`와 `SHOW TABLES LIKE 'popup';` ③ **이력이 없거나 `success=0`인 경우에만** `DROP TABLE IF EXISTS popup;`(이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 데이터가 없다) ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. **`success=1`인 버전의 테이블은 실제 팝업 데이터일 수 있으므로 절대 건드리지 않는다**(V17~V19·V33·V37 복구와 같은 원칙).
-- **V40**은 순수 DML(메뉴 '팝업 관리' 최상위 맨 끝, `WHERE NOT EXISTS`로 멱등)이다. 가드 행·권한 행 시드는 없다(`popup_lock` 같은 가드 테이블이 없고 권한 행은 권한관리 화면이 만든다).
-- **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다. 롤백 후 재배포 시 **권한 정리와 수동 회수 주의**는 `docs/deployment.md` "공개 메인 팝업" — 특히 롤백 기간에는 구버전 문서의 수동 회수 ⑤를 실행하지 않는다(`popup/` 파일이 전부 고아로 삭제된다).
-- **시험**: `PopupMigrationTest`(V38→V40 테이블·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(이미지형·HTML형 NULL 허용, storage_key 유일, 필수 컬럼, revision 기본 0), V38 이하 앱 롤백 기동 호환).
-
-## V41~V42 — FAQ 관리 (2026-10-12, `adversarial-review/plan/PLAN-faq.md`)
-
-- **V41**(DDL 3문: `faq_category` → `faq`(카테고리 FK) → `faq_lock`)은 문마다 암묵 커밋이라 중간 실패 시 일부 테이블만 남은 부분 적용 상태가 생길 수 있다. 복구: ① 앱 정지·원인 제거 ② `SELECT version, success FROM flyway_schema_history WHERE version = '41';`와 `SHOW TABLES LIKE 'faq%';` ③ **이력이 없거나 `success=0`인 경우에만** `DROP TABLE IF EXISTS faq; DROP TABLE IF EXISTS faq_category; DROP TABLE IF EXISTS faq_lock;`(자식 `faq`를 먼저 — 이 기능을 쓰는 앱이 한 번도 뜨지 못한 상태라 데이터가 없다) ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. **`success=1`인 버전의 테이블은 실제 FAQ 데이터일 수 있으므로 절대 건드리지 않는다**(V17~V19·V33·V37·V39 복구와 같은 원칙).
-- **V42**는 순수 DML이다. ① **가드 행**(`faq_lock` id=1, version 0, `WHERE NOT EXISTS`로 멱등) — 앱이 모든 FAQ·카테고리 쓰기의 첫 조회로 `FOR UPDATE` 하는 대상이라 **없으면 FAQ 쓰기가 전부 500(`IllegalStateException`)** 이다. ② 메뉴 'FAQ 관리' 최상위 맨 끝(멱등). 재실행해도 가드 버전을 되돌리지 않는다(`FaqMigrationTest.seedIsIdempotent`).
-- **되돌리기**: 새 테이블뿐이라 이전 앱은 그대로 기동한다(`FaqMigrationTest`가 V40 이하 앱 validate·migrate 호환을 고정). 롤백 후 재배포 시 **권한 정리**는 `docs/deployment.md` "FAQ".
-- **시험**: `FaqMigrationTest`(V40→V42 테이블·가드 행·메뉴 최상위 맨 끝 1개, 시드 멱등, 제약(필수 컬럼·FK RESTRICT·가드 version 기본 0), V40 이하 앱 롤백 기동 호환).
-
-## V43~V46 — 미디어 라이브러리 (2026-10-12, `adversarial-review/plan/PLAN-media-library.md`)
-
-배너·팝업·본문 이미지를 `content_image` 한 테이블로 모은다. **파일은 옮기지 않는다** — `namespace`에 위치만 기록한다. DDL(V43·V45)과 DML(V44·V46)을 섞지 않는다(DDL은 문마다 암묵 커밋이라 단계별 부분 실패 지점을 분명히 하기 위해).
-
-- **배포 전 백업 필수**(`make prod-backup`). 이 마이그레이션 묶음은 기존 두 테이블의 제약을 바꾸고(`content_image` UNIQUE 교체, `banner` 사본 컬럼 NULL 허용) 대량 DML을 포함한다. **V43 이전 앱으로의 롤백은 지원하지 않는다**(roll-forward만 — 구버전은 배너·팝업 삭제 때 `storage_key`로 파일을 지우는데 새 행은 그 컬럼이 NULL이고 공유 이미지를 모른다).
-- **V43**(ALTER 1문: 컬럼 2개 추가 + `DROP INDEX uk_content_image_storage_key` + `ADD UNIQUE KEY uk_content_image_ns_storage_key (namespace, storage_key)`): 한 문장이지만 MariaDB는 DDL을 암묵 커밋하므로 실패하면 Flyway 이력과 어긋날 수 있다. 복구: ① 앱 정지·원인 제거 ② `SELECT version, success FROM flyway_schema_history WHERE version = '43';`와 `SHOW CREATE TABLE content_image;` ③ **이력이 없거나 `success=0`이고 컬럼이 이미 생겼다면**(문 일부만 적용된 경우) `namespace`·`original_name` 컬럼과 새 UNIQUE를 지우고 옛 `UNIQUE KEY uk_content_image_storage_key (storage_key)`를 되돌려 V43 이전 상태로 맞춘다 ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동. **`success=1`이면 아무것도 지우지 않는다**.
-- **V44**(순수 DML 5문): Flyway는 DML 마이그레이션을 한 트랜잭션으로 감싸므로 정상 실행은 원자적이다. 그래도 **문장별로 독립 멱등**이라(① 이미지 행은 `(namespace, storage_key)`가 같은 행이 없을 때만, ② 참조 행은 소유자의 키로 그 이미지를 찾아 참조가 없을 때만, ③ 카운터는 덧셈이 아니라 `COALESCE(SUM(file_size), 0)`/`COUNT(*)` 원본 재계산) 어느 지점에서 끊겨도 SQL을 그대로 다시 실행하면 수렴한다 — 수동 복구는 `V44__media_library_backfill.sql`의 문장을 순서대로 다시 실행하면 된다(`MediaMigrationTest`가 완료 상태·참조만 사라진 부분 상태·이미지와 참조가 모두 사라진 부분 상태에서 재실행해 중복 없이 수렴함을 고정). 확인: `SELECT COUNT(*) FROM banner` = `SELECT COUNT(*) FROM content_image_ref WHERE owner_type = 'BANNER'`(이미지형 팝업도 같은 식).
-- **V45**(ALTER 1문): V44가 이미 커밋돼 있으므로 이 문이 실패하면 **V45만 다시 실행**하면 된다(`ALTER TABLE banner MODIFY COLUMN …` 3개 컬럼 NULL 허용). 이력에 `success=0`이 남았다면 상태(`SHOW COLUMNS FROM banner`)를 확인하고 `flyway repair` 뒤 재기동한다.
-- **V46**은 순수 DML(멱등 메뉴 시드)이다.
-- **되돌리기**: 위 롤백 불가 설명 참조(roll-forward — 수정 버전을 배포한다).
-- **시험**: `MediaMigrationTest`(V42 데이터 — 배너 2·이미지형/HTML형 팝업·**같은 키 문자열을 세 네임스페이스가 가진 경우** — 업그레이드, 빈 DB·이미지 없는 V42의 카운터 (0, 0), V44 부분 상태 재실행 수렴, `(namespace, storage_key)` 유일성과 배너 사본 컬럼 NULL 허용, 메뉴 시드 멱등).
-
-## V47~V48 — 문의 (2026-10-12, `adversarial-review/plan/PLAN-inquiry.md`)
-
-- **V47**(DDL 1문: `inquiry`)은 암묵 커밋이라 **문 하나가 통째로 적용되거나 아니거나**다(부분 적용 없음). 실패해 `success=0` 이력이 남으면 `inquiry` 테이블이 없는지 확인한 뒤(`SHOW TABLES LIKE 'inquiry'`) 원인을 고치고 `flyway repair` → 재기동한다. 테이블이 이미 있고 이력만 실패로 남은 경우(드문 암묵 커밋 어긋남)에는 **테이블이 비어 있는지 확인한 뒤** `DROP TABLE inquiry`(방문자 개인정보가 있으면 지우기 전에 백업) → `flyway repair` → 재기동한다.
-- **V48**은 순수 DML(멱등 메뉴 시드, `WHERE NOT EXISTS`)이다. 실패하면 `flyway repair` 후 재기동하면 같은 결과로 수렴한다.
-- **되돌리기**: 이전 앱은 V47·V48이 적용된 DB에서도 기동한다(미사용 테이블·메뉴 행이 남는다). 단 **`INQUIRY_RECEIVED` 알림 행과 `INQUIRY` 권한 행 정리가 필요하다** — `docs/deployment.md` "문의 폼"의 롤백 절차 참조.
-- **시험**: `InquiryMigrationTest`(컬럼·NOT NULL·인덱스·IP/UA 컬럼 없음, 메뉴 최상위 1개·시드 멱등). 새 DB의 V1부터 전체 적용은 모든 통합 시험의 기동이 증명한다.
-
-## V50~V52 — 사이트 설정 (2026-10-13, `adversarial-review/plan/PLAN-site-menu.md` PR ①)
-
-- **배포**: V50(DDL) → V51(시드, 고정 ID) → V52(DDL). 배포 전 `make prod-backup`. 기존 메뉴 행은 `DEFAULT 1`로 전부 관리자 사이트가 되므로 데이터 이동이 없다.
-- **롤백 호환(조건부)**: 이전 앱은 `site_id`를 모르지만 `DEFAULT 1`이라 INSERT가 관리자 메뉴로 들어가 **관리자 사이트만 쓰는 동안은** 기동·동작한다(`SiteMigrationTest`). **공개 사이트(`site_id<>1`) 메뉴가 하나라도 생기면 V52 이전 앱으로 롤백하지 않는다** — 이전 앱은 모든 행을 한 트리로 읽고(구조 반영·비활성 포함 트리) 이동·재활성화도 허용한다. 비활성화로는 보호되지 않는다(공개 메뉴를 관리자 부모 아래로 옮기면 재배포 뒤 사이트 분리가 깨진다). 허용 절차: ① 공개 사이트 메뉴를 전부 영구삭제한 뒤 롤백 ② 또는 V52 이전 백업 복구. 구·신 앱을 동시에 띄우는 배포도 같은 이유로 금지다. V50~V52를 되돌리는 마이그레이션은 만들지 않는다(이전 앱은 엔티티에 없는 컬럼·테이블이 있어도 `ddl-auto: validate`로 기동한다).
-- **V52 실패 복구**: DDL 1문(ALTER 한 문에 컬럼 추가 + FK)이라 부분 적용은 드물지만, `success=0`이 남으면 ① 앱 정지 ② `SHOW COLUMNS FROM menu LIKE 'site_id';`·`SHOW CREATE TABLE menu`로 상태 확인 ③ 같은 마이그레이션 구성으로 `flyway repair` ④ 재기동. **V52는 멱등이다**(컬럼·FK 모두 `IF NOT EXISTS`) — 컬럼·FK가 이미 있어도 재실행이 실패하지 않으므로 수동으로 객체를 만들거나 지울 필요가 없다(`SiteMigrationTest`가 FK가 있는 상태의 재실행을 고정). V50이 `success=0`이면 `DROP TABLE IF EXISTS site;` 뒤 repair.
-
-## V53~V54 — 기본 공개 사이트 (2026-10-13, `adversarial-review/plan/PLAN-site-menu.md` PR ②)
-
-- **배포**: V53(DDL) → V54(DML). 배포 전 `make prod-backup`. 둘 다 멱등(`ADD COLUMN IF NOT EXISTS`, `WHERE NOT EXISTS`)이라 실패 뒤 `flyway repair`로 재실행해도 안전하다. V54는 기본 표시가 이미 있으면 건드리지 않는다.
-- **롤백 호환**: `default_yn`이 `NOT NULL DEFAULT 0`이라 이전 앱의 INSERT가 깨지지 않는다. 다만 이 마이그레이션과 함께 나간 앱은 공개 경로가 `/{siteKey}/…`로 바뀌므로 **앱 롤백은 일괄 교체로만** 한다(`docs/deployment.md` "공개 경로 `/{siteKey}/…` 이전").
-- **불변식 점검**: 기본 사이트는 정확히 1개의 활성 `PUBLIC` 행이어야 한다 — `SELECT id, site_key, use_yn, site_type FROM site WHERE default_yn = 1;`이 1행이 아니면 `/`가 404다. DB 제약은 없고 `SiteService`(모든 site 행 `FOR UPDATE`)와 시험이 지킨다.
-
-## V55 — 사이트별 콘텐츠 (2026-10-13, `adversarial-review/plan/PLAN-site-menu.md` PR ③)
-
-- **배포**: DDL 4문(`ALTER TABLE` 한 테이블에 한 문 — 컬럼 추가와 FK를 한 문에 묶었다), 문마다 암묵 커밋. 배포 전 `make prod-backup`. 전부 `IF NOT EXISTS`라 실패 뒤 `flyway repair`로 재실행해도 안전하다(`ContentSiteMigrationTest.isIdempotent`). 기존 행은 `site_id NULL`(공통)·`version 1`이라 데이터 이동이 없다.
-- **실패 복구**: `success=0`이 남으면 ① 앱 정지 ② 테이블별로 `SHOW COLUMNS FROM <table> LIKE 'site_id';`·`SHOW CREATE TABLE <table>`로 어디까지 적용됐는지 확인 ③ 컬럼·FK가 일부만 있어도 같은 파일을 `flyway repair` 후 재실행하면 나머지가 채워진다(멱등).
-- **롤백 호환(조건부)**: `site_id`는 `DEFAULT NULL`, `version`은 `NOT NULL DEFAULT 1`이라 이전 앱의 INSERT가 깨지지 않고 공통 콘텐츠로 들어간다(`ContentSiteMigrationTest.legacyInsertsStayCommon`). **다만 사이트 전용 콘텐츠가 있으면 롤백하지 않는다** — 이전 앱이 전용 콘텐츠를 모든 사이트에 노출한다. 점검 SQL과 삭제 순서(FAQ는 항목 → 카테고리)는 `docs/deployment.md` "사이트별 콘텐츠".
-
-## V56 — 사이트별 게시판·공지 (2026-10-14, `adversarial-review/plan/PLAN-site-menu.md` PR ④)
-
-- **배포**: DDL 1문(`ALTER TABLE board`에 `site_id` 컬럼 + FK `fk_board_site`), 문 하나라 부분 적용이 없다. 배포 전 `make prod-backup`. 컬럼·FK 모두 `IF NOT EXISTS`라 `flyway repair` 뒤 재실행해도 안전하다(`BoardSiteMigrationTest.isIdempotent`). 기존 행은 `site_id NULL`(공통)이라 데이터 이동이 없다. 공지 게시판 키 유일성은 기존 `UNIQUE(board_key)`를 그대로 쓴다(사이트 전용 공지는 키 `NOTICE:{siteId}`) — 인덱스 변경 없음.
-- **롤백 호환(조건부)**: `site_id`가 `DEFAULT NULL`이라 이전 앱의 INSERT가 깨지지 않고 공통 게시판으로 들어간다(`BoardSiteMigrationTest.legacyInsertStaysCommon`). **다만 사이트 전용 게시판이 있으면 롤백하지 않는다** — 이전 앱이 전용 게시판을 모든 사이트에 노출한다. 점검 SQL·삭제 순서·이전 앱이 남긴 삭제 행 정리는 `docs/deployment.md` "사이트별 게시판·공지".
-
-## V57 — 사이드바 "메뉴 관리"와 "정적 페이지 관리" 통합 (2026-10-14, `adversarial-review/plan/PLAN-content-menu-unify.md` "후속 PR — 사이드바 두 항목 통합")
-
-- **배포**: 순수 DML(스키마 변경 없음). 관리자 사이트(`site_id=1`)의 "메뉴 관리" 행(`/admin/menu/manage`)을 지우고 "정적 페이지 관리" 행(`/admin/site-page/manage`)의 이름을 "정적 페이지 · 메뉴 · 사이트 관리"로 바꾼다. 배포 전 `make prod-backup`은 기존 관례대로다.
-- **전부-아니면-전무**: 적격 판정을 변경 전에 한 번만 내려 두 문장이 같은 값(`@merge_ok`)을 쓴다. 두 행 모두 시드 그대로(이름·아이콘·설명 NULL·활성·최상위·자식 없음·같은 URL 행이 관리자 사이트에 정확히 1개, 문자열은 `utf8mb4_nopad_bin` 엄격 비교)일 때만 합치고, **관리자가 UI에서 개명·이동·비활성화·아이콘 변경·자식 추가·중복 생성을 한 환경은 아무것도 바뀌지 않는다**(두 항목이 그대로 남는다 — 관리자가 메뉴 구조 편집 화면에서 직접 정리한다). 시험: `SiteMenuMergeMigrationTest`.
-- **롤백**: 데이터만 바뀌어 이전 앱은 그대로 기동한다(합친 행은 같은 URL이라 동작한다). 다만 지운 "메뉴 관리" 항목은 마이그레이션으로 복구되지 않는다 — 이전 앱의 사이드바에도 없는 채로 `/admin/menu/manage`(302)·URL 직접 접근으로만 닿는다. 되돌리려면 수동으로 넣는다:
-  ```sql
-  INSERT INTO menu (menu_name, menu_url, menu_icon, use_yn, ord, up_menu_no, site_id)
-  SELECT '메뉴 관리', '/admin/menu/manage', 'fas fa-fw fa-bars', 1,
-         (SELECT COALESCE(MAX(ord), -1) + 1 FROM menu WHERE up_menu_no IS NULL AND site_id = 1), NULL, 1
-  FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM menu WHERE menu_url = '/admin/menu/manage' AND site_id = 1);
-  UPDATE menu SET menu_name = '정적 페이지 관리' WHERE menu_url = '/admin/site-page/manage' AND site_id = 1
-     AND menu_name = '정적 페이지 · 메뉴 · 사이트 관리';
-  ```
-- **수용한 한계**: 통합 검색에서 구문 `메뉴 관리`·`정적 페이지 관리`는 더 이상 일치하지 않는다(키워드 `메뉴`·`사이트`·`정적`은 합친 항목을 찾는다).
-
-## V58 — 사이드바 "사이트 관리" 그룹 아래 세 항목으로 분리 (2026-10-16, `adversarial-review/plan/PLAN-content-menu-unify.md` 후속 PR 2 U3)
-
-- **배포**: 순수 DML(스키마 변경 없음). 관리자 사이트(`site_id=1`)에 그룹 "사이트 관리"(URL NULL)를 만들고, V57이 합친 `/admin/site-page/manage` 행을 그 아래(`ord=0`)로 옮기며, "메뉴 관리"(`/admin/menu/manage`, `ord=1`)·"사이트 설정"(`/admin/site/manage`, `ord=2`) 행을 추가한다. 화면이 탭 한 화면에서 세 화면으로 나뉜 것(U3)에 맞춘 데이터다. 신규 설치는 V3·V38·V57·V58이 순서대로 돌아 같은 결과다.
-- **적격 판정(전부-아니면-전무)**: 변경 전에 한 번만 `@group_ok`에 담고 모든 문장이 같은 값을 쓴다. `/admin/site-page/manage` 행이 관리자 사이트에 정확히 1개이고 활성·최상위·자식 없음, `/admin/menu/manage`·`/admin/site/manage` 행이 없으며, 이름이 "사이트 관리"인 행이 없을 것(`utf8mb4_nopad_bin`). **이름·아이콘·설명은 판정에 쓰지 않는다** — 관리자가 V57 결과 행을 손봤어도 진입점 세 개를 얻고, 손본 값은 보존한다(이름이 V57 시드 그대로일 때만 "정적 페이지 관리"로 되돌린다). 비적격이면 아무것도 바뀌지 않는다 — 그 환경에서는 "메뉴 관리"·"사이트 설정" 진입점이 사이드바에 없으므로(화면은 URL로 열린다) 배포 뒤 메뉴 구조 편집에서 행을 추가하거나 비적격 사유(자식이 달림 등)를 정리한 뒤 V58의 INSERT/UPDATE를 참고해 수동 적용한다. 배포 전 점검: `SELECT menu_no, menu_name, up_menu_no, use_yn FROM menu WHERE site_id = 1 AND menu_url IN ('/admin/site-page/manage','/admin/menu/manage','/admin/site/manage');`
-- **`LAST_INSERT_ID` 안전**: 그룹 INSERT 직후 `@group_no`에 담고, INSERT가 0행(비적격)일 때 이전 값을 쓰지 않도록 모든 문장에 `@group_ok = 1` 조건이 있다(`SiteMenuGroupMigrationTest` — 비기본 AUTO_INCREMENT·이전 INSERT ID 잔존·재실행 멱등).
-- **실패 시**: 중간 문장이 실패하면 Flyway가 트랜잭션을 롤백하므로 `menu`는 변경 전 그대로이고(실패 주입 시험으로 확인), 이력에는 실패 행이 남는다. 원인을 없앤 뒤 `flyway repair`로 실패 행을 정리하고 다시 기동한다. **V57·V58 파일을 고쳐 체크섬을 맞추지 않는다.**
-- **롤백(참고, 운영 배포 전이라 왕복 시험은 하지 않았다)**: 이전 앱(탭 화면)은 그룹과 "정적 페이지 관리"는 그대로 보이고 "메뉴 관리"는 옛 302로 동작하지만 "사이트 설정"(`/admin/site/manage`)은 404다. 롤백 전에 한 트랜잭션으로 정리한다 — 대상은 URL·부모로 식별하고, **그룹에 관리자가 추가한 다른 자식이 있으면 그룹을 지우지 않고 그 자식을 최상위로 올린다**: 먼저 `UPDATE menu SET up_menu_no = NULL WHERE up_menu_no = <그룹> AND menu_url NOT IN ('/admin/site-page/manage','/admin/menu/manage','/admin/site/manage')`, 이어 `/admin/menu/manage`·`/admin/site/manage` 행 삭제, `/admin/site-page/manage` 행을 최상위로 되돌리고(필요하면 이름 "정적 페이지 · 메뉴 · 사이트 관리"), 남은 자식이 없을 때만 그룹 삭제. 구·신 앱 혼합 운영 금지(사이드바 데이터가 두 코드에 모두 보인다).
+- 새 마이그레이션이 **기존 행에 영향을 주면**(기존 테이블에 `NOT NULL`·유니크·CHECK 추가, 컬럼 타입 변경, `UPDATE`·`DELETE`·`INSERT … SELECT` 같은 데이터 변환) 업그레이드 경로 시험을 쓴다 — 직전 버전까지 적용한 스키마에 데이터를 넣고 새 버전을 적용해 결과를 단언한다(`MariaDbContainerSupport`의 컨테이너에 별도 스키마를 만든다).
+- 새 테이블 생성이나 시드만 있는 마이그레이션은 새로 설치한 결과로 충분하다 — `BaselineSchemaTest`에 단언을 더하거나 기능 통합 시험으로 고정한다.
+- 업그레이드 경로 시험은 실배포 직전 합치기 때 이번처럼 정리된다(대상 DB가 없어진다). 실배포 이후에는 계속 유지한다.
 
 ## 환경별 동작
-- **빈 DB (CI·신규 환경)**: 별도 설정 없이 V1부터 전체 실행된다. `baseline-version: 1`은 빈 DB에는 영향이 없다.
-- **기존 DB (Flyway 도입 전부터 데이터가 있는 환경)**: 아래 전환 절차를 따라 **일회성 baseline**을 수행한다. baseline 후 V1은 건너뛰고 V2부터 적용된다.
 
-## 기존 DB 전환 절차 (일회성)
-
-`baseline-on-migrate`는 상시 설정에 두지 않는다 — 사전 점검을 건너뛴 기존 DB가 조용히 영구 baseline되는 것을 막기 위함이다. 전환 시에만 환경변수로 1회 켠다.
-
-### 1. 사전 점검 체크리스트 (필수)
-
-baseline은 "기존 DB 스키마 = V1"을 검증 없이 신뢰한다. 드리프트가 있는 DB가 baseline되면 Flyway history에 V1이 적용된 것처럼 영구 기록되므로, **baseline 전에 반드시 아래를 대조한다.**
-
-```sql
--- 4개 테이블 전부 실행해 V1__init_schema.sql과 대조
-SHOW CREATE TABLE member;
-SHOW CREATE TABLE menu;
-SHOW CREATE TABLE admin_action_log;
-SHOW CREATE TABLE visit_log;
-
--- 인덱스 대조 (ddl-auto: validate는 인덱스를 검증하지 않는다 — 여기가 유일한 방어선)
-SHOW INDEX FROM member;            -- uk_member_user_id, uk_member_email
-SHOW INDEX FROM admin_action_log;  -- idx_log_create_at_id(create_at,id), idx_log_action_user_id, idx_log_action_type
-SHOW INDEX FROM visit_log;         -- idx_visit_at
-SHOW INDEX FROM menu;              -- (PRIMARY만)
-```
-
-- 컬럼 정의·타입·인덱스가 V1과 **하나라도 다르면 baseline을 중단**하고, 차이를 해소(수동 ALTER로 V1에 맞춤)한 뒤 다시 점검한다.
-- `AUTO_INCREMENT=N` 값 차이는 데이터 상태이므로 무시한다.
-
-### 2. 일회성 baseline 기동
-
-**먼저 대상 DB를 백업한다.** 1회차 기동은 V2부터 최신 버전까지 전부 적용하며, 그중 V16(`menu.access_role` 제거)·V22(역할 단위 권한 테이블 제거)는 되돌릴 수 없다(아래 "V16/V22 배포 전 백업과 복구"). 사전 점검·백업·baseline은 **모두 같은 대상 DB**여야 한다 — `make prod-backup`은 prod 스택(`cms-db-prod`) 전용이므로, dev나 별도 DB를 전환할 때는 그 DB의 `mariadb-dump`를 먼저 확보한다.
-
-```bash
-# 사전 점검·백업 통과 후 1회만
-SPRING_FLYWAY_BASELINE_ON_MIGRATE=true ./gradlew bootRun
-```
-
-- **실행 전제**: 이 명령은 앱 기동이므로 프로파일(`SPRING_PROFILES_ACTIVE`)·DB·메일 환경변수가 **이 명령을 실행하는 셸의 환경변수로** 주입돼 있어야 한다(dev 키 목록은 README "`.env.dev` 작성"). IntelliJ 실행 설정이나 `.env.dev` 파일이 있다는 것만으로는 터미널의 `bootRun`에 전달되지 않는다. 기동 전에 `DB_URL`(생략 시 `application-dev.yml` 기본값)이 1단계에서 점검한 바로 그 DB를 가리키는지 확인한다.
-- 1회차 기동: baseline(version 1) 기록 + V2부터 `src/main/resources/db/migration/`의 최대 버전까지 적용 (V2·V3는 백필 완료된 DB에서 no-op).
-- 이후 기동부터는 `flyway_schema_history`가 존재하므로 환경변수 없이 정상 기동된다.
-
-### 3. 전환 확인
-
-```sql
-SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank;
--- 기대: << Flyway Baseline >> (1)과 V2~최신 버전의 모든 행이 success=1,
---       마지막 version = src/main/resources/db/migration/의 최대 버전
-```
+- **빈 DB (CI·신규 환경·재생성한 dev DB)**: 별도 설정 없이 V1부터 전체 실행된다.
+- `application.yml`의 `spring.flyway`는 Boot 기본값을 쓴다. 옛 "Flyway 도입 전 기존 DB의 일회성 baseline" 절차는 그런 DB가 없어 합치기와 함께 지웠다 — `baseline-on-migrate`를 켜지 않는다(켜면 이력 없는 비어 있지 않은 DB를 검증 없이 기준 스키마로 간주한다).
 
 ## 시드 데이터 정책
 
-- 기본 메뉴 시드(V3)는 **menu 테이블이 완전히 비었을 때만** 전체 실행된다. 행이 하나라도 있으면 커스터마이즈된 데이터로 간주해 건드리지 않는다 — 부분 상태 "보충" 기능은 의도적으로 없다. 필요해지면 별도 마이그레이션으로 그때 결정한다.
-- 기본 관리자 계정은 SQL이 아니라 `TestMemberLoader`(dev 전용)가 담당한다 — BCrypt 해시를 런타임에 생성해야 하기 때문.
+- 시드는 V2에 id를 명시해 넣는다. 코드가 의존하는 번호가 있다 — `site` `id=1`(관리자 사이트, `menu.site_id DEFAULT 1`·사이드바 상수)·`id=2`(기본 공개 사이트 `main`).
+- 시드의 시각 칸은 `NULL` 또는 DB `NOW()`다(`NOW()`는 `ClockUsageConventionTest` 밖의 알려진 한계 — 루트 `CLAUDE.md`).
+- 기본 관리자 계정은 SQL이 아니라 `TestMemberLoader`(dev)·`AdminBootstrapLoader`(prod)가 담당한다 — BCrypt 해시를 런타임에 생성해야 하기 때문.
+- 가드 행(`banner_lock`·`faq_lock`)과 카운터 행(`content_image_usage`)은 앱이 `FOR UPDATE`로 잠그는 대상이라 반드시 있어야 한다. 새 가드 행을 만드는 기능은 시드도 함께 넣는다.
 
 ## 새 마이그레이션 작성 시 주의
 
 - **DML 마이그레이션에 DDL을 섞지 않는다.** MariaDB에서 DDL은 암묵적 커밋을 유발해 실패 시 롤백 보장이 깨진다.
-- 시드/백필류는 항상 멱등하게 작성한다 (`WHERE ... IS NULL`, 세션 변수 가드 등).
-- **권한 테이블 시드(V14)는 일회성 초기화이지 복구 수단이 아니다.** `WHERE NOT EXISTS`는 부분 실패 후 재시도에서 중복 삽입을 막을 뿐이며, 이미 성공한 V14를 수동으로 다시 실행하면 ADMIN이 회수한 MANAGER 권한을 되살린다(Flyway는 성공한 마이그레이션을 재실행하지 않는다). 누락·삭제된 권한은 권한관리 화면/API로만 복구한다 — `com.cms.admin.permission`의 `CLAUDE.md` 참조. (V22 이후에는 두 테이블이 없어 V14 수동 재실행 자체가 실패하며, 권한은 회원 단위 `member_permission`이다.)
-- **V17~V19 실패 복구**(DDL 암묵 커밋으로 Flyway 이력과 어긋난 경우 — V17·V18은 파일당 DDL 1문이라 파일 안 부분 성공은 없지만, **DDL 커밋 후 이력 기록 전에 프로세스가 끊기면** 실제 스키마와 `flyway_schema_history`가 어긋난다): ① 실패 원인 제거·앱 인스턴스 정지 ② 실제 상태 확인 — `SHOW COLUMNS FROM member LIKE 'permission_version';`·`SHOW TABLES LIKE 'member_permission';`와 `SELECT version, success FROM flyway_schema_history WHERE version IN ('17','18','19');` ③ **버전별로 분기한다** — 해당 버전 행이 `success=1`이면 그 버전의 객체는 **건드리지 않는다**(`repair`는 성공한 마이그레이션을 되감지도 재실행하지도 않으므로 지우면 되살릴 방법이 없다). `success=0`이거나 이력이 없는데 DDL만 적용된 버전의 잔여 객체만 수동 `DROP`한다(시드 V19 전이라 비어 있어 안전: V17은 `ALTER TABLE member DROP COLUMN permission_version;`, V18은 `DROP TABLE member_permission;`). 예: V17 `success=1` + V18만 실패면 `member_permission`만 DROP하고 `permission_version`은 남긴다. ④ **같은 마이그레이션 구성으로 `flyway repair`**(실패 이력만 정리) ⑤ 재기동(`migrate`)으로 남은 버전이 실행돼 V17~V19 성공 확인. V19(DML)가 일부만 반영된 경우는 `NOT EXISTS`로 재시도해도 안전하다. `MemberPermissionMigrationTest`가 "V17 성공 + V18 실패" 복구와, 두 객체를 다 지우면 `permission_version`이 영영 없는 반례를 고정한다.
-- **V21 실패 복구**(쪽지 `admin_message`·`admin_message_sender_state`·`admin_message_send_log` 테이블, 2026-10-05, `PLAN-admin-message.md` §4 R1-12): V21은 **DDL 3문**이고 MariaDB DDL은 문마다 암묵 커밋이라, 중간에 중단되면 **일부 테이블만** 남거나 "테이블은 있고 성공 이력은 없는" 상태나 `success=0` 이력이 남을 수 있다. **V20과 달리 쪽지 데이터는 사용자 대화이므로 비어 있다고 가정하지 않고 반드시 확인한다.** ① 앱 인스턴스 정지 ② 실제 상태 확인 — `SHOW TABLES LIKE 'admin_message%';`, `SELECT version, success FROM flyway_schema_history WHERE version = '21';`, 각 테이블의 정의(`SHOW CREATE TABLE`)가 `V21__create_admin_message.sql`의 기대 스키마와 일치하는지 ③ **데이터 확인**: `SELECT (SELECT COUNT(*) FROM admin_message) + (SELECT COUNT(*) FROM admin_message_sender_state) + (SELECT COUNT(*) FROM admin_message_send_log);` — 존재하는 테이블만 질의한다 ④ **분기**: (a) V21이 `success=1`이면 어떤 테이블도 건드리지 않는다(실제 쪽지가 든 테이블을 일괄 DROP하지 않는다) (b) **성공 이력이 없고(또는 `success=0`), 정의가 기대 스키마와 일치하며, 세 테이블이 모두 비어 있을 때만** 잔여 테이블을 `DROP TABLE admin_message_send_log; DROP TABLE admin_message_sender_state; DROP TABLE admin_message;`로 지운 뒤 `flyway repair` → 재기동(`migrate`) (c) **데이터가 있거나 정의가 다르거나 출처가 불명확하면 DROP하지 않는다** — 스키마·데이터와 Flyway 이력을 서로 다른 시점으로 복원한 상태일 수 있으므로 백업 후 원인(복원 시점 불일치 등)을 확인한 별도 분기로 간다. 정상 적용 후 이전 앱(V21 파일 없음)을 띄워도 Flyway는 이력에 있고 코드에 없는 마이그레이션을 기본값(`ignoreMigrationPatterns=*:future`)으로 무시하므로 기동할 수 있고, 쪽지 데이터·테이블은 남는다(이전 앱이 모를 뿐 — 이전 앱에서는 `MY_INFO` 게이트도 이전으로 돌아가 쪽지함 페이지가 MANAGER에게 403). `AdminMessageMigrationTest`가 정상 성공 이력·빈 잔여 객체 복구·**데이터가 든 이력 불일치는 DROP하지 않음**·V21 파일이 실제로 없는 마이그레이션 위치로의 롤백 호환을 고정한다.
-- **V20 실패 복구**(알림 `notification` 테이블, 2026-10-05): V20은 DDL 1문이라 파일 안 부분 성공은 없지만 **DDL 커밋 후 이력 기록 전에 프로세스가 끊기면** "테이블은 있고 성공 이력은 없는" 상태나 `success=0` 이력이 남는다. ① 앱 인스턴스 정지 ② 실제 상태 확인 — `SHOW TABLES LIKE 'notification';`와 `SELECT version, success FROM flyway_schema_history WHERE version = '20';` ③ **V20이 `success=1`이면 테이블을 건드리지 않는다**(실제 알림 데이터가 든 테이블을 일괄 DROP하지 않는다). `success=0`이거나 이력이 없는데 테이블만 있으면 알림 생성 전이라 비어 있으므로 `DROP TABLE notification;` ④ 같은 마이그레이션 구성으로 `flyway repair` ⑤ 재기동(`migrate`). 정상 적용 후 이전 앱(V20 파일 없음)을 띄워도 Flyway는 이력에 있고 코드에 없는 마이그레이션을 기본값으로 무시하므로 기동할 수 있고, 알림은 다른 테이블을 되살리는 데이터가 아니라 신버전 재배포 때 별도 정리가 필요 없다. `NotificationMigrationTest`가 "V20 객체만 있고 성공 이력 없음" 복구를 고정한다.
-- **V13 부분 성공 복구**: `CREATE TABLE` 2개(`permission_role`, `role_permission`) 중 첫 번째만 성공하고 실패하면 MariaDB DDL 암묵 커밋 때문에 `flyway_schema_history`에 실패 기록이 남는다. ① 실패 원인 제거 ② 두 테이블 존재 여부를 확인해 **존재하는 것을 수동 `DROP`**(권한 행이 아직 시드 전이라 안전, `role_permission`이 FK로 `permission_role`을 참조하므로 `role_permission`을 먼저) ③ `flyway repair` 후 재기동.
-- 여러 행을 조건부로 INSERT할 때 행 단위 `(SELECT COUNT(*) ...) = 0` 조건은 첫 INSERT 직후 거짓이 되는 함정이 있다 — 선두에서 세션 변수로 초기 상태를 캡처한다 (V3 참고).
-- 부모-자식 FK성 참조는 `LAST_INSERT_ID()`로 실제 생성 ID를 캡처한다. AUTO_INCREMENT 시작값을 가정하지 않는다.
-- 기존 DB에도 도달해야 하는 데이터 보정은 반드시 V2 이상(= baseline-version 초과)에 둔다.
+- 시드/백필류는 항상 멱등하게 작성한다 (`WHERE NOT EXISTS`, `WHERE ... IS NULL`, 세션 변수 가드 등). 컬럼·FK 추가 DDL도 가능하면 `IF NOT EXISTS`로 써서 실패 뒤 재실행이 막히지 않게 한다.
+- 여러 행을 조건부로 INSERT할 때 행 단위 `(SELECT COUNT(*) ...) = 0` 조건은 첫 INSERT 직후 거짓이 되는 함정이 있다 — 선두에서 세션 변수로 초기 상태를 캡처한다.
+- 부모-자식 FK성 참조는 `LAST_INSERT_ID()`로 실제 생성 ID를 캡처한다. AUTO_INCREMENT 시작값을 가정하지 않는다. 같은 연결에 이전 INSERT ID가 남아 있을 수 있으므로, 조건부 INSERT가 건너뛰어진 경우 그 값을 쓰지 않게 가드한다.
+- 문자열 정확 일치가 필요한 비교(관리자가 바꿨을 수 있는 시드 이름·URL 판정 등)는 `COLLATE utf8mb4_nopad_bin`을 쓴다 — 테이블 기본 `utf8mb4_general_ci`는 대소문자와 후행 공백을 무시한다.
+- 데이터를 되돌릴 수 없게 바꾸는 마이그레이션(컬럼·테이블 삭제, 데이터 변환)은 배포 전 백업 절차를 `docs/deployment.md`에 함께 적는다(실배포 이후).
+
+### DDL 실패 복구 (일반 절차)
+
+MariaDB DDL은 문마다 암묵 커밋이라, 파일에 DDL이 여러 개면 중간에 끊겼을 때 일부 객체만 남는다. DDL이 하나여도 **DDL 커밋 후 이력 기록 전에 프로세스가 끊기면** "객체는 있고 성공 이력은 없는" 상태나 `success=0` 이력이 남는다.
+
+1. 앱 인스턴스를 정지하고 실패 원인을 없앤다.
+2. 상태를 확인한다 — `SELECT version, success FROM flyway_schema_history WHERE version = 'N';`, 그 버전이 만드는 객체의 존재(`SHOW TABLES LIKE …`, `SHOW COLUMNS … LIKE …`)와 정의(`SHOW CREATE TABLE`).
+3. **그 버전이 `success=1`이면 객체를 건드리지 않는다** — `repair`는 성공한 마이그레이션을 되감지도 재실행하지도 않으므로, 지우면 되살릴 방법이 없다.
+4. 성공 이력이 없거나 `success=0`이면, **정의가 기대 스키마와 같고 데이터가 없을 때만** 잔여 객체를 수동으로 지운다(FK 자식 먼저). 데이터가 있거나 정의가 다르면 지우지 않는다 — 스키마와 이력을 서로 다른 시점으로 복원한 상태일 수 있으므로 백업 후 원인을 따로 확인한다.
+5. 같은 마이그레이션 구성으로 `flyway repair`(실패 이력만 정리) → 재기동(`migrate`).
