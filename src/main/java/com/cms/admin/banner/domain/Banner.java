@@ -15,8 +15,8 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 공개 메인(/)의 배너(V33, PLAN-public-home-banner.md 쟁점 2). 이미지와의 연결은 이 테이블의 컬럼이 아니라
- * {@code content_image_ref(owner_type='BANNER')}가 한 곳에서 가진다(V44, PLAN-media-library.md D4) — {@code banner.storage_key} 등 옛 사본 컬럼은
+ * 공개 메인(/)의 배너(PLAN-public-home-banner.md 쟁점 2). 이미지와의 연결은 이 테이블의 컬럼이 아니라
+ * {@code content_image_ref(owner_type='BANNER')}가 한 곳에서 가진다(PLAN-media-library.md D4) — {@code banner.storage_key} 등 옛 사본 컬럼은
  * 새 앱이 쓰지도 읽지도 않는다. 노출은 {@code useYn ∧ [displayStart, displayEnd)}를 둘 다 만족할 때다 — 기간이 비어 있으면 {@code useYn}만 본다.
  * 하드 삭제라 소프트 삭제 컬럼이 없다.
  */
@@ -51,11 +51,11 @@ public class Banner {
     @Column(nullable = false)
     private Integer ord;
 
-    /** 소속 사이트(V55). {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
+    /** 소속 사이트. {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
     @Column(name = "site_id")
     private Long siteId;
 
-    /** 낡은 화면 검사용(V55) — 메타데이터 교체({@link #replaceMetadata})마다 +1. 순서 변경은 올리지 않는다. */
+    /** 낡은 화면 검사용 — 메타데이터 교체({@link #replaceMetadata})마다 +1. 순서 변경은 올리지 않는다. */
     @Column(nullable = false)
     @Builder.Default
     private Integer version = 1;

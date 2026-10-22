@@ -115,7 +115,7 @@ public class MediaService {
                 .map(image -> MediaResponse.from(image, usageCounts.getOrDefault(image.getId(), 0)))
                 .toList();
         ContentImageUsage usage = usageRepository.findById(ContentImageUsage.SINGLETON_ID)
-                .orElseThrow(() -> new IllegalStateException("content_image_usage 카운터 행이 없습니다(V25 시드 누락)."));
+                .orElseThrow(() -> new IllegalStateException("content_image_usage 카운터 행이 없습니다(V2 시드 누락)."));
         return new MediaPageResponse(content, page.getNumber(), page.getSize(), page.getTotalElements(), page.getTotalPages(),
                 page.isLast(), usage.getTotalBytes(), usage.getTotalCount(), properties.getMaxTotalBytes(), properties.getMaxCount());
     }

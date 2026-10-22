@@ -53,7 +53,7 @@ public class MediaImageRemover {
     /** 라이브러리 삭제 — 이미지 행을 잠근 호출자가 남은 참조를 먼저 확인한 뒤 부른다. 카운터를 되돌리고 행을 지우고 커밋 후 파일을 지운다. */
     public void deleteLocked(ContentImage image) {
         ContentImageUsage usage = usageRepository.findByIdForUpdate(ContentImageUsage.SINGLETON_ID)
-                .orElseThrow(() -> new IllegalStateException("content_image_usage 카운터 행이 없습니다(V25 시드 누락)."));
+                .orElseThrow(() -> new IllegalStateException("content_image_usage 카운터 행이 없습니다(V2 시드 누락)."));
         usage.release(image.getFileSize());
         imageRepository.delete(image);
         if (image.isRootNamespace()) {

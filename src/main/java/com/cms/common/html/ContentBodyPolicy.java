@@ -14,11 +14,11 @@ public final class ContentBodyPolicy {
 
     /**
      * 보이는 텍스트 상한. 기존 "본문 10,000자"에 마지막 문단 종료 1자를 더한 값 — 기존 평문 N자는 HTML 변환 후 N+1자 이하가
-     * 되므로(V25), 경계의 기존 공지도 다시 저장할 수 있다(PLAN-html-editor.md 쟁점 5·R3-1).
+     * 되므로(평문 공지의 HTML 변환 규칙), 경계의 기존 공지도 다시 저장할 수 있다(PLAN-html-editor.md 쟁점 5·R3-1).
      */
     public static final int MAX_CONTENT_TEXT_LENGTH = 10_001;
 
-    /** 정리된 HTML 저장 상한(컬럼은 MEDIUMTEXT — V23). 기존 평문 변환본의 최악값 109,983바이트를 넉넉히 넘는다. */
+    /** 정리된 HTML 저장 상한(컬럼은 MEDIUMTEXT). 기존 평문 변환본의 최악값 109,983바이트를 넉넉히 넘는다. */
     public static final int MAX_CONTENT_BYTES = 200_000;
 
     /**

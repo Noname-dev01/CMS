@@ -80,7 +80,7 @@ public class FaqService {
     @Transactional(readOnly = true)
     public FaqTreeResponse getTree() {
         long version = lockRepository.findById(FaqLock.SINGLETON_ID)
-                .orElseThrow(() -> new IllegalStateException("faq_lock 가드 행이 없습니다(V42 시드 누락)."))
+                .orElseThrow(() -> new IllegalStateException("faq_lock 가드 행이 없습니다(V2 시드 누락)."))
                 .getVersion();
         return toTree(version, categoryRepository.findAllByOrderByOrdAscIdAsc(),
                 faqRepository.findAllByOrderByCategoryIdAscOrdAscIdAsc());
@@ -314,7 +314,7 @@ public class FaqService {
     /** 모든 쓰기의 첫 DB 조회. 가드 행이 없으면 조용히 잠금 없이 진행하지 않고 실패한다. */
     private FaqLock lockGuard() {
         return lockRepository.findByIdForUpdate(FaqLock.SINGLETON_ID)
-                .orElseThrow(() -> new IllegalStateException("faq_lock 가드 행이 없습니다(V42 시드 누락)."));
+                .orElseThrow(() -> new IllegalStateException("faq_lock 가드 행이 없습니다(V2 시드 누락)."));
     }
 
     private void requireCategory(Long categoryId) {

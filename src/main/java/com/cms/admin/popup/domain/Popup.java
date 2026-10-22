@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 공개 메인(/)의 레이어 팝업(V39, PLAN-popup.md). 종류는 {@link PopupType}이고 생성 후 바뀌지 않는다 — 이미지형은 링크와 이미지(연결은 {@code content_image_ref(owner_type=POPUP)} 한 곳 —
+ * 공개 메인(/)의 레이어 팝업(PLAN-popup.md). 종류는 {@link PopupType}이고 생성 후 바뀌지 않는다 — 이미지형은 링크와 이미지(연결은 {@code content_image_ref(owner_type=POPUP)} 한 곳 —
  * PLAN-media-library.md D4, {@code popup.storage_key} 등 옛 사본 컬럼은 새 앱이 쓰지도 읽지도 않는다), HTML형은 {@link #contentHtml}만 채운다. 노출은 {@code useYn ∧ [displayStart, displayEnd)}를 둘 다 만족할 때다 — 기간이 비어 있으면
  * {@code useYn}만 본다. 하드 삭제라 소프트 삭제 컬럼이 없다.
  */
@@ -77,7 +77,7 @@ public class Popup {
     @Column(name = "use_yn", nullable = false)
     private Boolean useYn;
 
-    /** 소속 사이트(V55). {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
+    /** 소속 사이트. {@code null} = 모든 공개 사이트 공통. 공개 사이트(PUBLIC)만 가리킬 수 있다(서비스가 검증). */
     @Column(name = "site_id")
     private Long siteId;
 

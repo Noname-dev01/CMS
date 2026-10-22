@@ -15,7 +15,7 @@ import java.util.List;
 /**
  * 대시보드 "콘텐츠 현황" 집계(PLAN-view-download-count.md 쟁점 6). 삭제된 게시글·삭제된 게시판은 제외하고 비노출 글은 포함한다(관리자 화면).
  * {@code boardIds}가 null이면 모든 게시판(ADMIN), 아니면 그 게시판들로 한정한다(MANAGER의 READ 게시판 집합) — 빈 컬렉션은 호출자가 거르고 부르지 않는다.
- * 상위 N은 인덱스 없이 정렬한다(규모가 작아 수용, V49 주석).
+ * 상위 N은 인덱스 없이 정렬한다(규모가 작아 수용 — 느려지면 실측 뒤 인덱스를 추가한다).
  */
 @Repository
 @RequiredArgsConstructor

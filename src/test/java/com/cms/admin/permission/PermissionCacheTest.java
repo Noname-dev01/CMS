@@ -129,7 +129,7 @@ class PermissionCacheTest {
     @DisplayName("모르는 기능·동작 행과 위임 불가 기능 행은 무시한다(관대한 파싱) — 카탈로그에서 제거된 NOTICE 행도 로딩을 깨지 않고 무시된다")
     void unknownAndNonDelegableRowsAreIgnored() {
         PermissionSnapshot snapshot = PermissionCache.toSnapshot(rows(
-                1L, "NOTICE", "READ",            // 게시판 권한으로 흡수되며 카탈로그에서 제거된 기능(V32가 행을 지우지만 남아 있어도 안전)
+                1L, "NOTICE", "READ",            // 게시판 권한으로 흡수되며 카탈로그에서 제거된 기능(행이 남아 있어도 안전)
                 1L, "REMOVED_FEATURE", "READ",   // 코드에서 지운 기능
                 1L, "MENU", "READ",              // 위임 불가 기능에 수동으로 들어간 행
                 1L, "DASHBOARD", "READ"));       // 상시 허용 기능(DB 행은 의미 없음)

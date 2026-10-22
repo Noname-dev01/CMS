@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 공개 첨부 다운로드의 TOCTOU 재검증·IDOR 차단·StorageFileNotFoundException 경로를 실제 MariaDB로 검증한다(PLAN-public-notice-attachment.md
- * 결정 2). 공지는 이제 공지 게시판(V32가 만든 {@code board_key='NOTICE'})의 게시글이다 — 같은 공개 계약을 {@link PublicNoticeService}로 확인한다.
+ * 결정 2). 공지는 이제 공지 게시판(V2가 시드한 {@code board_key='NOTICE'})의 게시글이다 — 같은 공개 계약을 {@link PublicNoticeService}로 확인한다.
  * 각 시나리오는 독립된 게시글을 사용한다(같은 fixture를 재사용하면 한 시나리오의 상태 변경이 다른 시나리오의 분기를 가려버릴 수 있다).
  *
  * <p>Testcontainers가 띄우는 일회용 MariaDB로 실행된다 — Docker만 있으면 된다({@link MariaDbContainerSupport}).

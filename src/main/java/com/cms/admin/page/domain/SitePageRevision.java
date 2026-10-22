@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 /**
- * 정적 페이지의 개정 한 건(V37). 본문이 바뀐 저장마다 하나씩 쌓이며 수정·삭제하지 않는다(페이지 삭제 때만 함께 지운다).
+ * 정적 페이지의 개정 한 건. 본문이 바뀐 저장마다 하나씩 쌓이며 수정·삭제하지 않는다(페이지 삭제 때만 함께 지운다).
  * 연관관계 매핑 없이 ID 값만 가진다(프로젝트 엔티티 규약). {@code content}는 sanitize를 마친 HTML이다.
  */
 @Entity

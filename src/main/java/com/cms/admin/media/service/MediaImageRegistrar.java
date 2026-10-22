@@ -42,7 +42,7 @@ public class MediaImageRegistrar {
     public ContentImage register(byte[] content, String contentType, String originalName, String uploaderId,
                                  String scopeType, Long scopeId, String namespace) {
         ContentImageUsage usage = usageRepository.findByIdForUpdate(ContentImageUsage.SINGLETON_ID)
-                .orElseThrow(() -> new IllegalStateException("content_image_usage 카운터 행이 없습니다(V25 시드 누락)."));
+                .orElseThrow(() -> new IllegalStateException("content_image_usage 카운터 행이 없습니다(V2 시드 누락)."));
         usage.reserve(content.length, properties.getMaxTotalBytes(), properties.getMaxCount());
 
         boolean root = namespace == null || namespace.isEmpty();
