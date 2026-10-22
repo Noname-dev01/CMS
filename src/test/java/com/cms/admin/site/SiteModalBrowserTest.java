@@ -97,10 +97,11 @@ class SiteModalBrowserTest extends BrowserTestSupport {
         insertSite("static");
         open();
         openRow("static");
+        countHidePrevented(page, "#siteModal");
 
         page.keyboard().press("Escape");
         page.mouse().click(5, 5);
-        page.waitForTimeout(500);
+        assertHidePrevented(page, 2);                          // 두 입력이 모두 Bootstrap에 닿아 거부됐다(양성 증거, 동기 발생)
         assertThat(page.locator("#siteModal.show").count()).as("ESC·배경 클릭으로는 닫히지 않는다").isEqualTo(1);
 
         page.click("#siteBtnCloseX");
@@ -129,7 +130,7 @@ class SiteModalBrowserTest extends BrowserTestSupport {
         page.press("#siteKeyInput", "Enter");                // 암묵 제출 — 이름이 비어 있어 막힌다
         assertThat(page.evaluate("() => document.activeElement && document.activeElement.id")).isEqualTo("siteNameInput");
 
-        page.waitForTimeout(500);
+        awaitRequestBarrier(page);
         assertThat(writes.get()).as("검증에 걸려 쓰기 요청이 나가지 않았다").isZero();
         assertThat(page.url()).as("기본 폼 제출로 페이지가 이동하지 않았다").isEqualTo(url);
         assertThat(page.locator("#siteModal.show").count()).isEqualTo(1);
@@ -160,9 +161,14 @@ class SiteModalBrowserTest extends BrowserTestSupport {
         openRow("dirty");
         page.fill("#siteNameInput", "SMM 바꾸는 중");
 
-        page.onceDialog(dialog -> dialog.dismiss());         // 취소 — 닫힘이 막혀야 한다
+        AtomicInteger dismissed = new AtomicInteger();
+        page.onceDialog(dialog -> {                          // 취소 — 닫힘이 막혀야 한다
+            dismissed.incrementAndGet();
+            dialog.dismiss();
+        });
         page.click("#siteBtnClose");
-        page.waitForTimeout(500);
+        // confirm()은 닫기 처리 안에서 동기적으로 뜨고 핸들러가 취소할 때까지 클릭이 끝나지 않는다 — 취소된 시점에 결과는 확정돼 있다
+        page.waitForCondition(() -> dismissed.get() == 1);
         assertThat(page.locator("#siteModal.show").count()).as("확인을 취소하면 모달이 유지된다").isEqualTo(1);
         assertThat(page.inputValue("#siteNameInput")).isEqualTo("SMM 바꾸는 중");
         waitModalState("open");

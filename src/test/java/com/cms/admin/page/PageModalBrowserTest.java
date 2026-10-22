@@ -129,10 +129,11 @@ class PageModalBrowserTest extends BrowserTestSupport {
         long id = pageRow("static", "정적 시험");
         open(admin);
         openRow("static", id);
+        countHidePrevented(page, "#pageModal");
 
         page.keyboard().press("Escape");
         page.mouse().click(5, 5);
-        page.waitForTimeout(500);
+        assertHidePrevented(page, 2);                          // 두 입력이 모두 Bootstrap에 닿아 거부됐다(양성 증거, 동기 발생)
         assertThat(page.locator("#pageModal.show").count()).as("ESC·배경 클릭으로는 닫히지 않는다").isEqualTo(1);
 
         page.click("#btnModalCloseX");
@@ -152,10 +153,10 @@ class PageModalBrowserTest extends BrowserTestSupport {
         page.click("#btnNew");
         waitModalState("open");
         page.click("#pageBtnSave");                          // 푸터 버튼이 form 속성으로 폼에 연결돼 있어야 검증이 동작한다
-        page.waitForTimeout(500);
 
         // 부정 단언(요청 없음)만으로는 버튼이 폼에 연결되지 않은 경우도 통과하므로, 브라우저가 첫 무효 입력으로 포커스를 옮긴 것을 증거로 삼는다
         assertThat(page.evaluate("() => document.activeElement && document.activeElement.id")).isEqualTo("pageSlug");
+        awaitRequestBarrier(page);
         assertThat(writes.get()).isZero();
         assertThat(page.locator("#pageModal.show").count()).isEqualTo(1);
     }
@@ -195,9 +196,14 @@ class PageModalBrowserTest extends BrowserTestSupport {
         openRow("dirty", id);
         page.fill("#pageTitle", "바꾸는 중");
 
-        page.onceDialog(dialog -> dialog.dismiss());         // 취소 — 닫힘이 막혀야 한다
+        AtomicInteger dismissed = new AtomicInteger();
+        page.onceDialog(dialog -> {                          // 취소 — 닫힘이 막혀야 한다
+            dismissed.incrementAndGet();
+            dialog.dismiss();
+        });
         page.click("#btnModalClose");
-        page.waitForTimeout(500);
+        // confirm()은 닫기 처리 안에서 동기적으로 뜨고 핸들러가 취소할 때까지 클릭이 끝나지 않는다 — 취소된 시점에 결과는 확정돼 있다
+        page.waitForCondition(() -> dismissed.get() == 1);
         assertThat(page.locator("#pageModal.show").count()).as("확인을 취소하면 모달이 유지된다").isEqualTo(1);
         assertThat(page.inputValue("#pageTitle")).isEqualTo("바꾸는 중");
         waitModalState("open");
@@ -265,8 +271,7 @@ class PageModalBrowserTest extends BrowserTestSupport {
         page.click("#pageBtnSave");                           // 새 저장 B를 시작해 붙잡아 둔다
         page.waitForCondition(() -> heldWrite.get() != null);
 
-        heldList.get().resume();                              // 이전 요청 A의 목록 GET이 이제 끝난다
-        page.waitForTimeout(500);
+        resumeListAndWaitRendered(heldList.get());            // 이전 요청 A의 목록 GET이 이제 끝나고 그 후속까지 돌았다
         assertThat(page.isDisabled("#btnModalClose")).as("B가 진행 중이면 [닫기] 잠금이 유지된다").isTrue();
         assertThat(page.isDisabled("#btnModalCloseX")).as("× 잠금도 유지된다").isTrue();
         assertThat(page.isDisabled("#pageBtnSave")).as("저장 잠금도 유지된다").isTrue();
@@ -303,8 +308,7 @@ class PageModalBrowserTest extends BrowserTestSupport {
         page.click("#btnDelete");                             // 새 삭제 B를 시작해 붙잡아 둔다
         page.waitForCondition(() -> heldWrite.get() != null);
 
-        heldList.get().resume();
-        page.waitForTimeout(500);
+        resumeListAndWaitRendered(heldList.get());
         assertThat(page.isDisabled("#btnModalClose")).as("B가 진행 중이면 [닫기] 잠금이 유지된다").isTrue();
         assertThat(page.isDisabled("#btnModalCloseX")).isTrue();
         assertThat(page.isDisabled("#btnDelete")).isTrue();
@@ -313,6 +317,18 @@ class PageModalBrowserTest extends BrowserTestSupport {
         waitForText("pageSuccess", "페이지를 삭제했습니다");
         waitModalState("closed");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM site_page WHERE id = ?", Integer.class, id)).isZero();
+    }
+
+    /**
+     * 붙잡은 목록 GET을 풀고 그 응답이 목록에 그려질 때까지 기다린다. 표지 행을 넣어 두면 {@code renderList}의 {@code replaceChildren}이 지운다 —
+     * 그 직후 마이크로태스크에서 호출자({@code await loadList()})의 후속이 끝난다. 표지가 사라진 뒤 한 태스크({@code setTimeout(0)})를 더 기다려 바로 다음
+     * 태스크로 미뤄진 잠금 해제 회귀까지 잡는다(그보다 늦게 미뤄진 해제는 잡지 못한다 — PLAN-e2e-browser-speedup.md 구현 결과의 한계).
+     */
+    private void resumeListAndWaitRendered(Route heldList) {
+        page.evaluate("() => { const tr = document.createElement('tr'); tr.id = '__stale-list-marker'; document.getElementById('pageList').appendChild(tr); }");
+        heldList.resume();
+        page.waitForFunction("() => document.getElementById('__stale-list-marker') === null");
+        page.evaluate("() => new Promise(resolve => setTimeout(resolve, 0))");
     }
 
     /** 목록 GET은 첫 번째만, PUT·DELETE는 holdWrites가 켜진 뒤 첫 번째만 붙잡는다. */
@@ -336,6 +352,7 @@ class PageModalBrowserTest extends BrowserTestSupport {
     void immediateDetailFailureStillClosesTheModal() {
         pageRow("ghost", "유령");
         open(admin);
+        restoreModalTransitions(page);                       // 이 시험은 열림 전환 중의 응답이 조건이다 — 기본으로 꺼 둔 전환을 되살린다
         // 상세 조회(GET /admin/api/site-pages/{id})가 열림 전환(약 300ms)보다 훨씬 빨리 404로 끝나도록 즉시 해결되는 응답으로 바꾼다 —
         // 서버 왕복은 전환이 끝난 뒤에 도착할 수 있어 "전환 중 hide() 무시"를 결정적으로 재현하지 못한다.
         page.evaluate("() => { const orig = window.fetch; window.fetch = function (url, options) {"
@@ -355,12 +372,7 @@ class PageModalBrowserTest extends BrowserTestSupport {
         long second = pageRow("quick", "빠른 페이지");
         open(admin);
 
-        // 첫 상세 조회(GET /admin/api/site-pages/{id})만 1.5초 지연시킨다
-        page.evaluate("() => { window.__origFetch = window.fetch;"
-                + " window.fetch = function (url, options) {"
-                + "   const slow = /\\/admin\\/api\\/site-pages\\/" + first + "$/.test(String(url)) && !(options && options.method);"
-                + "   return slow ? new Promise(function (resolve) { setTimeout(function () { resolve(window.__origFetch(url, options)); }, 1500); })"
-                + "               : window.__origFetch(url, options); }; }");
+        holdFirstResponse(page, "/admin/api/site-pages/" + first + "$");   // 첫 상세 응답을 두 번째 폼이 열릴 때까지 붙잡는다
         row("slow").click();
         waitModalState("open");
         page.click("#btnModalClose");                        // 상세가 오기 전에 닫는다(상세 조회 중에는 닫을 수 있다)
@@ -370,7 +382,7 @@ class PageModalBrowserTest extends BrowserTestSupport {
         openRow("quick", second);
         assertThat(page.isDisabled("#pageBtnSave")).as("두 번째 폼은 편집 가능").isFalse();
 
-        page.waitForTimeout(2000);                           // 첫 응답이 늦게 도착한다
+        releaseHeldResponse(page);                           // 첫 응답이 이제야 도착해 처리까지 끝났다
         assertThat(page.textContent("#formTitle")).as("늦게 온 첫 응답이 폼을 덮지 않았다").contains("#" + second + " 수정");
         assertThat(page.inputValue("#pageTitle")).isEqualTo("빠른 페이지");
     }

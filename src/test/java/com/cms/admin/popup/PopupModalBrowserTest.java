@@ -94,6 +94,12 @@ class PopupModalBrowserTest extends BrowserTestSupport {
         });
     }
 
+    /** {@link #trackDialogs}가 센 확인창이 정확히 {@code count}개가 될 때까지 기다린다(넘치면 시간 초과가 아니라 단언으로 드러나도록 뒤에서 다시 단언한다). */
+    private void waitDialogs(int count) {
+        page.waitForCondition(() -> dialogMessages.size() >= count);
+        assertThat(dialogMessages).hasSize(count);
+    }
+
     private long htmlPopupWithContent(String title, String contentHtml) {
         jdbc.update("INSERT INTO popup (title, revision, popup_type, content_html, pos_x, pos_y, width, height, use_yn, create_date, update_date) "
                 + "VALUES (?, 0, 'HTML', ?, 10, 10, 300, 200, 1, ?, ?)", title, contentHtml, LocalDateTime.now(), LocalDateTime.now());
@@ -156,10 +162,11 @@ class PopupModalBrowserTest extends BrowserTestSupport {
         long id = htmlPopup("static-popup");
         open(admin);
         openRow("static-popup", id);
+        countHidePrevented(page, "#popupModal");
 
         page.keyboard().press("Escape");
         page.mouse().click(5, 5);
-        page.waitForTimeout(500);
+        assertHidePrevented(page, 2);                         // 두 입력이 모두 Bootstrap에 닿아 거부됐다(양성 증거, 동기 발생)
         assertThat(page.locator("#popupModal.show").count()).as("ESC·배경 클릭으로는 닫히지 않는다").isEqualTo(1);
 
         page.click("#btnModalCloseX");
@@ -181,10 +188,10 @@ class PopupModalBrowserTest extends BrowserTestSupport {
         });
         page.fill("#popupTitle", "");
         page.click("#btnSave");                             // 푸터 버튼이 form 속성으로 폼에 연결돼 있어야 검증이 동작한다
-        page.waitForTimeout(500);
 
         // 부정 단언(요청 없음)만으로는 버튼이 폼에 연결되지 않은 경우도 통과하므로, 브라우저가 첫 무효 입력으로 포커스를 옮긴 것을 증거로 삼는다
         assertThat(page.evaluate("() => document.activeElement && document.activeElement.id")).isEqualTo("popupTitle");
+        awaitRequestBarrier(page);
         assertThat(requests.get()).isZero();
         assertThat(page.locator("#popupModal.show").count()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT title FROM popup WHERE id = ?", String.class, id)).isEqualTo("valid-popup");
@@ -235,6 +242,7 @@ class PopupModalBrowserTest extends BrowserTestSupport {
         htmlPopup("ghost-popup");
         trackDialogs();
         open(admin);
+        restoreModalTransitions(page);                      // 이 시험은 열림 전환 중의 응답이 조건이다 — 기본으로 꺼 둔 전환을 되살린다
         // 상세 조회(GET /admin/api/popups/{id})가 열림 전환(약 300ms)보다 훨씬 빨리 404로 끝나도록 즉시 해결되는 응답으로 바꾼다 —
         // 서버 왕복은 전환이 끝난 뒤에 도착할 수 있어 "전환 중 hide() 무시"를 결정적으로 재현하지 못한다.
         page.evaluate("() => { const orig = window.fetch; window.fetch = function (url, options) {"
@@ -256,12 +264,7 @@ class PopupModalBrowserTest extends BrowserTestSupport {
         trackDialogs();
         open(admin);
 
-        // 첫 상세 조회(GET /admin/api/popups/{id})만 1.5초 지연시킨다
-        page.evaluate("() => { window.__origFetch = window.fetch;"
-                + " window.fetch = function (url, options) {"
-                + "   const slow = /\\/admin\\/api\\/popups\\/" + first + "$/.test(String(url)) && !(options && options.method);"
-                + "   return slow ? new Promise(function (resolve) { setTimeout(function () { resolve(window.__origFetch(url, options)); }, 1500); })"
-                + "               : window.__origFetch(url, options); }; }");
+        holdFirstResponse(page, "/admin/api/popups/" + first + "$");   // 첫 상세 응답을 두 번째 폼이 열릴 때까지 붙잡는다
         row("slow-popup").click();
         page.waitForFunction("() => modalState === 'open'");
         page.click("#btnModalClose");                       // 상세가 오기 전에 닫는다(상세 조회 중에는 닫을 수 있다)
@@ -271,7 +274,7 @@ class PopupModalBrowserTest extends BrowserTestSupport {
         openRow("quick-popup", second);
         assertThat(page.isDisabled("#btnSave")).as("두 번째 폼은 편집 가능").isFalse();
 
-        page.waitForTimeout(2000);                          // 첫 응답이 늦게 도착한다
+        releaseHeldResponse(page);                          // 첫 응답이 이제야 도착해 처리까지 끝났다
         assertThat(page.textContent("#formTitle")).as("늦게 온 첫 응답이 폼을 덮지 않았다").contains("#" + second + " 수정");
         assertThat(page.inputValue("#popupTitle")).isEqualTo("quick-popup");
         assertThat(dialogMessages).as("상세 조회 중에는 입력이 없어 닫아도 확인하지 않는다").isEmpty();
@@ -312,15 +315,14 @@ class PopupModalBrowserTest extends BrowserTestSupport {
 
         acceptDialogs.set(false);
         page.click("#btnModalClose");                       // 취소 — 닫힘이 막혀야 한다
-        page.waitForTimeout(500);
-        assertThat(dialogMessages).hasSize(1);
+        // confirm()은 닫기 처리 안에서 동기적으로 뜨고 핸들러가 취소할 때까지 클릭이 끝나지 않는다 — 확인창이 세어진 시점에 취소 결과는 확정돼 있다
+        waitDialogs(1);
         assertThat(dialogMessages.get(0)).contains("저장하지 않은 변경이 있습니다");
         assertThat(page.locator("#popupModal.show").count()).as("취소하면 모달이 유지된다").isEqualTo(1);
         assertThat(page.inputValue("#popupTitle")).as("입력이 보존된다").isEqualTo("typed-by-user");
 
         page.click("#btnModalCloseX");                      // × 도 같은 확인을 거친다
-        page.waitForTimeout(500);
-        assertThat(dialogMessages).hasSize(2);
+        waitDialogs(2);
         assertThat(page.locator("#popupModal.show").count()).isEqualTo(1);
 
         acceptDialogs.set(true);
