@@ -141,7 +141,10 @@ context7(라이브러리 공식 문서 조회)·sequential-thinking(복잡한 �
 1. 변경 범위가 크면 코드 작성 전에 **계획을 먼저 제시**하고 확인을 받는다. (복잡한 작업은 sequential-thinking 활용)
 2. 한 번에 하나의 기능/관심사만 변경한다. 무관한 리팩터링을 섞지 않는다.
 3. **요청받지 않은 기능·추상화·설정 옵션을 미리 만들지 않는다. 문제를 해결하는 최소한의 코드로 구현한다.** (과도하게 복잡해 보이면 더 단순한 방법을 먼저 제시한다)
-4. 작업 후 `./gradlew test`로 검증하고, 실패 시 원인을 설명한다.
+4. **검증 범위는 단계별로 다르다**(2026-10-22 — 전체 실행 약 6분, PR CI가 전체를 다시 돌린다). 실패하면 원인을 설명한다.
+   - **개발 중 반복**: 바꾼 패키지의 시험 + 그 패키지를 쓰는 쪽의 시험(예: `admin.faq`를 바꾸면 `publicweb.faq`도) + 컨벤션 시험만 돌린다 — `./gradlew test --tests 'com.cms.admin.faq.*' --tests 'com.cms.publicweb.faq.*' --tests '*ConventionTest'`.
+   - **전체 `./gradlew test`를 바로 돌리는 경우**: 공용 코드(`common/**`·`config/**`·`src/test/java/com/cms/support/**`·`SecurityConfig`·마이그레이션·`build.gradle`·공용 템플릿 조각)를 바꿨거나 영향 범위를 가늠할 수 없을 때.
+   - **PR 직전 1회**: 커밋 전에 전체 `./gradlew test`를 한 번 통과시킨다(`code-review-loop` 마무리 단계가 이 역할 — 리뷰 루프를 건너뛰면 `commitPR` 전에 직접 돌린다). PR CI가 최종 안전망이다.
 5. 엔티티/스키마 변경 시 영향 범위(연관 엔티티, 마이그레이션 필요 여부)를 먼저 알린다.
 6. API 경로를 추가·변경할 때는 `api-conventions` 스킬의 규칙을 따르고, 호출하는 화면/JS 영향 범위를 함께 보고한다.
 7. 라이브러리 API가 불확실하면 context7로 확인한 뒤 작성한다 — 훈련 데이터가 오래됐을 수 있다.
