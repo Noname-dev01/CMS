@@ -261,7 +261,8 @@ class PopupApiIntegrationTest extends MariaDbContainerSupport {
         String stored = jdbc.queryForObject("SELECT content_html FROM popup WHERE id = ?", String.class, id);
         assertThat(stored).contains("<strong>굵게</strong>").contains("href=\"https://example.com\"");
         assertThat(stored).doesNotContain("<script", "alert(1)", "onerror", "<img", "javascript:");
-        assertThat(jdbc.queryForObject("SELECT storage_key FROM popup WHERE id = ?", String.class, id)).as("HTML형은 이미지 없음").isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM content_image_ref WHERE owner_type = 'POPUP' AND owner_id = ?", Integer.class, id))
+                .as("HTML형은 이미지 참조 없음").isZero();
 
         JsonNode listItem = json(run(get("/admin/api/popups").with(asAdmin()))).get(0);
         assertThat(listItem.path("contentHtml").isNull() || listItem.path("contentHtml").isMissingNode()).as("목록에는 본문이 없다").isTrue();

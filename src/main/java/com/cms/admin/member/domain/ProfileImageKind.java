@@ -20,17 +20,8 @@ public enum ProfileImageKind {
      * {@code com.cms.common.storage.FileStorage}의 {@code "profile"} 네임스페이스에 실파일로
      * 저장된 storageKey. {@link com.cms.common.storage.FileStorage#load(String, String)}/
      * {@link com.cms.common.storage.FileStorage#delete(String, String)}를 호출해도 되는
-     * 유일한 상태다 — 이 값은 오직 {@code Member.changeUploadedProfileImage()}·
-     * {@code Member.migrateProfileImageToStorage()}를 통해서만, {@code FileStorage.store()}가
-     * 성공한 직후에만 설정된다.
+     * 유일한 상태다 — 이 값은 오직 {@code Member.changeUploadedProfileImage()}를 통해서만,
+     * {@code FileStorage.store()}가 성공한 직후에만 설정된다.
      */
-    UPLOADED,
-
-    /**
-     * 미이관 레거시 {@code data:<mime>;base64,...} 값. {@code FileStorage}는 절대 건드리지 않고
-     * 그대로 pass-through 렌더링한다. {@code ProfileImageMigrationRunner}가 다음 기동에서 이관을
-     * 시도하며, 실패(화이트리스트 밖 MIME·손상된 Base64 등)해도 이 상태로 남아 기존처럼 정상
-     * 표시된다.
-     */
-    LEGACY_INLINE
+    UPLOADED
 }

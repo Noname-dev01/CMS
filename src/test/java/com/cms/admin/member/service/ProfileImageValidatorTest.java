@@ -18,9 +18,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * ProfileImageValidator는 업로드(AdminMemberService)·마이그레이션(ProfileImageMigrationRunner)
- * 양쪽이 공유하는 검증 로직이라 여기서 독립적으로 검증한다(adversarial-review/plan/
- * PLAN-profile-image-storage.md 쟁점 3).
+ * ProfileImageValidator는 업로드(AdminMemberService)의 검증 로직이라 여기서 독립적으로 검증한다
+ * (adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 3).
  */
 class ProfileImageValidatorTest {
 

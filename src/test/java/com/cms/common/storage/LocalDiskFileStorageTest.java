@@ -213,7 +213,7 @@ class LocalDiskFileStorageTest {
     void load_and_delete_reservedNamespaceViaUnnamespacedApi_rejected(@TempDir Path tempDir) {
         LocalDiskFileStorage storage = newStorage(tempDir);
         String profileKey = storage.store("프로필 원본".getBytes(), "avatar.png", "profile");
-        String pollutedNoticeStyleKey = "profile/" + profileKey; // 오염된 notice_attachment.storage_key 흉내
+        String pollutedNoticeStyleKey = "profile/" + profileKey; // 오염된 첨부 storage_key 흉내
 
         assertThrows(StorageFileNotFoundException.class, () -> storage.load(pollutedNoticeStyleKey));
 

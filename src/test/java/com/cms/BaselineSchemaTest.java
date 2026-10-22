@@ -22,13 +22,14 @@ import org.junit.jupiter.api.Test;
 import com.cms.support.MariaDbContainerSupport;
 
 /**
- * 기준 스키마(V1)·시드(V2)를 새로 설치한 결과를 고정한다(PLAN-migration-squash.md 설계 4).
+ * 기준 스키마(V1)·시드(V2)와 옛 스키마 정리(V3)를 새로 설치한 결과를 고정한다(PLAN-migration-squash.md 설계 4,
+ * PLAN-legacy-schema-removal.md).
  *
  * <p>2026-10-21에 V1~V58을 합치면서 지운 업그레이드 경로 시험 가운데 "새로 설치한 DB가 어떤 모습인가"를 단언하던 부분 — 시드 행,
  * 가드·카운터 행, 유일성·FK·CHECK·기본값 같은 스키마 계약 — 을 여기로 옮겼다. 업그레이드 경로(옛 버전 데이터의 이관·멱등 재실행·
- * 실패 복구·이전 앱 롤백 호환)는 대상 DB가 없어 옮기지 않았다.
+ * 실패 복구·이전 앱 롤백 호환)는 대상 DB가 없어 옮기지 않았다(V3의 업그레이드 경로는 {@code LegacySchemaRemovalUpgradeTest}).
  *
- * <p>공유 스프링 DB가 아니라 별도 스키마에 Flyway로 V1~V2를 적용해 시험한다 — 제약 위반 행을 넣어 보는 시험이 다른 시험의 데이터를
+ * <p>공유 스프링 DB가 아니라 별도 스키마에 Flyway로 V1~V3을 적용해 시험한다 — 제약 위반 행을 넣어 보는 시험이 다른 시험의 데이터를
  * 더럽히지 않게 하려는 것이다. 시험마다 자동 커밋을 끈 연결을 쓰고 끝나면 되돌린다(MariaDB는 문장 오류가 트랜잭션을 깨지 않는다).
  */
 class BaselineSchemaTest extends MariaDbContainerSupport {
@@ -245,31 +246,26 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("배너·팝업: 기간·링크·옛 이미지 컬럼은 NULL 허용(NULL 여러 개 가능), storage_key는 유일, 필수 컬럼 NOT NULL, 배너 version 기본 1·팝업 revision 기본 0, 소속 사이트 FK RESTRICT")
+    @DisplayName("배너·팝업: 기간·링크는 NULL 허용, 필수 컬럼 NOT NULL, 배너 version 기본 1·팝업 revision 기본 0, 소속 사이트 FK RESTRICT")
     void bannerAndPopupConstraints() throws Exception {
         assertThatThrownBy(() -> st.executeUpdate("INSERT INTO banner (use_yn, ord) VALUES (1, 0)")).as("title 필수").isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> st.executeUpdate("INSERT INTO banner (title, use_yn) VALUES ('t', 1)")).as("ord 필수").isInstanceOf(SQLException.class);
         st.executeUpdate("INSERT INTO banner (title, use_yn, ord) VALUES ('a', 1, 0)");
         st.executeUpdate("INSERT INTO banner (title, use_yn, ord, site_id) VALUES ('b', 1, 1, 2)");
-        assertThat(rows("SELECT version, link_url, display_start, display_end, storage_key FROM banner WHERE title = 'a'"))
-                .containsExactly("1|null|null|null|null");
-        st.executeUpdate("UPDATE banner SET storage_key = 'x' WHERE title = 'a'");
-        assertThatThrownBy(() -> st.executeUpdate("UPDATE banner SET storage_key = 'x' WHERE title = 'b'")).isInstanceOf(SQLException.class);
+        assertThat(rows("SELECT version, link_url, display_start, display_end FROM banner WHERE title = 'a'"))
+                .containsExactly("1|null|null|null");
         assertThatThrownBy(() -> st.executeUpdate("INSERT INTO banner (title, use_yn, ord, site_id) VALUES ('c', 1, 2, 999)")).isInstanceOf(SQLException.class);
 
         String popup = "INSERT INTO popup (title, popup_type, content_html, pos_x, pos_y, width, use_yn) VALUES ('%s', 'HTML', '<p>x</p>', 0, 0, 300, 1)";
         st.executeUpdate(popup.formatted("p1"));
         st.executeUpdate(popup.formatted("p2"));
-        assertThat(rows("SELECT revision, height, storage_key FROM popup WHERE title = 'p1'")).containsExactly("0|null|null");
+        assertThat(rows("SELECT revision, height FROM popup WHERE title = 'p1'")).containsExactly("0|null");
         assertThatThrownBy(() -> st.executeUpdate("INSERT INTO popup (title, pos_x, pos_y, width, use_yn) VALUES ('종류 없음', 0, 0, 300, 1)"))
                 .as("popup_type 필수").isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> st.executeUpdate("INSERT INTO popup (popup_type, pos_x, pos_y, width, use_yn) VALUES ('HTML', 0, 0, 300, 1)"))
                 .as("title 필수").isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> st.executeUpdate("INSERT INTO popup (title, popup_type, pos_y, width, use_yn) VALUES ('t', 'HTML', 0, 300, 1)"))
                 .as("pos_x 필수").isInstanceOf(SQLException.class);
-        String image = "INSERT INTO popup (title, popup_type, storage_key, content_type, file_size, pos_x, pos_y, width, use_yn) VALUES ('%s', 'IMAGE', 'pk', 'image/png', 1, 0, 0, 300, 1)";
-        st.executeUpdate(image.formatted("i1"));
-        assertThatThrownBy(() -> st.executeUpdate(image.formatted("i2"))).as("storage_key 유일").isInstanceOf(SQLException.class);
         assertThatThrownBy(() -> st.executeUpdate("INSERT INTO popup (title, popup_type, content_html, pos_x, pos_y, width, use_yn, site_id) VALUES ('고아', 'HTML', 'x', 0, 0, 300, 1, 999)"))
                 .as("없는 사이트").isInstanceOf(SQLException.class);
 
@@ -277,6 +273,25 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
         long siteId = count("SELECT id FROM site WHERE site_key = 'popup-site'");
         st.executeUpdate("INSERT INTO popup (title, popup_type, content_html, pos_x, pos_y, width, use_yn, site_id) VALUES ('전용', 'HTML', 'x', 0, 0, 300, 1, " + siteId + ")");
         assertThatThrownBy(() -> st.executeUpdate("DELETE FROM site WHERE id = " + siteId)).as("전용 팝업이 있는 사이트").isInstanceOf(SQLException.class);
+    }
+
+    @Test
+    @DisplayName("옛 스키마 정리(V3): 동결 공지 테이블·배너/팝업 옛 이미지 컬럼과 유니크·회원 LEGACY_INLINE과 인덱스가 없고, 이미지 출처(scope_type)를 생략한 INSERT는 거부된다")
+    void legacySchemaRemoved() throws Exception {
+        assertThat(rows("SELECT table_name FROM information_schema.TABLES WHERE table_schema = '" + SCHEMA
+                + "' AND table_name IN ('notice', 'notice_attachment')")).isEmpty();
+        assertThat(rows("SELECT CONCAT(table_name, '.', column_name) FROM information_schema.COLUMNS WHERE table_schema = '" + SCHEMA
+                + "' AND table_name IN ('banner', 'popup') AND column_name IN ('storage_key', 'content_type', 'file_size')")).isEmpty();
+        assertThat(rows("SELECT index_name FROM information_schema.STATISTICS WHERE table_schema = '" + SCHEMA
+                + "' AND index_name IN ('uk_banner_storage_key', 'uk_popup_storage_key', 'idx_member_profile_image_kind')")).isEmpty();
+        assertThat(rows("SELECT column_type FROM information_schema.COLUMNS WHERE table_schema = '" + SCHEMA
+                + "' AND table_name = 'member' AND column_name = 'profile_image_kind'")).containsExactly("enum('NONE','PRESET','UPLOADED')");
+        assertThat(rows("SELECT column_default FROM information_schema.COLUMNS WHERE table_schema = '" + SCHEMA
+                + "' AND table_name = 'content_image' AND column_name = 'scope_type'")).as("기본값 없음(NOT NULL 컬럼은 SQL NULL로 보고)").containsExactly("null");
+        // 접속 sql_mode와 무관하게 거부되도록 엄격 모드를 명시한다(NOT NULL 컬럼의 기본값 없는 생략은 엄격 모드에서 오류다)
+        assertThatThrownBy(() -> st.executeUpdate("SET STATEMENT sql_mode = 'STRICT_ALL_TABLES' FOR INSERT INTO content_image"
+                + " (storage_key, content_type, file_size, uploader_id) VALUES ('no-scope', 'image/png', 1, 'admin')"))
+                .isInstanceOf(SQLException.class);
     }
 
     @Test

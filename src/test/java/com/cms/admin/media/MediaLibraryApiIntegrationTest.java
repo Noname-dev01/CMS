@@ -287,7 +287,6 @@ class MediaLibraryApiIntegrationTest extends MariaDbContainerSupport {
                 .isEqualTo(imageId);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM content_image", Integer.class)).isEqualTo(imagesAfterUpload);
         assertThat(counter()).as("선택은 카운터를 늘리지 않는다").containsExactly(afterUpload);
-        assertThat(jdbc.queryForObject("SELECT storage_key FROM banner WHERE id = ?", String.class, bannerId)).as("사본 컬럼은 쓰지 않는다").isNull();
 
         MvcResult detail = mockMvc.perform(get("/admin/api/media/{id}", imageId).with(asAdmin())).andReturn();
         assertThat(json(detail).get("usages")).hasSize(1);

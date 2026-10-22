@@ -37,15 +37,6 @@ class ProfileImageUrlsTest {
     }
 
     @Test
-    @DisplayName("kind=LEGACY_INLINE이면 원값(data URI)을 그대로 pass-through한다")
-    void legacyInline_passesThroughRawValue() {
-        String dataUri = "data:image/png;base64,AAAA";
-        Member member = memberWith(1L, ProfileImageKind.LEGACY_INLINE, dataUri);
-
-        assertEquals(dataUri, ProfileImageUrls.resolveSelfUrl(member));
-    }
-
-    @Test
     @DisplayName("kind=UPLOADED이면 self는 /me/ 라우트, target은 /{id}/ 라우트를 반환하고 버전 쿼리 파라미터가 붙는다")
     void uploaded_buildsDownloadRouteWithVersionToken() {
         Member member = memberWith(7L, ProfileImageKind.UPLOADED, "2026/08/10/uuid.png");
