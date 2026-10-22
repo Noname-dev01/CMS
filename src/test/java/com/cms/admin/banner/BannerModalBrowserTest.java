@@ -118,10 +118,11 @@ class BannerModalBrowserTest extends BrowserTestSupport {
         banner("static-banner");
         open(admin);
         openRow("static-banner");
+        countHidePrevented(page, "#bannerModal");
 
         page.keyboard().press("Escape");
         page.mouse().click(5, 5);                          // 모달 바깥(배경)
-        page.waitForTimeout(500);                          // 닫힘 전환(약 300ms)이 시작됐다면 이 안에 끝난다
+        assertHidePrevented(page, 2);                        // 두 입력이 모두 Bootstrap에 닿아 거부됐다(양성 증거, 동기 발생)
         assertThat(page.locator("#bannerModal.show").count()).as("ESC·배경 클릭으로는 닫히지 않는다").isEqualTo(1);
 
         page.click("#btnModalCloseX");
@@ -143,10 +144,10 @@ class BannerModalBrowserTest extends BrowserTestSupport {
         });
         page.fill("#bannerTitle", "");
         page.click("#btnSave");                             // 푸터 버튼이 form 속성으로 폼에 연결돼 있어야 검증이 동작한다
-        page.waitForTimeout(500);
 
         // 부정 단언(요청 없음)만으로는 버튼이 폼에 연결되지 않은 경우도 통과하므로, 브라우저가 첫 무효 입력으로 포커스를 옮긴 것을 증거로 삼는다
         assertThat(page.evaluate("() => document.activeElement && document.activeElement.id")).isEqualTo("bannerTitle");
+        awaitRequestBarrier(page);
         assertThat(requests.get()).as("검증에 걸려 수정 요청이 나가지 않았다").isZero();
         assertThat(page.locator("#bannerModal.show").count()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT title FROM banner WHERE id = ?", String.class, id)).isEqualTo("valid-banner");

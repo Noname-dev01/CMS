@@ -266,9 +266,7 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         page.click(row(a) + " button[aria-label='FAQ 아래로']");
 
         page.click("#btnApplyOrder");
-        for (int i = 0; i < 100 && held.get() == null; i++) {
-            page.waitForTimeout(50);
-        }
+        page.waitForCondition(() -> held.get() != null);
         assertThat(held.get()).as("반영 요청이 가로채졌다").isNotNull();
 
         // 요청 대기 중 — 끌기·▲▼ 모두 무시된다
@@ -294,9 +292,7 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         openManage();
 
         page.click(row(b) + " .faq-row-question");
-        for (int i = 0; i < 100 && held.get() == null; i++) {
-            page.waitForTimeout(50);
-        }
+        page.waitForCondition(() -> held.get() != null);
         assertThat(held.get()).as("상세 요청이 가로채졌다").isNotNull();
 
         assertThat(fieldsetDisabled("faqFieldset")).as("상세 로딩 중 폼 잠금").isTrue();

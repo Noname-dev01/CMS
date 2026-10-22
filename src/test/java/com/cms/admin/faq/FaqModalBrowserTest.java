@@ -168,6 +168,12 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         });
     }
 
+    /** {@link #trackDialogs}가 센 확인창이 정확히 {@code count}개가 될 때까지 기다린다(넘치면 시간 초과가 아니라 단언으로 드러나도록 뒤에서 다시 단언한다). */
+    private void waitDialogs(int count) {
+        page.waitForCondition(() -> dialogMessages.size() >= count);
+        assertThat(dialogMessages).hasSize(count);
+    }
+
     private long faqWithAnswer(long categoryId, String question, String answerHtml, int ord) {
         jdbc.update("INSERT INTO faq (category_id, question, answer_html, ord, use_yn, create_date, update_date) VALUES (?, ?, ?, ?, 1, ?, ?)",
                 categoryId, question, answerHtml, ord, LocalDateTime.now(), LocalDateTime.now());
@@ -180,10 +186,11 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         trackDialogs();
         open(admin);
         openCategoryModal();
+        countHidePrevented(page, "#faqModal");
 
         page.keyboard().press("Escape");
         page.mouse().click(5, 5);
-        page.waitForTimeout(500);
+        assertHidePrevented(page, 2);                          // 두 입력이 모두 Bootstrap에 닿아 거부됐다(양성 증거, 동기 발생)
         assertThat(page.locator("#faqModal.show").count()).as("ESC·배경 클릭으로는 닫히지 않는다").isEqualTo(1);
 
         page.click("#btnModalCloseX");
@@ -213,7 +220,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         openFaqModal();
         page.click("#btnFaqSave");
         assertThat(page.evaluate("() => document.activeElement && document.activeElement.id")).isEqualTo("faqQuestion");
-        page.waitForTimeout(500);
+        awaitRequestBarrier(page);
         assertThat(writes.get()).as("검증에 걸려 쓰기 요청이 나가지 않았다").isZero();
         assertThat(page.locator("#faqModal.show").count()).isEqualTo(1);
         assertThat(dialogMessages).as("빈 폼은 확인 없이 닫혔다").isEmpty();
@@ -311,7 +318,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         waitModalState("closed");
         assertThat(dialogMessages).hasSize(1);
         page.click(".faq-cat[data-cat-id='" + c2 + "'] .faq-cat-name");   // busy 중이라 새 모달은 열리지 않는다
-        page.waitForTimeout(500);
+        // 가드와 openModal의 data-state 기록은 클릭 처리 안에서 동기적이라 클릭 직후 판정이 확정돼 있다
         assertThat(page.locator("#faqModal").getAttribute("data-state")).as("재조회가 끝나기 전에는 열리지 않는다").isEqualTo("closed");
 
         heldList.get().resume();
@@ -339,6 +346,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
     void immediateDetailFailureClosesTheModalAndKeepsTheNotice() {
         trackDialogs();
         open(admin);
+        restoreModalTransitions(page);                       // 이 시험은 열림 전환 중의 응답이 조건이다 — 기본으로 꺼 둔 전환을 되살린다
         // 상세 조회(GET /admin/api/faqs/{id})가 열림 전환(약 300ms)보다 훨씬 빨리 404로 끝나도록 즉시 해결되는 응답으로 바꾼다 —
         // 서버 왕복은 전환이 끝난 뒤에 도착할 수 있어 "전환 중 hide() 무시"를 결정적으로 재현하지 못한다.
         page.evaluate("() => { const orig = window.fetch; window.fetch = function (url, options) {"
@@ -349,8 +357,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         // 모달 요소의 "숨김" 대기는 쓰지 않는다 — 열림 전환 초기에는 요소가 아직 display:none이라 닫히지 않았는데도 바로 통과한다.
         waitModalState("closed");                            // 전환 중 hide()가 무시되면 open에서 멈춰 시간 초과로 실패한다
         waitForText("pageAlert", "불러오지 못했습니다");
-        waitUntilIdle();                                     // 404 뒤 재조회까지 끝났다
-        page.waitForTimeout(300);
+        waitUntilIdle();                                     // 404 뒤 재조회까지 끝났다 — 재조회의 안내 정리는 busy 해제와 같은 동기 연속이다
         assertThat(page.locator("#pageAlert").isVisible()).as("재조회가 안내를 지우지 않았다").isTrue();
         assertThat(dialogMessages).as("프로그램이 닫는 경로(상세 조회 실패)는 미저장 확인을 거치지 않는다").isEmpty();
     }
@@ -360,12 +367,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
     void closingWhileLoadingDetailDoesNotLockOrClobber() {
         trackDialogs();
         open(admin);
-        // 첫 FAQ의 상세 조회(GET /admin/api/faqs/{id})만 1.5초 지연시킨다
-        page.evaluate("() => { window.__origFetch = window.fetch;"
-                + " window.fetch = function (url, options) {"
-                + "   const slow = /\\/admin\\/api\\/faqs\\/" + a + "$/.test(String(url)) && !(options && options.method);"
-                + "   return slow ? new Promise(function (resolve) { setTimeout(function () { resolve(window.__origFetch(url, options)); }, 1500); })"
-                + "               : window.__origFetch(url, options); }; }");
+        holdFirstResponse(page, "/admin/api/faqs/" + a + "$");   // 첫 FAQ의 상세 응답을 두 번째 폼이 열릴 때까지 붙잡는다
         page.click(".faq-row[data-faq-id='" + a + "'] .faq-row-question");
         waitModalState("open");
         page.click("#btnModalClose");                        // 상세가 오기 전에 닫는다(상세 조회 중에는 닫을 수 있다)
@@ -375,7 +377,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         openFaqEdit(b);
         assertThat(page.isDisabled("#faqQuestion")).as("두 번째 폼은 편집 가능").isFalse();
 
-        page.waitForTimeout(2000);                           // 첫 응답이 늦게 도착한다
+        releaseHeldResponse(page);                           // 첫 응답이 이제야 도착해 처리까지 끝났다
         assertThat(page.textContent("#faqFormTitle")).as("늦게 온 첫 응답이 폼을 덮지 않았다").contains("#" + b);
         assertThat(page.inputValue("#faqQuestion")).isEqualTo("질문B");
         assertThat(dialogMessages).as("상세 조회 중에는 입력이 없어 닫아도 확인하지 않는다").isEmpty();
@@ -403,7 +405,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         assertThat(page.isDisabled("#btnFaqNew")).isTrue();
 
         page.click(".faq-row[data-faq-id='" + b + "'] .faq-row-question");
-        page.waitForTimeout(500);
+        // 가드와 openModal의 data-state 기록은 클릭 처리 안에서 동기적이라 클릭 직후 판정이 확정돼 있다
         assertThat(page.locator("#faqModal").getAttribute("data-state")).as("초안이 있으면 열리지 않는다").isEqualTo("closed");
 
         page.click("#btnCancelOrder");
@@ -441,7 +443,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         });
         page.click("#btnFaqSave");
         waitForText("modalAlert", "닫은 뒤 이 FAQ를 다시 선택");
-        page.waitForTimeout(300);
+        awaitRequestBarrier(page);
         assertThat(writes.get()).as("삭제된 카테고리로는 요청 없이 막힌다").isZero();
 
         page.click("#btnModalClose");                        // 보존된 입력이 남아 있으므로 닫을 때 확인한다
@@ -479,7 +481,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         });
         page.click("#btnFaqSave");
         waitForText("modalAlert", "존재하는 다른 카테고리를 선택");
-        page.waitForTimeout(300);
+        awaitRequestBarrier(page);
         assertThat(writes.get()).as("삭제된 카테고리로는 요청 없이 막힌다").isZero();
         assertThat(page.inputValue("#faqQuestion")).as("입력은 유지된다").isEqualTo("새 질문");
 
@@ -500,14 +502,13 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         page.fill("#catName", "typed-category");
         acceptDialogs.set(false);
         page.click("#btnModalClose");                        // 취소 — 닫힘이 막혀야 한다
-        page.waitForTimeout(500);
-        assertThat(dialogMessages).hasSize(1);
+        // confirm()은 닫기 처리 안에서 동기적으로 뜨고 핸들러가 취소할 때까지 클릭이 끝나지 않는다 — 확인창이 세어진 시점에 취소 결과는 확정돼 있다
+        waitDialogs(1);
         assertThat(dialogMessages.get(0)).contains("저장하지 않은 변경이 있습니다");
         assertThat(page.locator("#faqModal.show").count()).as("취소하면 모달이 유지된다").isEqualTo(1);
         assertThat(page.inputValue("#catName")).as("입력이 보존된다").isEqualTo("typed-category");
         page.click("#btnModalCloseX");                       // × 도 같은 확인을 거친다
-        page.waitForTimeout(500);
-        assertThat(dialogMessages).hasSize(2);
+        waitDialogs(2);
         acceptDialogs.set(true);
         page.click("#btnModalClose");                        // 수락 — 닫힌다
         waitModalState("closed");
@@ -517,8 +518,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         page.fill("#faqQuestion", "typed-question");
         acceptDialogs.set(false);
         page.click("#btnModalCloseX");
-        page.waitForTimeout(500);
-        assertThat(dialogMessages).hasSize(4);
+        waitDialogs(4);
         assertThat(page.inputValue("#faqQuestion")).as("입력이 보존된다").isEqualTo("typed-question");
         acceptDialogs.set(true);
         page.click("#btnModalCloseX");

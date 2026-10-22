@@ -98,10 +98,11 @@ class BoardModalBrowserTest extends BrowserTestSupport {
         board("bm-static");
         open();
         openRow("bm-static");
+        countHidePrevented(page, "#boardModal");
 
         page.keyboard().press("Escape");
         page.mouse().click(5, 5);
-        page.waitForTimeout(500);
+        assertHidePrevented(page, 2);                          // 두 입력이 모두 Bootstrap에 닿아 거부됐다(양성 증거, 동기 발생)
         assertThat(page.locator("#boardModal.show").count()).as("ESC·배경 클릭으로는 닫히지 않는다").isEqualTo(1);
 
         page.click("#btnModalCloseX");
@@ -123,10 +124,10 @@ class BoardModalBrowserTest extends BrowserTestSupport {
         });
         page.fill("#boardName", "");
         page.click("#btnSave");                             // 푸터 버튼이 form 속성으로 폼에 연결돼 있어야 검증이 동작한다
-        page.waitForTimeout(500);
 
         // 부정 단언(요청 없음)만으로는 버튼이 폼에 연결되지 않은 경우도 통과하므로, 브라우저가 첫 무효 입력으로 포커스를 옮긴 것을 증거로 삼는다
         assertThat(page.evaluate("() => document.activeElement && document.activeElement.id")).isEqualTo("boardName");
+        awaitRequestBarrier(page);
         assertThat(requests.get()).isZero();
         assertThat(page.locator("#boardModal.show").count()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT name FROM board WHERE id = ?", String.class, id)).isEqualTo("bm-valid");
