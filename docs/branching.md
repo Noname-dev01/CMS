@@ -58,9 +58,10 @@ git switch master && git pull
 
 ## CI
 
-PR을 열면 GitHub Actions(`ci.yml`)가 두 job을 병렬로 실행한다.
+PR을 열면 GitHub Actions(`ci.yml`)가 세 job을 병렬로 실행한다.
 
-- `test`: `./gradlew test`
+- `test`: `./gradlew test -PbrowserTests=exclude` — 브라우저 시험을 뺀 전체
+- `browser-test`: `./gradlew test -PbrowserTests=only` — 브라우저 E2E 시험(`BrowserTestSupport` 상속 클래스, `@Tag("browser")`)만. Playwright 설치(약 2분)도 이 job만 한다(2026-10-22 분리 — 한 job일 때 약 7분이던 PR 대기를 줄인다)
 - `prod-smoke`: prod 이미지 빌드·기동·보안 응답 검증, 백업·복구 왕복, 이미지 취약점 스캔(상세: `docs/deployment.md` "CI 배포 게이트")
 
 CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고).
@@ -72,7 +73,7 @@ CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고
 `Settings → Branches → master` 에서 아래를 활성화한다.
 
 - Require a pull request before merging
-- Require status checks to pass → `test`, `prod-smoke` (CI job 이름) — `prod-smoke`는 이 설정으로 머지 차단 게이트로 작동한다(2026-09-29 등록됨 — 실패한 PR은 머지할 수 없다)
+- Require status checks to pass → `test`, `browser-test`, `prod-smoke` (CI job 이름) — `prod-smoke`는 이 설정으로 머지 차단 게이트로 작동한다(2026-09-29 등록됨 — 실패한 PR은 머지할 수 없다). `browser-test`(2026-10-22 분리)도 등록해야 브라우저 시험 실패가 머지를 막는다
 - Include administrators (관리자도 규칙 적용)
 
 ---
