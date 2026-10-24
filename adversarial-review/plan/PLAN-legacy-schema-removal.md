@@ -50,7 +50,7 @@ DROP TABLE IF EXISTS `notice`;
 - **쟁점 2 — `LEGACY_INLINE` 행이 남아 있을 때**: (a) 엄격 모드 `ALTER`가 오류로 멈춤(fail-closed), (b) 앞선 `UPDATE … SET kind='NONE'`으로 변환(조용한 데이터 손실 + DML/DDL 혼합), (c) 아무 처리 없음. → **(a)**. 비엄격 모드에서 `ALTER … MODIFY enum`은 범위 밖 값을 빈 문자열 `''`로 바꾸고 경고만 남겨, 그 회원 행을 읽는 순간 Hibernate enum 매핑이 실패한다(로그인 불가). 서버 기본 `sql_mode`(MariaDB 10.11은 `STRICT_TRANS_TABLES` 포함)에 기대지 않으려고 **`SET STATEMENT sql_mode='STRICT_ALL_TABLES' FOR`로 이 문장에만 고정**한다(이미 `ContentCounterWriter`가 쓰는 MariaDB 문법). 그런 행이 있으면 운영자가 처리(옛 러너가 하던 판단)한 뒤 `repair` → 재기동한다 — 이 절차를 `docs/migration-guide.md` V3 행에 적는다. 현재 그런 행을 만들 경로가 없으므로 실제로 걸릴 DB는 없다고 본다.
 - **쟁점 3 — 동결 테이블·옛 컬럼에 데이터가 있을 때 막을지**: (a) 가드 없이 DROP, (b) 비어 있지 않으면 실패하는 가드(익명 `BEGIN NOT ATOMIC … SIGNAL` 블록 등). → **(a)**. 2026-10-09 이후 쓰는 코드가 없고 2026-10-21에 모든 DB를 새로 만들어 비어 있다는 것이 사실로 확인되며, 옛 컬럼은 앱이 쓰지 않은 미사용 사본이라 보존할 가치가 없다. 가드는 Flyway의 MariaDB 복합문 파싱이라는 새 위험을 들여오는 데 비해 지킬 데이터가 없다. 운영 DB가 생긴 뒤였다면 판단이 달랐을 것이다(가이드 "되돌릴 수 없는 마이그레이션은 백업 절차" — 실배포 이후 규칙).
 - **쟁점 4 — `idx_member_profile_image_kind`도 지울지**: 쓰는 쿼리가 러너의 `findIdsByProfileImageKind` 하나뿐이고 러너와 함께 사라진다 → **지운다**. 회원 수가 적어 다른 쿼리의 계획에 영향이 없다.
-- **쟁점 5 — `profile_image_url LONGTEXT`를 `varchar`로 줄일지**: Base64를 담던 흔적이지만 컬럼 타입 변경은 엔티티 `@Lob`/`columnDefinition` 변경과 기존 값 길이 검증이 따르는 별도 위험이다 → **범위 밖(후속 후보)**. 사용자가 정한 범위는 enum 값·러너 제거다.
+- **쟁점 5 — `profile_image_url LONGTEXT`를 `varchar`로 줄일지**: Base64를 담던 흔적이지만 컬럼 타입 변경은 엔티티 `@Lob`/`columnDefinition` 변경과 기존 값 길이 검증이 따르는 별도 위험이다 → **범위 밖(후속 후보)**. 사용자가 정한 범위는 enum 값·러너 제거다. → **후속 완료**(2026-10-24, V4 — `PLAN-profile-image-url-shrink.md`).
 
 ### 설계 2 — 앱 코드 변경 (회원 도메인만)
 

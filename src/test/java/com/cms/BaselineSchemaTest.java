@@ -22,14 +22,14 @@ import org.junit.jupiter.api.Test;
 import com.cms.support.MariaDbContainerSupport;
 
 /**
- * 기준 스키마(V1)·시드(V2)와 옛 스키마 정리(V3)를 새로 설치한 결과를 고정한다(PLAN-migration-squash.md 설계 4,
- * PLAN-legacy-schema-removal.md).
+ * 기준 스키마(V1)·시드(V2)와 옛 스키마 정리(V3)·프로필 이미지 URL 축소(V4)를 새로 설치한 결과를 고정한다(PLAN-migration-squash.md 설계 4,
+ * PLAN-legacy-schema-removal.md, PLAN-profile-image-url-shrink.md).
  *
  * <p>2026-10-21에 V1~V58을 합치면서 지운 업그레이드 경로 시험 가운데 "새로 설치한 DB가 어떤 모습인가"를 단언하던 부분 — 시드 행,
  * 가드·카운터 행, 유일성·FK·CHECK·기본값 같은 스키마 계약 — 을 여기로 옮겼다. 업그레이드 경로(옛 버전 데이터의 이관·멱등 재실행·
  * 실패 복구·이전 앱 롤백 호환)는 대상 DB가 없어 옮기지 않았다(V3의 업그레이드 경로는 {@code LegacySchemaRemovalUpgradeTest}).
  *
- * <p>공유 스프링 DB가 아니라 별도 스키마에 Flyway로 V1~V3을 적용해 시험한다 — 제약 위반 행을 넣어 보는 시험이 다른 시험의 데이터를
+ * <p>공유 스프링 DB가 아니라 별도 스키마에 Flyway로 V1~V4를 적용해 시험한다 — 제약 위반 행을 넣어 보는 시험이 다른 시험의 데이터를
  * 더럽히지 않게 하려는 것이다. 시험마다 자동 커밋을 끈 연결을 쓰고 끝나면 되돌린다(MariaDB는 문장 오류가 트랜잭션을 깨지 않는다).
  */
 class BaselineSchemaTest extends MariaDbContainerSupport {
@@ -273,6 +273,13 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
         long siteId = count("SELECT id FROM site WHERE site_key = 'popup-site'");
         st.executeUpdate("INSERT INTO popup (title, popup_type, content_html, pos_x, pos_y, width, use_yn, site_id) VALUES ('전용', 'HTML', 'x', 0, 0, 300, 1, " + siteId + ")");
         assertThatThrownBy(() -> st.executeUpdate("DELETE FROM site WHERE id = " + siteId)).as("전용 팝업이 있는 사이트").isInstanceOf(SQLException.class);
+    }
+
+    @Test
+    @DisplayName("프로필 이미지 URL 축소(V4): member.profile_image_url은 NULL 허용·기본값 없는 varchar(255)다")
+    void profileImageUrlShrunk() throws Exception {
+        assertThat(rows("SELECT CONCAT(column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS WHERE table_schema = '"
+                + SCHEMA + "' AND table_name = 'member' AND column_name = 'profile_image_url'")).containsExactly("varchar(255)|YES|NULL");
     }
 
     @Test

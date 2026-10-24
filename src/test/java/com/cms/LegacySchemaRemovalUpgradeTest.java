@@ -33,7 +33,8 @@ class LegacySchemaRemovalUpgradeTest extends MariaDbContainerSupport {
 
     private static Flyway flyway(String sessionVariables) {
         String url = rootUrl() + SCHEMA + (sessionVariables == null ? "" : "?sessionVariables=" + sessionVariables);
-        return Flyway.configure().dataSource(url, "root", MARIA_DB.getPassword()).locations("classpath:db/migration").load();
+        // V3 시험이라 V4 이후는 적용하지 않는다(V3만 실행됐다는 단언이 뒤 마이그레이션과 무관하게 유지되도록)
+        return Flyway.configure().dataSource(url, "root", MARIA_DB.getPassword()).locations("classpath:db/migration").target("3").load();
     }
 
     /** 새 스키마를 만들고 V2까지 적용한다. */
