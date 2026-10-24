@@ -61,8 +61,7 @@ public class Member {
 
     private LocalDateTime resetTokenExpiryAt;
 
-    @Lob
-    @Column(name = "profile_image_url", columnDefinition = "LONGTEXT")
+    @Column(name = "profile_image_url", length = 255)
     private String profileImageUrl;
 
     /**

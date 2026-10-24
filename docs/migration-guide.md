@@ -17,10 +17,13 @@
 | V1 | `V1__baseline_schema.sql` | 기준 스키마 — 테이블 28개·인덱스·FK·CHECK(DDL만). 테이블마다 설계 이유를 주석으로 둔다 |
 | V2 | `V2__baseline_seed.sql` | 기준 시드 — 사이트 2행(`id=1 admin`·`id=2 main`)·관리자 사이드바 메뉴·공통 공지 게시판·배너/FAQ 가드 행·이미지 카운터(순수 DML, id 명시) |
 | V3 | `V3__drop_legacy_schema.sql` | 옛 스키마 정리(2026-10-22, `PLAN-legacy-schema-removal.md`) — 동결 테이블 `notice`·`notice_attachment`, `banner`·`popup`의 옛 `storage_key`·`content_type`·`file_size`와 유니크, `member.profile_image_kind`의 `LEGACY_INLINE`과 그 인덱스, `content_image.scope_type`의 기본값 `'NOTICE'` |
+| V4 | `V4__shrink_profile_image_url.sql` | 프로필 이미지 URL 축소(2026-10-24, `PLAN-profile-image-url-shrink.md`) — `member.profile_image_url` `LONGTEXT` → `varchar(255) DEFAULT NULL`(값은 `FileStorage` 키 최대 58자 또는 프리셋 경로뿐) |
+
+V4는 DDL 한 문장이고 `STRICT_ALL_TABLES`를 그 문장에 고정했다 — **255자를 넘는 비공백 값이 있으면 오류로 멈추고 아무것도 바뀌지 않는다**(비엄격 모드의 `MODIFY`는 값을 조용히 자른다). 걸리면 그 행을 `Member.resetProfileImage()`처럼 **세 컬럼을 함께** 정리한다 — `UPDATE member SET profile_image_kind = 'NONE', profile_image_url = NULL, profile_image_content_type = NULL WHERE CHAR_LENGTH(profile_image_url) > 255;` — 그 뒤 `flyway repair` → 재기동한다(아래 "DDL 실패 복구"). **한계**: 255자 뒤가 공백뿐인 값은 엄격 모드에서도 오류 없이 255자로 잘린다(MariaDB가 NOTE로만 처리 — 시험으로 확인). 앱 경로로는 공백이 든 값을 만들 수 없어 가드를 두지 않았다. **이전 앱 롤백**: V4가 적용된 DB에서 이전 앱(`@Lob` 매핑)을 띄우면 `ddl-auto: validate`가 `found [varchar], but expecting [longtext (CLOB)]`로 **기동에 실패한다**(실측) — 되돌리려면 먼저 `ALTER TABLE member MODIFY profile_image_url LONGTEXT DEFAULT NULL;`(무손실 확대)을 실행한다. 업그레이드 경로는 `ProfileImageUrlShrinkUpgradeTest`가 고정하며 첫 실배포 직전 마지막 합치기 때 V4도 V1에 흡수되고 이 시험도 함께 지운다.
 
 V3는 순수 DDL이고 **실패할 수 있는 문장(`member` enum 축소)이 맨 앞**이다 — `profile_image_kind = 'LEGACY_INLINE'` 행이 있으면(옛 Base64 프로필 이관 러너가 이관하지 못한 행) 엄격 모드(`SET STATEMENT sql_mode='STRICT_ALL_TABLES'`)에서 그 문장이 오류로 멈추고 **아무것도 바뀌지 않는다**. 그 행을 `NONE`(이미지 없음)으로 정리한 뒤 `flyway repair` → 재기동한다(아래 "DDL 실패 복구"). 나머지 문장은 `IF EXISTS`라 다시 실행해도 막히지 않는다. 업그레이드 경로는 `LegacySchemaRemovalUpgradeTest`가 고정한다 — 첫 실배포 직전 마지막 합치기 때 V3는 V1에 흡수되고 이 시험도 함께 지운다.
 
-V1~V2는 옛 V1~V58(2026-07-10~2026-10-16)을 합친 것이다. 옛 파일과 각 변경의 이유·배포 절차는 git 이력(합치기 직전 커밋 `96baec2`)에 있다. 새로 설치한 결과는 `BaselineSchemaTest`가 고정한다(V3 포함).
+V1~V2는 옛 V1~V58(2026-07-10~2026-10-16)을 합친 것이다. 옛 파일과 각 변경의 이유·배포 절차는 git 이력(합치기 직전 커밋 `96baec2`)에 있다. 새로 설치한 결과는 `BaselineSchemaTest`가 고정한다(V3·V4 포함).
 
 ## 합치기 후 기존 DB (2026-10-21)
 
