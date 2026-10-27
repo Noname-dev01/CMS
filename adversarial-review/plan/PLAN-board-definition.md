@@ -1,6 +1,6 @@
 # PLAN-board-definition — 게시판 정의 관리 고도화
 
-- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0 구현·검증 완료(2026-10-27, 미커밋)****
+- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0 머지(#179) · PR 1 구현·검증 완료(2026-10-27, 미커밋)****
 - 로드맵: 아직 정식 항목 아님(이 계획이 리뷰를 통과하면 `/updateRoadmap` 또는 로드맵 갱신으로 등록)
 - 개정 이력:
   - v1: 초안(전체 분할·결정·PR 1 상세).
@@ -81,7 +81,7 @@
 
 ## 4. PR 1 상세 설계 — 표시·식별 + `version`
 
-### D1. 스키마 (`V5__board_display_settings.sql`, DDL만)
+### D1. 스키마 (`V6__board_display_settings.sql`, DDL만 — V5는 PR 0이 썼다. `version` DEFAULT는 아래 초안의 0이 아니라 **1**, "PR 1 상세 설계 확인" P1-2 ②)
 
 ```sql
 ALTER TABLE `board`
@@ -312,7 +312,19 @@ ALTER TABLE `board`
 | Q5 | 5 | 썸네일 공개 경로 | **결정: `/content-images/{id}?size=thumb`** |
 | Q6 | 0 | 첨부 업로드·삭제도 마지막 수정으로 기록할지(`update_date` 포함) | **결정: 포함 + 수정 시각도 갱신** |
 
-현재 사용자 결정 대기 항목은 없다. 각 PR 상세 설계에서 생기는 세부 질문은 그때 묻는다.
+위 표의 질문은 모두 결정됐다. 다만 각 PR 절 본문에 "상세 설계에서 정한다"로 남긴 세부 미결정이 있다 — 해당 PR 착수 때 상세 설계에서 정하고 사용자에게 묻는다.
+
+| PR | 미결정(원본은 각 PR 절) |
+|---|---|
+| 2 | 본문 이미지를 끈 게시판에서 이미지 든 기존 글 수정(추천 (iii) 새 이미지만 막기) / 예약 게시를 끈 게시판의 기존 예약 글 / 정책 변경↔업로드 경합의 게시판 `FOR SHARE`와 잠금 순서 |
+| 3 | 순서 저장과 생성의 직렬화 수단(가드 행 vs 전체 `FOR UPDATE`) / 고정 글 공개 노출 범위 / 순서 저장 범위 축소 여부 / 고정용 인덱스 |
+| L | 경로 상대·쿼리만·프래그먼트만 링크 허용 여부(추천 루트 상대만) / 내부 링크 `target`·`rel` / 정적 페이지 슬러그 ASCII 확인 |
+| 4a | SQL vs Java 마이그레이션(핵심) / 별칭 저장 구조(`board_slug` 추천) / 생성 시 슬러그 필수 여부 / 롤백 후 슬러그 없는 게시판 대응 / 마이그레이션 후 남은 숫자 경로 행 처리 / HTML 치환 대상 범위 |
+| 4b | 302에 쿼리스트링 전달 여부 / 302 레이트리밋 적용 여부 |
+| 5 | 썸네일 생성 트랜잭션 안/밖 / 용량 카운터 포함 여부 / 알 수 없는 `size` 404 vs 400 / 이미지 단위 vs 글 단위 |
+| 6 | 템플릿 분기 방식 / 공지 게시판 유형 고정 여부 / 요약 추출 규칙 |
+
+PR 1의 새 글 배지 경계는 결정됐다(2026-10-27, "PR 1 상세 설계 확인" P1-2 ④).
 
 ## 8. 리스크
 
@@ -443,3 +455,118 @@ ALTER TABLE `board`
 **후속**
 
 - 없음(PR 1 착수 시 `author_label` 등 표시 속성 — 이 문서 §4).
+
+---
+
+## PR 1 상세 설계 확인 — 표시·식별 + `version` (P1-v1, 2026-10-27)
+
+§4가 상세 설계 원본이다. 이 절은 착수 정찰로 확인한 코드 사실과, §4에서 **달라지거나 구체화한 결정**만 적는다. 개정 이력은 이 절 끝 "PR 1 개정 이력".
+
+### P1-1. 정찰 결과 (코드 근거)
+
+- `Board`(`admin/board/domain/Board.java`): `update(name, publicYn, attachmentYn, now)`는 "null = 유지". `changeSite`·`softDelete`의 호출자는 `BoardService` 한 곳씩뿐이다(`changeSite`는 같은 요청의 `update` 뒤에만 불린다). 엔티티는 `@Builder`이고 `Board.builder()` 호출이 main·test에 18곳, 시험의 직접 SQL `INSERT INTO board`가 약 10개 클래스에 있다.
+- `BoardService.updateBoard`: 입력 검사 → 게시판 `FOR UPDATE` → 시스템 게시판 규칙 → (사이트 변경 시) 사이트 `FOR SHARE` → 반영. `deleteBoard`: `FOR UPDATE` → 공통 공지 409 → `existsByBoardIdAndDeletedFalse`(잠금 없는 읽기) → 소프트 삭제 → 권한 행 삭제.
+- `version` 선례: `site_page`·`banner`·`popup` 모두 `int(11) NOT NULL DEFAULT 1`, 요청은 `@NotNull @Min(1)`, 삭제는 `@RequestParam(required = false) Integer version` + 서비스가 `null || < 1`이면 400(전역 핸들러에 필수 파라미터 누락 처리가 없다 — `com.cms.admin.session` CLAUDE.md), 비교는 잠근 뒤 `ConflictException`.
+- 게시글 쓰기의 게시판 확인: `PostService.createPost`는 게시판 `FOR SHARE`. `lockPost`(수정·삭제)는 게시글 `FOR UPDATE` → 게시판 **잠금 없는** 미삭제 확인. `PostAttachmentService.upload`·`delete`도 게시글 `FOR UPDATE` → 게시판 잠금 없는 읽기(업로드는 그 값으로 `attachmentYn` 판정). `ContentImageService.uploadForBoard`는 권한 재판정 → 게시판 잠금 없는 읽기 → 저장(등록기가 카운터 행 잠금).
+- 공개: `PublicBoardService.PAGE_SIZE = 10`, `MAX_PAGE = 1000`(→ OFFSET 상한 10,000), 범위 밖 page는 0으로 보정. `PublicNoticeService`는 같은 서비스·같은 DTO에 위임한다 — 차이는 템플릿(`public/notice/*`)과 컨트롤러의 모델 속성 이름뿐. 상세 조회수는 `findPublishedPost` 뒤에 컨트롤러가 `recordView`를 부르므로 화면 값은 이번 조회를 포함하지 않는다. `Post.viewCount`(long)가 이미 있다.
+- 화면: `admin/board/manage.html`은 PATCH에 이름·공개·첨부를 항상 보내고 DELETE는 본문이 없다. `admin/board/posts.html`의 버튼은 `MyBoardResponse.actions`와 `attachmentYn`으로만 정한다(`btnNewPost` CREATE, `btnEditMode` UPDATE, 업로드 UPDATE∧`attachmentYn`, 첨부 삭제 UPDATE).
+- 시험 영향(게시판 PATCH·DELETE 호출 — `version` 필요): `BoardPermissionIntegrationTest`·`PostApiIntegrationTest`·`BoardSiteScopeApiIntegrationTest`·`BoardSiteScopeConcurrencyIntegrationTest`(서비스 직접)·`AbstractBoardDeleteRaceTest`. 화면 시험 `BoardModalBrowserTest`·`BoardScopeAdminBrowserTest`는 JS가 `version`을 보내면 그대로 통과해야 한다.
+
+### P1-2. §4와 달라지거나 구체화한 결정
+
+1. **마이그레이션 번호 V6**: `V6__board_display_settings.sql`. V5와 같이 `ADD COLUMN IF NOT EXISTS`. 기존 테이블에 `NOT NULL` 컬럼을 더하므로 `docs/migration-guide.md` 시험 정책상 **업그레이드 경로 시험 대상**이다(P1-v2, 리뷰 P1-R1-3) — `BoardDisplaySettingsUpgradeTest`(`ProfileImageUrlShrinkUpgradeTest` 형식: 별도 스키마에 V5까지 적용 → 게시판 행 삽입 → V6 적용 → 기존 행의 7개 컬럼이 기본값). `BaselineSchemaTest`에도 컬럼 단언을 더한다.
+2. **`version` DEFAULT 1**(§4 초안 0에서 변경): 선례 세 곳이 모두 1에서 시작하고 "`< 1`이면 400" 규칙을 그대로 쓴다. 기존 행은 1이 된다.
+3. **`version` 증가 지점**: 성공한 PATCH마다 정확히 +1(값이 실제로 바뀌었는지와 무관 — 배너·팝업과 같다), 소프트 삭제도 +1. 구현은 `Board.update(...)`가 `Math.incrementExact`로 올리고, `changeSite`는 같은 요청의 `update` 뒤에만 불리므로 버전을 건드리지 않는다(Javadoc에 명시). 이렇게 하면 한 요청이 +2 되지 않는다.
+4. **새 글 배지 기준**(사용자 결정 2026-10-27): 기준 시각 = `publishStart`가 있고 `createDate`보다 늦으면 `publishStart`, 아니면 `createDate`("공개 시각"). `newBadgeDays = N > 0`일 때 `기준 ≥ now − N×24시간`이면 배지(경계 **포함**). 공개 목록에 나온 글은 공개 조건상 `publishStart ≤ now`라 기준이 미래일 수 없다. 판정은 서비스가 요청당 1회 산출한 `now`(KST `Clock`)로 하고 DTO에 `isNew` 불리언만 담는다.
+   - **NULL 방어**(P1-v3, 리뷰 P1-R2-1 — `post.create_date`는 스키마상 NULL 허용이고 공개 조건이 거르지 않는다): `N = 0`이면 날짜를 보지 않고 `false`. 기준은 `createDate`·`publishStart` 중 **NULL이 아닌 값들의 최댓값**이고, 둘 다 NULL이면 `false`. 비교는 순수 함수 하나(`NewBadge.isNew(createDate, publishStart, days, now)`)에 모아 NPE로 목록 전체가 500이 되지 않게 한다.
+5. **목록 크기와 OFFSET 상한**: `MAX_PAGE = 1000`을 그대로 두면 크기 50에서 OFFSET 상한이 50,000으로 커진다. 상한을 **OFFSET 10,000(포함)으로 고정**하고(`MAX_OFFSET` — 지금 크기 10·page 1000이 OFFSET 10,000이라 포함이 현행과 같다) 허용 페이지는 `0 ≤ page ≤ MAX_OFFSET / listPageSize`(정수 나눗셈 — 10→1000, 20→500, 30→333, 50→200)로 계산한다. 넘으면 지금처럼 0으로 보정한다(P1-v2, 리뷰 P1-R1-1 경계 통일). 이유: §4가 허용 목록으로 묶은 이유(COUNT·스캔 비용 계약)를 OFFSET에도 그대로 지키기 위함이다.
+   - **알려진 한계(기존 동작, 이 PR에서 고치지 않음)**: 글이 상한보다 많으면 마지막 허용 페이지의 `hasNext`가 참이라 '다음' 링크가 0페이지로 보정된 목록을 연다. 지금도 크기 10·page 1000에서 같고(글 10,010건 이상), 고치려면 두 공개 컨트롤러의 모델 계약(`totalPages`·`hasNext`)을 바꿔야 해 범위 밖이다 — 후속 후보.
+6. **엔티티 기본값**: 새 필드는 `@Builder.Default`(`listPageSize = 10`, `showViewCount = false`, `newBadgeDays = 0`, `writableYn = true`, `version = 1`, 문자열은 null). 빌더 호출 18곳과 직접 SQL INSERT(DB DEFAULT)가 손대지 않아도 현행 동작이 된다.
+7. **PATCH의 문자열 3상태**(§4 D6 구현 방식): 서비스가 최종값을 계산한다 — 키 누락·null → 현재 값, 공백만 → null, 그 밖 → `strip()` 후 길이 검사. **새 문자열 두 필드(`description`·`authorLabel`)에는 DTO `@Size`를 두지 않는다**(P1-v2, 리뷰 P1-R1-2 — `@Valid`가 서비스보다 먼저 정리 전 길이로 400을 내 "앞뒤 공백 포함 502자 → 정리 후 500자"나 "긴 공백만 = 삭제" 요청이 서비스에 닿지 못한다). 길이 상한은 서비스의 정리 후 검사 한 곳이다. 요청 본문 전체 크기는 기존 서버 한도가 막는다. 기존 `name`의 `@Size(max = 100)`은 그대로 둔다(무관한 변경 금지). 엔티티 `update`는 표시 설정을 **최종값으로 전부 대입**하는 별도 인자 묶음(`BoardDisplay` record)을 받는다 — 기존 "null = 유지" 인자(이름·공개·첨부)와 섞지 않아 "지움"과 "유지"가 엔티티에서 헷갈리지 않는다.
+8. **쓰기 중지 판정 위치와 잠금**(§4 D5 구현):
+   - 새 리포지토리 메서드 없이 기존 `findByIdAndDeletedFalseForShare`를 쓴다. `PostService`·`PostAttachmentService`·`ContentImageService`가 각각 "공유 잠금 → 없으면 404 → `writableYn=false`면 400 `쓰기가 중지된 게시판입니다.`"를 한다(메시지 상수는 `Board.WRITE_STOPPED_MESSAGE` 하나를 공유 — 세 서비스가 다른 문구를 갖지 않게).
+   - 수정: `lockPost`를 둘로 나눈다 — 수정용은 게시글 `FOR UPDATE` → 게시판 `FOR SHARE` + 판정, 삭제용은 지금 그대로(잠금 없는 확인, 판정 없음).
+   - 첨부 업로드: 게시글 `FOR UPDATE` → 게시판 `FOR SHARE` → 쓰기 중지 400 → `attachmentYn` 400(같은 게시판 행 값으로 둘 다 판정). 첨부 삭제는 그대로.
+   - 본문 이미지 업로드: 권한 재판정(403) → 게시판 `FOR SHARE` → 쓰기 중지 400 → 저장. 판정 순서는 403이 400보다 먼저(권한 없는 사용자에게 게시판 상태를 알려 주지 않는다).
+   - 생성: 기존 `FOR SHARE` 뒤에 판정만 추가.
+   - **교착 검토**: 새로 생기는 대기는 "게시글 X → 게시판 S" 하나다. 게시판 행을 X로 잡는 쓰기(PATCH·삭제)는 게시글 행을 잠그지 않는다(삭제의 `existsBy…`는 일관 읽기). InnoDB는 대기 중인 X 뒤에 새 S를 줄 세우므로 "생성(게시판 S 보유) → PATCH(X 대기) → 수정(게시글 X 보유, 게시판 S 대기)"는 생성 커밋 → PATCH → 수정 순으로 풀린다. 생성이 수정이 가진 게시글 행을 기다리는 경우는 없고(새 행 INSERT), 수정은 게시판 S를 이미지 참조 교체(`replaceRefs`의 이미지 `FOR SHARE`)보다 **먼저** 잡으므로 이미지 잠금과의 순환도 없다.
+9. **공통 공지 게시판은 쓰기 중지 불가**(§4 D5 그대로): `isCommonNotice()`만 막는다(사이트 전용 공지는 허용). 생성은 공통 공지를 만들 수 없으므로 수정만 해당.
+10. **`publicYn`과의 독립**: 쓰기 중지는 공개 경로를 바꾸지 않는다 — 공개 쿼리·공개 경로 다섯 곳은 손대지 않는다(시험: 쓰기 중지 게시판의 공개 목록·상세 200).
+11. **공개 표시**: 목록 행마다 작성자 표시명(게시판 값 — 같은 값 반복)·조회수(켜진 게시판만, 서비스가 DTO에서 거름)·새 글 배지, 목록 머리에 설명(`th:text` + `white-space: pre-line`). 상세는 메타 줄에 작성자 표시명·조회수(이번 조회 미포함 — 수용). 공지 템플릿 두 개에 같게. 메인(`/`)은 바꾸지 않는다.
+12. **값 검증**: `listPageSize ∈ {10,20,30,50}`·`newBadgeDays ∈ 0..30`은 서비스 400(허용 목록은 `Board.ALLOWED_LIST_PAGE_SIZES`). 생성 요청의 새 필드는 모두 선택(누락 = DEFAULT). "변경할 필드 없음" 400은 새 필드까지 포함해 판정하고 `version`만 보낸 PATCH도 400.
+13. **화면 409**: `manage.html`은 PATCH 본문·DELETE 쿼리에 편집 시작 시점의 `version`을 보낸다. 409이면 모달을 닫고(입력은 짧은 설정값이라 보존하지 않는다) 페이지 상단에 서버 메시지를 띄운 뒤 목록을 다시 읽는다 — 기존 404 처리와 같은 흐름. 게시글 화면(`posts.html`)은 `MyBoardResponse.writableYn=false`이면 새 글·수정·첨부 업로드 버튼을 숨기고 "쓰기가 중지된 게시판입니다(조회·첨부 삭제·게시글 삭제만 가능)" 안내를 보인다(서버 판정이 최종).
+
+### P1-3. 변경 파일
+
+| 층 | 파일 | 변경 |
+|---|---|---|
+| 스키마 | `db/migration/V6__board_display_settings.sql` | 신규(컬럼 7개) |
+| 도메인 | `admin/board/domain/Board.java`·`BoardDisplay.java`(신규 record) | 필드·기본값·`update` 확장·`version`·상수 |
+| 서비스 | `BoardService` | 검증·3상태·`version` 비교·공통 공지 쓰기 중지 금지 |
+| 서비스 | `PostService`·`PostAttachmentService`·`contentimage/ContentImageService` | 쓰기 중지 판정 + 게시판 `FOR SHARE` |
+| 서비스 | `MyBoardService`, `publicweb/board/PublicBoardService` | `writableYn`, 목록 크기·OFFSET 상한·표시 필드 |
+| DTO | `BoardCreateRequest`·`BoardUpdateRequest`·`BoardResponse`·`MyBoardResponse`·`PublicPostSummary`·`PublicPostDetail`·`PublicBoardListResult` | 새 필드 |
+| 컨트롤러 | `BoardController`(DELETE `version`), `PublicBoardController`·`PublicNoticeController`(모델 속성) | |
+| 화면 | `admin/board/manage.html`·`posts.html`, `public/board/list·detail.html`·`public/notice/list·detail.html`, `css/public/board.css`·`notice.css` | |
+| 시험 | 아래 P1-4 | |
+| 문서 | `com/cms/admin/board/CLAUDE.md`·`docs/migration-guide.md`(V6 행) | |
+
+인가 정책·`SecurityConfig`·공개 URL·레이트리밋 변경 없음.
+
+### P1-4. 시험 계획
+
+- 스키마(`BaselineSchemaTest`): 새 컬럼 7개의 타입·NULL·DEFAULT.
+- 업그레이드 경로(`BoardDisplaySettingsUpgradeTest` 신규): V5까지 적용한 스키마에 게시판 2행(공개·비공개) 삽입 → V6 → 두 행 모두 `description NULL`·`list_page_size 10`·`author_label NULL`·`show_view_count 0`·`new_badge_days 0`·`writable_yn 1`·`version 1`, 기존 컬럼 값 보존.
+- MVC(`BoardPermissionIntegrationTest` 계열): 앞뒤 공백 포함 502자 설명(정리 후 500자) → 200·500자 저장, 정리 후 501자 → 400, 공백만 600자 → 200·null(삭제).
+- 서비스 단위(`BoardServiceTest` 신규, Mockito): 범위 경계(크기 9·10·50·51·15 / 배지 −1·0·30·31 / 설명 500·501자 정리 후), 3상태(누락 유지·`""` 삭제·공백만 삭제·정리 저장), `version` 누락·0 → 400(잠금 조회 전), 불일치 → 409, 성공 +1(사이트 변경 동반 시에도 +1), 삭제 `version` 누락 400·불일치 409, 공통 공지 쓰기 중지 400·사이트 공지 허용, `version`만 보낸 PATCH 400.
+- 통합(실 DB): 같은 `version`으로 두 PATCH 동시 → 하나 200·하나 409. 쓰기 중지 게시판에서 생성·수정·첨부 업로드·본문 이미지 업로드 400, 첨부 삭제 → 게시글 삭제 연속 성공, 관리 조회·공개 목록·상세 200. 직렬화 래치 시험: 수정·첨부 업로드가 게시판 공유 잠금을 쥔 동안 쓰기 중지 PATCH가 기다리고, 그 뒤 들어온 수정은 400.
+- 공개(`PublicBoardIntegrationTest`·공지): 기존 행 목록 10건(DEFAULT), 크기 20 반영, OFFSET 상한(크기 50에서 page 200 허용·201 → 0으로 보정, 크기 30에서 333 허용·334 → 0, 크기 10은 1000 허용 — 현행 유지), 조회수 꺼짐 = 응답에 조회수 없음·켜짐 = 표시, 배지 경계(정확히 N×24시간 전 = 배지, 1초 더 이전 = 없음, 예약 글은 `publishStart` 기준, `create_date` NULL 글은 `publishStart` 있음 = 그 기준·없음 = 배지 없음이고 목록 200 — 일반·공지 모두, 순수 함수는 단위 시험으로 경계 표 전체), 설명·표시명 `<script>` 이스케이프, 공지 경로 같은 결과. `PublicBoardTemplateConventionTest`의 `th:utext` 한 곳 규칙 유지.
+- 기존 시험 수정: P1-1의 5개 클래스에 `version` 추가.
+- 화면(playwright): 생성·수정(설명·표시명 지우기 포함)·409 안내, 쓰기 중지 게시판의 게시글 화면 버튼 숨김, 공개 목록 표시.
+
+### PR 1 개정 이력
+
+- P1-v1: 초안(§4 확인 + 구체화 13항, 새 글 배지 기준은 사용자 결정).
+- P1-v2 변경(리뷰 1라운드): P1-R1-1 OFFSET 상한을 "10,000 포함"으로 통일하고 허용 페이지를 `page ≤ MAX_OFFSET / size`로 정의, 시험 기대(50→200 허용·201 보정, 30→333·334) 정정(P1-2 ⑤·P1-4). 기각: 마지막 허용 페이지의 `hasNext`가 0페이지로 이어지는 문제 — 크기 10·page 1000에서 이미 같은 기존 동작이고 게시판 설정과 무관하며, 고치려면 두 공개 컨트롤러의 모델 계약을 바꿔야 해 범위 밖(알려진 한계 + 후속 후보로 기록). P1-R1-2 새 문자열 필드의 DTO `@Size` 제거 — 길이 상한은 서비스의 정리 후 검사 한 곳, MVC 경계 시험 추가(P1-2 ⑦·P1-4). P1-R1-3 기존 테이블 `NOT NULL` 추가라 업그레이드 경로 시험 `BoardDisplaySettingsUpgradeTest` 추가(P1-2 ①·P1-4).
+- P1-v3 변경(리뷰 2라운드): P1-R2-1 새 글 배지의 NULL 방어 — `N=0`이면 날짜 미사용, 기준은 NULL 아닌 `createDate`·`publishStart`의 최댓값, 둘 다 NULL이면 배지 없음. 순수 함수 하나로 모으고 NULL 행 공개 목록 시험 추가(P1-2 ④·P1-4).
+- 리뷰 3라운드: ship(새 지적 없음). 사용자 승인 2026-10-27, 구현·검증 같은 날(아래 "구현·검증 결과 — PR 1").
+
+### 구현·검증 결과 — PR 1 (2026-10-27)
+
+**Context**: 게시판 정의가 이름·공개·첨부·표시 대상 4개뿐이라 공개 화면의 목록 크기·조회수·작성자·배지·설명이 전역 상수에 묶여 있었고, 게시판 수정에 동시 수정 보호가 없어 필드가 늘수록 낡은 화면의 덮어쓰기 위험이 컸다. 이 PR은 표시·식별 설정 6개와 게시판 `version`(낙관적 검사)을 넣고, `publicYn`과 의미가 겹치지 않는 쓰기 중지(보관)를 도입한다.
+
+**핵심 확정 사항**: P1-v3 설계 그대로 구현했다 — 게시판별 고정 작성자 표시명(로그인 ID 비공개), 쓰기 중지는 새 글·수정·첨부 업로드·본문 이미지 업로드만 400이고 조회·첨부 삭제·게시글 삭제는 허용, 공통 공지 게시판은 중지 불가, 쓰기 쪽은 게시판 `FOR SHARE`로 전환과 직렬화(순서 게시글 → 게시판), `version`은 PATCH·DELETE 필수·409·성공마다 +1, 새 글 배지는 `NewBadge` 한 곳(공개 시각 기준·NULL 방어), 허용 페이지 `≤ 10000 / 목록 크기`. **계획과 달라진 구현 결정은 없다.** 구현 중 정한 세부: 새 글 배지 DTO 필드명은 템플릿의 `new` 예약어 충돌을 피해 `newBadge`, 목록 결과 record(`PublicBoardListResult`)에 설명·표시명을 직접 실었다(생성자 시그니처 변경 — 시험 2곳 수정).
+
+**구현 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V6__board_display_settings.sql` | 신규 — `board` 컬럼 7개(`IF NOT EXISTS`, 전부 현행 동작 DEFAULT) |
+| `admin/board/domain/Board.java`·`BoardDisplay.java` | 필드·`@Builder.Default`·`update(…, BoardDisplay, now)`·`display()`·version +1(`update`·`softDelete`)·상수(`ALLOWED_LIST_PAGE_SIZES`·`WRITE_STOPPED_MESSAGE` 등) |
+| `admin/board/service/BoardService.java` | 범위 검증·`optionalText`(정리 후 길이)·3상태·`requireVersionParam`/`requireFreshVersion`·공통 공지 중지 금지·`deleteBoard(id, version)` |
+| `admin/board/service/PostService.java`·`PostAttachmentService.java`, `admin/contentimage/service/ContentImageService.java` | 쓰기 중지 판정 + 게시판 `FOR SHARE`(`lockPostForWrite`·`requireWritable`) |
+| `admin/board/service/MyBoardService.java`, `dto/**` | `writableYn`·새 필드·`version` |
+| `admin/board/controller/BoardController.java` | DELETE `?version=` |
+| `publicweb/board/service/PublicBoardService.java`·`NewBadge.java`(신규)·`dto/*`, `publicweb/board·notice/controller` | 목록 크기·`MAX_OFFSET`·조회수 거름·배지·설명·표시명 |
+| `templates/admin/board/manage.html`·`posts.html`, `templates/public/board/*`·`public/notice/*`, `css/public/board.css`·`notice.css` | 화면 |
+| 시험(신규) | `BoardServiceTest`·`BoardDisplaySettingsApiIntegrationTest`·`BoardDisplaySettingsConcurrencyIntegrationTest`·`BoardDisplaySettingsPublicIntegrationTest`·`NewBadgeTest`·`BoardDisplaySettingsUpgradeTest` + `BaselineSchemaTest`·`PublicBoardServiceTest` 추가 |
+| 시험(기존 수정) | `version` 추가: `BoardPermissionIntegrationTest`·`PostApiIntegrationTest`·`BoardSiteScopeApiIntegrationTest`(헬퍼)·`BoardSiteScopeConcurrencyIntegrationTest`·`AbstractBoardDeleteRaceTest`. 스텁/생성자: `PostServiceTest`·`PostAttachmentServiceTest`(게시판 `FOR SHARE` 스텁)·`PublicNoticeControllerTest`·`PublicNoticeServiceTest` |
+| 문서 | `com/cms/admin/board/CLAUDE.md`(새 절)·`publicweb/board`·`publicweb/notice` `CLAUDE.md`(고정 10건·`MAX_PAGE` 서술 정정)·`docs/migration-guide.md`(V6)·`docs/deployment.md`(롤백 주의) |
+
+**검증 결과**
+
+- 영향 범위 시험(`admin.board`·`admin.site`·`admin.permission`·`admin.contentimage`·`admin.media`·`publicweb`·`config` 전체 + `*ConventionTest`·`BaselineSchemaTest`·`*UpgradeTest`, 브라우저 제외): 1192건, 기존 시험 스텁 정리 뒤 **실패 0**. 브라우저 시험 `BoardModalBrowserTest`(6)·`BoardScopeAdminBrowserTest`(3) 통과. 새 시험이 실행됐음을 결과 XML로 확인(`BoardDisplaySettingsApiIntegrationTest` 10·`ConcurrencyIntegrationTest` 3·`PublicIntegrationTest` 8·`BoardServiceTest` 7·`UpgradeTest` 1). **전체 `./gradlew test`는 PR 직전 1회(code-review-loop 마무리)로 남긴다.**
+- 변이 실험: `PostService.lockPostForWrite`의 게시판 `FOR SHARE`를 일반 읽기로 바꾸면 `postUpdateWaitsForStopTransition`(전환 중 수정이 대기 후 400)이 실패함을 확인 후 복원.
+- 실기(dev, `bootRun`, Playwright): dev DB(V5)에 V6 적용(`Successfully applied 1 migration … v6`). ① UI로 게시판 생성 — 설명·표시명 앞뒤 공백 정리 저장, 목록 크기 20 반영(스크린샷 `board-definition-pr1-screenshots/01-create-modal.png`) ② 공개 목록에 설명(줄바꿈)·NEW 배지·작성자 표시명·조회수 표시(`02-public-list.png`) ③ 화면 A를 열어 둔 채 다른 관리자가 먼저 저장 → 화면 A의 저장이 409 안내 + 목록 재조회, 다른 관리자의 수정은 보존 ④ 설명을 `""`로 비우면 NULL 저장·표시명은 유지, version이 저장마다 정확히 +1 ⑤ 쓰기 중지 저장 → 게시글 화면에 안내(`03-posts-write-stopped.png`), "새 게시글"·수정·첨부 업로드 숨김, 삭제 유지, 일반 게시판으로 바꾸면 안내 사라짐 ⑥ API 직접 호출: 쓰기 중지 게시판의 글 생성·수정 400, version 누락 400·낡은 값 409·DELETE 누락 400, 공통 공지 중지 400 ⑦ 익명 PATCH·DELETE 401, 공개 목록·상세·공지 200(쓰기 중지는 공개 노출과 독립), 없는 게시판 404 ⑧ 검증 행 삭제로 dev DB 원복.
+- **롤백 호환 실측**: V6가 적용된 DB에서 V5까지만 아는 이전 앱 이미지(`cms-app-dev`)가 정상 기동, health 200.
+
+**이슈**
+
+- Docker Desktop 미기동(PC 재시작)으로 DB 시험이 불가능했다 — 환경 문제. 기동 후 해결.
+- 새 시험의 첫 실패 3건은 모두 시험 쪽 가정: ① 이 프로젝트는 null 필드를 JSON에서 생략한다(`absent()` 헬퍼) ② MariaDB는 `FOR SHARE`가 아니라 `LOCK IN SHARE MODE` ③ 같은 시험에서 목을 여러 번 검증해 호출이 누적(`clearInvocations`). 서비스 결함 아님.
+- 기존 단위 시험 22건은 서비스가 게시판을 `FOR SHARE`로 읽도록 바뀐 데 따른 예상된 스텁 정리였다.
+
+**후속**
+
+- 마지막 허용 페이지의 '다음' 링크가 0페이지로 돌아가는 기존 한계(글이 10,000건 넘는 극단 경우) — 두 공개 컨트롤러의 모델 계약 변경이 필요해 범위 밖, 후속 후보.
+- PR 2 이후: 계획 문서 §5. PR 2 착수 때 §7의 PR 2 미결정 목록을 상세 설계에서 정한다.
