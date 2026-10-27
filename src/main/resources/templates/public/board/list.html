@@ -13,6 +13,8 @@
     <div class="public-board-header">
         <h1><a th:href="@{|${sitePrefix}/boards/{id}|(id=${boardId})}" th:text="${boardName}">게시판</a></h1>
     </div>
+    <!--/* 설명은 평문이다 — th:text로만 출력하고 줄바꿈은 CSS(pre-line)가 보인다 */-->
+    <p class="board-description" th:if="${description != null}" th:text="${description}"></p>
 
     <form class="board-search" method="get" th:action="@{|${sitePrefix}/boards/{id}|(id=${boardId})}" role="search">
         <input type="search" name="keyword" maxlength="100" placeholder="제목으로 검색"
@@ -24,7 +26,9 @@
     <ul class="board-list" th:if="${not #lists.isEmpty(posts)}">
         <li class="board-list-item" th:each="post : ${posts}">
             <a th:href="@{|${sitePrefix}/boards/{boardId}/posts/{postId}|(boardId=${boardId}, postId=${post.id})}">
-                <span class="board-title" th:text="${post.title}"></span>
+                <span class="board-title"><span th:text="${post.title}"></span><span class="board-new-badge" th:if="${post.newBadge}">NEW</span></span>
+                <span class="board-meta-extra" th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
+                <span class="board-meta-extra" th:if="${post.viewCount != null}" th:text="|조회 ${post.viewCount}|"></span>
                 <span class="board-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
             </a>
         </li>

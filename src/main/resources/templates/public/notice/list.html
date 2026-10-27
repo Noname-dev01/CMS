@@ -13,6 +13,8 @@
     <div class="public-notice-header">
         <h1><a th:href="@{|${sitePrefix}/notices|}">공지사항</a></h1>
     </div>
+    <!--/* 설명은 평문이다 — th:text로만 출력하고 줄바꿈은 CSS(pre-line)가 보인다 */-->
+    <p class="notice-description" th:if="${description != null}" th:text="${description}"></p>
 
     <form class="notice-search" method="get" th:action="@{|${sitePrefix}/notices|}" role="search">
         <input type="search" name="keyword" maxlength="100" placeholder="제목으로 검색"
@@ -24,7 +26,9 @@
     <ul class="notice-list" th:if="${not #lists.isEmpty(notices)}">
         <li class="notice-list-item" th:each="notice : ${notices}">
             <a th:href="@{|${sitePrefix}/notices/{id}|(id=${notice.id})}">
-                <span class="notice-title" th:text="${notice.title}"></span>
+                <span class="notice-title"><span th:text="${notice.title}"></span><span class="notice-new-badge" th:if="${notice.newBadge}">NEW</span></span>
+                <span class="notice-meta-extra" th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
+                <span class="notice-meta-extra" th:if="${notice.viewCount != null}" th:text="|조회 ${notice.viewCount}|"></span>
                 <span class="notice-date" th:text="${#temporals.format(notice.createDate, 'yyyy-MM-dd')}"></span>
             </a>
         </li>
