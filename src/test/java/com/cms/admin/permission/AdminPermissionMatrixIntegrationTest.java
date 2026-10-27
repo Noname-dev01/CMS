@@ -26,6 +26,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.AbstractMockHttpServletRequestBuilder;
@@ -174,8 +176,15 @@ class AdminPermissionMatrixIntegrationTest extends MariaDbContainerSupport {
         postIds.add(post.getId());
         Long attachmentId = null;
         if (withAttachment) {
-            attachmentId = attachmentService.upload(boardId, post.getId(),
-                    new MockMultipartFile("file", "matrix.pdf", "application/pdf", "matrix-content".getBytes())).getId();
+            // 서비스 직접 호출 — 첨부 업로드는 게시글 최종 수정자를 기록하므로 인증된 관리자 주체가 필요하다(픽스처 동안만 심는다)
+            CustomUserDetails details = TestMembers.detached(1L, Role.ROLE_ADMIN);
+            SecurityContextHolder.setContext(new SecurityContextImpl(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities())));
+            try {
+                attachmentId = attachmentService.upload(boardId, post.getId(),
+                        new MockMultipartFile("file", "matrix.pdf", "application/pdf", "matrix-content".getBytes())).getId();
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
         }
         return new Fixture(post.getId(), attachmentId);
     }

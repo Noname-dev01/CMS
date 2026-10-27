@@ -377,6 +377,20 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 - **수용한 한계**: 기간은 통째 교체 + 마지막 저장 우선이다(게시글에 낙관적 락이 없어, 낡은 편집 화면이 다른 관리자가 줄인 기간을 되돌릴 수 있다). 다운로드가 시작된 뒤 종료 시각이 지나도 진행 중 전송은 끝까지 간다(기존 공개 첨부의 약한 보장과 같다).
 - **VM·컨테이너 시계**: DB 컨테이너 시계가 UTC여도 앱은 KST `Clock`을 쓰므로 영향이 없다. 다만 SQL로 기간을 직접 넣을 때는 앱 기준 KST 벽시계 값을 리터럴로 쓴다(`NOW()`는 9시간 어긋난다).
 
+## 게시글 최종 수정자 (2026-10-27, adversarial-review/plan/PLAN-board-definition.md PR 0)
+
+- **동작**: 게시글의 생성·수정·삭제와 첨부 업로드·삭제가 `post.updater_id`(V5, `varchar(100) NULL`)에 그 관리자의 userId를, `update_date`에 시각을 함께 남긴다. 관리 화면(게시글 목록 "최종 수정자" 열·상세)에만 보이고 공개 화면에는 나가지 않는다. V5 이전에 만들어져 이후 손대지 않은 글은 NULL(`-` 표시 — 수정자 모름)이다. **원본은 감사 로그**(`POST_UPDATE`·`POST_ATTACHMENT_*` 등)이고 이 값은 조회 편의용 사본이다.
+- **롤백 주의**: V5가 적용된 DB에서 이전 앱으로 되돌려도 기동·동작에는 문제가 없다(NULL 허용 컬럼, `validate`는 남는 컬럼을 문제 삼지 않는다). 다만 이전 앱은 `updater_id`를 갱신하지 않으므로, 재배포 후 **롤백 기간에 손댄 글은 그 전 수정자가 표시될 수 있다**(이전 앱의 첨부 조작은 `update_date`도 바꾸지 않는다).
+- **재배포 전 정리(선택)**: 롤백 시각을 `<T>`(KST 벽시계 값)로 두고, 그 기간에 수정되었거나 첨부가 올라간 글을 "모름"으로 돌린다.
+
+  ```sql
+  UPDATE post SET updater_id = NULL
+   WHERE update_date >= '<T>'
+      OR id IN (SELECT post_id FROM post_attachment WHERE create_date >= '<T>');
+  ```
+
+  **부분 복구다** — 롤백 기간의 **첨부 삭제**는 식별할 수 없다(첨부 행이 사라지고, 감사 로그의 `target_id`는 첨부 id라 게시글로 이어지지 않는다). 정확성이 필요하면 `UPDATE post SET updater_id = NULL;`로 전체를 "모름"으로 돌린다(이후 쓰기부터 다시 쌓인다).
+
 ## 공개 메인 팝업 (2026-10-12, adversarial-review/plan/PLAN-popup.md)
 
 - **새 공개 경로**: `GET·HEAD /popups/{id}/image`가 무인증이다(`SecurityConfig` 승인 2026-10-12). `/popups`·`/popups/**`의 나머지 경로·메서드는 `denyAll`이다. 리버스 프록시·ingress가 경로를 허용 목록으로 관리한다면 이 경로를 추가한다. 레이트리밋 규칙 `popup-image`(120/60초). 공개 메인(`/`)은 노출 중인 팝업을 등록 순서대로 **최대 5개**까지 그리고, 그 스크립트는 정적 파일 `/js/public/home-popup.js`(기존 `/js/**` 공개 범위)다.

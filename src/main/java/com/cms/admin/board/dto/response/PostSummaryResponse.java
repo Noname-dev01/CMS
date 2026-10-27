@@ -26,6 +26,8 @@ public class PostSummaryResponse {
     private String authorId;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
+    @Schema(description = "최종 수정자 userId — 마지막으로 생성·수정·첨부 변경을 한 관리자. V5 이전에 만들어져 이후 손대지 않은 글은 null", nullable = true)
+    private String updaterId;
     @Schema(description = "노출 기간 시작(포함). null이면 시작 제한 없음", nullable = true)
     private LocalDateTime publishStart;
     @Schema(description = "노출 기간 종료(미포함). null이면 종료 제한 없음", nullable = true)
@@ -45,6 +47,7 @@ public class PostSummaryResponse {
                 .authorId(post.getAuthorId())
                 .createDate(post.getCreateDate())
                 .updateDate(post.getUpdateDate())
+                .updaterId(post.getUpdaterId())
                 .publishStart(post.getPublishStart())
                 .publishEnd(post.getPublishEnd())
                 .status(DisplayPeriod.statusOf(Boolean.TRUE.equals(post.getUseYn()), post.getPublishStart(), post.getPublishEnd(), now))

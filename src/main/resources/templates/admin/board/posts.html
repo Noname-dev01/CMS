@@ -196,6 +196,7 @@
                                             <th>ID</th>
                                             <th>제목</th>
                                             <th>작성자</th>
+                                            <th>최종 수정자</th>
                                             <th>노출 상태</th>
                                             <th>노출 기간</th>
                                             <th>조회수</th>
@@ -205,7 +206,7 @@
                                         </thead>
                                         <tbody id="postTableBody">
                                         <tr>
-                                            <td colspan="8" class="text-center text-muted py-4">조회 중입니다.</td>
+                                            <td colspan="9" class="text-center text-muted py-4">조회 중입니다.</td>
                                         </tr>
                                         </tbody>
                                     </table>
@@ -282,6 +283,10 @@
                     <div class="detail-item">
                         <span class="label">수정일</span>
                         <div class="value" id="viewUpdateDate"></div>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">최종 수정자</span>
+                        <div class="value" id="viewUpdater"></div>
                     </div>
                     <div class="detail-item">
                         <span class="label">본문</span>
@@ -408,6 +413,7 @@
     const viewUseYn = document.getElementById("viewUseYn");
     const viewCreateDate = document.getElementById("viewCreateDate");
     const viewUpdateDate = document.getElementById("viewUpdateDate");
+    const viewUpdater = document.getElementById("viewUpdater");
     const viewViews = document.getElementById("viewViews");
     const viewContent = document.getElementById("viewContent");
 
@@ -666,12 +672,14 @@
 
         emptyState.classList.add("d-none");
 
-        // title·authorId는 사용자 입력값이므로 innerHTML 삽입 전 반드시 escapeHtml()을 거친다(저장형 XSS 방어).
+        // title·authorId·updaterId는 사용자 입력값이므로 innerHTML 삽입 전 반드시 escapeHtml()을 거친다(저장형 XSS 방어).
+        // 최종 수정자 null은 V5 이전에 만들어져 이후 손대지 않은 글(수정자 모름)이다.
         tableBody.innerHTML = items.map(item => {
             return "<tr>" +
                 "<td>" + escapeHtml(item.id) + "</td>" +
                 "<td><button type=\"button\" class=\"btn btn-link p-0 cell-link js-detail\" data-id=\"" + escapeHtml(item.id) + "\">" + escapeHtml(item.title) + "</button></td>" +
                 "<td>" + escapeHtml(item.authorId || "-") + "</td>" +
+                "<td>" + escapeHtml(item.updaterId || "-") + "</td>" +
                 "<td>" + statusBadge(item.status) + "</td>" +
                 "<td>" + escapeHtml(periodText(item.publishStart, item.publishEnd)) + "</td>" +
                 "<td>" + escapeHtml(item.viewCount == null ? "-" : item.viewCount) + "</td>" +
@@ -711,7 +719,7 @@
 
     function setLoadingRow() {
         emptyState.classList.add("d-none");
-        tableBody.innerHTML = "<tr><td colspan=\"8\" class=\"text-center text-muted py-4\">조회 중입니다.</td></tr>";
+        tableBody.innerHTML = "<tr><td colspan=\"9\" class=\"text-center text-muted py-4\">조회 중입니다.</td></tr>";
     }
 
     async function loadPosts(page) {
@@ -757,7 +765,7 @@
                 // 사용자가 새 요청(검색·페이지 이동·게시판 전환)을 트리거해 이전 요청을 취소한 것 — 정상 동작이므로 오류로 표시하지 않는다.
                 return;
             }
-            tableBody.innerHTML = "<tr><td colspan=\"8\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
+            tableBody.innerHTML = "<tr><td colspan=\"9\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
             pagination.innerHTML = "";
             showPageError(getRequestErrorMessage(error, "게시글 목록 조회 중 오류가 발생했습니다."));
         }
@@ -803,6 +811,7 @@
         viewViews.textContent = data.viewCount == null ? "-" : String(data.viewCount);
         viewCreateDate.textContent = formatDate(data.createDate);
         viewUpdateDate.textContent = formatDate(data.updateDate);
+        viewUpdater.textContent = data.updaterId || "-";
         viewContent.innerHTML = data.content || "";
     }
 

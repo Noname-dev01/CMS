@@ -12,6 +12,7 @@ import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.common.storage.FileStorage;
+import com.cms.config.auth.AdminSecurityService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -25,6 +26,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -39,6 +41,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -71,6 +74,12 @@ class PostAttachmentServiceTest {
     @Mock
     BoardRepository boardRepository;
 
+    @Mock
+    AdminSecurityService adminSecurityService;
+
+    /** 업로드·삭제를 하는 관리자 — 작성자(admin01)와 다르게 두어 최종 수정자가 바뀌는지 본다. */
+    static final String EDITOR_ID = "editor01";
+
     /** UTC 2026-09-29 15:00 = KST 2026-09-30 00:00 — 시스템 시각·기본 시간대와 무관하게 저장 시각을 단언한다. */
     static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 9, 30, 0, 0);
 
@@ -93,6 +102,8 @@ class PostAttachmentServiceTest {
         lenient().when(postRepository.findByIdAndBoardIdAndDeletedFalse(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.eq(BOARD_ID)))
                 .thenAnswer(invocation -> Optional.of(Post.builder().id(invocation.getArgument(0)).boardId(BOARD_ID).title("게시글")
                         .content("본문").useYn(true).deleted(false).authorId("admin01").build()));
+        // 업로드·삭제는 최종 수정자를 기록하므로 현재 관리자가 필요하다(목록·다운로드 시험에서는 쓰이지 않는다)
+        lenient().when(adminSecurityService.getCurrentAdminUserId()).thenReturn(EDITOR_ID);
     }
 
     @AfterEach
@@ -120,7 +131,8 @@ class PostAttachmentServiceTest {
     @Test
     @DisplayName("업로드 성공 — 게시글 락을 획득하고 storageKey로 저장한다")
     void upload_success_usesLock() {
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(activePost()));
+        Post post = activePost();
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(post));
         given(postAttachmentRepository.countByPostId(1L)).willReturn(0L);
         given(fileStorage.store(any(byte[].class), anyString())).willReturn("2026/07/21/uuid.pdf");
         given(postAttachmentRepository.save(any(PostAttachment.class))).willAnswer(inv -> {
@@ -143,6 +155,35 @@ class PostAttachmentServiceTest {
         ArgumentCaptor<PostAttachment> saved = ArgumentCaptor.forClass(PostAttachment.class);
         verify(postAttachmentRepository).save(saved.capture());
         assertEquals(FIXED_NOW, saved.getValue().getCreateDate());
+
+        // 같은 잠금 안에서 게시글의 최종 수정자·수정 시각이 갱신된다(첨부 createDate와 같은 시각)
+        assertEquals(EDITOR_ID, post.getUpdaterId());
+        assertEquals(FIXED_NOW, post.getUpdateDate());
+        assertEquals("admin01", post.getAuthorId(), "작성자는 그대로다");
+    }
+
+    @Test
+    @DisplayName("업로드: 현재 관리자를 알 수 없으면 403이고 게시글 잠금 조회 전에 끝난다")
+    void upload_noCurrentAdmin_accessDeniedBeforeLock() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn(null);
+        MockMultipartFile file = new MockMultipartFile("file", "a.pdf", "application/pdf", "x".getBytes());
+
+        assertThrows(AccessDeniedException.class, () -> postAttachmentService.upload(BOARD_ID, 1L, file));
+        verify(postRepository, never()).findByIdAndBoardIdAndDeletedFalseForUpdate(any(), any());
+        verify(fileStorage, never()).store(any(byte[].class), anyString());
+    }
+
+    @Test
+    @DisplayName("업로드가 검증에서 실패하면(5개 초과 409) 게시글의 최종 수정자·수정 시각은 그대로다")
+    void upload_rejected_doesNotTouchPost() {
+        Post post = activePost();
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(post));
+        given(postAttachmentRepository.countByPostId(1L)).willReturn(5L);
+        MockMultipartFile file = new MockMultipartFile("file", "a.pdf", "application/pdf", "x".getBytes());
+
+        assertThrows(ConflictException.class, () -> postAttachmentService.upload(BOARD_ID, 1L, file));
+        assertNull(post.getUpdaterId());
+        assertNull(post.getUpdateDate());
     }
 
     @Test
@@ -412,7 +453,8 @@ class PostAttachmentServiceTest {
     @Test
     @DisplayName("삭제 성공 — 게시글 락을 획득하고, 커밋 전에는 파일을 지우지 않고 커밋 후에만 지운다")
     void delete_success_registersAfterCommitCleanup() {
-        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(activePost()));
+        Post post = activePost();
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(post));
         PostAttachment attachment = existingAttachment();
         given(postAttachmentRepository.findByIdAndPostId(10L, 1L)).willReturn(Optional.of(attachment));
 
@@ -422,11 +464,23 @@ class PostAttachmentServiceTest {
         verify(postRepository).findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID);
         verify(postAttachmentRepository).delete(attachment);
         verify(fileStorage, never()).delete(anyString());
+        assertEquals(EDITOR_ID, post.getUpdaterId(), "첨부 삭제도 최종 수정자를 남긴다");
+        assertEquals(FIXED_NOW, post.getUpdateDate());
 
         List<TransactionSynchronization> syncs = TransactionSynchronizationManager.getSynchronizations();
         assertEquals(1, syncs.size());
         syncs.get(0).afterCommit();
         verify(fileStorage).delete("2026/07/21/uuid.pdf");
+    }
+
+    @Test
+    @DisplayName("삭제: 현재 관리자를 알 수 없으면 403이고 게시글 잠금 조회 전에 끝난다")
+    void delete_noCurrentAdmin_accessDeniedBeforeLock() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn(null);
+
+        assertThrows(AccessDeniedException.class, () -> postAttachmentService.delete(BOARD_ID, 1L, 10L));
+        verify(postRepository, never()).findByIdAndBoardIdAndDeletedFalseForUpdate(any(), any());
+        verify(postAttachmentRepository, never()).delete(any());
     }
 
     @Test

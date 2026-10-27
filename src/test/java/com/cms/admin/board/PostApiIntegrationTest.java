@@ -357,6 +357,82 @@ class PostApiIntegrationTest extends MariaDbContainerSupport {
         assertThatThrownBy(() -> fileStorage.load(key)).as("커밋 후 파일 삭제").isInstanceOf(StorageFileNotFoundException.class);
     }
 
+    // ── 최종 수정자 (PLAN-board-definition.md PR 0) ───────────────
+
+    private Map<String, Object> postRow(long postId) {
+        return jdbc.queryForMap("SELECT author_id, updater_id, update_date FROM post WHERE id = ?", postId);
+    }
+
+    @Test
+    @DisplayName("최종 수정자: 생성 = 작성자, 다른 관리자의 수정·첨부 업로드·첨부 삭제가 수정자와 수정 시각을 바꾸고 실패한 업로드는 바꾸지 않으며, 관리 응답에만 나온다")
+    void updaterIdTracksLastWriter() throws Exception {
+        Member editor = TestMembers.save(memberRepository, "pt-editor", Role.ROLE_ADMIN);
+        try {
+            long boardId = createBoard(true);
+            long postId = createPostOk(boardId);
+            assertThat(postRow(postId).get("updater_id")).as("생성 시 작성자").isEqualTo(admin.getUserId());
+
+            // 다른 관리자가 수정 — 수정자만 바뀌고 작성자는 그대로
+            JsonNode patched = objectMapper.readTree(mockMvc.perform(patch("/admin/api/boards/{b}/posts/{p}", boardId, postId)
+                            .with(TestMembers.asMember(editor)).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"수정된 제목\"}"))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(patched.get("updaterId").asString()).isEqualTo(editor.getUserId());
+            assertThat(patched.get("authorId").asString()).isEqualTo(admin.getUserId());
+            assertThat(postRow(postId).get("updater_id")).isEqualTo(editor.getUserId());
+
+            // 작성자가 첨부 업로드 — 수정자·수정 시각이 갱신된다
+            Object beforeUpload = postRow(postId).get("update_date");
+            MvcResult uploaded = uploadAttachment(boardId, postId, "a.pdf", "application/pdf", asAdmin());
+            assertThat(uploaded.getResponse().getStatus()).isEqualTo(201);
+            long attachmentId = objectMapper.readTree(uploaded.getResponse().getContentAsString()).get("id").asLong();
+            Map<String, Object> afterUpload = postRow(postId);
+            assertThat(afterUpload.get("updater_id")).as("첨부 업로드도 수정").isEqualTo(admin.getUserId());
+            assertThat(afterUpload.get("update_date")).isNotEqualTo(beforeUpload);
+
+            // 실패한 업로드(허용 밖 확장자 400)는 아무것도 바꾸지 않는다
+            assertThat(uploadAttachment(boardId, postId, "run.exe", "application/octet-stream", TestMembers.asMember(editor))
+                    .getResponse().getStatus()).isEqualTo(400);
+            assertThat(postRow(postId)).as("실패한 업로드는 롤백").isEqualTo(afterUpload);
+
+            // 다른 관리자가 첨부 삭제 — 수정자가 바뀐다
+            mockMvc.perform(delete("/admin/api/boards/{b}/posts/{p}/attachments/{a}", boardId, postId, attachmentId)
+                    .with(TestMembers.asMember(editor)).with(csrf())).andExpect(status().isNoContent());
+            assertThat(postRow(postId).get("updater_id")).as("첨부 삭제도 수정").isEqualTo(editor.getUserId());
+
+            // 관리 목록·상세 응답에 나온다
+            JsonNode detail = objectMapper.readTree(mockMvc.perform(get("/admin/api/boards/{b}/posts/{p}", boardId, postId).with(asAdmin()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(detail.get("updaterId").asString()).isEqualTo(editor.getUserId());
+            JsonNode list = objectMapper.readTree(mockMvc.perform(get("/admin/api/boards/{b}/posts", boardId).with(asAdmin()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+            assertThat(list.get("content").get(0).get("updaterId").asString()).isEqualTo(editor.getUserId());
+
+            // 공개 목록·상세에는 수정자 userId가 나가지 않는다(로그인 ID 비공개)
+            String publicList = mockMvc.perform(get("/main/boards/{b}", boardId).with(publicClient("10.79.0.1")))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            String publicDetail = mockMvc.perform(get("/main/boards/{b}/posts/{p}", boardId, postId).with(publicClient("10.79.0.2")))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+            assertThat(publicList).contains("수정된 제목").doesNotContain(editor.getUserId());
+            assertThat(publicDetail).contains("수정된 제목").doesNotContain(editor.getUserId()).doesNotContain(admin.getUserId());
+
+            // 게시글 삭제도 수정자를 남긴다
+            mockMvc.perform(delete("/admin/api/boards/{b}/posts/{p}", boardId, postId).with(asAdmin()).with(csrf()))
+                    .andExpect(status().isNoContent());
+            assertThat(postRow(postId).get("updater_id")).isEqualTo(admin.getUserId());
+        } finally {
+            TestMembers.delete(jdbc, List.of(editor.getId()));
+        }
+    }
+
+    /** 익명 공개 요청 — 요청마다 다른 원격 IP로 레이트리밋 버킷을 격리한다. */
+    private static RequestPostProcessor publicClient(String remoteAddr) {
+        return request -> {
+            request.setRemoteAddr(remoteAddr);
+            return request;
+        };
+    }
+
     @Test
     @DisplayName("첨부를 허용하지 않는 게시판(attachmentYn=false): 새 업로드만 400이고 기존 첨부의 조회·다운로드·삭제는 그대로 된다")
     void attachmentDisabledBlocksOnlyNewUploads() throws Exception {
