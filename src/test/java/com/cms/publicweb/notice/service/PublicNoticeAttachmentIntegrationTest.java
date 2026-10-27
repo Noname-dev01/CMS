@@ -8,18 +8,23 @@ import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
 import com.cms.admin.board.repository.PostRepository;
 import com.cms.admin.board.service.PostAttachmentService;
+import com.cms.admin.member.domain.Role;
 import com.cms.admin.site.Site;
 import com.cms.common.storage.FileStorage;
 import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.TestMembers;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -40,7 +45,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>Testcontainers가 띄우는 일회용 MariaDB로 실행된다 — Docker만 있으면 된다({@link MariaDbContainerSupport}).
  */
 @SpringBootTest(classes = CmsTestApplication.class)
-@WithMockUser(username = "admin01", roles = "ADMIN")
 class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
 
     @Autowired
@@ -66,6 +70,21 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
 
     private final List<Long> createdPostIds = new ArrayList<>();
     private final List<String> createdStorageKeys = new ArrayList<>();
+
+    /**
+     * 첨부 업로드는 게시글 최종 수정자를 기록하므로 회원 아이디를 가진 관리자 주체({@code CustomUserDetails})가 필요하다 —
+     * {@code @WithMockUser}의 주체에는 회원 아이디가 없어 현재 사용자가 null(403)이 된다.
+     */
+    @BeforeEach
+    void authenticate() {
+        var details = TestMembers.detached(1L, Role.ROLE_ADMIN);
+        SecurityContextHolder.setContext(new SecurityContextImpl(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities())));
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
 
     @AfterEach
     void cleanUp() {
@@ -149,7 +168,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Post managed = postRepository.findById(notice.getId()).orElseThrow();
-            managed.update(null, null, false, LocalDateTime.now());
+            managed.update(null, null, false, "admin01", LocalDateTime.now());
             postRepository.save(managed);
         });
 

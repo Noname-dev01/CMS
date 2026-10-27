@@ -5,9 +5,11 @@ import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.dto.request.PostUpdateRequest;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostRepository;
+import com.cms.admin.member.domain.Role;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.TestMembers;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.AfterEach;
@@ -15,6 +17,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -190,7 +195,7 @@ class PostConcurrencyIntegrationTest extends MariaDbContainerSupport {
             Future<?> deleteFuture = executor.submit(() -> tx.executeWithoutResult(status -> {
                 Post locked = postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(noticeId, noticeBoardId())
                         .orElseThrow(() -> new IllegalStateException("테스트 대상 공지를 찾을 수 없습니다."));
-                locked.softDelete(LocalDateTime.now());
+                locked.softDelete("admin01", LocalDateTime.now());
                 lockHeld.countDown();
                 try {
                     release.await(20, TimeUnit.SECONDS);
@@ -204,7 +209,14 @@ class PostConcurrencyIntegrationTest extends MariaDbContainerSupport {
 
             // 스레드 B: A의 락에 막혀 A가 커밋할 때까지 반환되지 않는다.
             Future<Void> updateFuture = executor.submit(() -> {
-                postService.updatePost(noticeBoardId(), noticeId, PostUpdateRequest.builder().title("PATCH로 되살리기 시도").build());
+                // 수정은 최종 수정자를 기록하므로 이 스레드에도 인증된 관리자 주체가 필요하다(보안 컨텍스트는 스레드별)
+                var details = TestMembers.detached(1L, Role.ROLE_ADMIN);
+                SecurityContextHolder.setContext(new SecurityContextImpl(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities())));
+                try {
+                    postService.updatePost(noticeBoardId(), noticeId, PostUpdateRequest.builder().title("PATCH로 되살리기 시도").build());
+                } finally {
+                    SecurityContextHolder.clearContext();
+                }
                 return null;
             });
 

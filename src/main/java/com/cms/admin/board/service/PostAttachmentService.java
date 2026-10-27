@@ -1,6 +1,7 @@
 package com.cms.admin.board.service;
 
 import com.cms.admin.board.domain.Board;
+import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.domain.PostAttachment;
 import com.cms.admin.board.dto.response.PostAttachmentDownload;
 import com.cms.admin.board.dto.response.PostAttachmentResponse;
@@ -16,7 +17,9 @@ import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.FileStorageTransactionSupport;
 import com.cms.common.storage.StorageFileNotFoundException;
+import com.cms.config.auth.AdminSecurityService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -34,6 +37,7 @@ import java.util.List;
  * 첨부 개수 상한(5개) 검사와 동시 삭제 경합을 이 락 하나로 직렬화한다. 목록·다운로드는 읽기 전용이라 락이 불필요하다.
  * 게시판의 {@code attachmentYn=false}는 <b>새 업로드만</b> 막는다 — 기존 첨부의 조회·다운로드·삭제는 그대로 된다(끄는 순간 기존 공개 자료를
  * 숨기지 않는다). 파일은 스토리지 루트에 저장된다(네임스페이스 없음 — 수동 회수 절차의 보존 목록에 이 테이블의 키가 들어간다).
+ * 업로드·삭제가 성공하면 같은 잠금 안에서 게시글의 수정 시각·최종 수정자를 갱신한다(첨부는 권한상 UPDATE 동작 — PLAN-board-definition.md PR 0).
  */
 @Service
 @RequiredArgsConstructor
@@ -46,12 +50,15 @@ public class PostAttachmentService {
     private final PostAttachmentRepository postAttachmentRepository;
     private final BoardRepository boardRepository;
     private final FileStorage fileStorage;
+    private final AdminSecurityService adminSecurityService;
     private final Clock clock;
 
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.POST_ATTACHMENT_UPLOAD, targetType = "POST_ATTACHMENT", targetIdExpression = "id")
     public PostAttachmentResponse upload(Long boardId, Long postId, MultipartFile file) {
-        postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(postId, boardId)
+        // 현재 사용자는 잠금 전에 — 403이 행 잠금을 쥔 채 나가지 않게 한다
+        String updaterId = requireCurrentAdminUserId();
+        Post post = postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(postId, boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(POST_NOT_FOUND));
         Board board = requireBoard(boardId);
         if (!Boolean.TRUE.equals(board.getAttachmentYn())) {
@@ -83,6 +90,7 @@ public class PostAttachmentService {
         String storageKey = fileStorage.store(content, filename);
         FileStorageTransactionSupport.deleteOnRollback(fileStorage, storageKey);
 
+        LocalDateTime now = LocalDateTime.now(clock);
         PostAttachment saved = postAttachmentRepository.save(
                 PostAttachment.builder()
                         .postId(postId)
@@ -90,9 +98,10 @@ public class PostAttachmentService {
                         .contentType(contentType)
                         .fileSize(file.getSize())
                         .storageKey(storageKey)
-                        .createDate(LocalDateTime.now(clock))
+                        .createDate(now)
                         .build()
         );
+        post.touch(updaterId, now);
 
         return PostAttachmentResponse.from(saved);
     }
@@ -129,7 +138,8 @@ public class PostAttachmentService {
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.POST_ATTACHMENT_DELETE, targetType = "POST_ATTACHMENT", targetIdExpression = "id")
     public PostAttachmentResponse delete(Long boardId, Long postId, Long attachmentId) {
-        postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(postId, boardId)
+        String updaterId = requireCurrentAdminUserId();
+        Post post = postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(postId, boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(POST_NOT_FOUND));
         requireBoard(boardId);
 
@@ -140,6 +150,7 @@ public class PostAttachmentService {
         // 커밋 후에만 파일을 지운다 — 롤백되면 행과 파일이 모두 남는다. 삭제 실패는 로그만 남기고 전파하지 않는다(수동 회수가 정리)
         FileStorageTransactionSupport.deleteAfterCommit(fileStorage, attachment.getStorageKey(),
                 "postAttachmentId=" + attachmentId);
+        post.touch(updaterId, LocalDateTime.now(clock));
 
         return PostAttachmentResponse.from(attachment);
     }
@@ -147,5 +158,14 @@ public class PostAttachmentService {
     private Board requireBoard(Long boardId) {
         return boardRepository.findByIdAndDeletedFalse(boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(PostService.BOARD_NOT_FOUND));
+    }
+
+    /** {@link PostService}와 같은 규칙 — 인가 통과 후 null이면 인증 연계 버그이므로 403으로 막아 수정자 없는 기록을 남기지 않는다. */
+    private String requireCurrentAdminUserId() {
+        String userId = adminSecurityService.getCurrentAdminUserId();
+        if (userId == null) {
+            throw new AccessDeniedException("인증 정보를 확인할 수 없습니다.");
+        }
+        return userId;
     }
 }

@@ -51,6 +51,13 @@ public class Post {
 
     private LocalDateTime updateDate;
 
+    /**
+     * 최종 수정자 userId — {@link #updateDate}를 만든 관리자다(생성 시 작성자). 둘은 항상 같은 쓰기에서 함께 바뀐다.
+     * null은 V5 이전에 만들어져 이후 손대지 않은 글(수정자 모름)이다. 원본은 감사 로그다(PLAN-board-definition.md PR 0).
+     */
+    @Column(name = "updater_id", length = 100)
+    private String updaterId;
+
     /** 공개 노출 시작 시각(포함). null이면 시작 제한 없음. 구간은 [publishStart, publishEnd) — PLAN-post-publish-period.md. */
     @Column(name = "publish_start")
     private LocalDateTime publishStart;
@@ -70,9 +77,10 @@ public class Post {
     /**
      * 부분 수정. 각 파라미터가 null이 아닐 때만 반영한다(null=기존값 유지). 공백 거부·전체 null 거부는 서비스 책임이다.
      *
-     * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
+     * @param updaterId 수정한 관리자 userId — updaterId에 기록
+     * @param now       앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void update(String title, String content, Boolean useYn, LocalDateTime now) {
+    public void update(String title, String content, Boolean useYn, String updaterId, LocalDateTime now) {
         if (title != null) {
             this.title = title;
         }
@@ -82,6 +90,12 @@ public class Post {
         if (useYn != null) {
             this.useYn = useYn;
         }
+        touch(updaterId, now);
+    }
+
+    /** 본문 필드 없이 수정 시각·수정자만 바꾼다 — 첨부 업로드·삭제가 쓴다(게시글 행 잠금 안에서 호출). */
+    public void touch(String updaterId, LocalDateTime now) {
+        this.updaterId = updaterId;
         this.updateDate = now;
     }
 
@@ -94,9 +108,9 @@ public class Post {
         this.publishEnd = publishEnd;
     }
 
-    /** 소프트 삭제. deleted=true 처리 후 수정 시각을 갱신한다. */
-    public void softDelete(LocalDateTime now) {
+    /** 소프트 삭제. deleted=true 처리 후 수정 시각·수정자를 갱신한다. */
+    public void softDelete(String updaterId, LocalDateTime now) {
         this.deleted = true;
-        this.updateDate = now;
+        touch(updaterId, now);
     }
 }

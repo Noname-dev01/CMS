@@ -276,6 +276,15 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("게시글 최종 수정자(V5): post.updater_id는 NULL 허용·기본값 없는 varchar(100)이고, 생략한 INSERT는 NULL이다")
+    void postUpdaterIdColumn() throws Exception {
+        assertThat(rows("SELECT CONCAT(column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS WHERE table_schema = '"
+                + SCHEMA + "' AND table_name = 'post' AND column_name = 'updater_id'")).containsExactly("varchar(100)|YES|NULL");
+        st.executeUpdate("INSERT INTO post (board_id, title, content, use_yn, deleted, author_id) VALUES (1, '수정자 없음', 'c', 1, 0, 'admin')");
+        assertThat(rows("SELECT IFNULL(updater_id, 'NULL') FROM post WHERE title = '수정자 없음'")).as("이전 앱처럼 컬럼을 모르는 INSERT").containsExactly("NULL");
+    }
+
+    @Test
     @DisplayName("프로필 이미지 URL 축소(V4): member.profile_image_url은 NULL 허용·기본값 없는 varchar(255)다")
     void profileImageUrlShrunk() throws Exception {
         assertThat(rows("SELECT CONCAT(column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS WHERE table_schema = '"

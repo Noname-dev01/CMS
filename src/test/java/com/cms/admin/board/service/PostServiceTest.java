@@ -15,6 +15,7 @@ import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.auth.AdminSecurityService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -84,6 +86,14 @@ class PostServiceTest {
     @InjectMocks
     PostService postService;
 
+    /** 수정·삭제를 하는 관리자 — 작성자(admin01)와 다르게 두어 최종 수정자가 바뀌는지 본다. 생성 시험은 admin01로 덮어쓴다. */
+    static final String EDITOR_ID = "editor01";
+
+    @BeforeEach
+    void currentAdmin() {
+        lenient().when(adminSecurityService.getCurrentAdminUserId()).thenReturn(EDITOR_ID);
+    }
+
     private Board board() {
         return Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false).build();
     }
@@ -115,7 +125,7 @@ class PostServiceTest {
             Post p = invocation.getArgument(0);
             return Post.builder().id(7L).boardId(p.getBoardId()).title(p.getTitle()).content(p.getContent()).useYn(p.getUseYn())
                     .deleted(p.getDeleted()).authorId(p.getAuthorId()).createDate(p.getCreateDate())
-                    .updateDate(p.getUpdateDate()).build();
+                    .updateDate(p.getUpdateDate()).updaterId(p.getUpdaterId()).build();
         });
     }
 
@@ -140,6 +150,9 @@ class PostServiceTest {
         // 저장 시각은 주입된 KST Clock에서 나오며 createDate == updateDate
         assertEquals(FIXED_NOW, captor.getValue().getCreateDate());
         assertEquals(FIXED_NOW, captor.getValue().getUpdateDate());
+        // 최종 수정자는 생성 시 작성자 — updateDate를 만든 사람이다(null은 V5 이전 글만)
+        assertEquals("admin01", captor.getValue().getUpdaterId());
+        assertEquals("admin01", response.getUpdaterId());
     }
 
     @Test
@@ -305,6 +318,20 @@ class PostServiceTest {
         assertEquals("<p>기존 본문</p>", response.getContent());
         assertEquals(FIXED_NOW, target.getUpdateDate()); // 수정 시각은 주입된 KST Clock
         verify(postRepository).findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID);
+        // 최종 수정자는 현재 관리자로 바뀌고 작성자는 그대로다
+        assertEquals(EDITOR_ID, target.getUpdaterId());
+        assertEquals(EDITOR_ID, response.getUpdaterId());
+        assertEquals("admin01", response.getAuthorId());
+    }
+
+    @Test
+    @DisplayName("수정: 현재 관리자를 알 수 없으면 403이고 게시글 잠금 조회 전에 끝난다")
+    void updatePost_noCurrentAdmin_accessDeniedBeforeLock() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn(null);
+
+        assertThrows(AccessDeniedException.class,
+                () -> postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().title("변경").build()));
+        verify(postRepository, never()).findByIdAndBoardIdAndDeletedFalseForUpdate(anyLong(), anyLong());
     }
 
     @Test
@@ -362,6 +389,16 @@ class PostServiceTest {
         assertTrue(target.getDeleted());
         assertEquals(FIXED_NOW, target.getUpdateDate()); // 삭제 시각도 주입된 KST Clock
         verify(postRepository).findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID);
+        assertEquals(EDITOR_ID, target.getUpdaterId(), "삭제도 수정 시각과 함께 최종 수정자를 남긴다");
+    }
+
+    @Test
+    @DisplayName("삭제: 현재 관리자를 알 수 없으면 403이고 게시글 잠금 조회 전에 끝난다")
+    void deletePost_noCurrentAdmin_accessDeniedBeforeLock() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn(null);
+
+        assertThrows(AccessDeniedException.class, () -> postService.deletePost(BOARD_ID, 1L));
+        verify(postRepository, never()).findByIdAndBoardIdAndDeletedFalseForUpdate(anyLong(), anyLong());
     }
 
     @Test

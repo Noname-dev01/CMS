@@ -364,7 +364,7 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
             assertThat(loaded.getViewCount()).isZero();
             // 로드 뒤 다른 경로(공개 조회)가 카운터를 올린다 — 같은 JDBC 트랜잭션이라 변경이 같은 연결에서 보인다
             jdbc.update("UPDATE post SET view_count = view_count + 5 WHERE id = ?", id);
-            loaded.update("cc-changed", null, null, java.time.LocalDateTime.now());
+            loaded.update("cc-changed", null, null, "admin01", java.time.LocalDateTime.now());
             postRepository.saveAndFlush(loaded);
         });
 

@@ -7,15 +7,21 @@ import com.cms.admin.board.dto.response.PostAttachmentResponse;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
 import com.cms.admin.board.repository.PostRepository;
+import com.cms.admin.member.domain.Role;
 import com.cms.common.storage.FileStorage;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.TestMembers;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.context.SecurityContextImpl;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -24,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -69,6 +76,18 @@ class PostAttachmentTransactionIntegrationTest extends MariaDbContainerSupport {
 
     private final List<Long> createdPostIds = new ArrayList<>();
     private final List<String> createdStorageKeys = new ArrayList<>();
+
+    /** 첨부 업로드·삭제는 게시글 최종 수정자를 기록하므로 인증된 관리자 주체가 필요하다(운영에서는 항상 인증된 요청). */
+    @BeforeEach
+    void authenticate() {
+        var details = TestMembers.detached(1L, Role.ROLE_ADMIN);
+        SecurityContextHolder.setContext(new SecurityContextImpl(new UsernamePasswordAuthenticationToken(details, null, details.getAuthorities())));
+    }
+
+    @AfterEach
+    void clearAuthentication() {
+        SecurityContextHolder.clearContext();
+    }
 
     @AfterEach
     void cleanUp() {
@@ -127,6 +146,7 @@ class PostAttachmentTransactionIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("업로드를 포함한 트랜잭션 전체가 롤백되면 파일이 삭제된다 (afterCompletion 정리)")
     void upload_rollback_fileDeleted() {
         Post notice = saveNotice("업로드_롤백");
+        Post before = postRepository.findById(notice.getId()).orElseThrow();   // DB에 저장된 값(마이크로초 정밀도) 기준
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
 
         String storageKey = tx.execute(status -> {
@@ -142,6 +162,10 @@ class PostAttachmentTransactionIntegrationTest extends MariaDbContainerSupport {
 
         // DB 쪽도 실제로 롤백됐는지 함께 확인 — 정리 대상 목록에 추가할 필요 없음(행 자체가 없음).
         assertTrue(postAttachmentRepository.findByPostIdOrderByIdAsc(notice.getId()).isEmpty());
+        // 게시글의 최종 수정자·수정 시각 갱신도 같은 트랜잭션이라 함께 되돌아간다
+        Post after = postRepository.findById(notice.getId()).orElseThrow();
+        assertEquals(null, after.getUpdaterId(), "롤백된 업로드는 최종 수정자를 남기지 않는다");
+        assertEquals(before.getUpdateDate(), after.getUpdateDate(), "롤백된 업로드는 수정 시각을 바꾸지 않는다");
     }
 
     // ===================== 삭제 =====================
@@ -167,8 +191,11 @@ class PostAttachmentTransactionIntegrationTest extends MariaDbContainerSupport {
         PostAttachmentResponse uploaded = postAttachmentService.upload(noticeBoardId(), notice.getId(), sampleFile());
         String storageKey = postAttachmentRepository.findById(uploaded.getId()).orElseThrow().getStorageKey();
         createdStorageKeys.add(storageKey);
+        Post beforeDelete = postRepository.findById(notice.getId()).orElseThrow();
 
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        var otherAdmin = TestMembers.detached(2L, Role.ROLE_ADMIN);
+        SecurityContextHolder.setContext(new SecurityContextImpl(new UsernamePasswordAuthenticationToken(otherAdmin, null, otherAdmin.getAuthorities())));
         tx.executeWithoutResult(status -> {
             postAttachmentService.delete(noticeBoardId(), notice.getId(), uploaded.getId());
             // 삭제 자체는 성공했지만, 같은 트랜잭션 안의 다른 사정으로 전체가 롤백되는 상황을 재현한다.
@@ -179,5 +206,10 @@ class PostAttachmentTransactionIntegrationTest extends MariaDbContainerSupport {
                 "롤백되면 DB 삭제도 되돌아가야 한다");
         assertArrayEquals("trx-test-content".getBytes(), fileStorage.load(storageKey),
                 "afterCommit 콜백은 실제 커밋 시에만 실행되므로 롤백 시 파일은 그대로 남아있어야 한다");
+        // 다른 관리자가 시도한 삭제가 롤백됐으므로 최종 수정자·수정 시각은 업로드 때 값 그대로다
+        Post after = postRepository.findById(notice.getId()).orElseThrow();
+        assertEquals("user1", beforeDelete.getUpdaterId(), "업로드가 최종 수정자를 남겼다(전제)");
+        assertEquals(beforeDelete.getUpdaterId(), after.getUpdaterId(), "롤백된 삭제는 최종 수정자를 바꾸지 않는다");
+        assertEquals(beforeDelete.getUpdateDate(), after.getUpdateDate(), "롤백된 삭제는 수정 시각을 바꾸지 않는다");
     }
 }

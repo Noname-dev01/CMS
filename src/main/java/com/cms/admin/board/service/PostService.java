@@ -81,6 +81,7 @@ public class PostService {
                         .authorId(authorId)
                         .createDate(now)
                         .updateDate(now)
+                        .updaterId(authorId)
                         .publishStart(period.start())
                         .publishEnd(period.end())
                         .build()
@@ -102,6 +103,8 @@ public class PostService {
         PostPublishPeriodRequest.Period period = request.getPublishPeriod() != null
                 ? request.getPublishPeriod().toPeriod()
                 : null;
+        // 현재 사용자도 잠금 전에 — 403이 행 잠금을 쥔 채 나가지 않게 한다
+        String updaterId = requireCurrentAdminUserId();
 
         Post target = lockPost(boardId, postId);
 
@@ -113,7 +116,7 @@ public class PostService {
                 : null;
 
         LocalDateTime now = LocalDateTime.now(clock);
-        target.update(title, content != null ? content.html() : null, request.getUseYn(), now);
+        target.update(title, content != null ? content.html() : null, request.getUseYn(), updaterId, now);
         if (period != null) {
             target.changePublishPeriod(period.start(), period.end());
         }
@@ -129,6 +132,7 @@ public class PostService {
     @Transactional
     @AdminActionLogged(actionType = AdminActionTypes.POST_DELETE, targetType = "POST", targetIdExpression = "id")
     public PostResponse deletePost(Long boardId, Long postId) {
+        String updaterId = requireCurrentAdminUserId();
         Post target = lockPost(boardId, postId);
 
         // 첨부가 남아 있으면 삭제를 차단한다 — 게시글 소프트 삭제는 API로 도달 불가능해지므로 그 상태에서 첨부만 남으면 영구 오펀이 된다
@@ -138,7 +142,7 @@ public class PostService {
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
-        target.softDelete(now);
+        target.softDelete(updaterId, now);
 
         return PostResponse.from(target, now);
     }
