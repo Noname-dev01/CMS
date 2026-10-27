@@ -2,6 +2,8 @@ package com.cms.publicweb.board.service;
 
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.Post;
+import com.cms.publicweb.board.dto.PublicPostSummary;
+import org.springframework.test.util.ReflectionTestUtils;
 import com.cms.admin.board.domain.PostAttachment;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
@@ -45,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -163,6 +166,101 @@ class PublicBoardServiceTest {
         assertEquals(10, pageable.getPageSize());
         assertEquals(Sort.Direction.DESC, pageable.getSort().getOrderFor("createDate").getDirection());
         assertEquals(Sort.Direction.DESC, pageable.getSort().getOrderFor("id").getDirection());
+    }
+
+    // ----- 게시판 표시 설정(PLAN-board-definition.md PR 1) -----
+
+    private void publicBoardExists(Board board) {
+        given(boardRepository.findPublicById(BOARD_ID, SITE_ID)).willReturn(Optional.of(board));
+    }
+
+    private Board boardWithPageSize(int size) {
+        return Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false).listPageSize(size).build();
+    }
+
+    private int pageNumberSentToRepository(int size, int requestedPage) {
+        publicBoardExists(boardWithPageSize(size));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
+        service.getPublishedPosts(SITE_ID, BOARD_ID, requestedPage, null);
+        int sent = capturedPageable(null).getPageNumber();
+        clearInvocations(postRepository);   // 한 시험에서 여러 번 부르므로 다음 검증이 이전 호출을 세지 않게 한다
+        return sent;
+    }
+
+    @Test
+    @DisplayName("목록 크기는 게시판 설정을 따른다")
+    void list_pageSizeFollowsBoard() {
+        publicBoardExists(boardWithPageSize(30));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
+
+        service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null);
+
+        assertEquals(30, capturedPageable(null).getPageSize());
+    }
+
+    @Test
+    @DisplayName("허용 페이지는 OFFSET 10,000(포함) 기준 — 크기 10은 1000, 30은 333, 50은 200까지, 넘으면 0으로 보정")
+    void list_pageLimitFollowsMaxOffset() {
+        assertEquals(1000, pageNumberSentToRepository(10, 1000));
+        assertEquals(333, pageNumberSentToRepository(30, 333));
+        assertEquals(200, pageNumberSentToRepository(50, 200));
+    }
+
+    @Test
+    @DisplayName("허용 페이지를 하나라도 넘으면 0으로 보정된다 — 크기 10은 1001, 30은 334, 50은 201")
+    void list_pageOverLimitClamped() {
+        assertEquals(0, pageNumberSentToRepository(10, 1001));
+        assertEquals(0, pageNumberSentToRepository(30, 334));
+        assertEquals(0, pageNumberSentToRepository(50, 201));
+    }
+
+    @Test
+    @DisplayName("조회수 표시를 끈 게시판은 DTO에 조회수가 없고, 켠 게시판만 값을 싣는다")
+    void list_viewCountFilteredByService() {
+        Post viewed = post(1L);
+        ReflectionTestUtils.setField(viewed, "viewCount", 42L);
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of(viewed)));
+
+        publicBoardExists();   // 기본: 조회수 표시 끔
+        assertNull(service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow().page().getContent().get(0).getViewCount());
+
+        publicBoardExists(Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false)
+                .showViewCount(true).build());
+        assertEquals(42L, service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow().page().getContent().get(0).getViewCount());
+    }
+
+    @Test
+    @DisplayName("새 글 배지: 기간 안의 글만 true, 기간 0이면 모두 false, create_date가 NULL인 글도 예외 없이 처리")
+    void list_newBadge() {
+        Post recent = post(1L);
+        ReflectionTestUtils.setField(recent, "createDate", NOW.minusDays(1));
+        Post old = post(2L);
+        ReflectionTestUtils.setField(old, "createDate", NOW.minusDays(5));
+        Post noDate = post(3L);
+        ReflectionTestUtils.setField(noDate, "createDate", null);
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of(recent, old, noDate)));
+
+        publicBoardExists(Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false)
+                .newBadgeDays(3).build());
+        List<PublicPostSummary> badged = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow().page().getContent();
+        assertEquals(List.of(true, false, false), badged.stream().map(PublicPostSummary::isNewBadge).toList());
+
+        publicBoardExists();   // 기본 기간 0 = 끔
+        List<PublicPostSummary> off = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow().page().getContent();
+        assertEquals(List.of(false, false, false), off.stream().map(PublicPostSummary::isNewBadge).toList());
+    }
+
+    @Test
+    @DisplayName("설명과 작성자 표시명은 게시판 값을 그대로 결과에 싣는다 — 없으면 null")
+    void list_descriptionAndAuthorLabel() {
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
+        publicBoardExists(Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false)
+                .description("안내 <b>문구</b>").authorLabel("홍보팀").build());
+
+        PublicBoardListResult result = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow();
+
+        assertEquals("안내 <b>문구</b>", result.description());   // 평문 — 이스케이프는 템플릿(th:text)이 한다
+        assertEquals("홍보팀", result.authorLabel());
     }
 
     private Pageable capturedPageable(String keyword) {

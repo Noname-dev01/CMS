@@ -1,5 +1,6 @@
 package com.cms.admin.contentimage.service;
 
+import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.domain.ContentImageRef;
@@ -95,8 +96,13 @@ public class ContentImageService {
                 && !permissionEvaluator.allowsBoard(authentication, boardId, PermissionAction.UPDATE)) {
             throw new AccessDeniedException("게시글 작성 또는 수정 권한이 필요합니다.");
         }
-        boardRepository.findByIdAndDeletedFalse(boardId)
+        // 권한(403)을 먼저 판정한 뒤에야 게시판 상태를 드러낸다. 게시판 행 공유 잠금이 쓰기 중지 전환(게시판 FOR UPDATE)과 진행 중 업로드를
+        // 직렬화한다(PLAN-board-definition.md §4 D5). 삭제된 게시판이면 404, 쓰기 중지면 400.
+        Board board = boardRepository.findByIdAndDeletedFalseForShare(boardId)
                 .orElseThrow(() -> new ResourceNotFoundException("게시판을 찾을 수 없습니다."));
+        if (!Boolean.TRUE.equals(board.getWritableYn())) {
+            throw new InvalidRequestException(Board.WRITE_STOPPED_MESSAGE);
+        }
         return store(file, SCOPE_BOARD, boardId);
     }
 

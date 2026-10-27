@@ -222,6 +222,8 @@ public class PublicBoardController {
         Page<PublicPostSummary> result = listResult.page();
         model.addAttribute("boardId", listResult.boardId());
         model.addAttribute("boardName", listResult.boardName());
+        model.addAttribute("description", listResult.description());
+        model.addAttribute("authorLabel", listResult.authorLabel());
         model.addAttribute("keyword", listResult.keyword());
         model.addAttribute("posts", result.getContent());
         model.addAttribute("page", result.getNumber());

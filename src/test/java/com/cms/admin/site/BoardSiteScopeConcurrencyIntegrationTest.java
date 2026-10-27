@@ -180,7 +180,7 @@ class BoardSiteScopeConcurrencyIntegrationTest extends MariaDbContainerSupport {
             }));
             assertThat(held.await(15, TimeUnit.SECONDS)).isTrue();
 
-            BoardUpdateRequest request = BoardUpdateRequest.builder().siteScope(String.valueOf(siteId)).build();
+            BoardUpdateRequest request = BoardUpdateRequest.builder().siteScope(String.valueOf(siteId)).version(1).build();
             Future<?> update = executor.submit(() -> boardService.updateBoard(boardId, request));
             observer().awaitWaiterFor(holderConnection.get(), Duration.ofSeconds(8));
             assertThat(update.isDone()).as("삭제가 사이트 행을 쥐는 동안 수정은 끝나지 않는다").isFalse();

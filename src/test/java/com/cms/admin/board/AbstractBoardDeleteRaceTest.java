@@ -222,7 +222,7 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
             assertThat(Probe.revokeReached.await(20, TimeUnit.SECONDS)).as("PUT이 키 단위 삭제에 도달").isTrue();
 
             // PUT이 기존 행을 읽은 뒤 — 회수 대상 게시판은 PUT이 잠그지 않았으므로 삭제가 끼어들어 커밋할 수 있다
-            int deleteStatus = mockMvc.perform(delete("/admin/api/boards/{id}", boardId).with(TestMembers.asMember(admin)).with(csrf()))
+            int deleteStatus = mockMvc.perform(delete("/admin/api/boards/{id}?version=1", boardId).with(TestMembers.asMember(admin)).with(csrf()))
                     .andReturn().getResponse().getStatus();
             assertThat(deleteStatus).isEqualTo(204);
             assertThat(jdbc.queryForObject("SELECT deleted FROM board WHERE id = ?", Boolean.class, boardId)).isTrue();
@@ -269,7 +269,7 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
             assertThat(Probe.postSaved.await(20, TimeUnit.SECONDS)).as("게시글 INSERT 완료(커밋 전)").isTrue();
 
             Future<Integer> deleteBoard = executor.submit(() -> mockMvc.perform(
-                    delete("/admin/api/boards/{id}", boardId).with(TestMembers.asMember(admin)).with(csrf()))
+                    delete("/admin/api/boards/{id}?version=1", boardId).with(TestMembers.asMember(admin)).with(csrf()))
                     .andReturn().getResponse().getStatus());
 
             // 삭제 요청이 게시판 행 잠금을 기다리는 것을 DB에서 관측한다 — 공유 잠금이 없다면 삭제가 바로 진행됐을 것이다

@@ -442,7 +442,7 @@ class PostApiIntegrationTest extends MariaDbContainerSupport {
                 .getResponse().getContentAsString()).get("id").asLong();
 
         mockMvc.perform(patch("/admin/api/boards/{id}", boardId).with(asAdmin()).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content("{\"attachmentYn\":false}")).andExpect(status().isOk());
+                .contentType(MediaType.APPLICATION_JSON).content("{\"attachmentYn\":false,\"version\":1}")).andExpect(status().isOk());
 
         MvcResult blocked = uploadAttachment(boardId, postId, "new.pdf", "application/pdf", asAdmin());
         assertThat(blocked.getResponse().getStatus()).isEqualTo(400);
@@ -502,14 +502,14 @@ class PostApiIntegrationTest extends MariaDbContainerSupport {
         grant(boardId, "READ", "CREATE");
         mockMvc.perform(get("/admin/api/boards/{b}/posts", boardId).with(asManager())).andExpect(status().isOk());
 
-        mockMvc.perform(delete("/admin/api/boards/{id}", boardId).with(asAdmin()).with(csrf())).andExpect(status().isConflict());
+        mockMvc.perform(delete("/admin/api/boards/{id}?version=1", boardId).with(asAdmin()).with(csrf())).andExpect(status().isConflict());
         assertThat(jdbc.queryForObject("SELECT deleted FROM board WHERE id = ?", Boolean.class, boardId)).isFalse();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_board_permission WHERE board_id = ?", Long.class, boardId)).isEqualTo(2);
 
-        mockMvc.perform(delete("/admin/api/boards/{id}", boardId).with(asManager()).with(csrf())).andExpect(status().isForbidden());
+        mockMvc.perform(delete("/admin/api/boards/{id}?version=1", boardId).with(asManager()).with(csrf())).andExpect(status().isForbidden());
         mockMvc.perform(delete("/admin/api/boards/{b}/posts/{p}", boardId, postId).with(asAdmin()).with(csrf())).andExpect(status().isNoContent());
 
-        mockMvc.perform(delete("/admin/api/boards/{id}", boardId).with(asAdmin()).with(csrf())).andExpect(status().isNoContent());
+        mockMvc.perform(delete("/admin/api/boards/{id}?version=1", boardId).with(asAdmin()).with(csrf())).andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("SELECT deleted FROM board WHERE id = ?", Boolean.class, boardId)).isTrue();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_board_permission WHERE board_id = ?", Long.class, boardId)).isZero();
 
@@ -518,8 +518,8 @@ class PostApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(createPost(boardId, asAdmin(), "<p>x</p>", true).getResponse().getStatus()).isEqualTo(404);
         mockMvc.perform(get("/admin/api/boards/{id}", boardId).with(asAdmin())).andExpect(status().isNotFound());
         mockMvc.perform(patch("/admin/api/boards/{id}", boardId).with(asAdmin()).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"x\"}")).andExpect(status().isNotFound());
-        mockMvc.perform(delete("/admin/api/boards/{id}", boardId).with(asAdmin()).with(csrf())).andExpect(status().isNotFound());
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"x\",\"version\":1}")).andExpect(status().isNotFound());
+        mockMvc.perform(delete("/admin/api/boards/{id}?version=1", boardId).with(asAdmin()).with(csrf())).andExpect(status().isNotFound());
         assertThat(uploadImage(boardId, asAdmin()).getResponse().getStatus()).isEqualTo(404);
 
         List<String> audits = jdbc.queryForList("SELECT CONCAT(action_type, ':', COALESCE(target_label, '')) FROM admin_action_log"

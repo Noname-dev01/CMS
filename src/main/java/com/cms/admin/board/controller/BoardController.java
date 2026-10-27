@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
@@ -64,10 +65,12 @@ public class BoardController {
                 .path("/{id}").buildAndExpand(response.getId()).toUri()).body(response);
     }
 
-    @Operation(summary = "게시판 부분 수정", description = "null 필드는 기존값 유지. 이름 공백·전체 필드 누락은 400")
+    @Operation(summary = "게시판 부분 수정", description = "null 필드는 기존값 유지(설명·작성자 표시명은 빈 문자열이면 삭제). "
+            + "화면이 가진 version이 필요하다. 이름 공백·전체 필드 누락·범위 위반은 400")
     @ApiResponse(responseCode = "200", description = "수정 성공")
-    @ApiResponse(responseCode = "400", description = "요청값 검증 실패")
+    @ApiResponse(responseCode = "400", description = "요청값 검증 실패(version 누락 포함)")
     @ApiResponse(responseCode = "404", description = "게시판 없음(삭제 포함)")
+    @ApiResponse(responseCode = "409", description = "version 불일치(그 사이 다른 관리자가 저장함)")
     @PatchMapping("/{boardId}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<BoardResponse> updateBoard(@PathVariable Long boardId,
@@ -75,14 +78,16 @@ public class BoardController {
         return ResponseEntity.ok(boardService.updateBoard(boardId, request));
     }
 
-    @Operation(summary = "게시판 삭제(소프트)", description = "살아 있는 게시글이 없을 때만 삭제된다. 그 게시판의 MANAGER 권한 행도 함께 지운다")
+    @Operation(summary = "게시판 삭제(소프트)", description = "살아 있는 게시글이 없을 때만 삭제된다. 그 게시판의 MANAGER 권한 행도 함께 지운다. "
+            + "화면이 가진 version이 필요하다(?version=)")
     @ApiResponse(responseCode = "204", description = "삭제 성공")
+    @ApiResponse(responseCode = "400", description = "version 누락")
     @ApiResponse(responseCode = "404", description = "게시판 없음(삭제 포함)")
-    @ApiResponse(responseCode = "409", description = "게시글이 남아 있음")
+    @ApiResponse(responseCode = "409", description = "게시글이 남아 있음 또는 version 불일치")
     @DeleteMapping("/{boardId}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deleteBoard(@PathVariable Long boardId) {
-        boardService.deleteBoard(boardId);
+    public ResponseEntity<Void> deleteBoard(@PathVariable Long boardId, @RequestParam(required = false) Integer version) {
+        boardService.deleteBoard(boardId, version);
         return ResponseEntity.noContent().build();
     }
 }

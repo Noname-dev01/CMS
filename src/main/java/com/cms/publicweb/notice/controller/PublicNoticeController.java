@@ -82,6 +82,8 @@ public class PublicNoticeController {
 
     private String renderList(PublicBoardListResult listResult, Model model) {
         Page<PublicPostSummary> result = listResult.page();
+        model.addAttribute("description", listResult.description());
+        model.addAttribute("authorLabel", listResult.authorLabel());
         model.addAttribute("keyword", listResult.keyword());
         model.addAttribute("notices", result.getContent());
         model.addAttribute("page", result.getNumber());
