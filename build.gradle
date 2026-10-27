@@ -78,7 +78,7 @@ dependencies {
     testImplementation 'org.testcontainers:testcontainers-mariadb'
     // 실제 브라우저(Chromium) 시험 — 브라우저 기본 폼 검증처럼 MockMvc로 재현되지 않는 관리 화면 동작을 고정한다(PLAN-popup.md 코드 리뷰 R2 후속).
     // 첫 실행 때 드라이버·브라우저를 자동으로 내려받고, CI는 installPlaywrightBrowsers 태스크가 미리 설치한다.
-    testImplementation 'com.microsoft.playwright:playwright:1.63.0'
+    testImplementation 'com.microsoft.playwright:playwright:1.64.0'
     implementation 'com.querydsl:querydsl-jpa:5.1.0:jakarta'
     annotationProcessor 'com.querydsl:querydsl-apt:5.1.0:jakarta'
     annotationProcessor 'jakarta.annotation:jakarta.annotation-api'
