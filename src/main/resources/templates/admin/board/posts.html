@@ -306,6 +306,7 @@
                         <label class="form-label">본문</label>
                         <div class="post-editor"><div id="formContentEditor"></div></div>
                         <small id="editorBusy" class="form-text text-muted d-none">이미지를 올리는 중입니다. 끝난 뒤 저장할 수 있습니다.</small>
+                        <small id="imagePolicyNote" class="form-text text-muted d-none">이 게시판은 새 본문 이미지를 허용하지 않습니다. 이미 들어 있는 이미지는 유지됩니다.</small>
                     </div>
                     <div class="form-group">
                         <div class="custom-control custom-switch">
@@ -314,6 +315,15 @@
                         </div>
                         <small class="form-text text-muted">노출 여부와 아래 노출 기간을 <strong>둘 다</strong> 만족해야 공개됩니다.</small>
                     </div>
+                    <div id="periodLocked" class="form-group d-none">
+                        <small class="form-text text-muted">이 게시판은 예약 게시를 허용하지 않습니다. 이미 설정된 기간은 그대로 적용됩니다.</small>
+                        <div class="d-flex align-items-center mt-1">
+                            <span class="mr-2">노출 기간: <strong id="periodLockedText"></strong></span>
+                            <button type="button" class="btn btn-outline-secondary btn-sm d-none" id="btnClearPeriod">기간 해제</button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm d-none" id="btnUndoClearPeriod">해제 취소</button>
+                        </div>
+                    </div>
+                    <div id="periodFields">
                     <div class="form-group">
                         <label for="formStartDate">노출 시작 (선택, 비우면 바로 시작 · 시·분을 비우면 00:00)</label>
                         <div class="form-row">
@@ -329,6 +339,7 @@
                         </div>
                         <small class="form-text text-muted">한국 시간 기준이며 분 단위입니다. 시작과 종료를 모두 비우면 기간 제한이 없습니다.</small>
                     </div>
+                    </div>
                 </form>
 
                 <!-- 첨부는 게시글이 실제 생성된 뒤(view·edit 모드)에만 다룰 수 있다 — create 모드는
@@ -336,6 +347,7 @@
                 <div id="attachmentSection" class="attachment-section d-none">
                     <h6 class="attachment-section-title">첨부파일</h6>
                     <ul id="attachmentList" class="attachment-list"></ul>
+                    <small id="attachmentPolicyNote" class="form-text text-muted d-none"></small>
                     <div class="attachment-upload" id="attachmentUpload">
                         <input type="file" class="form-control-file" id="attachmentFileInput">
                         <button type="button" class="btn btn-outline-primary btn-sm" id="btnUploadAttachment">
@@ -441,6 +453,14 @@
     const formEndHour = document.getElementById("formEndHour");
     const formEndMinute = document.getElementById("formEndMinute");
     const editorBusy = document.getElementById("editorBusy");
+    const imagePolicyNote = document.getElementById("imagePolicyNote");
+    const periodFields = document.getElementById("periodFields");
+    const periodLocked = document.getElementById("periodLocked");
+    const periodLockedText = document.getElementById("periodLockedText");
+    const btnClearPeriod = document.getElementById("btnClearPeriod");
+    const btnUndoClearPeriod = document.getElementById("btnUndoClearPeriod");
+    // 예약 게시를 끈 게시판에서 기존 기간을 풀겠다고 표시했는지 — 저장할 때 publishPeriod를 비워서 보낸다(별도 요청 없음)
+    let periodClearRequested = false;
     // 진행 중인 저장 요청의 identity 토큰(없으면 null) — 이미지 업로드가 끝났을 때 저장 버튼을 다시 켜도 되는지 판단한다.
     // 불리언이 아니라 토큰인 이유: 저장 중 다른 게시글로 전환하면 이전 요청의 finally가 해제를 건너뛰므로, 그 요청의 것일 때만 지운다.
     let saveInFlightToken = null;
@@ -466,6 +486,7 @@
     const attachmentList = document.getElementById("attachmentList");
     const attachmentUpload = document.getElementById("attachmentUpload");
     const attachmentDisabledNote = document.getElementById("attachmentDisabledNote");
+    const attachmentPolicyNote = document.getElementById("attachmentPolicyNote");
     const attachmentFileInput = document.getElementById("attachmentFileInput");
     const btnUploadAttachment = document.getElementById("btnUploadAttachment");
     const attachmentAlert = document.getElementById("attachmentAlert");
@@ -834,7 +855,44 @@
         formUseYn.checked = data ? !!data.useYn : true;
         writeDateTime(formStartDate, formStartHour, formStartMinute, data ? data.publishStart : null);
         writeDateTime(formEndDate, formEndHour, formEndMinute, data ? data.publishEnd : null);
+        periodClearRequested = false;
+        applyWritePolicy(data);
     }
+
+    // 게시판 작성 정책(서버 판정이 최종)에 맞춰 편집 폼을 조정한다: 본문 이미지를 끈 게시판은 편집기 이미지 입력을 끄고(기존 이미지 서식은 유지해
+    // 열 때 지워지지 않게 한다), 예약 게시를 끈 게시판은 기간 입력 대신 기존 기간과 "기간 해제"만 보인다.
+    function applyWritePolicy(data) {
+        const imagesAllowed = !modalBoard || modalBoard.bodyImageYn !== false;
+        editor.setImageUploadEnabled(imagesAllowed);
+        imagePolicyNote.classList.toggle("d-none", imagesAllowed);
+        renderPeriodPolicy(data);
+    }
+
+    function periodAllowed() {
+        return !modalBoard || modalBoard.publishPeriodYn !== false;
+    }
+
+    function renderPeriodPolicy(data) {
+        const allowed = periodAllowed();
+        periodFields.classList.toggle("d-none", !allowed);
+        periodLocked.classList.toggle("d-none", allowed);
+        if (allowed) {
+            return;
+        }
+        const hasPeriod = !!(data && (data.publishStart || data.publishEnd));
+        periodLockedText.textContent = periodClearRequested ? "해제 예정 (저장하면 제한 없음)" : (data ? periodText(data.publishStart, data.publishEnd) : "제한 없음");
+        btnClearPeriod.classList.toggle("d-none", !hasPeriod || periodClearRequested);
+        btnUndoClearPeriod.classList.toggle("d-none", !periodClearRequested);
+    }
+
+    btnClearPeriod.addEventListener("click", function () {
+        periodClearRequested = true;
+        renderPeriodPolicy(currentDetail);
+    });
+    btnUndoClearPeriod.addEventListener("click", function () {
+        periodClearRequested = false;
+        renderPeriodPolicy(currentDetail);
+    });
 
     function abortPendingDetailRequest() {
         // 다른 게시글로 전환하거나 모달을 닫을 때 진행 중인 첨부 목록 응답도 버려지게 세대를 올린다.
@@ -927,6 +985,11 @@
         btnUploadAttachment.disabled = false;
         // 새 업로드는 수정 권한이 있고 게시판이 첨부를 허용할 때만 — 기존 첨부의 조회·삭제는 그대로 둔다.
         const uploadAllowed = canModal("UPDATE") && modalBoard.attachmentYn;
+        // 게시판 작성 정책 안내와 파일 선택 필터 — 서버 판정이 최종이다
+        const extensions = Array.isArray(modalBoard.attachExtensions) ? modalBoard.attachExtensions : [];
+        attachmentFileInput.accept = extensions.map(function (extension) { return "." + extension; }).join(",");
+        attachmentPolicyNote.textContent = "최대 " + modalBoard.attachMaxCount + "개 · 파일당 " + modalBoard.attachMaxSizeMb + "MB · 허용 형식: " + extensions.join(", ");
+        attachmentPolicyNote.classList.toggle("d-none", !uploadAllowed);
         attachmentUpload.classList.toggle("d-none", !uploadAllowed);
         attachmentDisabledNote.classList.toggle("d-none", modalBoard.attachmentYn || !canModal("UPDATE"));
         attachmentSection.classList.remove("d-none");
@@ -1051,7 +1114,8 @@
             useYn: formUseYn.checked
         };
         // 기간을 하나도 고르지 않았으면 publishPeriod 자체를 보내지 않는다(기간 제한 없음).
-        const period = readPeriodFromForm();
+        // 예약 게시를 끈 게시판은 기간 입력이 숨겨져 있으므로 보내지 않는다.
+        const period = periodAllowed() ? readPeriodFromForm() : { start: null, end: null };
         if (period.start !== null || period.end !== null) {
             payload.publishPeriod = period;
         }
@@ -1085,11 +1149,16 @@
         }
         // 기간은 시작·종료 중 하나라도 달라졌을 때만 보낸다 — 서버가 통째로 교체하므로 둘 다 현재 폼 값으로 보낸다(null = 그쪽 열림).
         // 변경이 없으면 보내지 않아, 다른 관리자가 이미 바꾼 기간을 낡은 화면이 되돌리는 일을 줄인다.
-        const period = readPeriodFromForm();
-        const sameStart = minuteText(period.start) === minuteText(currentDetail.publishStart);
-        const sameEnd = minuteText(period.end) === minuteText(currentDetail.publishEnd);
-        if (!sameStart || !sameEnd) {
-            payload.publishPeriod = period;
+        if (periodAllowed()) {
+            const period = readPeriodFromForm();
+            const sameStart = minuteText(period.start) === minuteText(currentDetail.publishStart);
+            const sameEnd = minuteText(period.end) === minuteText(currentDetail.publishEnd);
+            if (!sameStart || !sameEnd) {
+                payload.publishPeriod = period;
+            }
+        } else if (periodClearRequested) {
+            // 예약 게시를 끈 게시판에서도 기존 기간을 비우는 입력은 허용된다 — 설정이 아니라 해제다
+            payload.publishPeriod = { start: null, end: null };
         }
         return payload;
     }
