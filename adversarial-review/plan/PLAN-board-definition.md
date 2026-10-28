@@ -1,6 +1,6 @@
 # PLAN-board-definition — 게시판 정의 관리 고도화
 
-- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1·2 머지(#179·#180·#181) · PR 3 상세 설계(P3-v2, 리뷰 3라운드 ship) 후 구현·검증 완료(2026-10-28, 미커밋)****
+- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1·2·3·L·4a 머지(#179~#184) · PR 4b 상세 설계(P4b-v2, 리뷰 2라운드 ship) 후 구현·검증 완료(2026-10-28, 미커밋)****
 - 로드맵: 아직 정식 항목 아님(이 계획이 리뷰를 통과하면 `/updateRoadmap` 또는 로드맵 갱신으로 등록)
 - 개정 이력:
   - v1: 초안(전체 분할·결정·PR 1 상세).
@@ -1209,3 +1209,167 @@ ALTER TABLE `post`
 - MockMvc URI 템플릿은 `%`를 한 번 더 인코딩한다(`%ED` → `%25ED`) — 쿼리 유지 시험은 `URI`를 직접 넘긴다(서버 동작 문제 아님).
 
 **후속**: 없음 — 4b(`/notices` 흡수)가 같은 `PathIds`와 현재 슬러그(302 대상)를 쓴다.
+
+---
+
+## PR 4b 상세 설계 — `/notices` 흡수 (P4b-v2, 2026-10-28)
+
+> §5 PR 4b 초안을 구체화한다. 이 절만 `plan-review-loop` 대상이다. 확정 결정(목록 `/{siteKey}/notices`는 해석된 공지 게시판으로 **302**, 하위 경로 404, 공지 전용 공개 템플릿·컨트롤러 제거, `/notices/{id}` 링크 치환은 **해석 공지 게시판 = 게시글 게시판일 때만**, id 해석은 4a의 `PathIds`, 지금 열리는 링크를 치환 못 하면 fail-fast)은 다시 열지 않는다. 4a(#184)가 머지돼 `PathIds`·`BoardLinkPaths`·`Board.publicSlug()`·V10 Java 마이그레이션이 있다. 마이그레이션은 현재 최대 V10 다음인 **V11(DML, Java)** 하나 — DDL 없음.
+
+### P4b-0. 사용자 결정 (2026-10-28 — 재질문 금지)
+
+- **P4b-v2 승인**(리뷰 2라운드 ship 후). 공개 URL 계약 변경(공지 상세·첨부 404, 목록 302)·저장된 링크 일괄 치환(V11)·`SecurityConfig` 무변경을 고지받고 승인.
+- 302에 **원래 쿼리스트링 원문 그대로 전달**(D2 ①).
+- 레이트리밋 **`public-notice` 유지 + `attachment` 규칙 삭제**(D4).
+
+### P4b-1. 정찰 결과 (코드 근거)
+
+1. 공개 공지는 `PublicNoticeController`(목록 `GET /{siteKey}/notices`, 상세 `/{id}`, 첨부 GET·HEAD `/{id}/attachments/{attachmentId}`) + `PublicNoticeService`(공지 게시판 id를 `BoardRepository.findNoticeBoardId(siteId)`로 찾아 `PublicBoardService`에 위임하는 얇은 어댑터)다. 첨부 스트리밍 3구간·조회수/다운로드 집계는 `PublicBoardController`의 복제다. 템플릿 `public/notice/{list,detail}.html`은 게시판 템플릿과 모델 이름·제목 문구만 다르다(diff로 확인 — 기능 차이 없음).
+2. **`public/notice/error.html`은 공지 전용이 아니다** — `PublicWebExceptionAdvice`(`com.cms.publicweb` 전체의 HTML 500)가 이 뷰를 쓴다. 이 파일은 `/css/error.css`만 쓰고 `notice.css`는 쓰지 않는다. `notice.css`를 쓰는 곳은 공지 목록·상세 두 템플릿뿐이다.
+3. 공지를 가리키는 앱 링크: `public/home.html`의 공지 섹션 제목(`${sitePrefix}/notices`)과 공지 5건(`${sitePrefix}/notices/{id}`). 공지 5건은 `PublicHomePost`(4a에서 `boardSlug`를 이미 가짐)로 그려진다. 관리 화면에는 공개 공지 링크가 없다.
+4. `SecurityConfig.SITE_GET_PATHS`가 `NOTICES`·`NOTICES + "/**"`를 GET·HEAD `permitAll`한다. 핸들러가 없는 하위 경로는 컨테이너 404(`CustomErrorController` → `error/404`)가 된다 — 접두어 없는 옛 `/notices/1`이 이미 이렇게 404다(`PublicSiteRoutingServerTest`가 그 화면을 "같은 404"의 기준으로 쓴다).
+5. 레이트리밋: `attachment`(`/*/notices/*/attachments/*` 20/60초)가 `public-notice`(`/*/notices/**` 120/60초)보다 먼저다. `SitePublicRateLimitConventionTest`가 두 규칙 이름을 단언한다.
+6. 숫자 링크 거부 세 곳(본문 `InternalLinkPaths`·배너/팝업 `SafeLinkUrlValidator`·메뉴 `SiteLinkPolicy`)은 `BoardLinkPaths.isNumericBoardPath`를 부른다. **V10은 `BoardLinkPaths.numericBoardSiteSegment`를 부른다** — 이 함수의 의미를 넓히면(공지 경로까지) 아직 V10을 적용하지 않은 DB에서 V10이 공지 링크로 fail-fast한다.
+7. 공지 게시판 해석 `findNoticeBoardId(siteId)` = `NOTICE:{siteId}`(미삭제) → 없으면 `NOTICE`(미삭제). 소프트 삭제는 `board_key`를 비우므로 삭제된 전용 공지는 해석되지 않는다. 시스템 게시판은 비공개 전환이 막혀 있다.
+8. 공지 경로를 쓰는 기존 시험: `publicweb.notice` 5개 파일(삭제·이식 대상), `BoardDisplaySettingsPublicIntegrationTest`·`BoardPinPublicIntegrationTest`·`ContentCountIntegrationTest`·`PostPublishPeriodPublicIntegrationTest`·`PublicHomeIntegrationTest`·`PublicBoardSiteScopeIntegrationTest`의 공지 사례, `SecurityConfigTest`(스텁 매핑 `/main/notices…` — 인가 규칙 시험이라 경로 계약 그대로 유지), `SitePublicRateLimitConventionTest`, 오류 화면 시험(`/main/notices/999` 404 — 경로 문자열만 쓰는 뷰 선택 시험). `PublicAttachmentStreamingServerTest`(공지)와 `PublicBoardAttachmentStreamingServerTest`(게시판)는 같은 시나리오 6개(OSIV 가드 포함)를 각각 가진다.
+
+### P4b-2. 설계 결정
+
+**P4b-D1. 302 처리 — 얇은 리다이렉트 컨트롤러 하나**
+
+- 선택지: ① `PublicBoardController`에 공지 매핑 추가(클래스 매핑이 `BOARDS`라 메서드에 절대 경로가 필요 — 섞임) ② **`publicweb.notice.controller.PublicNoticeRedirectController`(`@SiteScopedPublic`, `@GetMapping(PublicSiteRoutes.NOTICES)`) 한 메서드** ③ `SecurityConfig`/필터 수준 리다이렉트(사이트 해석·공개 조건을 다시 구현해야 함).
+- **② 채택.** 이유: 사이트 해석·404 계약을 인터셉터에 그대로 맡기고(`@SiteScopedPublic`), 관리 측 `NoticeRedirectController`와 대칭이다. 기존 `PublicNoticeController`·`PublicNoticeService`는 삭제한다.
+- 동작: `PublicBoardService.findNoticeBoardSlug(siteId)` = `findNoticeBoardId(siteId)` → `findPublicById(id, siteId)`(4a와 같은 공개 조건) → `Board.publicSlug()`. 있으면 **302** `Location: {contextPath}/{현재 사이트 키}/boards/{현재 슬러그}` + 원래 쿼리스트링(아래 D2). 없으면(공지 게시판 없음·비공개·삭제) 기존과 같은 404(`error/404` 뷰 — 지금 목록 404와 같은 방식). GET·HEAD 모두 302(HEAD는 `@GetMapping`이 처리).
+- 302인 이유(확정 결정의 근거 재기록): 대상이 바뀔 수 있다 — 사이트 전용 공지 게시판 생성·삭제, 공지 게시판 슬러그 1회 변경. 301은 브라우저가 캐시해 이후 변경을 따라가지 못한다.
+- 조회수·다운로드 집계 없음(목록이라 원래도 없음). 응답 본문 없음.
+
+**P4b-D2. 302에 쿼리스트링을 넘긴다 (초안 미결정 → 추천, 승인 때 확인)**
+
+- 선택지: ① **원래 쿼리스트링 원문을 그대로 붙인다**(4a 301과 같은 방식 — `request.getQueryString()`) ② `page`·`keyword`만 골라 다시 인코딩 ③ 버린다.
+- **① 추천.** 이유: 옛 검색·페이지 링크(`/main/notices?page=2&keyword=점검`)가 같은 결과로 열린다. 경로는 서버가 만들고 쿼리는 같은 출처 경로 뒤에 붙을 뿐이라 오픈 리다이렉트가 아니다(`Location`의 출처·경로는 입력에서 오지 않는다). ②는 인코딩을 다시 하는 코드가 늘고 4a와 규칙이 갈린다. ③은 저장된 검색 링크가 첫 페이지로 바뀐다.
+- `Location` 헤더 값에 CR/LF가 들어갈 수 없는지: `getQueryString()`은 디코딩 전 원문이고 Tomcat은 요청 줄의 CR/LF를 거부한다(4a 301과 같은 근거) — 시험으로 `%0D%0A`가 인코딩된 채 유지되는지 고정한다.
+
+**P4b-D3. 하위 경로 404 — 핸들러를 두지 않는다**
+
+- 선택지: ① **핸들러를 두지 않는다**(컨테이너 404) ② `/{siteKey}/notices/**`에 404만 돌려주는 핸들러.
+- **① 채택.** 이유: 옛 접두어 없는 `/notices/1`과 같은 방식·같은 화면이다(정찰 4). `SecurityConfig`의 `NOTICES + "/**"` GET·HEAD `permitAll`은 **그대로 둔다** — 지우면 하위 경로가 404가 아니라 로그인 302(익명)·403(인증)이 되어 "하위 경로 404" 결정과 어긋난다. 따라서 **`SecurityConfig` 코드·`SecurityConfigTest` 변경 없음**(인가 규칙 불변, 매핑만 줄어든다). 비-GET 메서드는 기존처럼 `denyAll`.
+- ②는 사이트 존재 여부와 무관하게 같은 404라 얻는 게 없고 매핑만 늘린다. ①에서는 하위 경로가 인터셉터를 거치지 않으므로 사이트 DB 조회도 없다(더 싸다).
+- `PublicExposureInventoryTest`: 매핑이 줄기만 하므로 승인 목록 변경 없음(시험이 무변경 통과해야 한다).
+
+**P4b-D4. 레이트리밋 — 302·하위 404에도 `public-notice`를 유지하고 `attachment` 규칙은 지운다 (초안 미결정 → 추천)**
+
+- 302 응답도 사이트 해석(DB 1회) + 공지 게시판 해석(최대 2회) + 공개 조회 1회를 한다 — 무인증 요청이 DB를 치므로 **`public-notice`(`/*/notices/**` 120/60초)를 그대로 적용**한다(필터는 핸들러 전이라 302·404 모두 센다).
+- `attachment` 규칙(`/*/notices/*/attachments/*` 20/60초)은 대상 라우트가 사라져 **삭제**한다 — 남겨 두면 존재하지 않는 기능의 한도로 오해된다. 그 경로는 `public-notice`로 떨어진다(핸들러 없는 404는 DB를 치지 않아 120이면 충분). `SitePublicRateLimitConventionTest`의 `attachment` 단언을 `public-notice`로 바꾼다.
+- 공지 게시판 글의 첨부는 이제 `/*/boards/*/posts/*/attachments/*`(`board-attachment` 20/60초)로 같은 한도를 받는다 — 한도 공백 없음.
+
+**P4b-D5. 저장된 링크 치환 — Flyway Java 마이그레이션 `V11__replace_notice_links_with_board_links`**
+
+- V10과 같은 구조(JDBC만, 대상 표·키 순 읽기·바뀐 행만 UPDATE·배너 `version`/팝업 `revision` +1·정적 페이지 모든 개정·fail-fast + 메시지 `테이블#id` 최대 20개·상한값은 이 시점 값으로 고정). 대상·상한은 4a D6 표와 같다(메뉴 255자·배너/팝업 링크 500자·게시글 200,000·정적 페이지 500,000·팝업 50,000·FAQ 30,000바이트). 치환 후보 필터는 `LIKE '%/notices/%'`.
+- **치환 규칙**: URL 컬럼 값(본문은 `<a>`의 `href` 값)이 `/{k}/notices/{s}`로 시작하고(`k` = 공개 사이트 키, 사용 여부 무관) `s` 뒤가 끝·`/`·`?`·`#`이며 `PathIds.parse(s) = n`이고, **게시글 `n`이 존재하고 그 `board_id` = 사이트 `k`의 해석 공지 게시판 id(마이그레이션 시점)**일 때만 `/{k}/notices/{s}`를 `/{k}/boards/{그 공지 게시판의 현재 슬러그}/posts/{n}`으로 바꾼다. 나머지(`/attachments/{a}`·쿼리·프래그먼트)는 그대로 뒤에 붙는다 — `/{k}/notices/{n}/attachments/{a}`는 새 게시판 첨부 경로가 된다.
+  - **정규형 경로만 치환한다**(v2, 리뷰 R1-1): 값의 경로 부분(`?`·`#` 앞)에 `%`가 있거나 `.`·`..` 세그먼트가 하나라도 있으면 **원문을 건드리지 않는다**. V10은 세그먼트 하나를 하나로 바꿔 깊이가 같았지만 V11은 두 세그먼트(`notices/{n}`)를 네 세그먼트(`boards/{슬러그}/posts/{n}`)로 바꾼다 — 뒤에 붙은 `..`가 다른 곳으로 이동해(`/main/notices/5/../../notices/6` = `/main/notices/6`이 치환되면 `/main/boards/board-1/notices/6`) 지금 열리는 링크가 깨지고, 결과가 공지 형태가 아니라 사후 검사도 빠져나간다. 정규형이 아닌 값은 아래 사후 검사가 **정규화한 목적지**로 판정해 지금 열리는 공지 링크면 fail-fast다(첫 id는 일반 글이고 정규화 뒤 id만 공지 글인 경우도 여기서 잡힌다). 배너·팝업 링크는 저장 검증이 점 세그먼트를 막지 않아 실제로 있을 수 있는 입력이다(`SafeLinkUrlValidator`).
+  - 해석 공지 게시판: `board_key = 'NOTICE:{siteId}' AND deleted = 0` → 없으면 `board_key = 'NOTICE' AND deleted = 0`(런타임 `findNoticeBoardId`와 같은 규칙, SQL로 재현). 현재 슬러그 = `slug`가 있으면 그것, 없으면 `board-{id}`.
+  - **게시글 상태는 보지 않는다(초안의 "삭제된 글 미치환"을 바꿈)**: 소속이 해석 공지 게시판이면 삭제·미노출·예약 글도 치환한다. 이유 — 미노출·예약 글은 나중에 공개되면 옛 링크가 열리게 되는 링크라 의미가 같은 새 주소로 바꿔야 하고, 삭제된 글은 치환 전후 모두 404이며 게시글 id는 재사용되지 않는다. 치환하지 않고 남기면 그 행이 D6 거부 규칙(저장 400·본문 `href` 제거)에 걸려 편집만 방해한다(4a D6에서 삭제된 게시판 링크를 치환하기로 바꾼 것과 같은 근거).
+  - **치환하지 않는 것**(지금도 404이고 이후에도 404 — 의미 불변): 게시글이 없는 id, 해석 공지 게시판이 아닌 게시판의 글(일반 게시판 글, 전용 공지가 대체한 공통 공지 글, 다른 사이트 전용 공지 글), 해석 공지 게시판이 없는 사이트, 목록 `/{k}/notices`(302가 처리), 공개 사이트 키가 아닌 첫 세그먼트, 도메인 붙은 절대 URL·`//host`·쿼리 매개변수 안·본문 텍스트·`img src`(4a와 같은 경계 규칙), `long` 초과·음수 id. 이 행들은 배포 후 점검 SQL로 찾는다(D7).
+- **fail-fast**(4a와 같은 원칙 — 지금 열리는 링크를 남기면 배포 순간 404):
+  1. 치환 결과가 상한을 넘는 행(공지 링크는 `notices/{n}` → `boards/{슬러그}/posts/{n}`이라 최소 +13자, 슬러그가 길면 최대 +56자).
+  2. **치환 후 검사**: URL 컬럼의 값이 있는 모든 행(후보 필터 없이 — `notices`를 인코딩한 `%6Eotices`도 잡도록)과 치환 후보 본문의 `href`를, 디코딩·점 세그먼트 정리 뒤 `/{공개 사이트 키}/notices/{id}…`이고 **그 id의 게시글이 그 사이트의 해석 공지 게시판 소속**(= 지금 열리는 링크)이면 실패. 인코딩 변형 `/main/notices/%35`·`/main/%6Eotices/5`, 점 세그먼트 `/main/notices/./5`·`/main/x/../notices/5`·`/main/notices/5/../../notices/6`(정규형이 아니라 치환되지 않고 남는다 — v2)이 여기 걸린다. 해석 공지 소속이 아닌 변형은 지금도 404라 실패시키지 않는다.
+- 판정 함수: `BoardLinkPaths`에 `numericNoticeTarget(url)`(디코딩·점 세그먼트 정리 뒤 `[사이트 세그먼트, "notices", id, …]`이면 `(사이트 세그먼트, id)`, 아니면 null)를 **새로 추가**하고 `numericBoardSiteSegment`는 바꾸지 않는다(정찰 6 — V10 의미 보존). 정규화 로직(`normalizedSegments`)은 공유한다.
+- 트랜잭션·실패 복구·문서는 V10과 같다(MariaDB `success=0` 이력 → 원인 행 수정 → `flyway repair` → 재기동). 첫 실배포 직전 합치기 때 V10과 함께 **삭제**한다(빈 DB에 할 일 없음).
+- **V10과의 관계**: V11은 V10 뒤에 돈다. V10은 `/notices/` 링크를 건드리지 않는다(`/boards/` 형태만). V11이 만드는 `…/boards/{슬러그}/posts/{n}`은 슬러그 경로라 V10·D6 거부 규칙과 충돌하지 않는다.
+
+**P4b-D6. 숫자 공지 경로 저장 거부 — 적용 세 곳 (§5 PR 4a ①의 4b 확장)**
+
+- 규칙: 경로(디코딩·점 세그먼트 정리 뒤)가 `/{아무 세그먼트}/notices/{PathIds로 읽히는 id}(/…)?`이면 거부. 목록 `/{k}/notices`(302로 유효)와 `/{k}/notices/abc`(지금도 404이고 저장 허용이던 형태 — 범위를 넓히지 않는다)는 허용.
+- `BoardLinkPaths.isRetiredNumericPath(url)` = 숫자 게시판 경로 ∨ 숫자 공지 경로. 세 곳(`InternalLinkPaths`·`SafeLinkUrlValidator`·`SiteLinkPolicy`)이 이 함수로 바꾸고, 문구는 경우별로 나눈다: 공지 경로면 "공지 주소는 게시판 주소(예: /main/boards/board-1/posts/5)를 쓰세요.", 게시판 경로면 기존 문구.
+- 메뉴 출력 재검증(`permits`)도 같은 규칙이라 남은 숫자 공지 메뉴는 링크 없는 라벨이 된다(어차피 404).
+
+**P4b-D7. 앱 링크·템플릿·문서**
+
+- `public/home.html` 공지 5건: `@{|${sitePrefix}/boards/{board}/posts/{postId}|(board=${post.boardSlug}, postId=${post.id})}`(새 글 섹션과 같은 식). 섹션 제목 링크는 **`${sitePrefix}/notices` 유지**(안정적인 공개 진입점 — 302가 현재 공지 게시판으로 보낸다. 공지 게시판이 바뀌어도 메인 템플릿은 그대로).
+- 삭제: `PublicNoticeController`·`PublicNoticeService`·`templates/public/notice/list.html`·`detail.html`·`static/css/public/notice.css`.
+- **이동**: `templates/public/notice/error.html` → `templates/public/error.html`(내용 그대로), `PublicWebExceptionAdvice`의 뷰 이름 `public/error`. 템플릿 컨벤션 시험의 예외 목록(사이트 메뉴 포함 강제의 예외 `notice/error.html`, 접두어 규칙의 "오류 템플릿" 예외)을 새 경로로 바꾼다.
+- `board.css`의 "공지 CSS를 복사한" 주석 정리(규칙 변경 없음).
+- 공지 게시판 글이 게시판 템플릿으로 보이며 제목 영역이 고정 문구 "공지사항"에서 **게시판 이름**(시드 "공지사항")으로 바뀐다. 상단 고정·설명·작성자 표시·조회수·새 글 배지는 게시판 템플릿에 이미 있다(차이 없음 — 정찰 1).
+- 문서: `publicweb/notice/CLAUDE.md`를 리다이렉트만 남긴 짧은 문서로 축소, 루트 `CLAUDE.md` 지침 표의 `com.cms.publicweb.notice` 줄, `publicweb/board`·`publicweb/home`·`publicweb/support`·`com.cms.config`(표의 `/{siteKey}/notices` 설명)·`admin/board`·`admin/site` CLAUDE.md의 공지 공개 서술, `docs/deployment.md`(V11 점검 SQL·실패 복구·롤백 — 4a 절에 덧붙임), `docs/migration-guide.md`(V11 행).
+- `docs/deployment.md` 배포 전 점검 SQL(이전 버전 DB, 기대 0건): URL 컬럼의 `%`·점 세그먼트 행(4a 점검과 같은 SQL이 이미 잡는다 — `notices` 인코딩 포함), 길이 여유(`/notices/` 링크가 든 메뉴 `CHAR_LENGTH(menu_url) > 255 - 56` 등). 배포 후 점검 SQL: `LIKE '%/notices/%'`가 남은 URL·본문 행(치환되지 않은 404 링크 — 화면에서 고치거나 지운다).
+
+### P4b-3. 변경 파일
+
+| 파일 | 변경 |
+|---|---|
+| `src/main/java/db/migration/V11__replace_notice_links_with_board_links.java`(신규) | D5 |
+| `common/web/BoardLinkPaths.java` | `numericNoticeTarget`·`isRetiredNumericPath` 추가(기존 함수 의미 불변) |
+| `common/web/InternalLinkPaths.java`·`common/web/validation/SafeLinkUrlValidator.java`·`admin/site/SiteLinkPolicy.java` | D6 |
+| `publicweb/board/service/PublicBoardService.java` | `findNoticeBoardSlug(siteId)` |
+| `publicweb/notice/controller/PublicNoticeRedirectController.java`(신규) | D1·D2 |
+| `publicweb/notice/controller/PublicNoticeController.java`·`service/PublicNoticeService.java` | 삭제 |
+| `publicweb/support/PublicWebExceptionAdvice.java` | 뷰 `public/error` |
+| 템플릿·CSS | `public/home.html`(공지 링크), `public/error.html`(이동), `public/notice/*`·`notice.css` 삭제, `board.css` 주석 |
+| `application.yml` | `attachment` 규칙 삭제 |
+| 시험 | P4b-4 |
+| 문서 | D7 |
+
+### P4b-4. 시험 계획
+
+- `BoardLinkPathsTest`: `numericNoticeTarget` 표 — `/main/notices/5`·`/x/notices/+5/attachments/2?a#b`·`/main/notices/%35`·`/main/%6Eotices/5`·`/main/notices/./5`·`/main/x/../notices/5`(참), `/main/notices`·`/main/notices?page=2`·`/main/notices/abc`·`/main/notices/-1`·`/notices/5`(사이트 세그먼트 없음)·`/main/boards/5`(공지 아님)·`%zz`(거짓). `isRetiredNumericPath` = 둘의 합. 기존 `numericBoardSiteSegment` 표 무변경 통과(특히 `/main/notices/12` 거짓 유지 — V10 의미 보존).
+- 적용 세 곳: sanitizer가 `/main/notices/5` `href` 제거·`/main/notices` 유지(멱등), 배너·팝업 API 400 + 공지 문구, 메뉴 API 400 + `permits` false, 목록 링크 `/main/notices`는 세 곳 모두 허용.
+- 302(`PublicNoticeRedirectIntegrationTest`, `publicweb.notice`): 공통 공지 → `/main/boards/board-1`(GET·HEAD 302, 본문 없음), 쿼리 원문 유지(`?page=1&keyword=%ED%95%9C` 인코딩 그대로, `%0D%0A` 인코딩 유지), 전용 공지가 있는 사이트는 전용 게시판으로·전용 삭제 후 공통으로(302라 즉시 반영), 공지 게시판 슬러그 변경 후 새 슬러그로, 공지 게시판이 없으면(DB에서 키 제거) 404, 하위 경로 `/main/notices/{실제 공지 id}`·`…/attachments/{id}`·`/main/notices/x` GET·HEAD 404, 302 응답은 레이트리밋 `public-notice`에 세어진다(한도 소진 후 429).
+- 실서버 `PublicSiteRoutingServerTest`(기존): 하위 경로 404 화면이 옛 URL 404와 같은지 — `/main/notices/1`을 비교 목록에 추가.
+- V11 업그레이드 시험(`NoticeLinkUpgradeTest`, 루트 패키지 — V10까지 적용한 DB에 행을 넣고 V11): 메뉴·배너·팝업(링크·본문)·게시글·정적 페이지(같은 페이지 여러 개정 + 다른 페이지 같은 개정 번호)·FAQ 각각 — 해석 공지 소속 글(치환, 상세·첨부·쿼리·프래그먼트), 공지 게시판 사용자 슬러그(치환 결과가 사용자 슬러그), 삭제·미노출 공지 글(치환), 일반 게시판 글(미치환), 전용 공지가 있는 사이트의 공통 공지 글(미치환)·전용 공지 글(치환), 다른 사이트의 전용 공지 글(미치환), 없는 글(미치환), `+5`·`0005`·전각(정규형으로 치환), `5` vs `55` 접두 충돌, `/main/notices` 목록(미치환), 외부 호스트·`//host`·쿼리 안·본문 텍스트·`img src`·관리자 사이트 메뉴·없는 사이트 키(미치환), 길이 정확히 맞음(치환)/1 초과(fail-fast), 인코딩·점 세그먼트 변형(해석 공지 소속이면 fail-fast, 아니면 통과 + 원문 그대로), **접미부 `..`가 치환 경로를 벗어나는 `/main/notices/5/../../notices/6`을 배너·팝업 링크에 각각 넣어 V11 fail-fast + 전체 롤백, 첫 id(5)는 일반 게시판 글이고 정규화 뒤 id(6)만 공지 글인 경우도 fail-fast, 정규화 뒤 목적지가 공지가 아닌 점 세그먼트 값은 원문 그대로**(v2 R1-1), fail-fast 후 **데이터 그대로 → V11 `success=0` → 원인 행 수정 → `repair()` → 재실행 성공**까지, 배너 `version`·팝업 `revision` 치환 행만 +1(팝업 링크·본문 둘 다 바뀌어도 +1), 치환된 본문 sanitizer 멱등.
+- 기존 시험 이식: 공지 사례가 있는 공개 시험 6개(정찰 8)는 공지 게시판의 게시판 경로(`/main/boards/board-1/…`)로 바꾸고 "공지 템플릿도 같다"는 이중 검사는 302 → 게시판 경로 확인으로 줄인다. `PublicNoticeControllerTest`·`PublicNoticeServiceTest`·`PublicNoticeTemplateConventionTest`·`PublicAttachmentStreamingServerTest`는 삭제(대응 시험이 게시판 쪽에 이미 있다 — 스트리밍 6개 시나리오·OSIV 가드는 `PublicBoardAttachmentStreamingServerTest`, 템플릿 `utext` 한 곳은 `PublicBoardTemplateConventionTest`). `PublicNoticeAttachmentIntegrationTest`의 TOCTOU·IDOR·파일 없음·다른 게시판 글 사례는 게시판 쪽(`PublicBoardIntegrationTest` 등)에 같은 사례가 있는지 확인하고 없는 것만 옮긴다. 루트 `CLAUDE.md`의 "OSIV를 다시 켜면 `PublicAttachmentStreamingServerTest`가 실패" 서술은 게시판 시험 이름으로 바꾼다.
+- 무변경 통과 확인: `SecurityConfigTest`·`PublicExposureInventoryTest`(매핑만 줄어듦)·`SiteKeyReservedConventionTest`(`notices` 예약어 유지 — `NOTICES` 매핑이 남는다)·`BoardSlugLinkUpgradeTest`(V10 의미 불변).
+
+### P4b-5. 리스크
+
+- **공개 URL 계약 변경(승인 대상)**: `/{k}/notices/{id}`·첨부 경로가 전부 404가 된다. 저장된 링크는 V11이 치환하지만 외부 공유·검색 색인은 깨진다(실배포 전이라 수용, §8). 목록 `/{k}/notices`는 302로 살아 있다.
+- **롤백**: V11은 4a 앱이 이해하는 경로(`…/boards/{슬러그}/posts/{n}`)만 만든다 — **4a 앱으로의 롤백은 가능**하고 공지 상세 경로만 다시 살아난다(치환된 링크는 게시판 경로로 계속 열린다). 4a 이전 앱으로는 4a와 같은 이유로 불가. 롤백 중 저장한 숫자 공지 링크는 V11이 다시 돌지 않으므로 재배포 뒤 점검 SQL로 찾는다.
+- **사용자 작성 데이터 일괄 수정**: 4a와 같다(백업 필수, 경계 사례 업그레이드 시험, 정적 페이지 개정 본문 변경 사실 기록).
+- **공지 게시판 표시 변화**: 공개 공지 화면이 게시판 템플릿이 되어 제목이 게시판 이름이 된다(시드 이름이 같아 실제 화면은 같다).
+- **팝업 `revision` +1**: 공지 링크가 치환된 팝업은 "오늘 하루 보지 않기"가 한 번 풀린다(4a와 같은 수용).
+
+### PR 4b 개정 이력
+
+- P4b-v1 (2026-10-28): 최초 작성. 초안 대비 바꾼 것 — 삭제·미노출 공지 글 링크도 치환(D5, 4a D6과 같은 근거), 302 쿼리 원문 전달 추천(D2), `attachment` 레이트리밋 규칙 삭제 추천(D4), 하위 경로는 핸들러 없는 404로 `SecurityConfig` 무변경(D3), `public/notice/error.html`은 공용 500 뷰라 이동(D7).
+- P4b-v2 변경 (리뷰 1라운드 — codex gpt-6.1-sol, needs-attention 1건 수용): R1-1 V11은 2세그먼트를 4세그먼트로 바꿔 깊이가 달라지므로 접미부 `..`가 치환 경로를 벗어나 지금 열리는 링크(`/main/notices/5/../../notices/6`)를 깨뜨리고 사후 검사도 빠져나간다 → **경로 부분이 정규형(`%`·`.`·`..` 세그먼트 없음)일 때만 치환**하고 정규형이 아닌 값은 원문 그대로 둔 뒤 사후 검사가 정규화한 목적지로 fail-fast 판정(D5), 배너·팝업 시험 사례 추가(P4b-4). 기각 없음.
+- 리뷰 2라운드 — codex: **ship**(R1-1 보완 충분, 본문 후보 필터·V10 호환·경로 종료 설계에 새 지적 없음).
+
+### 구현·검증 결과 — PR 4b (2026-10-28)
+
+**Context / 확정 사항**: 공개 공지를 게시판 화면 한 벌로 흡수했다. `/{siteKey}/notices`는 그 사이트의 공지 게시판(전용 → 공통)으로 302만 하고(쿼리 원문 유지), 상세·첨부 하위 경로는 핸들러 없는 404다. 저장된 공지 상세 링크는 V11(Java)이 공지 게시판의 게시글 주소로 치환했다. 사용자 결정(P4b-0): P4b-v2 승인, 302 쿼리 원문 전달, `public-notice` 유지 + `attachment` 규칙 삭제. `SecurityConfig` 코드 변경 없음, DDL 없음.
+
+**구현 중 계획과 달라진 결정**(모두 구현 중 보고)
+- `PublicNoticeAttachmentIntegrationTest`는 삭제하지 않고 `publicweb.board.service.PublicBoardAttachmentIntegrationTest`로 **이식**했다 — 실제 DB로 커밋된 비공개 전환(TOCTOU)·IDOR·파일 없음을 보는 시험이 게시판 쪽에는 단위 시험(목)뿐이었다.
+- "공지 템플릿도 같은 결과" 시험 2개(`BoardDisplaySettingsPublicIntegrationTest`·`BoardPinPublicIntegrationTest`)는 삭제가 아니라 **공지 게시판을 게시판 경로로 여는 시험**으로 바꿨다(공지 게시판 설정 복구 코드를 고아로 남기지 않게).
+- 302의 레이트리밋 429 시험은 `PublicNoticeRedirectIntegrationTest`가 아니라 **`SitePublicRateLimitConventionTest`에 뒀다** — 시험은 기본으로 레이트리밋이 꺼져 있고(`build.gradle` `CMS_RATE_LIMIT_ENABLED=false`) 켠 컨텍스트가 이미 그 클래스에 있다(컨텍스트 추가 없음).
+- 판정 함수: 계획의 `isRetiredNumericPath` 외에 `isNumericNoticePath`를 두어 배너·팝업·메뉴의 안내 문구를 경로 종류별로 나눴다. `BoardLinkPaths.pathPart`를 V11이 쓰도록 `public`으로 열었다(의미 불변).
+
+**구현 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `src/main/java/db/migration/V11__replace_notice_links_with_board_links.java`(신규) | 해석 공지 게시판 소속 글만·정규형 경로만 치환, 배너 `version`·팝업 `revision` 행당 +1, fail-fast(길이·본문 상한·지금 열리는 변형 — URL 컬럼 사후 검사는 전 행) |
+| `common/web/BoardLinkPaths.java` | `numericNoticeTarget`·`isNumericNoticePath`·`isRetiredNumericPath`·`NoticeTarget`, `pathPart` 공개(V10이 쓰는 `numericBoardSiteSegment`는 불변) |
+| `common/web/InternalLinkPaths.java`·`common/web/validation/SafeLinkUrlValidator.java`·`admin/site/SiteLinkPolicy.java` | 숫자 공지 경로 거부(본문 `href` 제거·배너/팝업 400·메뉴 400 + 출력 재검증), 공지 문구 |
+| `publicweb/board/service/PublicBoardService.java` | `findNoticeBoardSlug(siteId)` |
+| `publicweb/notice/controller/PublicNoticeRedirectController.java`(신규) | 302 / 404 |
+| `publicweb/notice/controller/PublicNoticeController.java`·`service/PublicNoticeService.java`·`templates/public/notice/{list,detail}.html`·`static/css/public/notice.css` | 삭제 |
+| `templates/public/notice/error.html` → `templates/public/error.html`, `publicweb/support/PublicWebExceptionAdvice.java` | 공용 500 뷰 이동 |
+| `templates/public/home.html` | 공지 5건 링크를 게시판 주소로(섹션 제목은 `/notices` 유지) |
+| `application.yml` | `attachment` 레이트리밋 규칙 삭제 |
+| `board.css`·`GlobalApiExceptionHandler`·`PublicContentImage{Controller,Service}` | 지운 클래스를 가리키던 주석만 |
+| 시험(신규) | `PublicNoticeRedirectIntegrationTest`·`NoticeLinkUpgradeTest` |
+| 시험(수정·이식) | `BoardLinkPathsTest`·`SafeLinkUrlValidatorTest`·`SiteLinkPolicyTest`·`HtmlContentSanitizerInternalLinkTest`(공지 경로 표), `SitePublicRateLimitConventionTest`(`attachment` 제거·302 429), 공개 시험 6개(공지 경로 → 공지 게시판 경로·302 단언), `PublicSiteRoutingServerTest`(하위 경로 404 화면), 템플릿 컨벤션 2개(오류 뷰 경로), `PublicBoardAttachmentIntegrationTest`(이식) |
+| 시험(삭제) | `PublicNoticeControllerTest`·`PublicNoticeServiceTest`·`PublicNoticeTemplateConventionTest`·`PublicAttachmentStreamingServerTest`(게시판 쪽 대응 시험이 같은 시나리오·OSIV 가드를 가진다) |
+| 문서 | `publicweb/notice/CLAUDE.md`(축소 재작성)·루트·`publicweb/board`·`publicweb/home`·`publicweb/support`·`config`·`admin/board`·`admin/site` `CLAUDE.md`, `docs/deployment.md`("공개 공지 흡수" — 점검 SQL·배포 후 점검·롤백), `docs/migration-guide.md`(V11) |
+
+**검증 결과**
+- **전체 `./gradlew test` 2,864건 실패 0**(5분 53초). 그 전 영향 범위 시험(링크 판정·302·V10/V11 업그레이드) 통과. `SecurityConfigTest`·`PublicExposureInventoryTest`·`SiteKeyReservedConventionTest`·`BoardSlugLinkUpgradeTest`는 **무변경 통과**(인가 규칙·인벤토리·예약어·V10 의미 불변 확인).
+- **변이 실험**: V11의 정규형 경로 검사를 빼면 `NoticeLinkUpgradeTest`의 R1-1 사례(`/main/notices/{N}/../../notices/{N}`)가 실패한다(원복).
+- **실기(dev `bootRun`, Playwright)**: V10 상태 dev DB에 공지 글·일반 글과 숫자 공지 링크가 든 메뉴 3개(공지 글·일반 글·목록)·배너·본문을 넣고 띄우자 **실제 V11이 적용**(0.017초) — 공지 글 링크만 `/main/boards/board-1/posts/12`로(배너 `version` 1→2, 본문 `href`의 쿼리 유지), 일반 글 링크·목록 링크는 그대로. HTTP: `/main/notices` GET·HEAD 302 → `/main/boards/board-1`(쿼리 원문 유지), `/main/notices/12`·`…/attachments/1`·`/main/notices/x` GET·HEAD 404, 없는 사이트 `/nosuch/notices` 404, `POST /main/notices` 403. 화면: 메인 공지 링크가 게시판 주소, "공지사항" 제목 클릭 → 302 → 공지 게시판 목록(제목 "공지사항" = 게시판 이름), 치환된 본문 링크 클릭 → 공지 상세 200, 옛 상세 주소는 공용 404 화면, 일반 글을 가리키던 숫자 공지 메뉴는 출력 재검증으로 사라짐. 관리: 배너 PUT `/main/notices/12` → 400 "공지 주소는 게시판 주소(…)를 쓰세요.", `/main/notices` → 200. 검증 행(글·게시판·메뉴·배너·감사 1행)은 지워 원복했다(dev DB는 V11 상태로 남음). 스크린샷 `adversarial-review/plan/screenshots/pr4b-0{1,2,3,4}-*.png`(커밋 제외). 콘솔 오류는 기존 `favicon.ico` 404뿐.
+
+**이슈**
+- **`Optional.map`에 `null`을 돌려주는 람다**: 처음 컨트롤러를 `findNoticeBoardSlug(...).map(slug -> { 302 쓰고 return null; }).orElseGet(404)`로 썼다가 `map`이 빈 값이 되어 **Location을 쓴 뒤 상태가 404로 덮였다**. Location만 단언한 시험 2개는 통과해 처음엔 놓쳤고, 상태를 단언한 시험이 잡았다 — 분기로 고치고 Location 시험에도 상태 단언을 넣었다(`publicweb/notice/CLAUDE.md`에 함정으로 기록).
+- 302 429 시험이 처음에 실패했다 — 시험 전역에서 레이트리밋이 꺼져 있었다(위 "달라진 결정").
+- 변이 실험 중 미추적 파일(V11)을 `git checkout`으로 되돌리려다 되돌려지지 않았다 — 백업 사본으로 복원하고 내용을 확인했다(작업 절차 실수, 코드 영향 없음).
+
+**후속**: 없음. 남은 순서는 PR 5(대표 이미지 + 썸네일) → PR 6(게시판 유형) — 4b 이후라 공개 화면이 한 벌이므로 게시판 템플릿만 보면 된다(§2).
