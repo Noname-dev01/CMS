@@ -23,8 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 /**
- * 게시판 표시 설정(목록 크기·조회수·새 글 배지·설명·작성자 표시명)의 공개 화면 반영 시험(PLAN-board-definition.md PR 1 D4). 일반 게시판
- * ({@code /boards})과 공지({@code /notices}) 두 템플릿 세트가 같은 결과여야 한다. 행은 JDBC로 직접 만들고 요청마다 고유 원격 IP를 쓴다.
+ * 게시판 표시 설정(목록 크기·조회수·새 글 배지·설명·작성자 표시명)의 공개 화면 반영 시험(PLAN-board-definition.md PR 1 D4). 공지 게시판도
+ * 게시판 화면 한 벌로 열린다(PR 4b — {@code /notices}는 302만). 행은 JDBC로 직접 만들고 요청마다 고유 원격 IP를 쓴다.
  */
 @SpringBootTest(classes = CmsTestApplication.class)
 @AutoConfigureMockMvc
@@ -221,11 +221,11 @@ class BoardDisplaySettingsPublicIntegrationTest extends MariaDbContainerSupport 
         return board;
     }
 
-    // ── 공지 템플릿 세트도 같은 결과 ──────────────────────────────
+    // ── 공지 게시판도 같은 화면·같은 결과 ──────────────────────────────
 
     @Test
-    @DisplayName("공지(/notices) 목록·상세도 같은 설정을 반영한다 — 설명·작성자 표시명·조회수·배지·목록 크기")
-    void noticeTemplatesReflectSettings() throws Exception {
+    @DisplayName("공지 게시판의 목록·상세(게시판 경로)도 같은 설정을 반영한다 — 설명·작성자 표시명·조회수·배지·목록 크기")
+    void noticeBoardReflectsSettings() throws Exception {
         jdbc.update("UPDATE board SET description = '공지 안내', author_label = '운영팀', show_view_count = 1, new_badge_days = 3, list_page_size = 20 WHERE id = ?",
                 noticeBoardId);
         long recent = insertPost(noticeBoardId, "신규공지", LocalDateTime.now().minusHours(1), 9L, null);
@@ -233,12 +233,13 @@ class BoardDisplaySettingsPublicIntegrationTest extends MariaDbContainerSupport 
             insertPost(noticeBoardId, "예전공지" + i, LocalDateTime.now().minusDays(20).minusMinutes(i), null, null);
         }
 
-        String list = mockMvc.perform(get("/main/notices").with(fromTestIp())).andReturn().getResponse().getContentAsString();
-        String detail = mockMvc.perform(get("/main/notices/{id}", recent).with(fromTestIp())).andReturn().getResponse().getContentAsString();
+        String list = mockMvc.perform(get("/main/boards/board-{b}", noticeBoardId).with(fromTestIp())).andReturn().getResponse().getContentAsString();
+        String detail = mockMvc.perform(get("/main/boards/board-{b}/posts/{id}", noticeBoardId, recent).with(fromTestIp()))
+                .andReturn().getResponse().getContentAsString();
 
         assertThat(list).contains("공지 안내").contains("운영팀").contains("조회 9");
-        assertThat(count(list, "notice-new-badge")).isEqualTo(1);
-        assertThat(count(list, "notice-list-item")).as("목록 크기 20 — 12건 모두").isEqualTo(12);
+        assertThat(count(list, "board-new-badge")).isEqualTo(1);
+        assertThat(count(list, "board-list-item")).as("목록 크기 20 — 12건 모두").isEqualTo(12);
         assertThat(detail).contains("운영팀").contains("조회 9").doesNotContain("bdp-secret-admin");
     }
 }

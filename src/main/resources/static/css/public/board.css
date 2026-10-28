@@ -228,7 +228,7 @@ body {
     text-decoration: none;
 }
 
-/* 공개 목록 제목 검색 (공지 CSS(notice.css)를 복사해 접두어만 바꾼 독립 파일 — PLAN-board.md 쟁점 10, ①-2에서 공지가 흡수되면 공통화를 판단한다) */
+/* 공개 목록 제목 검색 (공지도 이 화면을 쓴다 — 공지 전용 notice.css는 PLAN-board-definition.md PR 4b에서 제거) */
 .board-search {
     display: flex;
     align-items: center;

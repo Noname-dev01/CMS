@@ -1,4 +1,4 @@
-package com.cms.publicweb.notice.service;
+package com.cms.publicweb.board.service;
 
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.Post;
@@ -39,13 +39,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 공개 첨부 다운로드의 TOCTOU 재검증·IDOR 차단·StorageFileNotFoundException 경로를 실제 MariaDB로 검증한다(PLAN-public-notice-attachment.md
- * 결정 2). 공지는 이제 공지 게시판(V2가 시드한 {@code board_key='NOTICE'})의 게시글이다 — 같은 공개 계약을 {@link PublicNoticeService}로 확인한다.
+ * 결정 2). 공지는 이제 공지 게시판(V2가 시드한 {@code board_key='NOTICE'})의 게시글이다 — 같은 공개 계약을 공지 게시판 id로 {@link PublicBoardService}에서 확인한다(PLAN-board-definition.md PR 4b에서 공지 어댑터가 사라져 옮겨 옴).
  * 각 시나리오는 독립된 게시글을 사용한다(같은 fixture를 재사용하면 한 시나리오의 상태 변경이 다른 시나리오의 분기를 가려버릴 수 있다).
  *
  * <p>Testcontainers가 띄우는 일회용 MariaDB로 실행된다 — Docker만 있으면 된다({@link MariaDbContainerSupport}).
  */
 @SpringBootTest(classes = CmsTestApplication.class)
-class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
+class PublicBoardAttachmentIntegrationTest extends MariaDbContainerSupport {
 
     @Autowired
     BoardRepository boardRepository;
@@ -60,7 +60,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
     PostAttachmentService postAttachmentService;
 
     @Autowired
-    PublicNoticeService publicNoticeService;
+    PublicBoardService publicBoardService;
 
     @Autowired
     FileStorage fileStorage;
@@ -134,8 +134,8 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
 
     /** 컨트롤러와 같은 2단계 호출: 공개 조건 재검증(트랜잭션) → 파일 open(트랜잭션 밖). */
     private Optional<PublicPostAttachmentDownload> download(Long noticeId, Long attachmentId) {
-        return publicNoticeService.findPublishedAttachment(Site.DEFAULT_PUBLIC_SITE_ID, noticeId, attachmentId)
-                .flatMap(publicNoticeService::openAttachment);
+        return publicBoardService.findPublishedAttachment(Site.DEFAULT_PUBLIC_SITE_ID, noticeBoardId(), noticeId, attachmentId)
+                .flatMap(publicBoardService::openAttachment);
     }
 
     // ===================== 1. 다운로드 성공 =====================
@@ -192,7 +192,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("다른 게시판의 게시글 ID는 /notices 경로로 접근할 수 없다 — 공지 게시판 소속 조건(같은 404)")
+    @DisplayName("다른 게시판의 게시글 ID는 공지 게시판 경로로 접근할 수 없다 — 게시판 소속 조건(같은 404)")
     void downloadPublishedAttachment_postOfOtherBoard_empty() {
         Board other = boardRepository.save(Board.builder().name("다른 게시판").publicYn(true).attachmentYn(true).deleted(false).build());
         Post foreign = postRepository.save(Post.builder()
@@ -204,7 +204,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
         PostAttachment attachment = postAttachmentRepository.findById(response.getId()).orElseThrow();
         createdStorageKeys.add(attachment.getStorageKey());
         try {
-            assertTrue(publicNoticeService.findPublishedNotice(Site.DEFAULT_PUBLIC_SITE_ID, foreign.getId()).isEmpty());
+            assertTrue(publicBoardService.findPublishedPost(Site.DEFAULT_PUBLIC_SITE_ID, noticeBoardId(), foreign.getId()).isEmpty());
             assertTrue(download(foreign.getId(), attachment.getId()).isEmpty());
         } finally {
             postAttachmentRepository.deleteById(attachment.getId());

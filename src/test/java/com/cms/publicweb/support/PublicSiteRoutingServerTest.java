@@ -3,7 +3,6 @@ package com.cms.publicweb.support;
 import com.cms.publicweb.board.service.PublicBoardService;
 import com.cms.publicweb.faq.PublicFaqService;
 import com.cms.publicweb.home.PublicHomeService;
-import com.cms.publicweb.notice.service.PublicNoticeService;
 import com.cms.publicweb.page.PublicSitePageService;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
@@ -37,7 +36,6 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
     @LocalServerPort int port;
     @Autowired JdbcTemplate jdbc;
 
-    @MockitoSpyBean PublicNoticeService publicNoticeService;
     @MockitoSpyBean PublicBoardService publicBoardService;
     @MockitoSpyBean PublicFaqService publicFaqService;
     @MockitoSpyBean PublicSitePageService publicSitePageService;
@@ -48,7 +46,7 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
     @BeforeEach
     void setUp() {
         cleanSites();
-        Mockito.clearInvocations(publicNoticeService, publicBoardService, publicFaqService, publicSitePageService, publicHomeService);
+        Mockito.clearInvocations(publicBoardService, publicFaqService, publicSitePageService, publicHomeService);
     }
 
     @AfterEach
@@ -70,7 +68,7 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("없는·비활성·형식 위반·예약어 사이트와 옛 URL은 같은 404 화면이다 (GET, 로그인 302·JSON 아님)")
+    @DisplayName("없는·비활성·형식 위반·예약어 사이트, 옛 URL, 사라진 공지 상세·첨부 경로는 같은 404 화면이다 (GET, 로그인 302·JSON 아님)")
     void rejectedSitesRenderTheSameNotFoundScreen() throws Exception {
         jdbc.update("INSERT INTO site (site_key, site_name, site_type, allow_external_link, use_yn, default_yn) VALUES ('offsite', '꺼진 사이트', 'PUBLIC', 0, 0, 0)");
         jdbc.update("INSERT INTO site (site_key, site_name, site_type, allow_external_link, use_yn, default_yn) VALUES ('opsadmin', '관리 타입', 'ADMIN', 0, 1, 0)");
@@ -79,7 +77,9 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
         assertThat(reference).as("기준 404 화면").isNotBlank();
 
         for (String path : List.of("/nosuch", "/nosuch/notices", "/nosuch/boards/1", "/nosuch/pages/terms", "/nosuch/faq", "/nosuch/inquiry",
-                "/MAIN", "/MAIN/faq", "/a_b/notices", "/offsite", "/offsite/faq", "/opsadmin", "/opsadmin/notices", "/notices", "/boards", "/faq")) {
+                "/MAIN", "/MAIN/faq", "/a_b/notices", "/offsite", "/offsite/faq", "/opsadmin", "/opsadmin/notices", "/notices", "/boards", "/faq",
+                // 공지 상세·첨부 경로는 사라졌다(PLAN-board-definition.md PR 4b) — 유효한 사이트에서도 핸들러 없는 같은 404 화면
+                "/main/notices/1", "/main/notices/1/attachments/1", "/main/notices/x")) {
             HttpResponse<String> response = send("GET", path);
             assertThat(response.statusCode()).as(path).isEqualTo(404);
             assertThat(response.headers().firstValue("Location")).as(path).isEmpty();
@@ -111,7 +111,8 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("HEAD는 같은 판정이고 본문이 없다 — 첨부 다운로드 HEAD도 거부된 사이트에서는 404")
     void headRequests() throws Exception {
-        for (String path : List.of("/nosuch", "/nosuch/notices/1/attachments/1", "/nosuch/boards/1/posts/2/attachments/3", "/MAIN/faq")) {
+        for (String path : List.of("/nosuch", "/nosuch/notices/1/attachments/1", "/nosuch/boards/1/posts/2/attachments/3", "/MAIN/faq",
+                "/main/notices/1", "/main/notices/1/attachments/1")) {
             HttpResponse<String> response = send("HEAD", path);
             assertThat(response.statusCode()).as(path).isEqualTo(404);
             assertThat(response.body()).as(path).isEmpty();
@@ -128,7 +129,7 @@ class PublicSiteRoutingServerTest extends MariaDbContainerSupport {
                 "/nosuch/pages/terms", "/nosuch/faq", "/MAIN", "/MAIN/notices", "/notices/1")) {
             send("GET", path);
         }
-        Mockito.verifyNoInteractions(publicNoticeService, publicBoardService, publicFaqService, publicSitePageService, publicHomeService);
+        Mockito.verifyNoInteractions(publicBoardService, publicFaqService, publicSitePageService, publicHomeService);
 
         send("GET", "/main");
         send("GET", "/main/faq");

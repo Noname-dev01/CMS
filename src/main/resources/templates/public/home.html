@@ -37,7 +37,7 @@
             </h2>
             <ul class="home-post-list">
                 <li class="home-post-item" th:each="post : ${home.notices}">
-                    <a th:href="@{|${sitePrefix}/notices/{id}|(id=${post.id})}">
+                    <a th:href="@{|${sitePrefix}/boards/{board}/posts/{postId}|(board=${post.boardSlug}, postId=${post.id})}">
                         <span class="home-post-title" th:text="${post.title}"></span>
                         <span class="home-post-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
                     </a>

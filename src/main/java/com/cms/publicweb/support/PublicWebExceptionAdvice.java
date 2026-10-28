@@ -40,6 +40,6 @@ public class PublicWebExceptionAdvice {
         }
         log.error("공개 페이지 처리 중 오류", e);
         response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-        return "public/notice/error";
+        return "public/error";
     }
 }

@@ -27,7 +27,7 @@ class PublicSiteMenuTemplateConventionTest {
 
     /** 사이트를 알 수 없는 공유 오류 뷰와 조각 파일 자체는 메뉴를 포함하지 않는다. */
     private static final List<Path> EXEMPT = List.of(
-            PUBLIC_TEMPLATES.resolve("notice/error.html"),
+            PUBLIC_TEMPLATES.resolve("error.html"),
             PUBLIC_TEMPLATES.resolve("fragments/home-popups.html"),
             FRAGMENT);
 

@@ -22,7 +22,7 @@ import java.util.Optional;
  * <p>{@code id}는 문자열로 받아 직접 파싱한다 — 비숫자·{@code Long} 범위 밖·없는 ID·비공개만 참조하는 이미지를 모두 같은 404로
  * 흡수해 존재 여부를 드러내지 않는다(공개 공지 첨부와 같은 정책). 응답은 저장된 이미지 형식 그대로 인라인({@code Content-Disposition}
  * 없음)이고 {@code nosniff}·{@code no-store}를 붙인다(캐시가 공개 상태 재검증을 우회하지 않게). 전송 중 실패 처리는
- * {@code PublicNoticeController} 첨부 다운로드와 같다(첫 청크 선읽기 → 미커밋이면 reset 후 재던짐).
+ * {@code PublicBoardController} 첨부 다운로드와 같다(첫 청크 선읽기 → 미커밋이면 reset 후 재던짐).
  */
 @Controller
 @RequestMapping("/content-images")
