@@ -45,6 +45,10 @@ public class BoardCreateRequest {
     @Schema(description = "관리 화면 표시 순서(0..9999, 작을수록 먼저, 같으면 id 순). 누락 = 0", example = "0")
     private Integer sortOrder;
 
+    @Schema(description = "공개 주소 슬러그(소문자·숫자·하이픈 2~50자, 숫자만·board-{숫자} 불가). 누락·공백 = 기본 슬러그 board-{id}(나중에 한 번 바꿀 수 있다)",
+            example = "press")
+    private String slug;
+
     // 표시 설정은 모두 선택이다(누락 = 현행 동작). 길이 상한은 앞뒤 공백을 정리한 뒤 서비스가 검사한다 — 정리 전 길이로 막지 않게 @Size를 두지 않는다.
     @Schema(description = "공개 목록 머리의 설명(평문, 정리 후 500자 이하). 누락·공백 = 없음", example = "보도자료를 올립니다.")
     private String description;

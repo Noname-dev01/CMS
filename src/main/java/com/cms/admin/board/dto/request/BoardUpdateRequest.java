@@ -40,6 +40,10 @@ public class BoardUpdateRequest {
     @Schema(description = "관리 화면 표시 순서 0..9999 (null이면 유지)", example = "10")
     private Integer sortOrder;
 
+    @Schema(description = "공개 주소 슬러그 (null이면 유지). 기본 슬러그 board-{id}인 게시판만 한 번 바꿀 수 있고 이후 불변 — 옛 주소는 새 주소로 301",
+            example = "press")
+    private String slug;
+
     // 지울 수 있는 문자열(설명·작성자 표시명): 누락·null = 유지, "" 또는 공백만 = 삭제. 길이는 정리 후 서비스가 검사한다(@Size 없음 — 정리 전 길이로 막지 않게).
     @Schema(description = "공개 목록 머리의 설명 (null이면 유지, 빈 문자열이면 삭제, 정리 후 500자 이하)", example = "보도자료를 올립니다.")
     private String description;

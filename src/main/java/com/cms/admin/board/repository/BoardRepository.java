@@ -63,6 +63,17 @@ public interface BoardRepository extends JpaRepository<Board, Long> {
             + " and (b.siteId is null or b.siteId = :siteId)")
     Optional<Board> findPublicById(@Param("id") Long id, @Param("siteId") Long siteId);
 
+    /**
+     * 사용자 슬러그로 찾는 공개 조회 — 조건은 {@link #findPublicById}와 같다(PLAN-board-definition.md PR 4a D4). 호출자는 {@code BoardSlug.isAssignable}로
+     * 형식을 먼저 확인한다(컬럼 정렬이 대소문자를 구분하지 않는다).
+     */
+    @Query("select b from Board b where b.slug = :slug and b.deleted = false and b.publicYn = true"
+            + " and (b.siteId is null or b.siteId = :siteId)")
+    Optional<Board> findPublicBySlug(@Param("slug") String slug, @Param("siteId") Long siteId);
+
+    /** 슬러그 중복 사전 검사 — 삭제된 게시판도 센다(한 번 쓴 슬러그는 영구 예약). */
+    boolean existsBySlug(String slug);
+
     /** 사이트 삭제 가드용(PR ④) — 그 사이트 소속 게시판 행이 있는가(삭제된 행 포함 — FK RESTRICT와 같은 범위). */
     boolean existsBySiteId(Long siteId);
 

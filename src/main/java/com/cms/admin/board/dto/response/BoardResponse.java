@@ -51,6 +51,10 @@ public class BoardResponse {
     private Boolean bodyImageYn;
     @Schema(description = "예약 게시 허용 여부")
     private Boolean publishPeriodYn;
+    @Schema(description = "현재 공개 주소 슬러그 — 공개 주소는 /{사이트 키}/boards/{slug}")
+    private String slug;
+    @Schema(description = "슬러그를 바꿀 수 있는가(기본 슬러그 board-{id}일 때만 한 번)")
+    private Boolean slugChangeable;
     @Schema(description = "게시판 변경 버전 — 수정·삭제 요청에 그대로 보낸다")
     private Integer version;
     private LocalDateTime createDate;
@@ -77,6 +81,8 @@ public class BoardResponse {
                 .attachExtensions(board.getAttachExtensions() == null ? null : List.copyOf(new TreeSet<>(board.attachExtensionSet())))
                 .bodyImageYn(board.getBodyImageYn())
                 .publishPeriodYn(board.getPublishPeriodYn())
+                .slug(board.publicSlug())
+                .slugChangeable(board.isSlugChangeable())
                 .version(board.getVersion())
                 .createDate(board.getCreateDate())
                 .updateDate(board.getUpdateDate())

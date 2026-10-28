@@ -51,10 +51,10 @@
                                 <div class="table-responsive">
                                     <table class="table table-bordered table-hover mb-0">
                                         <thead class="thead-light">
-                                        <tr><th>#</th><th>순서</th><th>이름</th><th>표시 대상</th><th>공개</th><th>첨부</th><th>사용</th><th>목록 크기</th><th>수정일</th></tr>
+                                        <tr><th>#</th><th>순서</th><th>이름</th><th>주소</th><th>표시 대상</th><th>공개</th><th>첨부</th><th>사용</th><th>목록 크기</th><th>수정일</th></tr>
                                         </thead>
                                         <tbody id="boardList">
-                                        <tr><td colspan="9" class="text-muted">불러오는 중...</td></tr>
+                                        <tr><td colspan="10" class="text-muted">불러오는 중...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -90,6 +90,15 @@
                                     <div class="form-group">
                                         <label for="boardName">이름</label>
                                         <input type="text" class="form-control" id="boardName" maxlength="100" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="boardSlug">주소(슬러그)</label>
+                                        <div class="input-group">
+                                            <div class="input-group-prepend"><span class="input-group-text">/사이트/boards/</span></div>
+                                            <input type="text" class="form-control" id="boardSlug" maxlength="50" autocomplete="off" spellcheck="false"
+                                                   placeholder="비우면 board-번호" aria-describedby="boardSlugHint">
+                                        </div>
+                                        <small class="form-text text-muted" id="boardSlugHint">소문자·숫자·하이픈 2~50자(예: press). 비우면 board-번호이고, 나중에 한 번만 바꿀 수 있습니다.</small>
                                     </div>
                                     <div class="form-group">
                                         <label for="boardSortOrder">표시 순서</label>
@@ -236,6 +245,9 @@
     const boardForm = document.getElementById("boardForm");
     const formTitle = document.getElementById("formTitle");
     const boardName = document.getElementById("boardName");
+    const boardSlug = document.getElementById("boardSlug");
+    const boardSlugHint = document.getElementById("boardSlugHint");
+    const SLUG_HINT_CREATE = boardSlugHint.textContent;
     const boardPublic = document.getElementById("boardPublic");
     const boardAttachment = document.getElementById("boardAttachment");
     const boardWritable = document.getElementById("boardWritable");
@@ -371,7 +383,7 @@
         if (boards.length === 0) {
             const tr = document.createElement("tr");
             const cell = td("게시판이 없습니다.");
-            cell.colSpan = 9;
+            cell.colSpan = 10;
             cell.className = "text-muted";
             tr.appendChild(cell);
             boardList.appendChild(tr);
@@ -383,6 +395,7 @@
             tr.appendChild(td(String(board.id)));
             tr.appendChild(td(String(board.sortOrder == null ? 0 : board.sortOrder)));
             tr.appendChild(td(board.name));
+            tr.appendChild(td(board.slug));
             const scopeCell = document.createElement("td");
             scopeCell.appendChild(scope.badge(board.siteId));
             if (board.noticeBoard) {
@@ -426,6 +439,16 @@
         }
     }
 
+    // 오류 응답의 code(본문은 extractErrorMessage가 다시 읽을 수 있게 복제본으로 읽는다). 읽지 못하면 null.
+    async function errorCode(response) {
+        try {
+            const body = await response.clone().json();
+            return body && body.code ? body.code : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     // 게시판 정의는 ADMIN 전용이라 권한 분기가 없다. 행 클릭은 수정 모달을 연다.
     function startEdit(board) {
         if (modalState !== "closed" || saving) {
@@ -438,6 +461,12 @@
         boardPublic.checked = !!board.publicYn;
         boardAttachment.checked = !!board.attachmentYn;
         fillDisplay(board);
+        // 기본 슬러그(board-번호)일 때만 한 번 바꿀 수 있다 — 바꾼 뒤에는 읽기 전용
+        boardSlug.value = board.slug || "";
+        boardSlug.readOnly = !board.slugChangeable;
+        boardSlugHint.textContent = board.slugChangeable
+            ? "지금은 기본 주소입니다. 한 번만 바꿀 수 있고, 바꾸면 이전 주소 board-" + board.id + "은 새 주소로 자동 이동합니다."
+            : "한 번 바꾼 주소는 다시 바꿀 수 없습니다. 이전 주소 board-" + board.id + "은 이 주소로 자동 이동합니다.";
         scope.set(board.siteId);
         boardNotice.checked = false;
         boardNoticeGroup.classList.add("d-none");           // 공지 게시판 만들기는 생성 모드에서만
@@ -475,6 +504,9 @@
         boardPublic.checked = true;
         boardAttachment.checked = true;
         fillDisplay(null);
+        boardSlug.value = "";
+        boardSlug.readOnly = false;
+        boardSlugHint.textContent = SLUG_HINT_CREATE;
         scope.reset();
         boardNotice.checked = false;
         boardNoticeGroup.classList.remove("d-none");
@@ -508,7 +540,7 @@
     // 저장 중에는 입력·작성 대상 전환을 잠가 응답 반영 시 초안이 덮어써지지 않게 한다
     function setSaving(value) {
         saving = value;
-        [boardName, boardPublic, boardAttachment, boardWritable, boardDescription, boardAuthorLabel, boardListPageSize,
+        [boardName, boardSlug, boardPublic, boardAttachment, boardWritable, boardDescription, boardAuthorLabel, boardListPageSize,
             boardNewBadgeDays, boardShowViewCount, boardSortOrder, boardPinMaxCount, boardAttachMaxCount, boardAttachMaxSizeMb, boardBodyImage, boardPublishPeriod]
             .concat(boardExtensionChecks)
             .concat([btnSave, btnNew, btnDelete, btnModalClose, btnModalCloseX]).forEach(function (el) { el.disabled = value; });
@@ -563,6 +595,11 @@
         if (target) {
             payload.version = target.version;               // 편집 시작 시점의 버전 — 낡은 화면이면 서버가 409로 거른다
         }
+        // 슬러그는 생성에서 입력했을 때, 수정에서는 바꿀 수 있는 게시판의 값을 실제로 바꿨을 때만 보낸다(비우면 기본 주소 유지)
+        const slug = boardSlug.value.trim();
+        if (slug && (!target || (target.slugChangeable && slug !== target.slug))) {
+            payload.slug = slug;
+        }
         if (!target) {
             payload.siteScope = scope.value();
             payload.noticeBoard = boardNotice.checked;
@@ -597,6 +634,9 @@
                 showPageError(await extractErrorMessage(response, "게시판을 찾을 수 없습니다."));
                 closeModal();
                 await loadList();
+            } else if (response.status === 409 && target && await errorCode(response) === "DUPLICATE_RESOURCE") {
+                // 슬러그 중복 — 낡은 화면이 아니므로 모달을 열어 둔 채 다른 주소를 고르게 한다
+                showError(await extractErrorMessage(response, "이미 쓰였거나 예약된 주소입니다."));
             } else if (response.status === 409 && target) {
                 // 다른 관리자가 먼저 수정했다 — 낡은 입력으로 덮어쓰지 않도록 모달을 닫고 안내한 뒤 최신 값을 다시 읽는다
                 showPageError(await extractErrorMessage(response, "다른 관리자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요."));
