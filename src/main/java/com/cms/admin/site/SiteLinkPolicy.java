@@ -1,6 +1,7 @@
 package com.cms.admin.site;
 
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.web.BoardLinkPaths;
 import com.cms.common.web.PrivatePaths;
 import com.cms.common.web.SafeUrls;
 import org.springframework.beans.factory.annotation.Value;
@@ -87,6 +88,10 @@ public class SiteLinkPolicy {
     private String internalPathViolation(Site site, String path) {
         if (site.getSiteType() == SiteType.PUBLIC && isPrivatePath(path)) {
             return "공개 사이트 메뉴에는 관리·내부 경로를 사용할 수 없습니다.";
+        }
+        // 숫자 게시판 경로는 언제나 404다 — 출력 재검증(permits)도 같은 규칙이라 남은 행은 링크 없는 라벨이 된다(PLAN-board-definition.md PR 4a D5)
+        if (BoardLinkPaths.isNumericBoardPath(path)) {
+            return "게시판 주소는 슬러그 주소(예: /main/boards/board-12)를 쓰세요.";
         }
         return null;
     }
