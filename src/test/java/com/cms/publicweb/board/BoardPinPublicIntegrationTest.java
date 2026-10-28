@@ -93,7 +93,7 @@ class BoardPinPublicIntegrationTest extends MariaDbContainerSupport {
     }
 
     private String boardList(long boardId, String... params) throws Exception {
-        var request = get("/main/boards/{id}", boardId).with(fromTestIp());
+        var request = get("/main/boards/board-{id}", boardId).with(fromTestIp());
         for (int i = 0; i < params.length; i += 2) {
             request = request.param(params[i], params[i + 1]);
         }

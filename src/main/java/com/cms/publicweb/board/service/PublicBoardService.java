@@ -1,6 +1,7 @@
 package com.cms.publicweb.board.service;
 
 import com.cms.admin.board.domain.Board;
+import com.cms.admin.board.domain.BoardSlug;
 import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
@@ -10,6 +11,7 @@ import com.cms.publicweb.support.PublicSite;
 import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.board.dto.PublicBoardListResult;
+import com.cms.publicweb.board.dto.PublicBoardRoute;
 import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
 import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
 import com.cms.publicweb.board.dto.PublicPostDetail;
@@ -56,6 +58,30 @@ public class PublicBoardService {
     private final PostAttachmentRepository postAttachmentRepository;
     private final FileStorage fileStorage;
     private final Clock clock;
+
+    /**
+     * 공개 경로의 게시판 세그먼트 해석(PR 4a D4) — 기본 슬러그 {@code board-{id}} → 사용자 슬러그 형식 → 그 밖은 404 순서. 형식 검사를 DB 조회보다
+     * 먼저 한다(컬럼 정렬이 대소문자를 구분하지 않는다). 공개 조건은 id·슬러그 두 조회가 같다 — 비공개·삭제·다른 사이트 게시판의 기본 슬러그는
+     * 301 없이 404라 새 슬러그가 {@code Location}으로 새지 않는다. 숫자 id 세그먼트({@code 12})는 어느 형식도 아니라 404다(완전 교체).
+     */
+    @Transactional(readOnly = true)
+    public PublicBoardRoute resolveBoard(Long siteId, String segment) {
+        Long requiredSiteId = PublicSite.requireId(siteId);
+        Long defaultId = BoardSlug.parseDefault(segment);
+        if (defaultId != null) {
+            return boardRepository.findPublicById(defaultId, requiredSiteId)
+                    .<PublicBoardRoute>map(board -> board.isSlugChangeable()
+                            ? new PublicBoardRoute.Found(board.getId())
+                            : new PublicBoardRoute.Moved(board.getSlug()))
+                    .orElseGet(PublicBoardRoute.NotFound::new);
+        }
+        if (BoardSlug.isAssignable(segment)) {
+            return boardRepository.findPublicBySlug(segment, requiredSiteId)
+                    .<PublicBoardRoute>map(board -> new PublicBoardRoute.Found(board.getId()))
+                    .orElseGet(PublicBoardRoute.NotFound::new);
+        }
+        return new PublicBoardRoute.NotFound();
+    }
 
     /**
      * 공개 목록. 공개 게시판이 아니면 empty. {@code rawKeyword}가 비어 있으면(공백만 포함) 전체 목록, 있으면 제목 검색이며 앞뒤 공백을 제거한다.
@@ -133,7 +159,7 @@ public class PublicBoardService {
     }
 
     private static PublicBoardListResult result(Board board, List<PublicPostSummary> pinned, Page<PublicPostSummary> page, String keyword) {
-        return new PublicBoardListResult(board.getId(), board.getName(), board.getDescription(), board.getAuthorLabel(), pinned, page, keyword);
+        return new PublicBoardListResult(board.getId(), board.publicSlug(), board.getName(), board.getDescription(), board.getAuthorLabel(), pinned, page, keyword);
     }
 
     private static int normalizePage(int page, int pageSize) {

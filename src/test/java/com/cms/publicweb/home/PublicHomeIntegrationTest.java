@@ -92,7 +92,7 @@ class PublicHomeIntegrationTest extends MariaDbContainerSupport {
         String html = home();
 
         assertThat(html).contains("href=\"/main/notices/" + noticePost + "\"").contains("home-test-공지");
-        assertThat(html).contains("href=\"/main/boards/" + other + "/posts/" + otherPost + "\"").contains("home-test-자료실").contains("home-test-자료글");
+        assertThat(html).contains("href=\"/main/boards/board-" + other + "/posts/" + otherPost + "\"").contains("home-test-자료실").contains("home-test-자료글");
         assertThat(html.split("home-test-공지", -1).length - 1).as("공지 글은 공지 섹션에만").isEqualTo(1);
     }
 

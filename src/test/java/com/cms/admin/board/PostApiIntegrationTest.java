@@ -409,9 +409,9 @@ class PostApiIntegrationTest extends MariaDbContainerSupport {
             assertThat(list.get("content").get(0).get("updaterId").asString()).isEqualTo(editor.getUserId());
 
             // 공개 목록·상세에는 수정자 userId가 나가지 않는다(로그인 ID 비공개)
-            String publicList = mockMvc.perform(get("/main/boards/{b}", boardId).with(publicClient("10.79.0.1")))
+            String publicList = mockMvc.perform(get("/main/boards/board-{b}", boardId).with(publicClient("10.79.0.1")))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
-            String publicDetail = mockMvc.perform(get("/main/boards/{b}/posts/{p}", boardId, postId).with(publicClient("10.79.0.2")))
+            String publicDetail = mockMvc.perform(get("/main/boards/board-{b}/posts/{p}", boardId, postId).with(publicClient("10.79.0.2")))
                     .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
             assertThat(publicList).contains("수정된 제목").doesNotContain(editor.getUserId());
             assertThat(publicDetail).contains("수정된 제목").doesNotContain(editor.getUserId()).doesNotContain(admin.getUserId());

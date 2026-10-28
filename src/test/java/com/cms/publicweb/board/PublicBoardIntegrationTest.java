@@ -199,7 +199,7 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
         insertPost(board, "삭제글", "<p>d</p>", true, true, now);
         insertPost(other, "남의글", "<p>e</p>", true, false, now);
 
-        MvcResult result = mockMvc.perform(get("/main/boards/{id}", board).with(fromTestIp())).andExpect(status().isOk()).andReturn();
+        MvcResult result = mockMvc.perform(get("/main/boards/board-{id}", board).with(fromTestIp())).andExpect(status().isOk()).andReturn();
 
         String html = body(result);
         assertThat(html).contains("공개자료실", "오래된글", "최신글");
@@ -219,13 +219,13 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
             insertPost(board, "숨김" + i, "<p>x</p>", false, false, now);
         }
 
-        String first = body(mockMvc.perform(get("/main/boards/{id}", board).with(fromTestIp())).andReturn());
+        String first = body(mockMvc.perform(get("/main/boards/board-{id}", board).with(fromTestIp())).andReturn());
         assertThat(first).contains("1 / 2").doesNotContain("숨김");
-        String second = body(mockMvc.perform(get("/main/boards/{id}", board).param("page", "1").with(fromTestIp())).andReturn());
+        String second = body(mockMvc.perform(get("/main/boards/board-{id}", board).param("page", "1").with(fromTestIp())).andReturn());
         assertThat(second).contains("2 / 2").contains("공개10").doesNotContain("숨김");
         // 비숫자·음수·범위 밖 page는 0으로 흡수된다
-        assertThat(body(mockMvc.perform(get("/main/boards/{id}", board).param("page", "abc").with(fromTestIp())).andReturn())).contains("1 / 2");
-        assertThat(body(mockMvc.perform(get("/main/boards/{id}", board).param("page", "-3").with(fromTestIp())).andReturn())).contains("1 / 2");
+        assertThat(body(mockMvc.perform(get("/main/boards/board-{id}", board).param("page", "abc").with(fromTestIp())).andReturn())).contains("1 / 2");
+        assertThat(body(mockMvc.perform(get("/main/boards/board-{id}", board).param("page", "-3").with(fromTestIp())).andReturn())).contains("1 / 2");
     }
 
     @Test
@@ -236,11 +236,11 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
         insertPost(board, "숨김 보고서", false, false);
         insertPost(board, "다른 글", true, false);
 
-        String found = body(mockMvc.perform(get("/main/boards/{id}", board).param("keyword", "보고서").with(fromTestIp())).andReturn());
+        String found = body(mockMvc.perform(get("/main/boards/board-{id}", board).param("keyword", "보고서").with(fromTestIp())).andReturn());
         assertThat(found).contains("공개 보고서").doesNotContain("숨김 보고서", "다른 글");
-        String none = body(mockMvc.perform(get("/main/boards/{id}", board).param("keyword", "가".repeat(101)).with(fromTestIp())).andReturn());
+        String none = body(mockMvc.perform(get("/main/boards/board-{id}", board).param("keyword", "가".repeat(101)).with(fromTestIp())).andReturn());
         assertThat(none).contains("검색 결과가 없습니다");
-        String hiddenOnly = body(mockMvc.perform(get("/main/boards/{id}", board).param("keyword", "숨김").with(fromTestIp())).andReturn());
+        String hiddenOnly = body(mockMvc.perform(get("/main/boards/board-{id}", board).param("keyword", "숨김").with(fromTestIp())).andReturn());
         assertThat(hiddenOnly).contains("검색 결과가 없습니다").doesNotContain("1 / ");
     }
 
@@ -253,7 +253,7 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
         insertPost(deletedBoard, "삭제게시판글", true, false);
 
         for (String id : new String[]{String.valueOf(privateBoard), String.valueOf(deletedBoard), String.valueOf(Long.MAX_VALUE), "abc", "-1", "0"}) {
-            MvcResult result = mockMvc.perform(get("/main/boards/{id}", id).with(fromTestIp())).andExpect(status().isNotFound()).andReturn();
+            MvcResult result = mockMvc.perform(get("/main/boards/board-{id}", id).with(fromTestIp())).andExpect(status().isNotFound()).andReturn();
             assertThat(body(result)).doesNotContain("비공개글", "삭제게시판글");
         }
     }
@@ -266,7 +266,7 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
         long board = insertBoard("<b>게시판</b>", true, false);
         long post = insertPost(board, "<script>alert(1)</script>제목", "<p>안전<script>alert(2)</script></p>", true, false, LocalDateTime.now());
 
-        MvcResult result = mockMvc.perform(get("/main/boards/{b}/posts/{p}", board, post).with(fromTestIp())).andExpect(status().isOk()).andReturn();
+        MvcResult result = mockMvc.perform(get("/main/boards/board-{b}/posts/{p}", board, post).with(fromTestIp())).andExpect(status().isOk()).andReturn();
 
         String html = body(result);
         assertThat(html).contains("안전");
@@ -288,7 +288,7 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
         long inPrivate = insertPost(privateBoard, "비공개게시판글", true, false);
         long inDeletedBoard = insertPost(deletedBoard, "삭제게시판글", true, false);
 
-        mockMvc.perform(get("/main/boards/{b}/posts/{p}", board, visible).with(fromTestIp())).andExpect(status().isOk());
+        mockMvc.perform(get("/main/boards/board-{b}/posts/{p}", board, visible).with(fromTestIp())).andExpect(status().isOk());
         String[][] cases = {
                 {String.valueOf(board), String.valueOf(hidden)},
                 {String.valueOf(board), String.valueOf(deleted)},
@@ -300,7 +300,7 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
                 {"abc", String.valueOf(visible)},
         };
         for (String[] c : cases) {
-            MvcResult result = mockMvc.perform(get("/main/boards/{b}/posts/{p}", c[0], c[1]).with(fromTestIp())).andExpect(status().isNotFound()).andReturn();
+            MvcResult result = mockMvc.perform(get("/main/boards/board-{b}/posts/{p}", c[0], c[1]).with(fromTestIp())).andExpect(status().isNotFound()).andReturn();
             assertThat(body(result)).doesNotContain("숨김글", "삭제글", "비공개게시판글", "삭제게시판글");
         }
     }
@@ -316,7 +316,7 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
         long attachment = insertAttachment(post, "보고서.pdf", bytes);
         String key = jdbc.queryForObject("SELECT storage_key FROM post_attachment WHERE id = ?", String.class, attachment);
 
-        MvcResult get = mockMvc.perform(get("/main/boards/{b}/posts/{p}/attachments/{a}", board, post, attachment).with(fromTestIp()))
+        MvcResult get = mockMvc.perform(get("/main/boards/board-{b}/posts/{p}/attachments/{a}", board, post, attachment).with(fromTestIp()))
                 .andExpect(status().isOk()).andReturn();
         assertThat(get.getResponse().getContentAsByteArray()).isEqualTo(bytes);
         assertThat(get.getResponse().getContentType()).isEqualTo("application/octet-stream");
@@ -325,12 +325,12 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
         assertThat(get.getResponse().getHeader("Cache-Control")).isEqualTo("no-store");
         assertThat(get.getResponse().getContentLengthLong()).isEqualTo(bytes.length);
 
-        MvcResult head = mockMvc.perform(head("/main/boards/{b}/posts/{p}/attachments/{a}", board, post, attachment).with(fromTestIp()))
+        MvcResult head = mockMvc.perform(head("/main/boards/board-{b}/posts/{p}/attachments/{a}", board, post, attachment).with(fromTestIp()))
                 .andExpect(status().isOk()).andReturn();
         assertThat(head.getResponse().getContentAsByteArray()).isEmpty();
         assertThat(head.getResponse().getContentLengthLong()).isEqualTo(bytes.length);
 
-        String detail = body(mockMvc.perform(get("/main/boards/{b}/posts/{p}", board, post).with(fromTestIp())).andReturn());
+        String detail = body(mockMvc.perform(get("/main/boards/board-{b}/posts/{p}", board, post).with(fromTestIp())).andReturn());
         assertThat(detail).contains("보고서.pdf").doesNotContain(key);
     }
 
@@ -357,7 +357,7 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
         long missingFile = insertAttachment(visiblePost, "g.pdf", bytes);
         fileStorage.delete(jdbc.queryForObject("SELECT storage_key FROM post_attachment WHERE id = ?", String.class, missingFile));
 
-        mockMvc.perform(get("/main/boards/{b}/posts/{p}/attachments/{a}", board, visiblePost, ofVisible).with(fromTestIp())).andExpect(status().isOk());
+        mockMvc.perform(get("/main/boards/board-{b}/posts/{p}/attachments/{a}", board, visiblePost, ofVisible).with(fromTestIp())).andExpect(status().isOk());
         long[][] cases = {
                 {board, hiddenPost, ofHidden},
                 {board, deletedPost, ofDeleted},
@@ -369,10 +369,10 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
                 {board, visiblePost, missingFile},            // DB 행은 있으나 파일이 사라짐
         };
         for (long[] c : cases) {
-            mockMvc.perform(get("/main/boards/{b}/posts/{p}/attachments/{a}", c[0], c[1], c[2]).with(fromTestIp())).andExpect(status().isNotFound());
-            mockMvc.perform(head("/main/boards/{b}/posts/{p}/attachments/{a}", c[0], c[1], c[2]).with(fromTestIp())).andExpect(status().isNotFound());
+            mockMvc.perform(get("/main/boards/board-{b}/posts/{p}/attachments/{a}", c[0], c[1], c[2]).with(fromTestIp())).andExpect(status().isNotFound());
+            mockMvc.perform(head("/main/boards/board-{b}/posts/{p}/attachments/{a}", c[0], c[1], c[2]).with(fromTestIp())).andExpect(status().isNotFound());
         }
-        mockMvc.perform(get("/main/boards/{b}/posts/{p}/attachments/{a}", board, visiblePost, "abc").with(fromTestIp())).andExpect(status().isNotFound());
+        mockMvc.perform(get("/main/boards/board-{b}/posts/{p}/attachments/{a}", board, visiblePost, "abc").with(fromTestIp())).andExpect(status().isNotFound());
     }
 
     // ── 메서드 제한 ──────────────────────────────────────────────
@@ -382,8 +382,8 @@ class PublicBoardIntegrationTest extends MariaDbContainerSupport {
     void nonReadMethodsAreDenied() throws Exception {
         long board = insertBoard("공개", true, false);
 
-        mockMvc.perform(post("/main/boards/{id}", board).with(fromTestIp())).andExpect(status().isForbidden());
-        int withCsrf = mockMvc.perform(post("/main/boards/{id}", board).with(csrf()).with(fromTestIp())).andReturn().getResponse().getStatus();
+        mockMvc.perform(post("/main/boards/board-{id}", board).with(fromTestIp())).andExpect(status().isForbidden());
+        int withCsrf = mockMvc.perform(post("/main/boards/board-{id}", board).with(csrf()).with(fromTestIp())).andReturn().getResponse().getStatus();
         assertThat(withCsrf).as("익명 + denyAll은 로그인 리다이렉트(302), 인증 사용자는 403").isIn(302, 403);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM post WHERE board_id = ?", Long.class, board)).isZero();
     }

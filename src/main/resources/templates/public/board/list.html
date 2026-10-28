@@ -11,22 +11,22 @@
 <th:block th:replace="~{public/fragments/site-menu :: siteMenu}"></th:block>
 <div class="public-board-container">
     <div class="public-board-header">
-        <h1><a th:href="@{|${sitePrefix}/boards/{id}|(id=${boardId})}" th:text="${boardName}">게시판</a></h1>
+        <h1><a th:href="@{|${sitePrefix}/boards/{board}|(board=${boardSlug})}" th:text="${boardName}">게시판</a></h1>
     </div>
     <!--/* 설명은 평문이다 — th:text로만 출력하고 줄바꿈은 CSS(pre-line)가 보인다 */-->
     <p class="board-description" th:if="${description != null}" th:text="${description}"></p>
 
-    <form class="board-search" method="get" th:action="@{|${sitePrefix}/boards/{id}|(id=${boardId})}" role="search">
+    <form class="board-search" method="get" th:action="@{|${sitePrefix}/boards/{board}|(board=${boardSlug})}" role="search">
         <input type="search" name="keyword" maxlength="100" placeholder="제목으로 검색"
                aria-label="게시글 제목 검색" th:value="${keyword}">
         <button type="submit">검색</button>
-        <a class="board-search-reset" th:if="${keyword != null}" th:href="@{|${sitePrefix}/boards/{id}|(id=${boardId})}">전체 보기</a>
+        <a class="board-search-reset" th:if="${keyword != null}" th:href="@{|${sitePrefix}/boards/{board}|(board=${boardSlug})}">전체 보기</a>
     </form>
 
     <!--/* 상단 고정 영역 — 검색하지 않은 1페이지에서만 채워진다. 고정 글은 아래 일반 목록에도 그대로 나온다 */-->
     <ul class="board-list board-pinned-list" th:if="${not #lists.isEmpty(pinnedPosts)}" aria-label="상단 고정 글">
         <li class="board-list-item" th:each="post : ${pinnedPosts}">
-            <a th:href="@{|${sitePrefix}/boards/{boardId}/posts/{postId}|(boardId=${boardId}, postId=${post.id})}">
+            <a th:href="@{|${sitePrefix}/boards/{board}/posts/{postId}|(board=${boardSlug}, postId=${post.id})}">
                 <span class="board-title"><span class="board-pinned-badge">고정</span><span th:text="${post.title}"></span><span class="board-new-badge" th:if="${post.newBadge}">NEW</span></span>
                 <span class="board-meta-extra" th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
                 <span class="board-meta-extra" th:if="${post.viewCount != null}" th:text="|조회 ${post.viewCount}|"></span>
@@ -37,7 +37,7 @@
 
     <ul class="board-list" th:if="${not #lists.isEmpty(posts)}">
         <li class="board-list-item" th:each="post : ${posts}">
-            <a th:href="@{|${sitePrefix}/boards/{boardId}/posts/{postId}|(boardId=${boardId}, postId=${post.id})}">
+            <a th:href="@{|${sitePrefix}/boards/{board}/posts/{postId}|(board=${boardSlug}, postId=${post.id})}">
                 <span class="board-title"><span th:text="${post.title}"></span><span class="board-new-badge" th:if="${post.newBadge}">NEW</span></span>
                 <span class="board-meta-extra" th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
                 <span class="board-meta-extra" th:if="${post.viewCount != null}" th:text="|조회 ${post.viewCount}|"></span>
@@ -54,14 +54,14 @@
     <!-- 검색 중일 때만 keyword를 붙인다 — null 파라미터 렌더링에 기대지 않고 링크를 명시적으로 나눈다(공지 목록과 같은 방식) -->
     <div class="board-pagination" th:if="${totalPages > 1}">
         <th:block th:if="${hasPrevious}">
-            <a th:if="${keyword == null}" th:href="@{|${sitePrefix}/boards/{id}|(id=${boardId}, page=${page - 1})}">이전</a>
-            <a th:if="${keyword != null}" th:href="@{|${sitePrefix}/boards/{id}|(id=${boardId}, page=${page - 1}, keyword=${keyword})}">이전</a>
+            <a th:if="${keyword == null}" th:href="@{|${sitePrefix}/boards/{board}|(board=${boardSlug}, page=${page - 1})}">이전</a>
+            <a th:if="${keyword != null}" th:href="@{|${sitePrefix}/boards/{board}|(board=${boardSlug}, page=${page - 1}, keyword=${keyword})}">이전</a>
         </th:block>
         <span th:unless="${hasPrevious}" class="disabled">이전</span>
         <span th:text="${(page + 1) + ' / ' + totalPages}"></span>
         <th:block th:if="${hasNext}">
-            <a th:if="${keyword == null}" th:href="@{|${sitePrefix}/boards/{id}|(id=${boardId}, page=${page + 1})}">다음</a>
-            <a th:if="${keyword != null}" th:href="@{|${sitePrefix}/boards/{id}|(id=${boardId}, page=${page + 1}, keyword=${keyword})}">다음</a>
+            <a th:if="${keyword == null}" th:href="@{|${sitePrefix}/boards/{board}|(board=${boardSlug}, page=${page + 1})}">다음</a>
+            <a th:if="${keyword != null}" th:href="@{|${sitePrefix}/boards/{board}|(board=${boardSlug}, page=${page + 1}, keyword=${keyword})}">다음</a>
         </th:block>
         <span th:unless="${hasNext}" class="disabled">다음</span>
     </div>

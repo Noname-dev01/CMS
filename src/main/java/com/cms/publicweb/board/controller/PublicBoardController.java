@@ -3,12 +3,14 @@ package com.cms.publicweb.board.controller;
 import com.cms.publicweb.support.PublicSiteRoutes;
 import com.cms.publicweb.support.SiteScopedPublic;
 import com.cms.publicweb.board.dto.PublicBoardListResult;
+import com.cms.publicweb.board.dto.PublicBoardRoute;
 import com.cms.publicweb.board.dto.PublicPostAttachmentDownload;
 import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
 import com.cms.publicweb.board.dto.PublicPostDetail;
 import com.cms.publicweb.board.dto.PublicPostSummary;
 import com.cms.publicweb.board.service.PublicBoardService;
 import com.cms.admin.board.service.ContentCounterService;
+import com.cms.common.web.PathIds;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -34,14 +36,17 @@ import java.util.Optional;
  * 공개(비로그인) 게시판 목록·게시글 상세·첨부 다운로드. {@code @AdminPage}를 붙이지 않는다 — {@code publicweb}는 관리자 화면이 아니며, 붙이면
  * {@code AdminSidebarAdvice}가 공개 요청마다 메뉴 DB 조회를 날린다.
  *
- * <p>{@code boardId}·{@code postId}·{@code page}를 {@code Long}/{@code Integer}로 바인딩하지 않고 String으로 받아 직접 파싱한다 — Spring 바인딩에
+ * <p>게시판 세그먼트는 슬러그다(PLAN-board-definition.md PR 4a) — 기본 슬러그 {@code board-{id}} 또는 사용자 슬러그이고, 숫자 id 경로는 404, 슬러그를 바꾼 게시판의
+ * 옛 기본 슬러그는 새 슬러그로 301이다(해석은 {@link PublicBoardService#resolveBoard}).
+ *
+ * <p>{@code postId}·{@code attachmentId}·{@code page}를 {@code Long}/{@code Integer}로 바인딩하지 않고 String으로 받아 직접 파싱한다({@link PathIds}) — Spring 바인딩에
  * 맡기면 타입 변환 실패 시 컨트롤러 진입 전에 {@code MethodArgumentTypeMismatchException}이 발생하고, 이는 전역 {@code GlobalApiExceptionHandler}가
  * 잡아 JSON으로 응답해버린다(공지 공개 컨트롤러와 같은 이유). 이 컨트롤러의 책임은 "예외를 던지지 않는 것"뿐이며 값의 비즈니스 검증은
  * {@link PublicBoardService}가 담당한다.
  *
  * <p>{@code SecurityConfig}의 {@code /boards, /boards/**} GET/HEAD {@code permitAll}은 {@code /**}가 하위 세그먼트 전체를 포괄하므로, 이 컨트롤러에
  * 라우트를 추가하는 즉시 별도 인가 정책 변경 없이 무인증 공개가 된다 — 접근 통제는 전량 {@link PublicBoardService}의 공개 조건 재검증이 담당한다.
- * 비공개 게시판·삭제된 게시판·미노출·삭제 게시글·다른 게시판 소속 게시글·비숫자 ID는 모두 같은 404다(존재 여부 열거 방지).
+ * 비공개 게시판·삭제된 게시판·미노출·삭제 게시글·다른 게시판 소속 게시글·숫자 게시판 id·형식 위반 슬러그·비숫자 ID는 모두 같은 404다(존재 여부 열거 방지).
  */
 @Controller
 @SiteScopedPublic
@@ -59,30 +64,40 @@ public class PublicBoardController {
     private final ContentCounterService contentCounterService;
 
     /** {@code keyword}는 문자열 그대로 서비스에 넘긴다 — 정규화(공백 제거·길이 상한)는 서비스 책임이다. */
-    @GetMapping("/{boardId}")
-    public String list(@PathVariable String boardId,
+    @GetMapping("/{boardSlug}")
+    public String list(@PathVariable String boardSlug,
                        @RequestParam(defaultValue = "0") String page,
                        @RequestParam(required = false) String keyword,
                        Model model,
                        HttpServletRequest request,
                        HttpServletResponse response) {
-        Long parsedBoardId = parseId(boardId);
-        if (parsedBoardId == null) {
+        PublicBoardRoute route = publicBoardService.resolveBoard(siteId(request), boardSlug);
+        if (route instanceof PublicBoardRoute.Moved moved) {
+            return movedPermanently(request, response, moved.slug(), "");
+        }
+        if (!(route instanceof PublicBoardRoute.Found found)) {
             return notFound(response);
         }
-        return publicBoardService.getPublishedPosts(siteId(request), parsedBoardId, parsePageOrZero(page), keyword)
+        return publicBoardService.getPublishedPosts(siteId(request), found.boardId(), parsePageOrZero(page), keyword)
                 .map(result -> renderList(result, model))
                 .orElseGet(() -> notFound(response));
     }
 
-    @GetMapping("/{boardId}/posts/{postId}")
-    public String detail(@PathVariable String boardId, @PathVariable String postId, Model model,
+    @GetMapping("/{boardSlug}/posts/{postId}")
+    public String detail(@PathVariable String boardSlug, @PathVariable String postId, Model model,
                          HttpServletRequest request, HttpServletResponse response) {
-        Long parsedBoardId = parseId(boardId);
-        Long parsedPostId = parseId(postId);
-        if (parsedBoardId == null || parsedPostId == null) {
+        Long parsedPostId = PathIds.parse(postId);
+        if (parsedPostId == null) {
             return notFound(response);
         }
+        PublicBoardRoute route = publicBoardService.resolveBoard(siteId(request), boardSlug);
+        if (route instanceof PublicBoardRoute.Moved moved) {
+            return movedPermanently(request, response, moved.slug(), "/posts/" + parsedPostId);
+        }
+        if (!(route instanceof PublicBoardRoute.Found found)) {
+            return notFound(response);
+        }
+        Long parsedBoardId = found.boardId();
         return publicBoardService.findPublishedPost(siteId(request), parsedBoardId, parsedPostId)
                 .map(post -> {
                     countViewIfGet(parsedPostId, request);
@@ -99,19 +114,19 @@ public class PublicBoardController {
      * <p>파일은 힙에 통째로 올리지 않고 고정 크기 버퍼로 응답에 흘려보낸다. 열린 스트림은 이 메서드가 {@code try-with-resources}로 단독 소유·close한다.
      * 전송·close 중 실패의 응답 상태별 처리는 {@link #writeBody}·{@link #resetIfUncommitted} 참조.
      */
-    @GetMapping("/{boardId}/posts/{postId}/attachments/{attachmentId}")
-    public void attachment(@PathVariable String boardId,
+    @GetMapping("/{boardSlug}/posts/{postId}/attachments/{attachmentId}")
+    public void attachment(@PathVariable String boardSlug,
                            @PathVariable String postId,
                            @PathVariable String attachmentId,
                            HttpServletRequest request,
                            HttpServletResponse response) throws IOException {
-        Optional<PublicPostAttachmentDownload> download = openDownload(boardId, postId, attachmentId, request, response);
+        Optional<PublicPostAttachmentDownload> download = openDownload(boardSlug, postId, attachmentId, request, response);
         if (download.isEmpty()) {
             return;
         }
         try (PublicPostAttachmentDownload opened = download.get()) {
             // 파일 열기에 성공한 GET만 센다(HEAD 제외). 예외를 던지지 않으므로 아래 전송 실패 처리에 영향이 없다.
-            contentCounterService.recordDownload(parseId(attachmentId), request.getRemoteAddr());
+            contentCounterService.recordDownload(PathIds.parse(attachmentId), request.getRemoteAddr());
             writeBody(opened, response);
         } catch (IOException e) {
             resetIfUncommitted(response);
@@ -124,13 +139,13 @@ public class PublicBoardController {
      * 파일 핸들을 열어 크기만 얻은 뒤 곧바로 닫는다. 같은 경로에 명시 HEAD 매핑이 있으면 Spring은 {@code @GetMapping}의 암묵 HEAD 처리보다
      * 이 핸들러를 우선한다.
      */
-    @RequestMapping(value = "/{boardId}/posts/{postId}/attachments/{attachmentId}", method = RequestMethod.HEAD)
-    public void attachmentHead(@PathVariable String boardId,
+    @RequestMapping(value = "/{boardSlug}/posts/{postId}/attachments/{attachmentId}", method = RequestMethod.HEAD)
+    public void attachmentHead(@PathVariable String boardSlug,
                                @PathVariable String postId,
                                @PathVariable String attachmentId,
                                HttpServletRequest request,
                                HttpServletResponse response) throws IOException {
-        Optional<PublicPostAttachmentDownload> download = openDownload(boardId, postId, attachmentId, request, response);
+        Optional<PublicPostAttachmentDownload> download = openDownload(boardSlug, postId, attachmentId, request, response);
         if (download.isEmpty()) {
             return;
         }
@@ -143,18 +158,28 @@ public class PublicBoardController {
     }
 
     /**
-     * ID 파싱 → 공개 조건 재검증(트랜잭션) → 파일 열기(트랜잭션 밖). 어느 단계든 실패하면 동일한 404를 보내고 empty를 반환한다. 예외를 던지지
-     * 않는다(던지면 {@code PublicWebExceptionAdvice}가 404가 아니라 HTML 500으로 만든다). 반환된 DTO는 호출자가 곧바로 try-with-resources로 닫아야 한다.
+     * ID 파싱 → 게시판 세그먼트 해석(옛 기본 슬러그면 301) → 공개 조건 재검증(트랜잭션) → 파일 열기(트랜잭션 밖). 어느 단계든 실패하면 동일한 404를
+     * 보내고 empty를 반환한다. 예외를 던지지 않는다(던지면 {@code PublicWebExceptionAdvice}가 404가 아니라 HTML 500으로 만든다). 반환된 DTO는 호출자가
+     * 곧바로 try-with-resources로 닫아야 한다. 301은 파일을 열지 않으므로 다운로드로 세지 않는다.
      */
-    private Optional<PublicPostAttachmentDownload> openDownload(String boardId, String postId, String attachmentId,
+    private Optional<PublicPostAttachmentDownload> openDownload(String boardSlug, String postId, String attachmentId,
                                                                 HttpServletRequest request, HttpServletResponse response) throws IOException {
-        Long parsedBoardId = parseId(boardId);
-        Long parsedPostId = parseId(postId);
-        Long parsedAttachmentId = parseId(attachmentId);
-        if (parsedBoardId == null || parsedPostId == null || parsedAttachmentId == null) {
+        Long parsedPostId = PathIds.parse(postId);
+        Long parsedAttachmentId = PathIds.parse(attachmentId);
+        if (parsedPostId == null || parsedAttachmentId == null) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
             return Optional.empty();
         }
+        PublicBoardRoute route = publicBoardService.resolveBoard(siteId(request), boardSlug);
+        if (route instanceof PublicBoardRoute.Moved moved) {
+            movedPermanently(request, response, moved.slug(), "/posts/" + parsedPostId + "/attachments/" + parsedAttachmentId);
+            return Optional.empty();
+        }
+        if (!(route instanceof PublicBoardRoute.Found found)) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return Optional.empty();
+        }
+        Long parsedBoardId = found.boardId();
 
         Optional<PublicPostAttachmentRef> ref =
                 publicBoardService.findPublishedAttachment(siteId(request), parsedBoardId, parsedPostId, parsedAttachmentId);
@@ -221,6 +246,7 @@ public class PublicBoardController {
     private String renderList(PublicBoardListResult listResult, Model model) {
         Page<PublicPostSummary> result = listResult.page();
         model.addAttribute("boardId", listResult.boardId());
+        model.addAttribute("boardSlug", listResult.boardSlug());
         model.addAttribute("boardName", listResult.boardName());
         model.addAttribute("description", listResult.description());
         model.addAttribute("authorLabel", listResult.authorLabel());
@@ -258,11 +284,17 @@ public class PublicBoardController {
         }
     }
 
-    private Long parseId(String raw) {
-        try {
-            return Long.parseLong(raw);
-        } catch (NumberFormatException e) {
-            return null;
-        }
+    /**
+     * 옛 기본 슬러그 → 현재 슬러그 301(PR 4a D4). {@code Location}은 원문 경로를 잘라 붙이지 않고 서버가 정규형으로 다시 만든다 — 현재 사이트 키·슬러그·
+     * {@link PathIds}로 읽은 id(호출자가 {@code suffix}로 넘김) + 원래 쿼리스트링. 슬러그는 한 번만 바뀌고 다시 쓰이지 않으므로 영구 이동이다.
+     * {@code null}을 돌려주면 {@code HttpServletResponse}를 받은 핸들러라 Spring이 뷰를 찾지 않는다(요청 처리 완료).
+     */
+    private static String movedPermanently(HttpServletRequest request, HttpServletResponse response, String slug, String suffix) {
+        String query = request.getQueryString();
+        String location = request.getContextPath() + "/" + PublicSiteRoutes.current(request).key() + "/boards/" + slug + suffix
+                + (query == null ? "" : "?" + query);
+        response.setStatus(HttpServletResponse.SC_MOVED_PERMANENTLY);
+        response.setHeader(HttpHeaders.LOCATION, location);
+        return null;
     }
 }
