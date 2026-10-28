@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 class SitePublicRateLimitConventionTest extends MariaDbContainerSupport {
 
     /** 사이트 범위 공개 경로에만 걸려야 하는 규칙 id. */
-    private static final Set<String> SITE_RULE_IDS = Set.of("attachment", "public-notice", "board-attachment", "public-board", "public-page",
+    private static final Set<String> SITE_RULE_IDS = Set.of("public-notice","board-attachment", "public-board", "public-page",
             "public-faq", "public-site-home", "inquiry-submit", "public-inquiry");
 
     @Autowired TokenBucketRateLimiter limiter;
@@ -87,7 +87,7 @@ class SitePublicRateLimitConventionTest extends MariaDbContainerSupport {
     void siteScopedPathsMatchTheirRules() {
         assertThat(firstMatch("/main")).isEqualTo("public-site-home");
         assertThat(firstMatch("/news/notices")).isEqualTo("public-notice");
-        assertThat(firstMatch("/news/notices/1/attachments/2")).isEqualTo("attachment");
+        assertThat(firstMatch("/news/notices/1/attachments/2")).as("공지 첨부 규칙은 PR 4b에서 제거 — 하위 경로는 목록 규칙").isEqualTo("public-notice");
         assertThat(firstMatch("/news/boards/1")).isEqualTo("public-board");
         assertThat(firstMatch("/news/boards/1/posts/2/attachments/3")).isEqualTo("board-attachment");
         assertThat(firstMatch("/news/pages/terms")).isEqualTo("public-page");
@@ -121,6 +121,23 @@ class SitePublicRateLimitConventionTest extends MariaDbContainerSupport {
         assertThat(mockMvc.perform(get("/admin").with(fromIp(ip))).andReturn().getResponse().getStatus())
                 .as("관리자 대시보드는 비인증이면 로그인 302 — 429가 아니다").isEqualTo(302);
         assertThat(mockMvc.perform(get("/css/public/home.css").with(fromIp(ip))).andReturn().getResponse().getStatus()).isNotEqualTo(429);
+    }
+
+    @Test
+    @DisplayName("공지 목록의 302(PLAN-board-definition.md PR 4b)도 public-notice 한도에 세어진다 — 120회 버스트 뒤 429")
+    void noticeRedirectIsRateLimited() throws Exception {
+        String ip = "10.98.1.3";
+        int redirected = 0;
+        int status = 302;
+        // 버스트 120 + 초당 2토큰 보충이라 보내는 동안 몇 개가 다시 찬다 — 120회는 302이고 그 뒤 곧 429여야 한다
+        while (status == 302 && redirected < 200) {
+            status = mockMvc.perform(get("/main/notices").with(fromIp(ip))).andReturn().getResponse().getStatus();
+            if (status == 302) {
+                redirected++;
+            }
+        }
+        assertThat(status).isEqualTo(429);
+        assertThat(redirected).isBetween(120, 199);
     }
 
     @Test

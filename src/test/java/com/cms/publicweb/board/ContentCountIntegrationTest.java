@@ -222,15 +222,15 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("공지 상세 GET도 같은 규칙으로 센다 (공지 게시판의 게시글)")
+    @DisplayName("공지 게시판의 글(게시판 경로)도 같은 규칙으로 센다")
     void noticeDetail_counts() throws Exception {
         long notice = insertPost(noticeBoardId, "cc-notice-" + System.nanoTime(), true, false);
 
-        assertThat(status(head("/main/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(head("/main/boards/board-{b}/posts/{id}", noticeBoardId, notice).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(notice)).as("HEAD").isZero();
-        assertThat(status(get("/main/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/board-{b}/posts/{id}", noticeBoardId, notice).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(notice)).isEqualTo(1);
-        assertThat(status(get("/main/notices/{id}", notice).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/board-{b}/posts/{id}", noticeBoardId, notice).with(fromTestIp()))).isEqualTo(200);
         assertThat(views(notice)).as("같은 IP 반복").isEqualTo(1);
     }
 
@@ -258,12 +258,12 @@ class ContentCountIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("공지 첨부 다운로드도 센다")
+    @DisplayName("공지 게시판 글의 첨부 다운로드(게시판 경로)도 센다")
     void noticeAttachment_counts() throws Exception {
         long notice = insertPost(noticeBoardId, "cc-notice-" + System.nanoTime(), true, false);
         long attachment = insertAttachment(notice, "n.pdf", true);
 
-        assertThat(status(get("/main/notices/{id}/attachments/{a}", notice, attachment).with(fromTestIp()))).isEqualTo(200);
+        assertThat(status(get("/main/boards/board-{b}/posts/{id}/attachments/{a}", noticeBoardId, notice, attachment).with(fromTestIp()))).isEqualTo(200);
         assertThat(downloads(attachment)).isEqualTo(1);
     }
 

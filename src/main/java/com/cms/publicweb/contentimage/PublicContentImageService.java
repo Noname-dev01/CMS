@@ -28,7 +28,7 @@ import java.util.Optional;
  *       저장 전 편집기 미리보기. 배너·팝업만 참조하는 라이브러리 이미지는 익명에게 공개되지 않는다(PLAN-media-library.md D3)</li>
  * </ol>
  * 조회(트랜잭션)와 파일 열기(트랜잭션 없음)를 나눈다 — 열린 스트림이 트랜잭션 프록시를 통과하지 않게
- * (공개 첨부 다운로드 {@code PublicNoticeService}와 같은 구조).
+ * (공개 첨부 다운로드 {@code PublicBoardService}와 같은 구조).
  */
 @Service
 @RequiredArgsConstructor

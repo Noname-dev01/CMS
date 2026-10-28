@@ -1,36 +1,17 @@
 # CLAUDE.md — com.cms.publicweb.notice
 
-> **경로 표기 주의(2026-10-13, PR ②)**: 이 문서의 `/notices`·`/boards`·`/pages`·`/faq`·`/inquiry`·`/`(공개 메인) 표기는 이전 경로다 — 공개 경로는 이제 `/{siteKey}/…` 아래(예: `/main/notices/1`)이고 `/`는 기본 공개 사이트로 302한다. 사이트 해석·404 계약·링크 접두어(`${sitePrefix}`)·시험은 `support/CLAUDE.md` 참조. 이미지(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`)는 사이트 무관 경로 그대로다.
+이 디렉터리(공개 공지 진입점) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조. 공지는 **공지 게시판의 게시글**이고(관리 측 `com.cms.admin.board`의 `CLAUDE.md` "공지 게시판 흡수"), 공개 화면은 **게시판 한 벌**이다(`com.cms.publicweb.board`). 설계·리뷰 기록은 `adversarial-review/plan/PLAN-board-definition.md` "PR 4b 상세 설계"(P4b-v2, 2026-10-28).
 
-이 디렉터리(공개/비로그인 공지 화면) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조. 공지는 2026-10-09부터 **공지 게시판의 게시글**이다(`adversarial-review/plan/PLAN-notice-to-board.md`) — 관리 측은 `com.cms.admin.board`의 `CLAUDE.md`("공지 게시판 흡수"), 공개 불변식의 원천은 `com.cms.publicweb.board`의 `CLAUDE.md`.
+## `/{siteKey}/notices` 흡수 (2026-10-28, PR 4b — 공개 URL 계약 변경 승인)
 
-(필드 목록은 엔티티 코드가 원본이다. 여기에는 코드만 봐서는 알기 어려운 사실만 기록한다.)
-
-## 구조 (2026-10-09)
-
-- **`PublicNoticeService`는 얇은 어댑터다**: 공지 게시판 ID를 `BoardRepository.findIdByBoardKey("NOTICE")`로 찾아(요청당 UNIQUE 인덱스 조회 1회) `PublicBoardService`의 공개 조회(`getPublishedPosts`·`findPublishedPost`·`findPublishedAttachment`·`openAttachment`)에 위임한다. **공개 불변식(게시판 `publicYn ∧ ¬deleted` ∧ 게시글 `useYn ∧ ¬deleted` ∧ 소속)은 `PublicBoardService` 한 곳에만 있다** — 여기에 조건을 복제하지 않는다. 옛 `Public Notice*` DTO 6종과 `Notice` 저장소 의존은 삭제됐고 컨트롤러·템플릿·모델은 게시판 DTO(`PublicBoardListResult`·`PublicPostSummary`·`PublicPostDetail`·`PublicPostAttachmentRef/Download`)를 그대로 쓴다. 템플릿의 모델 이름(`notices`·`notice`·`page`…)과 URL은 그대로라 화면·레이트리밋·`SecurityConfig` 규칙이 바뀌지 않았다.
-- **fail-closed 404**: 공지 게시판이 없거나(키 조회 empty)·삭제됐거나·비공개면 서비스가 모든 메서드에서 empty를 돌려주고 컨트롤러가 같은 404로 흡수한다. **목록도 마찬가지다**(`getPublishedNotices`가 `Optional` — 빈 목록 200이나 예외 500으로 번역하지 않는다, 리뷰 R2-1; `PublicNoticeControllerTest.list_noticeBoardNotPublic_*`가 GET·HEAD를 고정). 시스템 게시판 보호(`BoardService`)가 공지 게시판의 삭제·비공개 전환을 막아 정상 운영에서는 일어나지 않는 방어선이다.
-- **ID 계약**: `/notices/{id}`의 `{id}`는 `post.id`다(공지 흡수 때 옛 공지 ID를 그대로 써서 공개 URL을 유지했다). 공지 게시글은 AUTO_INCREMENT로 이어서 번호가 붙는다. 공지가 `/boards/{공지게시판ID}`에서도 보이는 중복 노출은 같은 불변식이라 허용한다.
-
-## 컨트롤러·화면 계약 (변경 없음)
-
-- **본문 HTML 출력**(2026-10-07, `PLAN-html-editor.md` 쟁점 12): 상세 본문은 `th:utext="${notice.content}"`로 출력한다 — 공개 공지 템플릿에서 이스케이프 없는 출력은 **이 한 곳만** 허용되고 `PublicNoticeTemplateConventionTest`가 고정한다(제목·첨부 파일명 등은 `th:text`). 값은 `PublicPostDetail.from`이 `HtmlContentSanitizer`로 정리한 HTML이라 DTO를 빌더로 직접 만들어 원문을 넣지 않는다(시험도 `from()`으로 만든다). 표시 CSS(`notice.css`)는 편집기와 같게 `pre-wrap` + 문단 여백 0. 본문 이미지(`/content-images/{id}`) 공개 판정은 `com.cms.publicweb.contentimage` — 공개 게시글이 참조할 때만 익명 200이다(공지 전용 판정은 공지 흡수와 함께 삭제됨).
-- **`id`·`page`는 Spring 바인딩에 맡기지 않고 컨트롤러가 문자열로 받아 직접 파싱**한다 — `GlobalApiExceptionHandler`가 전역 `@RestControllerAdvice`라 페이지 컨트롤러의 타입 변환 예외까지 JSON으로 응답해버리기 때문(파싱 실패는 404/0으로 흡수, 존재 여부 열거 방지 목적으로 미노출·삭제·비숫자·없는 ID를 모두 동일한 404). 남은 예외(DB 장애 등)는 `PublicWebExceptionAdvice`(`basePackages="com.cms.publicweb"`, `@Order(HIGHEST_PRECEDENCE)`)가 HTML 500으로 흡수한다(컨트롤러·서비스 실행 중 예외 한정). 페이지 크기는 게시판 설정(기본 10), `page`는 음수·`10000 / 목록 크기` 초과 시 0으로 보정(OFFSET 상한 10,000 고정 — 규칙은 `PublicBoardService`, 시험 `PublicBoardServiceTest`). `SecurityConfig`는 `/notices`·`/notices/**`에 GET/HEAD만 `permitAll`, 나머지 메서드는 `denyAll`.
-- **공개 첨부 다운로드**(`GET·HEAD /notices/{id}/attachments/{attachmentId}`): 다운로드 시점 재검증(TOCTOU)은 "재검증 SELECT를 실행한 시점에 공개 상태였음"만 보장하는 **약한 보장**이다 — 락은 쓰지 않는다(무인증 엔드포인트가 admin의 `PESSIMISTIC_WRITE`를 블로킹하는 DoS 표면이 되므로). `(attachmentId, postId)` 복합 조건으로 IDOR 차단, `StorageFileNotFoundException`은 `Optional.empty()`로 흡수해 404 fail-closed, 실패 3종(비숫자 id·비공개 글·없는 첨부)은 모두 동일한 404(`response.sendError(404)`로 `error/404.html` 재사용). 응답은 `application/octet-stream`+`ContentDisposition`+`nosniff`+`Cache-Control: no-store`. **스트리밍 전송**: 파일을 힙에 통째로 올리지 않고 4KB 버퍼로 흘려보낸다(`FileStorage.open()` → `StoredFileStream`, 컨트롤러가 `try-with-resources`로 단독 소유). 서비스는 둘로 나뉜다 — `findPublishedAttachment()`(`@Transactional(readOnly)`, 메타데이터만)와 **트랜잭션 없는** `openAttachment()`(파일 열기) — 열린 스트림이 트랜잭션 프록시를 통과하면 commit 실패 시 닫을 수 없으므로 분리를 유지한다. 전송 중 실패는 3구간(응답 무손대 → HTML 500 / 미커밋 오염 → `reset()` 후 HTML 500 / 커밋 후 → `PublicWebExceptionAdvice`가 예외를 재던져 연결 중단)으로 처리하며, **예외를 삼키면 Tomcat은 연결을 끊지 않고 클라이언트가 남은 바이트를 무한정 기다린다**(실서버 테스트로 실측). 복사 버퍼(4KB)는 컨테이너 출력 버퍼(Tomcat 8KB)보다 작아야 "첫 청크 직후 미커밋"이 성립한다. 이 스트리밍 코드는 `PublicBoardController`의 **복제**다 — 한쪽을 고치면 다른 쪽과 `PublicAttachmentStreamingServerTest`(`/notices`)·`PublicBoardAttachmentStreamingServerTest`(`/boards`)를 함께 본다(`spring.jpa.open-in-view: false`가 켜져 있어야 전송 중 DB 커넥션을 쥐지 않는다). 상세 설계·적대적 리뷰 기록은 `PLAN-public-notice-attachment.md`.
-- **공개 목록 제목 검색**(`GET /notices?keyword=…`): 검색 대상은 **제목만**(본문 LIKE의 무인증 비용 회피). `keyword`는 문자열 그대로 받아(바인딩 실패 없음) 서비스가 정규화한다 — `strip()` 후 비면 검색 없음, **`String.length()`(UTF-16 코드 유닛) 100 초과면 DB 조회 없이 빈 페이지**(200, 화면 `maxlength="100"`과 같은 단위). 목록 SELECT와 COUNT는 `PostRepositoryImpl.searchPublished`가 **같은 조건 객체**를 쓴다(COUNT에서 공개 조건이 빠지면 숨김 글의 존재가 총건수·페이지 수로 드러난다). `%`·`_`·`!`는 문자 그대로 검색되고(`PostRepositoryDataJpaTest`) 대소문자는 콜레이션(`utf8mb4_general_ci`)에 따라 구분하지 않는다. 인덱스 `(board_id, deleted, use_yn, create_date)`가 목록·COUNT를 받쳐 준다(옛 notice 테이블의 전체 스캔 비용 메모는 해소됨). 레이트리밋은 `public-notice` 규칙(IP당 버스트 120 + 초당 2토큰)을 그대로 쓴다. 상세는 `PLAN-public-notice-search.md`.
+- **남은 것은 목록 진입점 하나**: `PublicNoticeRedirectController`(`@SiteScopedPublic`, `GET·HEAD /{siteKey}/notices`)가 `PublicBoardService.findNoticeBoardSlug(siteId)`로 그 사이트의 공지 게시판(전용 `NOTICE:{siteId}` → 없으면 공통 `NOTICE`, 공개 조건은 `findPublicById`)을 찾아 **302** `Location: /{현재 사이트 키}/boards/{현재 슬러그}` + 원래 쿼리스트링 **원문**(옛 검색·페이지 링크 유지 — 경로는 서버가 만들고 쿼리만 붙어 오픈 리다이렉트 아님, `%0D%0A`는 디코딩되지 않는다). 공지 게시판이 없거나 공개 조건을 통과하지 못하면 302 없이 404(`error/404` 뷰).
+- **302인 이유**: 대상이 바뀔 수 있다(전용 공지 게시판 생성·삭제, 공지 게시판 슬러그 1회 변경) — 301은 브라우저가 캐시한다.
+- **상세·첨부 하위 경로(`/{siteKey}/notices/{id}`·`…/attachments/{id}`)는 핸들러가 없어 404**다(접두어 없는 옛 `/notices/1`과 같은 컨테이너 404 화면 — `PublicSiteRoutingServerTest`). `SecurityConfig`의 `NOTICES + "/**"` GET·HEAD `permitAll`은 **일부러 남겼다** — 지우면 하위 경로가 404가 아니라 로그인 302·403이 된다. 하위 경로에 핸들러를 다시 만들지 않는다(공지 상세는 `/{siteKey}/boards/{슬러그}/posts/{id}`).
+- **함정 — `Optional.map`에 `null`을 돌려주는 람다를 쓰지 않는다**: 302를 응답에 직접 쓰고 `null`을 돌려주는 핸들러에서 `findNoticeBoardSlug(...).map(slug -> { …; return null; }).orElseGet(404)`로 쓰면 `map`이 빈 값이 되어 **Location을 쓴 뒤 상태가 404로 덮인다**(구현 중 실제로 냈다 — Location만 단언한 시험은 통과했다). 분기로 쓰고 시험은 상태 코드를 함께 단언한다.
+- **레이트리밋**: `public-notice`(`/*/notices/**` 120/60초)가 302와 하위 404를 모두 센다(302도 DB를 친다). 옛 `attachment` 규칙(`/*/notices/*/attachments/*`)은 대상 라우트가 사라져 지웠다 — 공지 글의 첨부는 `board-attachment`(`/*/boards/*/posts/*/attachments/*`)가 받는다.
+- **저장된 링크**: 숫자 공지 경로(`/{k}/notices/{숫자}(/…)`)는 V11이 공지 게시판의 게시글 주소로 치환했고(그 사이트의 해석 공지 게시판 소속 글만), 이후 저장은 거부한다(배너·팝업·메뉴 400, 본문은 `href`만 제거 — `BoardLinkPaths.isNumericNoticePath`). 목록 링크 `/{k}/notices`는 허용. 상세는 `com.cms.admin.board`의 `CLAUDE.md`·`docs/deployment.md`.
+- 지운 것: `PublicNoticeController`(스트리밍·집계 복제)·`PublicNoticeService`(어댑터)·`templates/public/notice/{list,detail}.html`·`static/css/public/notice.css`. 공용 500 뷰는 `templates/public/error.html`로 옮겼다(`PublicWebExceptionAdvice`). `SiteKey.RESERVED`의 `notices`는 경로가 남아 예약어 그대로다.
 
 ## 시험
 
-`PublicNoticeServiceTest`(어댑터 위임·fail-closed), `PublicNoticeControllerTest`(슬라이스 — 계약 불변 단언 + 공지 게시판 비공개 시 목록 404), `PublicNoticeAttachmentIntegrationTest`(공지 게시판 게시글 시드로 TOCTOU·IDOR·파일 없음), `PublicAttachmentStreamingServerTest`(실서버 스트리밍·OSIV 가드), `PublicNoticeTemplateConventionTest`, `SecurityConfigTest`. 서비스 규칙의 단위 시험은 `com.cms.publicweb.board.service.PublicBoardServiceTest`로 옮겼다(옛 `PublicNoticeServiceTest`의 페이지 보정·검색어·첨부 순서·크기 표기 케이스).
-
-## 조회수·다운로드 수 집계 (2026-10-13)
-
-`PublicNoticeController`의 상세 GET·첨부 다운로드 GET도 `PublicBoardController`와 같은 방식으로 `ContentCounterService`를 호출한다(HEAD 제외, 컨트롤러 슬라이스 시험은 이 서비스를 목 빈으로 둔다). 규칙은 `com.cms.admin.board`의 `CLAUDE.md`.
-
-## 상단 고정 영역 (PR 3, 2026-10-28)
-
-공지 목록 템플릿(`public/notice/list.html`)에도 일반 게시판과 같은 고정 영역이 있다 — 컨트롤러가 `PublicBoardListResult.pinned`를 모델 `pinnedNotices`로 넘기고 `notice.css`에 `notice-pinned-*` 규칙이 있다(검색 중·2페이지·상한 0이면 영역 없음). 규칙은 `com.cms.publicweb.board`의 `CLAUDE.md`. 공지 게시판의 `pin_max_count` 기본값은 0(끔)이다.
-
-## 사이트별 공지 (PR ④, 2026-10-14)
-
-공지 게시판은 **사이트별로 해석**한다 — `PublicNoticeService`의 네 메서드가 `siteId`를 첫 인자로 필수 받고(`PublicSite.requireId`) `BoardRepository.findNoticeBoardId(siteId)`로 그 사이트의 전용 공지 게시판(`NOTICE:{siteId}`)이 있으면 그것, 없으면 공통 공지 게시판(`NOTICE`)을 쓴 뒤 `PublicBoardService`에 `siteId`와 함께 위임한다. 전용 공지가 공통을 **대체**한다(합치지 않음). 전용 공지 게시판의 글은 다른 사이트의 `/{key}/notices/{id}`에서 404다(게시판 ID로 소속을 확인). 위 "구조"의 "`findIdByBoardKey("NOTICE")` 1회" 서술은 이제 사이트별로 최대 두 번의 UNIQUE 인덱스 조회다. 컨트롤러는 `siteId(request)`를 서비스에 넘긴다(HEAD 첨부 포함). 상세는 `com.cms.admin.site`의 `CLAUDE.md` "사이트별 게시판·공지".
+`PublicNoticeRedirectIntegrationTest`(302 GET·HEAD·쿼리 원문·슬러그 변경·공지 게시판 없음/비공개 404·하위 경로 404), `PublicBoardSiteScopeIntegrationTest`(사이트별 해석·전용 삭제 후 복귀), `SitePublicRateLimitConventionTest`(302가 한도에 세어짐 — 시험은 기본으로 레이트리밋이 꺼져 있어 켠 이 클래스에 둔다), `PublicSiteRoutingServerTest`(하위 경로 404 화면), `NoticeLinkUpgradeTest`(V11). 옛 공지 시험 중 실제 DB의 TOCTOU·IDOR·파일 없음은 `publicweb.board.service.PublicBoardAttachmentIntegrationTest`로 옮겼다.

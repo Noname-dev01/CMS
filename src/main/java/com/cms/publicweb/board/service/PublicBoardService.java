@@ -84,6 +84,18 @@ public class PublicBoardService {
     }
 
     /**
+     * 현재 사이트의 공지 게시판(전용 → 없으면 공통)의 현재 슬러그 — 공개 {@code /{siteKey}/notices}가 302로 보낼 곳(PLAN-board-definition.md PR 4b D1).
+     * 공개 조건은 {@link #resolveBoard}와 같다({@code findPublicById}) — 공지 게시판이 없거나 비공개·삭제면 empty(호출자가 404).
+     */
+    @Transactional(readOnly = true)
+    public Optional<String> findNoticeBoardSlug(Long siteId) {
+        Long requiredSiteId = PublicSite.requireId(siteId);
+        return boardRepository.findNoticeBoardId(requiredSiteId)
+                .flatMap(id -> boardRepository.findPublicById(id, requiredSiteId))
+                .map(Board::publicSlug);
+    }
+
+    /**
      * 공개 목록. 공개 게시판이 아니면 empty. {@code rawKeyword}가 비어 있으면(공백만 포함) 전체 목록, 있으면 제목 검색이며 앞뒤 공백을 제거한다.
      * {@link #MAX_KEYWORD_LENGTH}를 넘으면 DB를 조회하지 않고 빈 페이지를 돌려준다(이상 입력 흡수).
      */

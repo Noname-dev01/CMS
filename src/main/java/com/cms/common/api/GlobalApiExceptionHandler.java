@@ -412,7 +412,7 @@ public class GlobalApiExceptionHandler {
      * /admin/api/**는 JSON 404, 그 외는 기존 error/404.html을 그대로 쓰기 위해
      * sendError + null 반환한다 — HttpEntityMethodProcessor는 반환값이 null이면
      * requestHandled=true로 처리하고 종료하므로 ResponseEntity 반환 타입에서도 안전하다
-     * (PublicNoticeController.attachment()와 동일 계약). JSON 응답은 Content-Type을
+     * (PublicBoardController.attachment()와 동일 계약). JSON 응답은 Content-Type을
      * 명시한다 — 명시하지 않으면 Accept: text/html 등에서 콘텐츠 협상이 실패할 수 있다
      * (ApiAuthenticationEntryPoint·ApiAccessDeniedHandler와 동일한 이유).
      */

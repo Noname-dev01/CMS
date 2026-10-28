@@ -417,6 +417,31 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 - **롤백 = 사실상 불가**: 이전 앱은 `board-12`를 숫자로 읽지 못해 **치환된 링크와 공개 게시판 주소가 전부 404**가 된다. 되돌리려면 V9 이전 백업으로 복구한다(그 사이의 데이터는 잃는다). 롤백 중 만든 게시판은 재배포 후 바로 `board-{id}`로 열리지만, 롤백 중 저장한 숫자 링크는 V10이 다시 돌지 않으므로 남는다 — 재배포 뒤 위 점검 SQL의 `/boards/` 조건으로 찾아 화면에서 고친다(저장하면 400 안내).
 - **구·신 앱 혼합 운영 금지**(공개 경로 체계가 다르다 — 위 "공개 경로" 절과 같다).
 
+## 공개 공지 흡수 — `/notices` 상세 주소 종료 (2026-10-28, adversarial-review/plan/PLAN-board-definition.md PR 4b)
+
+- **동작**: 공지는 공지 게시판의 게시글 주소(`/{siteKey}/boards/{공지 게시판 슬러그}/posts/{id}`)로만 열린다. `/{siteKey}/notices`(목록)는 그 사이트의 공지 게시판(전용 → 없으면 공통)으로 **302**(쿼리 유지)하고, 상세·첨부 `/{siteKey}/notices/{id}…`는 **404**다. 외부에 공유된 공지 상세 주소·검색 색인은 깨진다(실배포 전이라 수용). `SecurityConfig` 변경은 없다. 레이트리밋 규칙 `attachment`(`/*/notices/*/attachments/*`)는 지웠다 — 공지 첨부는 `board-attachment` 한도를 받는다.
+- **저장된 링크 치환(V11, Java 마이그레이션)**: V10과 같은 대상(메뉴·배너·팝업 링크, 게시글·정적 페이지(모든 개정)·FAQ·HTML 팝업 본문)의 `/{공개 사이트 키}/notices/{id}…`를 공지 게시판의 게시글 주소로 바꾼다 — **그 사이트에서 해석되는 공지 게시판 소속 글만**. 링크가 바뀐 배너 `version`·팝업 `revision`이 1 오른다(배포 전에 열어 둔 편집 화면은 409, 팝업 "오늘 하루 보지 않기"가 한 번 풀림). **4a(V10)와 함께 배포하든 따로 배포하든 V10 → V11 순서로 돈다.**
+- **배포 전 점검(이전 버전 DB, 기대값 0건)**: 위 4a 절의 인코딩·점 세그먼트 점검 SQL이 공지 링크도 잡는다(`/boards/` 조건이 없다). 길이 여유는 아래로 본다(링크 하나당 최소 +13자 — 공지 게시판에 사용자 슬러그가 있으면 그 길이 − 7만큼 더).
+
+  ```sql
+  SELECT 'menu', menu_no FROM menu WHERE menu_url LIKE '%/notices/%' AND CHAR_LENGTH(menu_url) > 242
+  UNION ALL SELECT 'banner', id FROM banner WHERE link_url LIKE '%/notices/%' AND CHAR_LENGTH(link_url) > 487
+  UNION ALL SELECT 'popup', id FROM popup WHERE link_url LIKE '%/notices/%' AND CHAR_LENGTH(link_url) > 487;
+  ```
+
+  정확한 판정(지금 열리는 링크인지·본문 상한)은 V11이 한다. **배포 전 DB 백업은 필수**다.
+- **V11이 실패했을 때**: V10과 같다 — 메시지의 `테이블#id` 행을 이전 버전 앱으로 고치고 → `flyway repair` → 재기동.
+- **배포 후 점검**: 치환되지 않은 공지 상세 링크는 지금도(그리고 앞으로도) 404인 링크다(일반 게시판 글·다른 사이트 전용 공지 글·전용 공지가 대체한 공통 공지 글·없는 글). 아래로 찾아 화면에서 고치거나 지운다 — 배너·팝업·메뉴는 그 링크 그대로는 다시 저장되지 않는다(400 "공지 주소는 게시판 주소…"), 본문은 저장·출력 때 그 링크의 `href`만 지워진다.
+
+  ```sql
+  SELECT 'menu', menu_no, menu_url FROM menu WHERE menu_url LIKE '%/notices/%'
+  UNION ALL SELECT 'banner', id, link_url FROM banner WHERE link_url LIKE '%/notices/%'
+  UNION ALL SELECT 'popup', id, link_url FROM popup WHERE link_url LIKE '%/notices/%' OR content_html LIKE '%/notices/%'
+  UNION ALL SELECT 'post', id, NULL FROM post WHERE content LIKE '%/notices/%'
+  UNION ALL SELECT 'faq', id, NULL FROM faq WHERE answer_html LIKE '%/notices/%';
+  ```
+- **롤백**: V11은 4a 앱이 이해하는 경로만 만든다 — **4a 앱으로는 롤백할 수 있다**(공지 상세 주소가 다시 열리고 치환된 링크는 게시판 주소로 계속 열린다). 4a 이전 앱으로는 4a 절과 같은 이유로 불가. 롤백 중 저장한 공지 상세 링크는 V11이 다시 돌지 않으므로 재배포 뒤 위 배포 후 점검 SQL로 찾는다.
+
 ## 게시글 최종 수정자 (2026-10-27, adversarial-review/plan/PLAN-board-definition.md PR 0)
 
 - **동작**: 게시글의 생성·수정·삭제와 첨부 업로드·삭제가 `post.updater_id`(V5, `varchar(100) NULL`)에 그 관리자의 userId를, `update_date`에 시각을 함께 남긴다. 관리 화면(게시글 목록 "최종 수정자" 열·상세)에만 보이고 공개 화면에는 나가지 않는다. V5 이전에 만들어져 이후 손대지 않은 글은 NULL(`-` 표시 — 수정자 모름)이다. **원본은 감사 로그**(`POST_UPDATE`·`POST_ATTACHMENT_*` 등)이고 이 값은 조회 편의용 사본이다.

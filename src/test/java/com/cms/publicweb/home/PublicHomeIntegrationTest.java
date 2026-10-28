@@ -83,7 +83,7 @@ class PublicHomeIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("공지는 공지 게시판 글을 /notices/{id}로, 새 글은 공지 게시판을 뺀 공개 게시판 글을 /boards/…로 보여 준다(같은 글이 두 섹션에 나오지 않는다)")
+    @DisplayName("공지는 공지 게시판 글을 공지 게시판 경로로, 새 글은 공지 게시판을 뺀 공개 게시판 글을 /boards/…로 보여 준다(같은 글이 두 섹션에 나오지 않는다)")
     void sections() throws Exception {
         long noticePost = post(noticeBoardId, "home-test-공지", true, false, LocalDateTime.now());
         long other = board("home-test-자료실", true, false);
@@ -91,7 +91,8 @@ class PublicHomeIntegrationTest extends MariaDbContainerSupport {
 
         String html = home();
 
-        assertThat(html).contains("href=\"/main/notices/" + noticePost + "\"").contains("home-test-공지");
+        assertThat(html).contains("href=\"/main/boards/board-" + noticeBoardId + "/posts/" + noticePost + "\"").contains("home-test-공지");
+        assertThat(html).as("섹션 제목은 안정적인 진입점 /notices(302)").contains("href=\"/main/notices\"").doesNotContain("href=\"/main/notices/");
         assertThat(html).contains("href=\"/main/boards/board-" + other + "/posts/" + otherPost + "\"").contains("home-test-자료실").contains("home-test-자료글");
         assertThat(html.split("home-test-공지", -1).length - 1).as("공지 글은 공지 섹션에만").isEqualTo(1);
     }

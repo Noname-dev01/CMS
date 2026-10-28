@@ -103,6 +103,13 @@ class PublicBoardSiteScopeIntegrationTest extends MariaDbContainerSupport {
         return result.getResponse().getContentAsString();
     }
 
+    /** {@code /{site}/notices}의 302 대상 — 그 사이트에서 해석된 공지 게시판의 게시판 경로(PLAN-board-definition.md PR 4b). */
+    private String noticeRedirect(String site) throws Exception {
+        MvcResult result = mockMvc.perform(get("/" + site + "/notices").with(fromIp())).andReturn();
+        assertThat(result.getResponse().getStatus()).as(site).isEqualTo(302);
+        return result.getResponse().getHeader("Location");
+    }
+
     @Test
     @DisplayName("게시판 목록·상세: 공통은 모든 사이트에, 전용은 그 사이트에만 — 다른 사이트에서는 없는 ID와 같은 404(GET·HEAD)")
     void boardVisibilityFollowsSite() throws Exception {
@@ -127,19 +134,21 @@ class PublicBoardSiteScopeIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("공지: 전용 공지 게시판이 없는 사이트는 공통 공지를, 있는 사이트는 전용만(공통 대체) 본다. 전용 공지 글은 다른 사이트 /notices/{id}에서 404")
+    @DisplayName("공지: /notices는 전용 공지 게시판이 없는 사이트면 공통 공지로, 있는 사이트면 전용으로(공통 대체) 302한다. 전용 공지 글은 다른 사이트에서 404")
     void noticeResolvesPerSite() throws Exception {
         post(commonNoticeBoard, "psc-공통공지");
         long alphaNotice = board("psc-알파공지", alpha, "NOTICE:" + alpha);
         long alphaNoticePost = post(alphaNotice, "psc-알파공지글");
 
-        assertThat(html("/beta/notices")).contains("psc-공통공지").doesNotContain("psc-알파공지글");
-        assertThat(html("/main/notices")).contains("psc-공통공지");
-        assertThat(html("/alpha/notices")).contains("psc-알파공지글").doesNotContain("psc-공통공지");
+        assertThat(noticeRedirect("beta")).isEqualTo("/beta/boards/board-" + commonNoticeBoard);
+        assertThat(noticeRedirect("main")).isEqualTo("/main/boards/board-" + commonNoticeBoard);
+        assertThat(noticeRedirect("alpha")).isEqualTo("/alpha/boards/board-" + alphaNotice);
+        assertThat(html("/alpha/boards/board-" + alphaNotice)).contains("psc-알파공지글");
 
-        assertThat(status("/alpha/notices/" + alphaNoticePost)).isEqualTo(200);
-        assertThat(status("/beta/notices/" + alphaNoticePost)).as("다른 사이트의 전용 공지 글").isEqualTo(404);
-        assertThat(status("/main/notices/" + alphaNoticePost)).isEqualTo(404);
+        assertThat(status("/alpha/boards/board-" + alphaNotice + "/posts/" + alphaNoticePost)).isEqualTo(200);
+        assertThat(status("/beta/boards/board-" + alphaNotice + "/posts/" + alphaNoticePost)).as("다른 사이트의 전용 공지 글").isEqualTo(404);
+        assertThat(status("/main/boards/board-" + alphaNotice + "/posts/" + alphaNoticePost)).isEqualTo(404);
+        assertThat(status("/alpha/notices/" + alphaNoticePost)).as("옛 공지 상세 경로는 사라졌다").isEqualTo(404);
     }
 
     @Test
@@ -148,12 +157,12 @@ class PublicBoardSiteScopeIntegrationTest extends MariaDbContainerSupport {
         post(commonNoticeBoard, "psc-공통공지");
         long alphaNotice = board("psc-알파공지", alpha, "NOTICE:" + alpha);
         post(alphaNotice, "psc-알파공지글");
-        assertThat(html("/alpha/notices")).doesNotContain("psc-공통공지");
+        assertThat(noticeRedirect("alpha")).isEqualTo("/alpha/boards/board-" + alphaNotice);
 
         jdbc.update("DELETE FROM post WHERE board_id = ?", alphaNotice);
         jdbc.update("UPDATE board SET deleted = 1, site_id = NULL, board_key = NULL WHERE id = ?", alphaNotice);
 
-        assertThat(html("/alpha/notices")).contains("psc-공통공지");
+        assertThat(noticeRedirect("alpha")).as("302라 즉시 반영").isEqualTo("/alpha/boards/board-" + commonNoticeBoard);
     }
 
     @Test

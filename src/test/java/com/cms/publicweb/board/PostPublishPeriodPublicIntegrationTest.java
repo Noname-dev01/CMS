@@ -40,7 +40,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /**
  * 게시글 노출 기간(예약 게시)의 <b>모든 공개 경로</b> 경계 시험(PLAN-post-publish-period.md 쟁점 9 — 가장 중요한 완료 기준). 가변 {@link MutableClock}으로
- * 시작 직전·시작·종료 직전·종료 시각을 만들어 {@code /boards} 목록·상세·첨부(GET·HEAD)·본문 이미지(GET·HEAD)와 {@code /notices} 목록·상세·첨부,
+ * 시작 직전·시작·종료 직전·종료 시각을 만들어 {@code /boards} 목록·상세·첨부(GET·HEAD)·본문 이미지(GET·HEAD)와 공지 게시판(게시판 경로) 목록·상세·첨부,
  * 공개 메인(공지·새 글)이 한 결과로 움직이는지 실제 스택(Security·MockMvc·MariaDB·스토리지)으로 확인한다. 한 경로라도 기간 조건이 빠지면
  * 예약 글이 미리 새거나 만료 글이 남는다. 행은 JDBC로 직접 만들고 각 점검은 고유한 원격 IP를 써 레이트리밋 버킷을 격리한다.
  */
@@ -232,7 +232,7 @@ class PostPublishPeriodPublicIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("[start, end) 경계: 시작 직전·시작·종료 직전·종료에서 /boards·/notices·메인의 모든 공개 경로가 한 결과로 움직인다")
+    @DisplayName("[start, end) 경계: 시작 직전·시작·종료 직전·종료에서 /boards(공지 게시판 포함)·메인의 모든 공개 경로가 한 결과로 움직인다")
     void everyPublicPathFollowsTheBoundaries() throws Exception {
         long board = insertBoard("pp-pub-게시판");
         String boardTitle = "pp-pub-board-" + System.nanoTime();
@@ -262,12 +262,12 @@ class PostPublishPeriodPublicIntegrationTest extends MariaDbContainerSupport {
             assertThat(statusOf(get("/content-images/{i}", boardImage).with(fromTestIp()))).as("boards 이미지 GET" + ctx).isEqualTo(ok);
             assertThat(statusOf(head("/content-images/{i}", boardImage).with(fromTestIp()))).as("boards 이미지 HEAD" + ctx).isEqualTo(ok);
 
-            // /notices — 공지는 공지 게시판의 글이라 같은 판정을 따라야 한다
-            assertThat(bodyOf(get("/main/notices").with(fromTestIp())).contains(noticeTitle)).as("notices 목록" + ctx).isEqualTo(expected);
-            assertThat(statusOf(get("/main/notices/{p}", noticePost).with(fromTestIp()))).as("notices 상세" + ctx).isEqualTo(ok);
-            assertThat(statusOf(get("/main/notices/{p}/attachments/{a}", noticePost, noticeAttachment).with(fromTestIp())))
+            // 공지 게시판 — 공개 공지는 게시판 경로로 열린다(PR 4b). 목록은 /notices 302가 아니라 게시판 경로로 직접 확인한다
+            assertThat(bodyOf(get("/main/boards/board-{b}", noticeBoardId).with(fromTestIp())).contains(noticeTitle)).as("notices 목록" + ctx).isEqualTo(expected);
+            assertThat(statusOf(get("/main/boards/board-{b}/posts/{p}", noticeBoardId, noticePost).with(fromTestIp()))).as("notices 상세" + ctx).isEqualTo(ok);
+            assertThat(statusOf(get("/main/boards/board-{b}/posts/{p}/attachments/{a}", noticeBoardId, noticePost, noticeAttachment).with(fromTestIp())))
                     .as("notices 첨부 GET" + ctx).isEqualTo(ok);
-            assertThat(statusOf(head("/main/notices/{p}/attachments/{a}", noticePost, noticeAttachment).with(fromTestIp())))
+            assertThat(statusOf(head("/main/boards/board-{b}/posts/{p}/attachments/{a}", noticeBoardId, noticePost, noticeAttachment).with(fromTestIp())))
                     .as("notices 첨부 HEAD" + ctx).isEqualTo(ok);
             assertThat(statusOf(get("/content-images/{i}", noticeImage).with(fromTestIp()))).as("notices 이미지 GET" + ctx).isEqualTo(ok);
 

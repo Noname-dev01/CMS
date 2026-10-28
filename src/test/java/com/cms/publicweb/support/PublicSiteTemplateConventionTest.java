@@ -25,7 +25,7 @@ class PublicSiteTemplateConventionTest {
 
     private static final Path PUBLIC_TEMPLATES = Paths.get("src/main/resources/templates/public");
     private static final List<Path> ERROR_TEMPLATES = List.of(
-            Paths.get("src/main/resources/templates/public/notice/error.html"),
+            Paths.get("src/main/resources/templates/public/error.html"),
             Paths.get("src/main/resources/templates/error/404.html"),
             Paths.get("src/main/resources/templates/error/429.html"),
             Paths.get("src/main/resources/templates/error/403.html"));

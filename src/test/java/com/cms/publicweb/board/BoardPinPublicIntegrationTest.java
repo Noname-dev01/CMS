@@ -23,8 +23,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /**
  * 상단 고정 영역의 공개 화면 시험(PLAN-board-definition.md PR 3 D3-5). 검색하지 않은 1페이지에서만 게시판 고정 상한만큼 나오고, 고정 글은 일반
- * 목록에서도 빠지지 않아 총 페이지 수가 그대로이며, 비노출·예약·만료·삭제 고정 글은 영역에 없다. 일반 게시판({@code /boards})과 공지
- * ({@code /notices}) 두 템플릿 세트가 같은 결과여야 한다. 행은 JDBC로 직접 만들고 요청마다 고유 원격 IP를 쓴다.
+ * 목록에서도 빠지지 않아 총 페이지 수가 그대로이며, 비노출·예약·만료·삭제 고정 글은 영역에 없다. 공지 게시판도 게시판 화면 한 벌로 열린다
+ * (PR 4b — {@code /notices}는 302만). 행은 JDBC로 직접 만들고 요청마다 고유 원격 IP를 쓴다.
  */
 @SpringBootTest(classes = CmsTestApplication.class)
 @AutoConfigureMockMvc
@@ -94,14 +94,6 @@ class BoardPinPublicIntegrationTest extends MariaDbContainerSupport {
 
     private String boardList(long boardId, String... params) throws Exception {
         var request = get("/main/boards/board-{id}", boardId).with(fromTestIp());
-        for (int i = 0; i < params.length; i += 2) {
-            request = request.param(params[i], params[i + 1]);
-        }
-        return mockMvc.perform(request).andReturn().getResponse().getContentAsString();
-    }
-
-    private String noticeList(String... params) throws Exception {
-        var request = get("/main/notices").with(fromTestIp());
         for (int i = 0; i < params.length; i += 2) {
             request = request.param(params[i], params[i + 1]);
         }
@@ -219,22 +211,22 @@ class BoardPinPublicIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("공지 목록(/notices)도 같은 고정 영역이 나온다 — 상한·검색·2페이지 규칙 동일")
-    void noticeTemplateHasPinnedArea() throws Exception {
+    @DisplayName("공지 게시판 목록(게시판 경로)도 같은 고정 영역이 나온다 — 상한·검색 규칙 동일")
+    void noticeBoardHasPinnedArea() throws Exception {
         jdbc.update("UPDATE board SET pin_max_count = 1 WHERE id = ?", noticeBoardId);
         LocalDateTime now = LocalDateTime.now().plusYears(1);
         insertPost(noticeBoardId, "공지고정-A", now, true);
         insertPost(noticeBoardId, "공지고정-B", now.minusMinutes(1), true);
         insertPost(noticeBoardId, "공지일반-C", now.minusMinutes(2), false);
 
-        String page = noticeList();
-        assertThat(count(page, "notice-pinned-badge")).as("상한 1").isEqualTo(1);
-        assertThat(page).contains("notice-pinned-list");
+        String page = boardList(noticeBoardId);
+        assertThat(count(page, "board-pinned-badge")).as("상한 1").isEqualTo(1);
+        assertThat(page).contains("board-pinned-list");
         assertThat(count(page, "공지고정-A")).as("영역과 일반 목록").isEqualTo(2);
 
-        assertThat(noticeList("keyword", "공지고정")).doesNotContain("notice-pinned-list");
+        assertThat(boardList(noticeBoardId, "keyword", "공지고정")).doesNotContain("board-pinned-list");
 
         jdbc.update("UPDATE board SET pin_max_count = 0 WHERE id = ?", noticeBoardId);
-        assertThat(noticeList()).doesNotContain("notice-pinned-list").doesNotContain("notice-pinned-badge");
+        assertThat(boardList(noticeBoardId)).doesNotContain("board-pinned-list").doesNotContain("board-pinned-badge");
     }
 }
