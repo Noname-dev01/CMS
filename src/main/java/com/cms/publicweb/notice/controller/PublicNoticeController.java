@@ -85,6 +85,7 @@ public class PublicNoticeController {
         model.addAttribute("description", listResult.description());
         model.addAttribute("authorLabel", listResult.authorLabel());
         model.addAttribute("keyword", listResult.keyword());
+        model.addAttribute("pinnedNotices", listResult.pinned());
         model.addAttribute("notices", result.getContent());
         model.addAttribute("page", result.getNumber());
         model.addAttribute("totalPages", result.getTotalPages());

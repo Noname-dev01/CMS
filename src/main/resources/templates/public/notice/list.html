@@ -23,6 +23,18 @@
         <a class="notice-search-reset" th:if="${keyword != null}" th:href="@{|${sitePrefix}/notices|}">전체 보기</a>
     </form>
 
+    <!--/* 상단 고정 영역 — 검색하지 않은 1페이지에서만 채워진다. 고정 글은 아래 일반 목록에도 그대로 나온다 */-->
+    <ul class="notice-list notice-pinned-list" th:if="${not #lists.isEmpty(pinnedNotices)}" aria-label="상단 고정 공지">
+        <li class="notice-list-item" th:each="notice : ${pinnedNotices}">
+            <a th:href="@{|${sitePrefix}/notices/{id}|(id=${notice.id})}">
+                <span class="notice-title"><span class="notice-pinned-badge">고정</span><span th:text="${notice.title}"></span><span class="notice-new-badge" th:if="${notice.newBadge}">NEW</span></span>
+                <span class="notice-meta-extra" th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
+                <span class="notice-meta-extra" th:if="${notice.viewCount != null}" th:text="|조회 ${notice.viewCount}|"></span>
+                <span class="notice-date" th:text="${#temporals.format(notice.createDate, 'yyyy-MM-dd')}"></span>
+            </a>
+        </li>
+    </ul>
+
     <ul class="notice-list" th:if="${not #lists.isEmpty(notices)}">
         <li class="notice-list-item" th:each="notice : ${notices}">
             <a th:href="@{|${sitePrefix}/notices/{id}|(id=${notice.id})}">

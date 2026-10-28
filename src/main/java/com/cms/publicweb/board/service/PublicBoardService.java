@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -65,7 +66,8 @@ public class PublicBoardService {
         LocalDateTime now = LocalDateTime.now(clock);
         return boardRepository.findPublicById(boardId, PublicSite.requireId(siteId)).map(board -> {
             int pageSize = board.getListPageSize();
-            Pageable pageable = PageRequest.of(normalizePage(page, pageSize), pageSize,
+            int normalizedPage = normalizePage(page, pageSize);
+            Pageable pageable = PageRequest.of(normalizedPage, pageSize,
                     Sort.by(Sort.Order.desc("createDate"), Sort.Order.desc("id")));
             String keyword = rawKeyword == null ? "" : rawKeyword.strip();
             boolean showViewCount = Boolean.TRUE.equals(board.getShowViewCount());
@@ -75,12 +77,17 @@ public class PublicBoardService {
                     NewBadge.isNew(post.getCreateDate(), post.getPublishStart(), badgeDays, now));
 
             if (keyword.isEmpty()) {
-                return result(board, postRepository.searchPublished(board.getId(), null, now, pageable).map(toSummary), null);
+                // 고정 영역은 검색하지 않은 1페이지에서만, 게시판 고정 상한이 0보다 클 때만 조회한다(그 밖에는 쿼리 없이 빈 목록)
+                List<PublicPostSummary> pinned = normalizedPage == 0 && board.getPinMaxCount() > 0
+                        ? postRepository.findPinnedPublished(board.getId(), now, Math.min(board.getPinMaxCount(), Board.MAX_PIN_COUNT))
+                                .stream().map(toSummary).toList()
+                        : List.of();
+                return result(board, pinned, postRepository.searchPublished(board.getId(), null, now, pageable).map(toSummary), null);
             }
             if (keyword.length() > MAX_KEYWORD_LENGTH) {
-                return result(board, Page.empty(pageable), keyword);
+                return result(board, List.of(), Page.empty(pageable), keyword);
             }
-            return result(board, postRepository.searchPublished(board.getId(), keyword, now, pageable).map(toSummary), keyword);
+            return result(board, List.of(), postRepository.searchPublished(board.getId(), keyword, now, pageable).map(toSummary), keyword);
         });
     }
 
@@ -125,8 +132,8 @@ public class PublicBoardService {
         return PublicPostDetail.from(board, post, postAttachmentRepository.findByPostIdOrderByIdAsc(post.getId()));
     }
 
-    private static PublicBoardListResult result(Board board, Page<PublicPostSummary> page, String keyword) {
-        return new PublicBoardListResult(board.getId(), board.getName(), board.getDescription(), board.getAuthorLabel(), page, keyword);
+    private static PublicBoardListResult result(Board board, List<PublicPostSummary> pinned, Page<PublicPostSummary> page, String keyword) {
+        return new PublicBoardListResult(board.getId(), board.getName(), board.getDescription(), board.getAuthorLabel(), pinned, page, keyword);
     }
 
     private static int normalizePage(int page, int pageSize) {
