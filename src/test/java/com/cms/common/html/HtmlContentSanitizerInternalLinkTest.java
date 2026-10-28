@@ -21,7 +21,8 @@ class HtmlContentSanitizerInternalLinkTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/main/faq", "/main/boards/b1?page=2&keyword=%ED%95%9C", "/main/pages/privacy-a#x", "/main/boards/board-12/posts/3"})
+    @ValueSource(strings = {"/main/faq", "/main/boards/b1?page=2&keyword=%ED%95%9C", "/main/pages/privacy-a#x", "/main/boards/board-12/posts/3",
+            "/main/notices", "/main/notices?page=2"})
     @DisplayName("루트 상대 링크는 href가 남고 target 없이 rel만 붙는다(같은 창)")
     void keepsInternalLink(String href) {
         String result = clean("<p><a href=\"" + href.replace("&", "&amp;") + "\">x</a></p>");
@@ -40,6 +41,8 @@ class HtmlContentSanitizerInternalLinkTest {
             "/main/../admin", "/a b", "javascript:alert(1)",
             // 숫자 게시판 경로 — 공개 게시판 주소는 슬러그만 쓴다(PR 4a D5)
             "/main/boards/12", "/main/boards/12/posts/3", "/main/boards/+12", "/main/boards/./12", "/main/x/../boards/12",
+            // 숫자 공지 경로 — 공지 상세·첨부 주소는 사라졌다(PR 4b D6, 목록 /main/notices는 302로 유효)
+            "/main/notices/5", "/main/notices/5/attachments/2", "/main/notices/+5", "/main/notices/./5",
     })
     @DisplayName("거부된 링크는 href만 지워지고 글자와 지금의 rel·target은 남는다")
     void removesHrefOnly(String href) {

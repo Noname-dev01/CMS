@@ -69,4 +69,24 @@ class SafeLinkUrlValidatorTest {
     void slugBoardPathAllowed(String url) {
         assertThat(validator.isValid(url, null)).isTrue();
     }
+
+    @ParameterizedTest
+    @DisplayName("숫자 공지 경로(상세·첨부)는 게시판 주소 안내 문구로 거부한다 — 변형 포함(PLAN-board-definition.md PR 4b D6)")
+    @ValueSource(strings = {"/main/notices/5", "/main/notices/5/attachments/2?x=1", "/main/notices/+5", "/main/notices/%35",
+            "/main/%6Eotices/5", "/main/notices/./5", "/main/notices/5/../../notices/6"})
+    void numericNoticePathRejected(String url) {
+        assertThat(validator.isValid(url, null)).isFalse();
+        try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+            assertThat(factory.getValidator().validate(new LinkHolder(url)))
+                    .extracting(ConstraintViolation::getMessage)
+                    .containsExactly(SafeLinkUrlValidator.NUMERIC_NOTICE_PATH_MESSAGE);
+        }
+    }
+
+    @ParameterizedTest
+    @DisplayName("공지 목록(302로 유효)과 공지 게시판의 게시글 주소는 허용한다")
+    @ValueSource(strings = {"/main/notices", "/main/notices?page=2&keyword=x", "/main/boards/board-1/posts/5"})
+    void noticeListAllowed(String url) {
+        assertThat(validator.isValid(url, null)).isTrue();
+    }
 }

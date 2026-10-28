@@ -117,6 +117,27 @@ class SiteLinkPolicyTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"/main/notices/5", "/main/notices/5/attachments/2", "/main/notices/+5", "/main/notices/%35",
+            "https://cms.example/main/notices/5"})
+    @DisplayName("숫자 공지 경로(상세·첨부)는 모든 사이트에서 거부하고 출력 재검증(permits)도 거짓(PLAN-board-definition.md PR 4b D6)")
+    void numericNoticePathRejected(String url) {
+        assertRejected(PUBLIC_EXTERNAL, url);
+        assertThat(policy.permits(PUBLIC_EXTERNAL, url)).isFalse();
+        if (url.startsWith("/")) {
+            assertRejected(ADMIN, url);
+            assertRejected(PUBLIC_INTERNAL_ONLY, url);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/main/notices", "/main/notices?page=2", "/main/boards/board-1/posts/5"})
+    @DisplayName("공지 목록(302로 유효)과 공지 게시판의 게시글 주소는 허용한다")
+    void noticeListAllowed(String url) {
+        assertAllowed(PUBLIC_EXTERNAL, url);
+        assertThat(policy.permits(PUBLIC_EXTERNAL, url)).isTrue();
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"/main/boards/board-12", "/main/boards/press", "/main/boards/press/posts/3"})
     @DisplayName("슬러그 게시판 경로는 허용한다")
     void slugBoardPathAllowed(String url) {

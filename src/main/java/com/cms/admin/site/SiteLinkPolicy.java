@@ -93,6 +93,10 @@ public class SiteLinkPolicy {
         if (BoardLinkPaths.isNumericBoardPath(path)) {
             return "게시판 주소는 슬러그 주소(예: /main/boards/board-12)를 쓰세요.";
         }
+        // 숫자 공지 경로(상세·첨부)도 사라졌다 — 목록 /{key}/notices는 302로 유효해 허용한다(PLAN-board-definition.md PR 4b D6)
+        if (BoardLinkPaths.isNumericNoticePath(path)) {
+            return "공지 주소는 게시판 주소(예: /main/boards/board-1/posts/5)를 쓰세요.";
+        }
         return null;
     }
 

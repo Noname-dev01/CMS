@@ -15,7 +15,8 @@ import java.util.List;
  * 점 세그먼트({@code .}·{@code ..}·{@code %2e})를 URL 표준처럼 정리한다. 디코딩은 {@code /}로 나눈 뒤에 해 {@code %2F}를 구분자로 보지 않는다
  * (브라우저도 그렇다). 사이트 키 자리는 존재 여부와 무관하게 형태만 본다 — 저장 시 판정이 사이트 상태에 따라 흔들리지 않게.
  *
- * <p>V10이 이 함수를 부르므로 규칙을 바꾸면 아직 V10을 적용하지 않은 DB의 결과가 달라진다 — 바꿀 때 {@code BoardSlugLinkUpgradeTest}를 함께 본다.
+ * <p>V10이 {@link #numericBoardSiteSegment}를, V11이 {@link #numericNoticeTarget}을 부르므로 규칙을 바꾸면 아직 그 마이그레이션을 적용하지 않은 DB의
+ * 결과가 달라진다 — 바꿀 때 {@code BoardSlugLinkUpgradeTest}·{@code NoticeLinkUpgradeTest}를 함께 본다.
  */
 public final class BoardLinkPaths {
 
@@ -41,8 +42,38 @@ public final class BoardLinkPaths {
         return numeric ? segments.get(0) : null;
     }
 
+    /**
+     * 숫자 공지 경로({@code /{siteKey}/notices/{숫자}(/…)?})이면 {@code (사이트 세그먼트, id)}, 아니면 null(PLAN-board-definition.md PR 4b D5·D6).
+     * 공개 공지 상세·첨부 경로는 사라져 언제나 404다 — 목록 {@code /{siteKey}/notices}는 302로 살아 있어 해당하지 않는다. 판정은
+     * {@link #numericBoardSiteSegment}와 같은 디코딩·점 세그먼트 정리 뒤에 한다. V10은 이 함수를 쓰지 않고 V11이 쓴다.
+     */
+    public static NoticeTarget numericNoticeTarget(String url) {
+        if (url == null || !url.startsWith("/")) {
+            return null;
+        }
+        List<String> segments = normalizedSegments(pathPart(url));
+        if (segments == null || segments.size() < 3 || segments.get(0).isEmpty() || !"notices".equals(segments.get(1))) {
+            return null;
+        }
+        Long id = PathIds.parse(segments.get(2));
+        return id == null ? null : new NoticeTarget(segments.get(0), id);
+    }
+
+    public static boolean isNumericNoticePath(String url) {
+        return numericNoticeTarget(url) != null;
+    }
+
+    /** 사라진 숫자 공개 경로(숫자 게시판 ∨ 숫자 공지)인가 — 링크 저장 거부·본문 {@code href} 제거가 쓴다. */
+    public static boolean isRetiredNumericPath(String url) {
+        return isNumericBoardPath(url) || isNumericNoticePath(url);
+    }
+
+    /** 숫자 공지 경로의 사이트 세그먼트(디코딩·정리 후)와 게시글 id. */
+    public record NoticeTarget(String siteSegment, long postId) {
+    }
+
     /** 첫 {@code ?}·{@code #} 앞. */
-    static String pathPart(String url) {
+    public static String pathPart(String url) {
         for (int i = 0; i < url.length(); i++) {
             char c = url.charAt(i);
             if (c == '?' || c == '#') {
