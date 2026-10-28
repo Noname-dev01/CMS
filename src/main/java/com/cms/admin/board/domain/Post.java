@@ -75,12 +75,20 @@ public class Post {
     private long viewCount = 0L;
 
     /**
+     * 공개 목록 1페이지 상단 고정 여부. 개수 상한(게시판 {@code pinMaxCount})은 서비스가 게시판 {@code FOR UPDATE} 아래서 판정한다.
+     * 상한을 낮추거나 꺼도 이 값은 그대로 두고 해제만 서비스가 언제나 허용한다(PLAN-board-definition.md PR 3 D3-3).
+     */
+    @Builder.Default
+    @Column(nullable = false)
+    private Boolean pinned = false;
+
+    /**
      * 부분 수정. 각 파라미터가 null이 아닐 때만 반영한다(null=기존값 유지). 공백 거부·전체 null 거부는 서비스 책임이다.
      *
      * @param updaterId 수정한 관리자 userId — updaterId에 기록
      * @param now       앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void update(String title, String content, Boolean useYn, String updaterId, LocalDateTime now) {
+    public void update(String title, String content, Boolean useYn, Boolean pinned, String updaterId, LocalDateTime now) {
         if (title != null) {
             this.title = title;
         }
@@ -89,6 +97,9 @@ public class Post {
         }
         if (useYn != null) {
             this.useYn = useYn;
+        }
+        if (pinned != null) {
+            this.pinned = pinned;
         }
         touch(updaterId, now);
     }

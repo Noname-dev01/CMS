@@ -268,6 +268,10 @@
                         <div class="value" id="viewUseYn"></div>
                     </div>
                     <div class="detail-item">
+                        <span class="label">상단 고정</span>
+                        <div class="value" id="viewPinned"></div>
+                    </div>
+                    <div class="detail-item">
                         <span class="label">노출 상태</span>
                         <div class="value" id="viewStatus"></div>
                     </div>
@@ -314,6 +318,13 @@
                             <label class="custom-control-label" for="formUseYn">노출</label>
                         </div>
                         <small class="form-text text-muted">노출 여부와 아래 노출 기간을 <strong>둘 다</strong> 만족해야 공개됩니다.</small>
+                    </div>
+                    <div id="pinGroup" class="form-group d-none">
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="formPinned">
+                            <label class="custom-control-label" for="formPinned">상단 고정</label>
+                        </div>
+                        <small id="pinNote" class="form-text text-muted"></small>
                     </div>
                     <div id="periodLocked" class="form-group d-none">
                         <small class="form-text text-muted">이 게시판은 예약 게시를 허용하지 않습니다. 이미 설정된 기간은 그대로 적용됩니다.</small>
@@ -435,6 +446,10 @@
     const viewTitle = document.getElementById("viewTitle");
     const viewAuthor = document.getElementById("viewAuthor");
     const viewUseYn = document.getElementById("viewUseYn");
+    const viewPinned = document.getElementById("viewPinned");
+    const pinGroup = document.getElementById("pinGroup");
+    const formPinned = document.getElementById("formPinned");
+    const pinNote = document.getElementById("pinNote");
     const viewCreateDate = document.getElementById("viewCreateDate");
     const viewUpdateDate = document.getElementById("viewUpdateDate");
     const viewUpdater = document.getElementById("viewUpdater");
@@ -710,7 +725,8 @@
         tableBody.innerHTML = items.map(item => {
             return "<tr>" +
                 "<td>" + escapeHtml(item.id) + "</td>" +
-                "<td><button type=\"button\" class=\"btn btn-link p-0 cell-link js-detail\" data-id=\"" + escapeHtml(item.id) + "\">" + escapeHtml(item.title) + "</button></td>" +
+                "<td>" + (item.pinned ? "<span class=\"badge badge-primary mr-1\">고정</span>" : "") +
+                "<button type=\"button\" class=\"btn btn-link p-0 cell-link js-detail\" data-id=\"" + escapeHtml(item.id) + "\">" + escapeHtml(item.title) + "</button></td>" +
                 "<td>" + escapeHtml(item.authorId || "-") + "</td>" +
                 "<td>" + escapeHtml(item.updaterId || "-") + "</td>" +
                 "<td>" + statusBadge(item.status) + "</td>" +
@@ -839,6 +855,7 @@
         viewTitle.textContent = data.title || "-";
         viewAuthor.textContent = data.authorId || "-";
         viewUseYn.textContent = data.useYn ? "노출" : "비노출";
+        viewPinned.textContent = data.pinned ? "예" : "아니오";
         viewStatus.textContent = STATUS_LABELS[data.status] || "-";
         viewPeriod.textContent = periodText(data.publishStart, data.publishEnd);
         viewViews.textContent = data.viewCount == null ? "-" : String(data.viewCount);
@@ -856,7 +873,20 @@
         writeDateTime(formStartDate, formStartHour, formStartMinute, data ? data.publishStart : null);
         writeDateTime(formEndDate, formEndHour, formEndMinute, data ? data.publishEnd : null);
         periodClearRequested = false;
+        formPinned.checked = data ? !!data.pinned : false;
         applyWritePolicy(data);
+        renderPinPolicy(data);
+    }
+
+    // 상단 고정 체크박스는 게시판이 고정을 허용(상한 > 0)하거나 수정 중인 글이 이미 고정일 때만 보인다 — 고정을 끈 게시판에서도 해제는 할 수 있어야 한다.
+    // 서버 판정(400 고정 끔·409 상한 초과)이 최종이다.
+    function renderPinPolicy(data) {
+        const max = modalBoard && modalBoard.pinMaxCount ? modalBoard.pinMaxCount : 0;
+        const alreadyPinned = !!(data && data.pinned);
+        pinGroup.classList.toggle("d-none", max <= 0 && !alreadyPinned);
+        pinNote.textContent = max > 0
+            ? "이 게시판은 최대 " + max + "개까지 고정할 수 있습니다. 공개 목록 1페이지(검색하지 않을 때) 맨 위에 보입니다."
+            : "고정이 꺼진 게시판입니다. 해제만 할 수 있습니다.";
     }
 
     // 게시판 작성 정책(서버 판정이 최종)에 맞춰 편집 폼을 조정한다: 본문 이미지를 끈 게시판은 편집기 이미지 입력을 끄고(기존 이미지 서식은 유지해
@@ -1113,6 +1143,10 @@
             contentFormat: "HTML",
             useYn: formUseYn.checked
         };
+        // 고정은 체크했을 때만 보낸다(누락 = false). 고정을 끈 게시판에서는 체크박스가 숨겨져 있다.
+        if (formPinned.checked) {
+            payload.pinned = true;
+        }
         // 기간을 하나도 고르지 않았으면 publishPeriod 자체를 보내지 않는다(기간 제한 없음).
         // 예약 게시를 끈 게시판은 기간 입력이 숨겨져 있으므로 보내지 않는다.
         const period = periodAllowed() ? readPeriodFromForm() : { start: null, end: null };
@@ -1146,6 +1180,10 @@
         }
         if (formUseYn.checked !== !!currentDetail.useYn) {
             payload.useYn = formUseYn.checked;
+        }
+        // 값이 바뀐 경우에만 보낸다 — 낡은 화면이 다른 관리자가 바꾼 고정 상태를 되돌리지 않게
+        if (formPinned.checked !== !!currentDetail.pinned) {
+            payload.pinned = formPinned.checked;
         }
         // 기간은 시작·종료 중 하나라도 달라졌을 때만 보낸다 — 서버가 통째로 교체하므로 둘 다 현재 폼 값으로 보낸다(null = 그쪽 열림).
         // 변경이 없으면 보내지 않아, 다른 관리자가 이미 바꾼 기간을 낡은 화면이 되돌리는 일을 줄인다.

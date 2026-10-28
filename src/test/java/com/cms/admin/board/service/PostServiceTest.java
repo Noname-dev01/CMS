@@ -606,4 +606,137 @@ class PostServiceTest {
         assertThrows(InvalidRequestException.class, () -> postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder()
                 .publishPeriod(new PostPublishPeriodRequest("2027-01-01T00:00", null)).build()));
     }
+
+    // ===================== 상단 고정 (PLAN-board-definition.md PR 3) =====================
+
+    private Board pinBoard(int pinMaxCount) {
+        return Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false).pinMaxCount(pinMaxCount).build();
+    }
+
+    private static PostCreateRequest createPinned(Boolean pinned) {
+        return PostCreateRequest.builder().title("제목").content("<p>본문</p>").contentFormat("HTML").pinned(pinned).build();
+    }
+
+    private void saveEchoesPinned() {
+        given(postRepository.save(any(Post.class))).willAnswer(invocation -> {
+            Post p = invocation.getArgument(0);
+            return Post.builder().id(7L).boardId(p.getBoardId()).title(p.getTitle()).content(p.getContent()).useYn(p.getUseYn())
+                    .pinned(p.getPinned()).deleted(false).authorId("admin01").createDate(p.getCreateDate()).updateDate(p.getUpdateDate()).build();
+        });
+    }
+
+    @Test
+    @DisplayName("생성: 고정하지 않는 요청(누락·false)은 게시판을 공유 잠금으로 읽고 개수를 세지 않는다")
+    void createPost_notPinned_sharedLockNoCount() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(pinBoard(2)));
+        saveEchoesPinned();
+
+        postService.createPost(BOARD_ID, createPinned(null));
+        postService.createPost(BOARD_ID, createPinned(false));
+
+        verify(boardRepository, never()).findByIdAndDeletedFalseForUpdate(any());
+        verify(postRepository, never()).countByBoardIdAndPinnedTrueAndDeletedFalse(any());
+    }
+
+    @Test
+    @DisplayName("생성: 고정하는 요청은 게시판을 배타 잠금(FOR UPDATE)으로 읽고, 잠금 뒤에 개수를 세며, 상한 미만이면 pinned로 저장한다")
+    void createPost_pinned_exclusiveLockThenCount() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        given(boardRepository.findByIdAndDeletedFalseForUpdate(BOARD_ID)).willReturn(Optional.of(pinBoard(2)));
+        given(postRepository.countByBoardIdAndPinnedTrueAndDeletedFalse(BOARD_ID)).willReturn(1L);
+        saveEchoesPinned();
+
+        PostResponse response = postService.createPost(BOARD_ID, createPinned(true));
+
+        assertTrue(response.getPinned());
+        verify(boardRepository, never()).findByIdAndDeletedFalseForShare(any());
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(boardRepository, postRepository);
+        order.verify(boardRepository).findByIdAndDeletedFalseForUpdate(BOARD_ID);
+        order.verify(postRepository).countByBoardIdAndPinnedTrueAndDeletedFalse(BOARD_ID);
+    }
+
+    @Test
+    @DisplayName("생성: 고정을 끈 게시판(상한 0)은 400(개수를 세지 않음), 개수가 상한 이상이면 409이고 둘 다 저장하지 않는다")
+    void createPost_pinRejected() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        given(boardRepository.findByIdAndDeletedFalseForUpdate(BOARD_ID)).willReturn(Optional.of(pinBoard(0)), Optional.of(pinBoard(2)));
+
+        InvalidRequestException disabled = assertThrows(InvalidRequestException.class, () -> postService.createPost(BOARD_ID, createPinned(true)));
+        assertEquals(Board.PIN_DISABLED_MESSAGE, disabled.getMessage());
+        verify(postRepository, never()).countByBoardIdAndPinnedTrueAndDeletedFalse(any());
+
+        given(postRepository.countByBoardIdAndPinnedTrueAndDeletedFalse(BOARD_ID)).willReturn(2L);
+        assertThrows(ConflictException.class, () -> postService.createPost(BOARD_ID, createPinned(true)));
+        verify(postRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("생성: 판정 순서는 쓰기 중지 → 예약 → 고정 — 쓰기 중지 게시판은 고정 판정(개수 조회)까지 가지 않는다")
+    void createPost_writeStoppedBeforePin() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        Board stopped = Board.builder().id(BOARD_ID).name("보관").publicYn(true).attachmentYn(true).deleted(false)
+                .pinMaxCount(2).writableYn(false).build();
+        given(boardRepository.findByIdAndDeletedFalseForUpdate(BOARD_ID)).willReturn(Optional.of(stopped));
+
+        InvalidRequestException e = assertThrows(InvalidRequestException.class, () -> postService.createPost(BOARD_ID, createPinned(true)));
+        assertEquals(Board.WRITE_STOPPED_MESSAGE, e.getMessage());
+        verify(postRepository, never()).countByBoardIdAndPinnedTrueAndDeletedFalse(any());
+    }
+
+    @Test
+    @DisplayName("수정: 고정 요청은 게시글 잠금 뒤 게시판을 배타 잠금으로 읽고, 고정 아닌 글은 상한 미만일 때만 고정한다")
+    void updatePost_pin_exclusiveLockAndLimit() {
+        Post target = existingPost();
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+        given(boardRepository.findByIdAndDeletedFalseForUpdate(BOARD_ID)).willReturn(Optional.of(pinBoard(1)));
+        given(postRepository.countByBoardIdAndPinnedTrueAndDeletedFalse(BOARD_ID)).willReturn(1L, 0L);
+
+        assertThrows(ConflictException.class, () -> postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().pinned(true).build()));
+        assertEquals(false, target.getPinned());
+
+        postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().pinned(true).build());
+        assertEquals(true, target.getPinned());
+        verify(boardRepository, never()).findByIdAndDeletedFalseForShare(any());
+    }
+
+    @Test
+    @DisplayName("수정: 이미 고정된 글에 true는 개수를 세지 않고 통과하며(상한을 낮춘 뒤에도), 해제는 고정을 끈 게시판에서도 통과한다")
+    void updatePost_alreadyPinnedAndUnpin() {
+        Post target = existingPost();
+        target.update(null, null, null, true, "admin01", FIXED_NOW);
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+        given(boardRepository.findByIdAndDeletedFalseForUpdate(BOARD_ID)).willReturn(Optional.of(pinBoard(0)));
+        lenient().when(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).thenReturn(Optional.of(pinBoard(0)));
+
+        postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().pinned(true).build());
+        verify(postRepository, never()).countByBoardIdAndPinnedTrueAndDeletedFalse(any());
+        assertEquals(true, target.getPinned());
+
+        postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().pinned(false).build());
+        assertEquals(false, target.getPinned());
+        verify(postRepository, never()).countByBoardIdAndPinnedTrueAndDeletedFalse(any());
+    }
+
+    @Test
+    @DisplayName("수정: 고정 필드가 없는 수정은 게시판을 공유 잠금으로 읽고 고정 상태를 건드리지 않는다")
+    void updatePost_withoutPinned_sharedLockKeepsPin() {
+        Post target = existingPost();
+        target.update(null, null, null, true, "admin01", FIXED_NOW);
+        boardAlive();
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+
+        postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().title("제목만").build());
+
+        assertEquals("제목만", target.getTitle());
+        assertEquals(true, target.getPinned());
+        verify(boardRepository, never()).findByIdAndDeletedFalseForUpdate(any());
+    }
+
+    @Test
+    @DisplayName("고정만 보낸 수정은 변경할 필드가 있는 요청이다 (빈 요청은 여전히 400)")
+    void updatePost_pinnedOnlyIsAChange() {
+        assertThrows(InvalidRequestException.class, () -> postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().build()));
+        verify(postRepository, never()).findByIdAndBoardIdAndDeletedFalseForUpdate(any(), any());
+    }
 }

@@ -97,7 +97,7 @@ public class MemberPermissionService {
         Member member = memberRepository.findById(memberId)
                 .orElseThrow(() -> new ResourceNotFoundException(NOT_FOUND_MESSAGE));
         validateTarget(member);
-        List<Board> boards = boardRepository.findByDeletedFalseOrderByIdAsc();
+        List<Board> boards = boardRepository.findByDeletedFalseOrderBySortOrderAscIdAsc();
         return toMatrix(member, effectiveGrants(readValidRows(memberId)), effectiveBoardGrants(readValidBoardRows(memberId)), boards);
     }
 
@@ -142,7 +142,7 @@ public class MemberPermissionService {
         Set<BoardKey> addedBoards = difference(requestedBoards, currentBoards.keySet(), BOARD_KEY_ORDER);
         Set<BoardKey> removedBoards = difference(currentBoards.keySet(), requestedBoards, BOARD_KEY_ORDER);
 
-        List<Board> boards = boardRepository.findByDeletedFalseOrderByIdAsc();
+        List<Board> boards = boardRepository.findByDeletedFalseOrderBySortOrderAscIdAsc();
         if (added.isEmpty() && removed.isEmpty() && addedBoards.isEmpty() && removedBoards.isEmpty()) {
             return new MemberPermissionUpdateResult(memberId,
                     toMatrix(member, effectiveGrants(current), effectiveBoardGrants(currentBoards), boards),

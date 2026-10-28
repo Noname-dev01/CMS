@@ -27,6 +27,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -38,6 +39,12 @@ import java.time.LocalDateTime;
  *
  * <p>잠금: 생성은 게시판 행 {@code FOR SHARE}(게시판 삭제의 {@code FOR UPDATE}와 직렬화 — 삭제 검사 직후 생기는 고아 게시글 방지),
  * 수정·삭제는 게시글 행 {@code FOR UPDATE}. 모든 조회는 경로의 게시판 소속을 함께 확인해(IDOR) 다른 게시판의 글은 같은 404다.
+ *
+ * <p><b>상단 고정</b>(PLAN-board-definition.md PR 3 D3-4): 요청이 {@code pinned=true}이면 게시판을 처음부터 {@code FOR UPDATE}로 잡고(읽은 뒤
+ * 공유 잠금에서 올리면 교착) 그 잠금 뒤에 고정 개수를 센다. {@code FOR SHARE}끼리는 서로 막지 않아 상한 직전의 동시 고정이 상한을 넘기 때문이다.
+ * 잠금 순서는 게시글 X → 게시판 X/S로 기존과 같은 방향이다. 개수 COUNT가 직렬화된 앞 고정을 반드시 보도록 {@link #createPost}·{@link #updatePost}는
+ * {@code READ_COMMITTED}로 실행되는 <b>최상위 트랜잭션 진입점</b>이다(호출자는 컨트롤러뿐 — 다른 트랜잭션 안에서 부르면 격리 수준 설정이
+ * 무시돼 REPEATABLE READ 스냅샷이 오래된 개수를 볼 수 있으므로 그렇게 부르지 않는다. {@code SiteService}와 같은 규약).
  */
 @Service
 @RequiredArgsConstructor
@@ -56,22 +63,26 @@ public class PostService {
     private final AdminSecurityService adminSecurityService;
     private final Clock clock;
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.POST_CREATE, targetType = "POST", targetIdExpression = "id")
     public PostResponse createPost(Long boardId, PostCreateRequest request) {
         String authorId = requireCurrentAdminUserId();
         String title = requireNonBlank(request.getTitle(), "제목은 공백일 수 없습니다.");
         SanitizedHtml content = ContentBodyPolicy.sanitize(request.getContent(), request.getContentFormat());
         boolean useYn = request.getUseYn() == null || request.getUseYn();
+        boolean pinned = Boolean.TRUE.equals(request.getPinned());
         PostPublishPeriodRequest.Period period = request.getPublishPeriod() != null
                 ? request.getPublishPeriod().toPeriod()
                 : new PostPublishPeriodRequest.Period(null, null);
 
-        // 게시판 행 공유 잠금 — 삭제된 게시판이면 404, 이 트랜잭션이 끝날 때까지 게시판 삭제·수정(FOR UPDATE)이 기다린다
-        Board board = boardRepository.findByIdAndDeletedFalseForShare(boardId)
-                .orElseThrow(() -> new ResourceNotFoundException(BOARD_NOT_FOUND));
+        // 게시판 행 잠금 — 삭제된 게시판이면 404, 이 트랜잭션이 끝날 때까지 게시판 삭제·수정(FOR UPDATE)이 기다린다.
+        // 고정하는 글이면 공유가 아니라 배타 잠금(고정 개수 판정을 직렬화)
+        Board board = lockBoard(boardId, pinned);
         requireWritable(board);
         requirePeriodAllowed(board, period);
+        if (pinned) {
+            requirePinAllowed(board);
+        }
 
         LocalDateTime now = LocalDateTime.now(clock);
         Post saved = postRepository.save(
@@ -80,6 +91,7 @@ public class PostService {
                         .title(title)
                         .content(content.html())
                         .useYn(useYn)
+                        .pinned(pinned)
                         .deleted(false)
                         .authorId(authorId)
                         .createDate(now)
@@ -95,11 +107,11 @@ public class PostService {
         return PostResponse.from(saved, now);
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     @AdminActionLogged(actionType = AdminActionTypes.POST_UPDATE, targetType = "POST", targetIdExpression = "id")
     public PostResponse updatePost(Long boardId, Long postId, PostUpdateRequest request) {
         if (request.getTitle() == null && request.getContent() == null && request.getUseYn() == null
-                && request.getPublishPeriod() == null) {
+                && request.getPinned() == null && request.getPublishPeriod() == null) {
             throw new InvalidRequestException("변경할 필드가 없습니다.");
         }
         // 기간 검증은 잠금 전에 — 400이 행 잠금을 쥔 채 나가지 않게 한다. 객체가 있으면 시작·종료를 통째로 교체한다(null = 그쪽 열림).
@@ -109,10 +121,16 @@ public class PostService {
         // 현재 사용자도 잠금 전에 — 403이 행 잠금을 쥔 채 나가지 않게 한다
         String updaterId = requireCurrentAdminUserId();
 
-        LockedPost locked = lockPostForWrite(boardId, postId);
+        // 고정하려는 요청이면(현재 값과 무관) 게시판을 처음부터 배타 잠금 — 읽은 뒤 승격하면 교착한다
+        boolean pinRequested = Boolean.TRUE.equals(request.getPinned());
+        LockedPost locked = lockPostForWrite(boardId, postId, pinRequested);
         Post target = locked.post();
         Board board = locked.board();
         requirePeriodAllowed(board, period);
+        // 새로 고정하는 경우만 판정한다 — 이미 고정된 글에 true를 다시 보내는 것과 해제는 개수가 늘지 않아 통과(상한을 낮춘 뒤에도)
+        if (pinRequested && !Boolean.TRUE.equals(target.getPinned())) {
+            requirePinAllowed(board);
+        }
 
         String title = request.getTitle() != null
                 ? requireNonBlank(request.getTitle(), "제목은 공백일 수 없습니다.")
@@ -122,7 +140,7 @@ public class PostService {
                 : null;
 
         LocalDateTime now = LocalDateTime.now(clock);
-        target.update(title, content != null ? content.html() : null, request.getUseYn(), updaterId, now);
+        target.update(title, content != null ? content.html() : null, request.getUseYn(), request.getPinned(), updaterId, now);
         if (period != null) {
             target.changePublishPeriod(period.start(), period.end());
         }
@@ -194,13 +212,37 @@ public class PostService {
      * {@code FOR UPDATE})과 진행 중 수정을 직렬화한다(PLAN-board-definition.md §4 D5). 게시판 쪽 잠금(PATCH·삭제)은 게시글 행을 잠그지 않아
      * 순환이 없고, 이미지 참조 교체보다 먼저 잡아 이미지 잠금과도 순환하지 않는다. 삭제는 판정이 없어 {@link #lockPost}를 그대로 쓴다.
      */
-    private LockedPost lockPostForWrite(Long boardId, Long postId) {
+    private LockedPost lockPostForWrite(Long boardId, Long postId, boolean exclusiveBoard) {
         Post target = postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(postId, boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(POST_NOT_FOUND));
-        Board board = boardRepository.findByIdAndDeletedFalseForShare(boardId)
-                .orElseThrow(() -> new ResourceNotFoundException(BOARD_NOT_FOUND));
+        Board board = lockBoard(boardId, exclusiveBoard);
         requireWritable(board);
         return new LockedPost(target, board);
+    }
+
+    /**
+     * 게시판 행 잠금 — 기본은 공유({@code FOR SHARE}, 게시판 PATCH·삭제와 직렬화). 상단 고정으로 개수 판정이 필요한 쓰기는 배타
+     * ({@code FOR UPDATE})로 잡아 같은 게시판의 다른 고정 쓰기와 직렬화한다. 삭제된 게시판이면 404.
+     */
+    private Board lockBoard(Long boardId, boolean exclusive) {
+        return (exclusive
+                ? boardRepository.findByIdAndDeletedFalseForUpdate(boardId)
+                : boardRepository.findByIdAndDeletedFalseForShare(boardId))
+                .orElseThrow(() -> new ResourceNotFoundException(BOARD_NOT_FOUND));
+    }
+
+    /**
+     * 새로 고정하는 쓰기의 판정 — 고정을 끈 게시판(상한 0)은 400, 현재 고정 개수가 상한 이상이면 409(첨부 개수 초과와 같은 성질: 입력은 옳고
+     * 현재 상태와 충돌). 개수는 게시판 배타 잠금을 쥔 뒤에 센 값이어야 한다(PLAN-board-definition.md PR 3 D3-4).
+     */
+    private void requirePinAllowed(Board board) {
+        int max = board.getPinMaxCount();
+        if (max <= 0) {
+            throw new InvalidRequestException(Board.PIN_DISABLED_MESSAGE);
+        }
+        if (postRepository.countByBoardIdAndPinnedTrueAndDeletedFalse(board.getId()) >= max) {
+            throw new ConflictException("상단 고정은 최대 " + max + "개까지 가능합니다. 다른 글의 고정을 먼저 해제하세요.");
+        }
     }
 
     /** 수정용으로 잠근 게시글과 게시판 — 게시판 정책(작성 정책)은 공유 잠금이 돌려준 이 행의 값으로 판정한다. */

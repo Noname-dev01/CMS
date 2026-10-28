@@ -63,6 +63,21 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
     }
 
     @Override
+    public List<Post> findPinnedPublished(Long boardId, LocalDateTime now, int limit) {
+        QPost post = QPost.post;
+
+        return queryFactory
+                .selectFrom(post)
+                .where(post.boardId.eq(boardId)
+                        .and(post.deleted.isFalse())
+                        .and(post.pinned.isTrue())
+                        .and(isPublished(post, now)))
+                .orderBy(post.createDate.desc(), post.id.desc())
+                .limit(limit)
+                .fetch();
+    }
+
+    @Override
     public Page<PostSearchRow> searchForAdminSearch(Collection<Long> boardIds, String keyword, Pageable pageable) {
         QPost post = QPost.post;
         QBoard board = QBoard.board;

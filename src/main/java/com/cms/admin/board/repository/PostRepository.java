@@ -30,6 +30,12 @@ public interface PostRepository extends JpaRepository<Post, Long>, PostRepositor
             """)
     Optional<Post> findPublishedById(@Param("id") Long id, @Param("boardId") Long boardId, @Param("now") LocalDateTime now);
 
+    /**
+     * 상단 고정 개수 — 그 게시판의 미삭제 {@code pinned} 글 수(노출 여부·기간 무관: 공개 상태는 시각에 따라 바뀌어 그것으로 세면 예약 글이
+     * 공개되는 순간 상한을 넘을 수 있다). <b>게시판 {@code FOR UPDATE}를 쥔 뒤에만</b> 부른다(PLAN-board-definition.md PR 3 D3-4).
+     */
+    long countByBoardIdAndPinnedTrueAndDeletedFalse(Long boardId);
+
     /** 게시판 삭제 검사 — 살아 있는(소프트 삭제되지 않은) 게시글이 하나라도 있는지(노출 여부 무관). */
     boolean existsByBoardIdAndDeletedFalse(Long boardId);
 

@@ -168,7 +168,7 @@ class PublicNoticeAttachmentIntegrationTest extends MariaDbContainerSupport {
         TransactionTemplate tx = new TransactionTemplate(transactionManager);
         tx.executeWithoutResult(status -> {
             Post managed = postRepository.findById(notice.getId()).orElseThrow();
-            managed.update(null, null, false, "admin01", LocalDateTime.now());
+            managed.update(null, null, false, null, "admin01", LocalDateTime.now());
             postRepository.save(managed);
         });
 

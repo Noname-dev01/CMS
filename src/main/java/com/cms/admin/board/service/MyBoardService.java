@@ -33,7 +33,7 @@ public class MyBoardService {
     public List<MyBoardResponse> getMyBoards(Authentication authentication) {
         Supplier<PermissionSnapshot> snapshotOnce = memoize(permissionEvaluator::snapshot);
         List<MyBoardResponse> result = new ArrayList<>();
-        for (Board board : boardRepository.findByDeletedFalseOrderByIdAsc()) {
+        for (Board board : boardRepository.findByDeletedFalseOrderBySortOrderAscIdAsc()) {
             Set<PermissionAction> actions = permissionEvaluator.boardActions(snapshotOnce, authentication, board.getId());
             if (actions.contains(PermissionAction.READ)) {
                 Set<String> boardExtensions = board.attachExtensionSet();
@@ -42,6 +42,7 @@ public class MyBoardService {
                         .filter(extension -> boardExtensions == null || boardExtensions.contains(extension))
                         .toList();
                 result.add(new MyBoardResponse(board.getId(), board.getName(), board.getPublicYn(), board.getAttachmentYn(), board.getWritableYn(),
+                        board.getPinMaxCount(),
                         Math.min(board.getAttachMaxCount(), AttachmentFilePolicy.MAX_COUNT_PER_OWNER),
                         Math.min(board.getAttachMaxSizeMb(), AttachmentFilePolicy.MAX_FILE_SIZE_MB),
                         extensions, board.getBodyImageYn(), board.getPublishPeriodYn(),

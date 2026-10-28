@@ -42,6 +42,9 @@ public class BoardCreateRequest {
     @Schema(description = "true면 siteScope 사이트의 공지 게시판으로 만든다(공개 필수·사이트당 하나, 공통은 불가). 누락 = false", example = "false")
     private Boolean noticeBoard;
 
+    @Schema(description = "관리 화면 표시 순서(0..9999, 작을수록 먼저, 같으면 id 순). 누락 = 0", example = "0")
+    private Integer sortOrder;
+
     // 표시 설정은 모두 선택이다(누락 = 현행 동작). 길이 상한은 앞뒤 공백을 정리한 뒤 서비스가 검사한다 — 정리 전 길이로 막지 않게 @Size를 두지 않는다.
     @Schema(description = "공개 목록 머리의 설명(평문, 정리 후 500자 이하). 누락·공백 = 없음", example = "보도자료를 올립니다.")
     private String description;
@@ -60,6 +63,9 @@ public class BoardCreateRequest {
 
     @Schema(description = "쓰기 허용 — false면 쓰기 중지(보관: 새 글·수정·첨부·본문 이미지 업로드 차단). 누락 = true", example = "true")
     private Boolean writableYn;
+
+    @Schema(description = "공개 목록 1페이지 상단에 고정할 수 있는 글 수(0..5, 0 = 고정 끔). 누락 = 0", example = "0")
+    private Integer pinMaxCount;
 
     // 작성 정책도 모두 선택이다(누락 = 현행 동작). 범위·정규화는 서비스 한 곳이 한다. 원소 개수는 정리 전후가 같아 여기서 막는다.
     @Schema(description = "게시글당 첨부 개수 상한(1..5). 누락 = 5", example = "5")

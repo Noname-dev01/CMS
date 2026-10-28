@@ -74,6 +74,42 @@ class BoardServiceTest {
     }
 
     @Test
+    @DisplayName("수정: 범위 밖 표시 순서(−1·10000)·고정 상한(−1·6)은 400이고 게시판 행을 조회(잠금)하지 않는다")
+    void update_sortOrderAndPinMaxOutOfRange_rejectedBeforeLock() {
+        BoardUpdateRequest[] bad = {
+                BoardUpdateRequest.builder().sortOrder(-1).version(1).build(),
+                BoardUpdateRequest.builder().sortOrder(10_000).version(1).build(),
+                BoardUpdateRequest.builder().pinMaxCount(-1).version(1).build(),
+                BoardUpdateRequest.builder().pinMaxCount(6).version(1).build(),
+        };
+        for (BoardUpdateRequest request : bad) {
+            assertThatThrownBy(() -> service.updateBoard(5L, request)).isInstanceOf(InvalidRequestException.class);
+        }
+        verifyNoInteractions(boardRepository);
+    }
+
+    @Test
+    @DisplayName("수정: 순서·고정 상한은 누락이면 유지, 경계값(0·9999·5)은 저장하며, 이 두 필드만 보낸 요청도 유효한 변경이다")
+    void update_sortOrderAndPinMax_threeStateAndBoundaries() {
+        Board board = Board.builder().id(5L).name("자료실").publicYn(true).attachmentYn(true).deleted(false).version(1)
+                .sortOrder(40).pinMaxCount(3).build();
+        given(boardRepository.findByIdAndDeletedFalseForUpdate(5L)).willReturn(Optional.of(board));
+
+        service.updateBoard(5L, BoardUpdateRequest.builder().name("개명").version(1).build());
+        assertThat(board.getSortOrder()).as("누락 = 유지").isEqualTo(40);
+        assertThat(board.getPinMaxCount()).isEqualTo(3);
+
+        service.updateBoard(5L, BoardUpdateRequest.builder().sortOrder(9999).pinMaxCount(5).version(2).build());
+        assertThat(board.getSortOrder()).isEqualTo(9999);
+        assertThat(board.getPinMaxCount()).isEqualTo(5);
+
+        service.updateBoard(5L, BoardUpdateRequest.builder().sortOrder(0).pinMaxCount(0).version(3).build());
+        assertThat(board.getSortOrder()).isZero();
+        assertThat(board.getPinMaxCount()).isZero();
+        assertThat(board.getVersion()).isEqualTo(4);
+    }
+
+    @Test
     @DisplayName("수정: version만 보내면 변경할 필드가 없어 400이고 게시판 행을 조회하지 않는다")
     void update_versionOnly_rejected() {
         assertThatThrownBy(() -> service.updateBoard(5L, BoardUpdateRequest.builder().version(1).build()))

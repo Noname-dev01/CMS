@@ -319,6 +319,22 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("게시판 표시 순서·상단 고정(V8): 새 컬럼 3개의 타입·NULL·기본값이 현행 동작이고, 생략한 INSERT(이전 앱)는 그 기본값을 얻으며 고정 인덱스가 있다")
+    void boardSortOrderAndPinColumns() throws Exception {
+        assertThat(rows("SELECT CONCAT(table_name, '.', column_name, '|', column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS"
+                + " WHERE table_schema = '" + SCHEMA + "' AND ((table_name = 'board' AND column_name IN ('sort_order', 'pin_max_count'))"
+                + " OR (table_name = 'post' AND column_name = 'pinned')) ORDER BY table_name, column_name")).containsExactly(
+                "board.pin_max_count|int(11)|NO|0",
+                "board.sort_order|int(11)|NO|0",
+                "post.pinned|bit(1)|NO|b'0'");
+        assertThat(rows("SELECT GROUP_CONCAT(column_name ORDER BY seq_in_index) FROM information_schema.STATISTICS WHERE table_schema = '" + SCHEMA
+                + "' AND table_name = 'post' AND index_name = 'idx_post_board_pinned'")).containsExactly("board_id,pinned,deleted,create_date");
+        st.executeUpdate("INSERT INTO board (name, public_yn, attachment_yn, deleted) VALUES ('순서고정 기본값', 1, 1, 0)");
+        assertThat(rows("SELECT CONCAT(sort_order, '|', pin_max_count) FROM board WHERE name = '순서고정 기본값'"))
+                .as("이전 앱처럼 새 컬럼을 모르는 INSERT").containsExactly("0|0");
+    }
+
+    @Test
     @DisplayName("프로필 이미지 URL 축소(V4): member.profile_image_url은 NULL 허용·기본값 없는 varchar(255)다")
     void profileImageUrlShrunk() throws Exception {
         assertThat(rows("SELECT CONCAT(column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS WHERE table_schema = '"

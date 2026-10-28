@@ -46,6 +46,14 @@ public class Board {
 
     public static final String PUBLISH_PERIOD_DISABLED_MESSAGE = "예약 게시를 허용하지 않는 게시판입니다.";
 
+    public static final String PIN_DISABLED_MESSAGE = "상단 고정을 허용하지 않는 게시판입니다.";
+
+    /** 표시 순서 상한(0..이 값). */
+    public static final int MAX_SORT_ORDER = 9999;
+
+    /** 게시판당 상단 고정 글 수 상한의 최댓값. 0 = 고정 끔. */
+    public static final int MAX_PIN_COUNT = 5;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -134,21 +142,34 @@ public class Board {
     @Column(name = "publish_period_yn", nullable = false)
     private Boolean publishPeriodYn = true;
 
+    /** 관리 화면의 표시 순서 — 작은 값이 먼저, 같으면 id 순. 연속성·유일성은 요구하지 않는다. */
+    @Builder.Default
+    @Column(name = "sort_order", nullable = false)
+    private Integer sortOrder = 0;
+
+    /** 공개 목록 1페이지 상단에 고정할 수 있는 글 수 상한. 0 = 고정 끔(낮추거나 꺼도 이미 고정된 글은 그대로 두고 공개 영역만 상한만큼 보인다). */
+    @Builder.Default
+    @Column(name = "pin_max_count", nullable = false)
+    private Integer pinMaxCount = 0;
+
     /** 낡은 화면 검출용 변경 버전 — 수정·삭제마다 +1, 요청 값과 다르면 서비스가 409(정적 페이지·배너·팝업과 같은 방식). */
     @Builder.Default
     @Column(nullable = false)
     private Integer version = 1;
 
     /**
-     * 수정. 이름·공개·첨부는 null이 아닐 때만 반영하고(null=기존값 유지), 표시 설정은 서비스가 계산한 최종값으로 전부 대입한다 — "지움"(null 저장)과
+     * 수정. 이름·공개·첨부·표시 순서는 null이 아닐 때만 반영하고(null=기존값 유지), 표시 설정은 서비스가 계산한 최종값으로 전부 대입한다 — "지움"(null 저장)과
      * "유지"를 엔티티에서 섞지 않기 위해서다. 공백 거부·전체 null 거부·범위 검증은 서비스 책임이다. 요청마다 {@link #version}을 한 번 올린다.
      *
      * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void update(String name, Boolean publicYn, Boolean attachmentYn, BoardDisplay display, BoardWritePolicy writePolicy,
-                       LocalDateTime now) {
+    public void update(String name, Boolean publicYn, Boolean attachmentYn, Integer sortOrder, BoardDisplay display,
+                       BoardWritePolicy writePolicy, LocalDateTime now) {
         if (name != null) {
             this.name = name;
+        }
+        if (sortOrder != null) {
+            this.sortOrder = sortOrder;
         }
         if (publicYn != null) {
             this.publicYn = publicYn;
@@ -162,6 +183,7 @@ public class Board {
         this.showViewCount = display.showViewCount();
         this.newBadgeDays = display.newBadgeDays();
         this.writableYn = display.writableYn();
+        this.pinMaxCount = display.pinMaxCount();
         this.attachMaxCount = writePolicy.attachMaxCount();
         this.attachMaxSizeMb = writePolicy.attachMaxSizeMb();
         this.attachExtensions = writePolicy.attachExtensions();
@@ -173,7 +195,7 @@ public class Board {
 
     /** 현재 표시 설정 — 서비스가 PATCH의 "누락 = 유지"를 계산하는 출발점. */
     public BoardDisplay display() {
-        return new BoardDisplay(description, listPageSize, authorLabel, showViewCount, newBadgeDays, writableYn);
+        return new BoardDisplay(description, listPageSize, authorLabel, showViewCount, newBadgeDays, writableYn, pinMaxCount);
     }
 
     /** 현재 작성 정책 — 서비스가 PATCH의 "누락 = 유지"를 계산하는 출발점. */

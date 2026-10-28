@@ -123,7 +123,7 @@ class MemberPermissionServiceBoardTest {
         given(boardRepository.findAllByIdInForShare(anyCollection())).willReturn(List.of(board(10, false), board(20, false)));
         seedBoardRows(10L, "READ", 10L, "UPDATE");
         given(memberBoardPermissionRepository.existsById(any(MemberBoardPermissionId.class))).willReturn(false);
-        given(boardRepository.findByDeletedFalseOrderByIdAsc()).willReturn(List.of(board(10, false), board(20, false)));
+        given(boardRepository.findByDeletedFalseOrderBySortOrderAscIdAsc()).willReturn(List.of(board(10, false), board(20, false)));
 
         MemberPermissionUpdateResult result = service.replace(MEMBER_ID,
                 request(3, grant(10, PermissionAction.READ), grant(20, PermissionAction.READ)));
@@ -159,7 +159,7 @@ class MemberPermissionServiceBoardTest {
         given(boardRepository.findAllByIdInForShare(anyCollection())).willReturn(List.of(board(10, false)));
         seedBoardRows(10L, "read");                                 // 판정기가 무시하는 변형 행
         given(memberBoardPermissionRepository.existsById(any(MemberBoardPermissionId.class))).willReturn(true);
-        given(boardRepository.findByDeletedFalseOrderByIdAsc()).willReturn(List.of(board(10, false)));
+        given(boardRepository.findByDeletedFalseOrderBySortOrderAscIdAsc()).willReturn(List.of(board(10, false)));
 
         assertThatThrownBy(() -> service.replace(MEMBER_ID, request(3, grant(10, PermissionAction.READ))))
                 .isInstanceOf(ConflictException.class).hasMessageContaining("형식이 올바르지 않은 행");
@@ -174,7 +174,7 @@ class MemberPermissionServiceBoardTest {
         given(memberRepository.findByIdForUpdate(MEMBER_ID)).willReturn(Optional.of(target));
         given(boardRepository.findAllByIdInForShare(anyCollection())).willReturn(List.of(board(10, false)));
         seedBoardRows(10L, "READ");
-        given(boardRepository.findByDeletedFalseOrderByIdAsc()).willReturn(List.of(board(10, false)));
+        given(boardRepository.findByDeletedFalseOrderBySortOrderAscIdAsc()).willReturn(List.of(board(10, false)));
 
         MemberPermissionUpdateResult result = service.replace(MEMBER_ID, request(5, grant(10, PermissionAction.READ)));
 

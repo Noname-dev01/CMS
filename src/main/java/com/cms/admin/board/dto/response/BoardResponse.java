@@ -37,6 +37,10 @@ public class BoardResponse {
     private Integer newBadgeDays;
     @Schema(description = "쓰기 허용(false = 쓰기 중지·보관)")
     private Boolean writableYn;
+    @Schema(description = "관리 화면 표시 순서(작을수록 먼저)")
+    private Integer sortOrder;
+    @Schema(description = "상단 고정 최대 글 수(0 = 고정 끔)")
+    private Integer pinMaxCount;
     @Schema(description = "게시글당 첨부 개수 상한")
     private Integer attachMaxCount;
     @Schema(description = "첨부 파일당 크기 상한(MB)")
@@ -66,6 +70,8 @@ public class BoardResponse {
                 .showViewCount(board.getShowViewCount())
                 .newBadgeDays(board.getNewBadgeDays())
                 .writableYn(board.getWritableYn())
+                .sortOrder(board.getSortOrder())
+                .pinMaxCount(board.getPinMaxCount())
                 .attachMaxCount(board.getAttachMaxCount())
                 .attachMaxSizeMb(board.getAttachMaxSizeMb())
                 .attachExtensions(board.getAttachExtensions() == null ? null : List.copyOf(new TreeSet<>(board.attachExtensionSet())))

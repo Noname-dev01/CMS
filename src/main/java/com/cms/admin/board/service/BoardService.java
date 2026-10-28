@@ -51,7 +51,7 @@ public class BoardService {
 
     @Transactional(readOnly = true)
     public List<BoardResponse> getBoards() {
-        return boardRepository.findByDeletedFalseOrderByIdAsc().stream().map(BoardResponse::from).toList();
+        return boardRepository.findByDeletedFalseOrderBySortOrderAscIdAsc().stream().map(BoardResponse::from).toList();
     }
 
     @Transactional(readOnly = true)
@@ -94,7 +94,9 @@ public class BoardService {
                 optionalText(request.getAuthorLabel(), Board.MAX_AUTHOR_LABEL_LENGTH, "작성자 표시명"),
                 Boolean.TRUE.equals(request.getShowViewCount()),
                 request.getNewBadgeDays() != null ? requireNewBadgeDays(request.getNewBadgeDays()) : 0,
-                request.getWritableYn() == null || request.getWritableYn());
+                request.getWritableYn() == null || request.getWritableYn(),
+                request.getPinMaxCount() != null ? requirePinMaxCount(request.getPinMaxCount()) : 0);
+        int sortOrder = request.getSortOrder() != null ? requireSortOrder(request.getSortOrder()) : 0;
         BoardWritePolicy writePolicy = new BoardWritePolicy(
                 request.getAttachMaxCount() != null ? requireAttachMaxCount(request.getAttachMaxCount()) : AttachmentFilePolicy.MAX_COUNT_PER_OWNER,
                 request.getAttachMaxSizeMb() != null ? requireAttachMaxSizeMb(request.getAttachMaxSizeMb()) : AttachmentFilePolicy.MAX_FILE_SIZE_MB,
@@ -115,6 +117,8 @@ public class BoardService {
                 .showViewCount(display.showViewCount())
                 .newBadgeDays(display.newBadgeDays())
                 .writableYn(display.writableYn())
+                .pinMaxCount(display.pinMaxCount())
+                .sortOrder(sortOrder)
                 .attachMaxCount(writePolicy.attachMaxCount())
                 .attachMaxSizeMb(writePolicy.attachMaxSizeMb())
                 .attachExtensions(writePolicy.attachExtensions())
@@ -141,11 +145,14 @@ public class BoardService {
                 && request.getSiteScope() == null && request.getDescription() == null && request.getListPageSize() == null
                 && request.getAuthorLabel() == null && request.getShowViewCount() == null && request.getNewBadgeDays() == null
                 && request.getWritableYn() == null && request.getAttachMaxCount() == null && request.getAttachMaxSizeMb() == null
-                && request.getAttachExtensions() == null && request.getBodyImageYn() == null && request.getPublishPeriodYn() == null) {
+                && request.getAttachExtensions() == null && request.getBodyImageYn() == null && request.getPublishPeriodYn() == null
+                && request.getSortOrder() == null && request.getPinMaxCount() == null) {
             throw new InvalidRequestException("변경할 필드가 없습니다.");
         }
         // 입력 검증은 잠금 전에 — 400이 행 잠금을 쥔 채 나가지 않게 한다
         requireVersionParam(request.getVersion());
+        Integer sortOrder = request.getSortOrder() != null ? requireSortOrder(request.getSortOrder()) : null;
+        Integer pinMaxCount = request.getPinMaxCount() != null ? requirePinMaxCount(request.getPinMaxCount()) : null;
         Integer attachMaxCount = request.getAttachMaxCount() != null ? requireAttachMaxCount(request.getAttachMaxCount()) : null;
         Integer attachMaxSizeMb = request.getAttachMaxSizeMb() != null ? requireAttachMaxSizeMb(request.getAttachMaxSizeMb()) : null;
         String attachExtensions = request.getAttachExtensions() != null ? joinExtensions(request.getAttachExtensions()) : null;
@@ -185,7 +192,8 @@ public class BoardService {
                 request.getAuthorLabel() != null ? authorLabel : current.authorLabel(),
                 request.getShowViewCount() != null ? request.getShowViewCount() : current.showViewCount(),
                 newBadgeDays != null ? newBadgeDays : current.newBadgeDays(),
-                request.getWritableYn() != null ? request.getWritableYn() : current.writableYn());
+                request.getWritableYn() != null ? request.getWritableYn() : current.writableYn(),
+                pinMaxCount != null ? pinMaxCount : current.pinMaxCount());
         BoardWritePolicy currentPolicy = board.writePolicy();
         BoardWritePolicy writePolicy = new BoardWritePolicy(
                 attachMaxCount != null ? attachMaxCount : currentPolicy.attachMaxCount(),
@@ -195,7 +203,7 @@ public class BoardService {
                 request.getBodyImageYn() != null ? request.getBodyImageYn() : currentPolicy.bodyImageYn(),
                 request.getPublishPeriodYn() != null ? request.getPublishPeriodYn() : currentPolicy.publishPeriodYn());
         LocalDateTime now = LocalDateTime.now(clock);
-        board.update(name, request.getPublicYn(), request.getAttachmentYn(), display, writePolicy, now);
+        board.update(name, request.getPublicYn(), request.getAttachmentYn(), sortOrder, display, writePolicy, now);
         if (siteChanged) {
             board.changeSite(requestedSiteId, now);
         }
@@ -246,6 +254,20 @@ public class BoardService {
     private static int requireListPageSize(int value) {
         if (!Board.ALLOWED_LIST_PAGE_SIZES.contains(value)) {
             throw new InvalidRequestException("목록 크기는 10·20·30·50 중 하나여야 합니다.");
+        }
+        return value;
+    }
+
+    private static int requireSortOrder(int value) {
+        if (value < 0 || value > Board.MAX_SORT_ORDER) {
+            throw new InvalidRequestException("표시 순서는 0~" + Board.MAX_SORT_ORDER + "여야 합니다.");
+        }
+        return value;
+    }
+
+    private static int requirePinMaxCount(int value) {
+        if (value < 0 || value > Board.MAX_PIN_COUNT) {
+            throw new InvalidRequestException("상단 고정 최대 개수는 0~" + Board.MAX_PIN_COUNT + "개여야 합니다.");
         }
         return value;
     }
