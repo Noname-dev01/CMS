@@ -12,6 +12,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.List;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -58,4 +60,21 @@ public class BoardCreateRequest {
 
     @Schema(description = "쓰기 허용 — false면 쓰기 중지(보관: 새 글·수정·첨부·본문 이미지 업로드 차단). 누락 = true", example = "true")
     private Boolean writableYn;
+
+    // 작성 정책도 모두 선택이다(누락 = 현행 동작). 범위·정규화는 서비스 한 곳이 한다. 원소 개수는 정리 전후가 같아 여기서 막는다.
+    @Schema(description = "게시글당 첨부 개수 상한(1..5). 누락 = 5", example = "5")
+    private Integer attachMaxCount;
+
+    @Schema(description = "첨부 파일당 크기 상한(MB, 1..10). 누락 = 10", example = "10")
+    private Integer attachMaxSizeMb;
+
+    @Size(max = 50)
+    @Schema(description = "허용 확장자(전역 허용 목록의 일부). 누락·전체 선택 = 전체 허용", example = "[\"pdf\", \"docx\"]")
+    private List<String> attachExtensions;
+
+    @Schema(description = "본문 이미지 허용 여부. 누락 = true", example = "true")
+    private Boolean bodyImageYn;
+
+    @Schema(description = "예약 게시 허용 여부. 누락 = true", example = "true")
+    private Boolean publishPeriodYn;
 }

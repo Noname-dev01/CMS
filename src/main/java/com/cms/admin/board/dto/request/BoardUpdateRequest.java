@@ -12,6 +12,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.List;
+
 /** 부분 수정 요청. null 필드는 기존값 유지({@code version}만 필수). 이름 공백 거부·전체 null 거부·범위 검증은 서비스가 한다. */
 @Getter
 @Setter
@@ -53,6 +55,22 @@ public class BoardUpdateRequest {
 
     @Schema(description = "쓰기 허용 — false면 쓰기 중지(보관). 공통 공지 게시판은 끌 수 없다 (null이면 유지)", example = "false")
     private Boolean writableYn;
+
+    @Schema(description = "게시글당 첨부 개수 상한 1..5 (null이면 유지)", example = "3")
+    private Integer attachMaxCount;
+
+    @Schema(description = "첨부 파일당 크기 상한 MB 1..10 (null이면 유지)", example = "5")
+    private Integer attachMaxSizeMb;
+
+    @Size(max = 50)
+    @Schema(description = "허용 확장자 — 통째 교체, 전역 허용 목록의 부분집합 (null이면 유지, 빈 배열은 400, 전체를 고르면 \"전체 허용\"으로 저장)", example = "[\"pdf\", \"docx\"]")
+    private List<String> attachExtensions;
+
+    @Schema(description = "본문 이미지 허용 여부 — false면 새 이미지만 거부, 기존 이미지는 유지 (null이면 유지)", example = "false")
+    private Boolean bodyImageYn;
+
+    @Schema(description = "예약 게시 허용 여부 — false면 새 기간 설정만 거부, 기존 기간은 유효 (null이면 유지)", example = "false")
+    private Boolean publishPeriodYn;
 
     @NotNull
     @Min(1)

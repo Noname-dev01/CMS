@@ -2,6 +2,7 @@ package com.cms.admin.board.controller;
 
 import com.cms.admin.AdminPage;
 import com.cms.admin.site.ContentScopeOptions;
+import com.cms.common.attachment.AttachmentFilePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -23,6 +24,8 @@ public class BoardPageController {
         ContentScopeOptions.Options options = contentScopeOptions.load();
         model.addAttribute("scopeSites", options.sites());
         model.addAttribute("scopeDefaultKey", options.defaultKey());
+        // 작성 정책의 허용 확장자 체크박스 — 전역 허용 목록이 원본이라 화면에 하드코딩하지 않는다
+        model.addAttribute("attachmentExtensions", AttachmentFilePolicy.allowedExtensions());
         return "admin/board/manage";
     }
 

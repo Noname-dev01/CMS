@@ -43,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
@@ -538,5 +539,66 @@ class PostAttachmentServiceTest {
         assertThrows(ResourceNotFoundException.class, () -> postAttachmentService.list(99L, 1L));
         assertThrows(ResourceNotFoundException.class, () -> postAttachmentService.download(99L, 1L, 10L));
         assertThrows(ResourceNotFoundException.class, () -> postAttachmentService.delete(99L, 1L, 10L));
+    }
+
+    // ===================== 작성 정책 (PLAN-board-definition.md PR 2) =====================
+
+    private void givenBoardPolicy(int maxCount, int maxSizeMb, String extensions) {
+        Board board = Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false)
+                .attachMaxCount(maxCount).attachMaxSizeMb(maxSizeMb).attachExtensions(extensions).build();
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(board));
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(activePost()));
+    }
+
+    @Test
+    @DisplayName("게시판 크기 상한: 정확히 상한이면 통과하고 1바이트 넘으면 400(메시지에 게시판 값)")
+    void upload_boardSizeLimit() {
+        givenBoardPolicy(5, 1, null);
+        given(postAttachmentRepository.countByPostId(1L)).willReturn(0L);
+        given(fileStorage.store(any(byte[].class), anyString())).willReturn("2026/07/21/uuid.pdf");
+        given(postAttachmentRepository.save(any(PostAttachment.class))).willAnswer(inv -> inv.getArgument(0));
+
+        postAttachmentService.upload(BOARD_ID, 1L, new MockMultipartFile("file", "a.pdf", "application/pdf", new byte[1024 * 1024]));
+
+        InvalidRequestException e = assertThrows(InvalidRequestException.class, () -> postAttachmentService.upload(
+                BOARD_ID, 1L, new MockMultipartFile("file", "b.pdf", "application/pdf", new byte[1024 * 1024 + 1])));
+        assertTrue(e.getMessage().contains("1MB"));
+    }
+
+    @Test
+    @DisplayName("게시판 개수 상한: 상한에 이른 글의 업로드는 409(메시지에 게시판 값)이고 저장하지 않는다")
+    void upload_boardCountLimit() {
+        givenBoardPolicy(2, 10, null);
+        given(postAttachmentRepository.countByPostId(1L)).willReturn(2L);
+
+        ConflictException e = assertThrows(ConflictException.class, () -> postAttachmentService.upload(
+                BOARD_ID, 1L, new MockMultipartFile("file", "a.pdf", "application/pdf", "x".getBytes())));
+        assertTrue(e.getMessage().contains("2개"));
+        verify(fileStorage, never()).store(any(byte[].class), anyString());
+    }
+
+    @Test
+    @DisplayName("게시판 확장자 제한: 집합 밖은 게시판 메시지로 400")
+    void upload_boardExtensionLimit() {
+        givenBoardPolicy(5, 10, "pdf");
+
+        InvalidRequestException e = assertThrows(InvalidRequestException.class, () -> postAttachmentService.upload(
+                BOARD_ID, 1L, new MockMultipartFile("file", "a.png", "image/png", "x".getBytes())));
+        assertTrue(e.getMessage().startsWith("이 게시판에서 허용하지 않는 파일 형식입니다"));
+        verify(fileStorage, never()).store(any(byte[].class), anyString());
+    }
+
+    @Test
+    @DisplayName("천장: DB에 전역 밖 확장자·초과 크기·초과 개수가 들어 있어도 전역 상한이 먼저 막는다")
+    void upload_globalCeilingHoldsAgainstTamperedBoardRow() {
+        givenBoardPolicy(9, 20, "exe,pdf");
+        given(postAttachmentRepository.countByPostId(1L)).willReturn(5L);
+
+        assertThrows(InvalidRequestException.class, () -> postAttachmentService.upload(
+                BOARD_ID, 1L, new MockMultipartFile("file", "run.exe", "application/octet-stream", "x".getBytes())));
+        assertThrows(InvalidRequestException.class, () -> postAttachmentService.upload(
+                BOARD_ID, 1L, new MockMultipartFile("file", "big.pdf", "application/pdf", new byte[10 * 1024 * 1024 + 1])));
+        assertThrows(ConflictException.class, () -> postAttachmentService.upload(
+                BOARD_ID, 1L, new MockMultipartFile("file", "a.pdf", "application/pdf", "x".getBytes())));
     }
 }

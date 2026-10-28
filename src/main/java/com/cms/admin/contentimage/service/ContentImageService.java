@@ -52,6 +52,8 @@ public class ContentImageService {
     /** 게시판 편집기 업로드 출처(scope_id = 게시판 ID). 공개 판정 쿼리의 리터럴과 같아야 한다. */
     public static final String SCOPE_BOARD = "BOARD";
 
+    private static final String NEW_IMAGE_REJECTED_MESSAGE = Board.BODY_IMAGE_DISABLED_MESSAGE + " 새로 넣은 이미지를 지워 주세요.";
+
     /**
      * 라이브러리 계열 출처 — 게시판 권한이 아니라 미디어 라이브러리 권한({@code MEDIA})이 지키는 이미지다(D3). {@code scope_id}는 NULL이다.
      * 공개 판정 쿼리({@code existsPublishedPostRef})의 리터럴 목록과 같아야 한다.
@@ -103,6 +105,10 @@ public class ContentImageService {
         if (!Boolean.TRUE.equals(board.getWritableYn())) {
             throw new InvalidRequestException(Board.WRITE_STOPPED_MESSAGE);
         }
+        // 본문 이미지를 끈 게시판은 업로드도 막는다 — 저장에 쓸 수 없는 미참조 이미지가 카운터 용량만 차지하지 않게
+        if (!Boolean.TRUE.equals(board.getBodyImageYn())) {
+            throw new InvalidRequestException(Board.BODY_IMAGE_DISABLED_MESSAGE);
+        }
         return store(file, SCOPE_BOARD, boardId);
     }
 
@@ -141,6 +147,17 @@ public class ContentImageService {
      */
     @Transactional
     public void replaceRefs(String ownerType, Long ownerId, String scopeType, Long scopeId, Collection<Long> imageIds) {
+        replaceRefs(ownerType, ownerId, scopeType, scopeId, imageIds, true);
+    }
+
+    /**
+     * {@link #replaceRefs(String, Long, String, Long, Collection)} + 새 이미지 허용 여부. {@code allowNewImages=false}(본문 이미지를 허용하지 않는
+     * 게시판)면 <b>실제로 존재하는</b> 이미지 중 이 콘텐츠가 지금 참조하지 않는 것이 하나라도 있을 때 삭제·쓰기 전에 400이다 — 이미 참조 중인
+     * 이미지는 유지하고, 존재하지 않는 ID는 허용 게시판처럼 조용히 뺀다(깨진 ID가 든 기존 글도 고칠 수 있게. PLAN-board-definition.md PR 2 D2-4).
+     */
+    @Transactional
+    public void replaceRefs(String ownerType, Long ownerId, String scopeType, Long scopeId, Collection<Long> imageIds,
+                            boolean allowNewImages) {
         Set<Long> existing = new HashSet<>();
         if (!imageIds.isEmpty()) {
             Set<Long> alreadyReferenced = new HashSet<>(refRepository.findImageIdsByOwner(ownerType, ownerId));
@@ -149,6 +166,9 @@ public class ContentImageService {
             // 저장하는 사람의 현재 MEDIA 읽기 권한이 필요하다(이미 이 콘텐츠가 참조 중인 것은 권한이 회수돼도 유지할 수 있다). 거부는 삭제·쓰기 전이라 기존 참조가 남는다.
             List<ContentImage> images = imageRepository.findAllByIdForShare(imageIds);
             for (ContentImage image : images) {
+                if (!allowNewImages && !alreadyReferenced.contains(image.getId())) {
+                    throw new InvalidRequestException(NEW_IMAGE_REJECTED_MESSAGE);
+                }
                 if (isLibraryScope(image.getScopeType())) {
                     if (!alreadyReferenced.contains(image.getId())
                             && !permissionEvaluator.allows(authentication, AdminFeature.MEDIA, PermissionAction.READ)) {

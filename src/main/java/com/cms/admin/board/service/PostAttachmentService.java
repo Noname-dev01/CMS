@@ -72,13 +72,16 @@ public class PostAttachmentService {
             throw new InvalidRequestException("업로드할 파일을 선택해주세요.");
         }
         String filename = AttachmentFilePolicy.sanitizeFilename(file.getOriginalFilename());
-        String extension = AttachmentFilePolicy.requireAllowedExtension(filename);
+        // 전역 검사가 먼저, 게시판 제한은 그 뒤 — 게시판 값은 잠근 게시판 행에서 읽고, DB를 직접 고쳐도 전역 상한을 넘지 않게 min으로 자른다
+        String extension = AttachmentFilePolicy.requireAllowedExtension(filename, board.attachExtensionSet());
         AttachmentFilePolicy.validateContentType(extension, file.getContentType());
-        if (file.getSize() > AttachmentFilePolicy.MAX_FILE_SIZE) {
-            throw new InvalidRequestException("첨부파일은 10MB 이하만 업로드할 수 있습니다.");
+        int maxSizeMb = Math.min(board.getAttachMaxSizeMb(), AttachmentFilePolicy.MAX_FILE_SIZE_MB);
+        if (file.getSize() > maxSizeMb * 1024L * 1024) {
+            throw new InvalidRequestException("첨부파일은 " + maxSizeMb + "MB 이하만 업로드할 수 있습니다.");
         }
-        if (postAttachmentRepository.countByPostId(postId) >= AttachmentFilePolicy.MAX_COUNT_PER_OWNER) {
-            throw new ConflictException("게시글당 첨부파일은 최대 5개까지 업로드할 수 있습니다.");
+        int maxCount = Math.min(board.getAttachMaxCount(), AttachmentFilePolicy.MAX_COUNT_PER_OWNER);
+        if (postAttachmentRepository.countByPostId(postId) >= maxCount) {
+            throw new ConflictException("게시글당 첨부파일은 최대 " + maxCount + "개까지 업로드할 수 있습니다.");
         }
 
         byte[] content;

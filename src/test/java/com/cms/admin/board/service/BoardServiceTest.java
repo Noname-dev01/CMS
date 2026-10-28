@@ -141,4 +141,62 @@ class BoardServiceTest {
         assertThatThrownBy(() -> service.deleteBoard(5L, 1)).isInstanceOf(ConflictException.class);
         assertThat(board.getDeleted()).isFalse();
     }
+
+    // ===================== 작성 정책 (PLAN-board-definition.md PR 2) =====================
+
+    @Test
+    @DisplayName("수정: 범위 밖 첨부 개수·크기, 빈·전역 밖 확장자는 400이고 게시판 행을 조회(잠금)하지 않는다")
+    void update_writePolicyOutOfRange_rejectedBeforeLock() {
+        BoardUpdateRequest[] bad = {
+                BoardUpdateRequest.builder().attachMaxCount(0).version(1).build(),
+                BoardUpdateRequest.builder().attachMaxCount(6).version(1).build(),
+                BoardUpdateRequest.builder().attachMaxSizeMb(0).version(1).build(),
+                BoardUpdateRequest.builder().attachMaxSizeMb(11).version(1).build(),
+                BoardUpdateRequest.builder().attachExtensions(java.util.List.of()).version(1).build(),
+                BoardUpdateRequest.builder().attachExtensions(java.util.List.of("pdf", "exe")).version(1).build(),
+        };
+        for (BoardUpdateRequest request : bad) {
+            assertThatThrownBy(() -> service.updateBoard(5L, request)).isInstanceOf(InvalidRequestException.class);
+        }
+        verifyNoInteractions(boardRepository);
+    }
+
+    @Test
+    @DisplayName("수정: 작성 정책 필드만 보내도 변경 있음으로 판정하고, 경계값(1·5개, 1·10MB)을 받는다")
+    void update_writePolicyOnly_isAChange() {
+        Board board = board(1);
+        given(boardRepository.findByIdAndDeletedFalseForUpdate(5L)).willReturn(Optional.of(board));
+
+        service.updateBoard(5L, BoardUpdateRequest.builder().attachMaxCount(1).attachMaxSizeMb(1).version(1).build());
+        assertThat(board.getAttachMaxCount()).isEqualTo(1);
+        assertThat(board.getAttachMaxSizeMb()).isEqualTo(1);
+        assertThat(board.getVersion()).isEqualTo(2);
+
+        service.updateBoard(5L, BoardUpdateRequest.builder().attachMaxCount(5).attachMaxSizeMb(10).version(2).build());
+        assertThat(board.getAttachMaxCount()).isEqualTo(5);
+        assertThat(board.getAttachMaxSizeMb()).isEqualTo(10);
+
+        service.updateBoard(5L, BoardUpdateRequest.builder().bodyImageYn(false).version(3).build());
+        assertThat(board.getBodyImageYn()).isFalse();
+        service.updateBoard(5L, BoardUpdateRequest.builder().publishPeriodYn(false).version(4).build());
+        assertThat(board.getPublishPeriodYn()).isFalse();
+        assertThat(board.getBodyImageYn()).as("다른 정책은 유지").isFalse();
+    }
+
+    @Test
+    @DisplayName("수정: 확장자는 누락이면 유지, 일부면 정규형 저장, 전체를 고르면 null(전체 허용)로 되돌린다")
+    void update_extensionsThreeCases() {
+        Board board = board(1);
+        given(boardRepository.findByIdAndDeletedFalseForUpdate(5L)).willReturn(Optional.of(board));
+
+        service.updateBoard(5L, BoardUpdateRequest.builder().attachExtensions(java.util.List.of("PDF", " pdf ", "hwp")).version(1).build());
+        assertThat(board.getAttachExtensions()).isEqualTo("hwp,pdf");
+
+        service.updateBoard(5L, BoardUpdateRequest.builder().name("개명").version(2).build());
+        assertThat(board.getAttachExtensions()).as("누락 = 유지").isEqualTo("hwp,pdf");
+
+        service.updateBoard(5L, BoardUpdateRequest.builder()
+                .attachExtensions(com.cms.common.attachment.AttachmentFilePolicy.allowedExtensions()).version(3).build());
+        assertThat(board.getAttachExtensions()).as("전체 선택 = null").isNull();
+    }
 }

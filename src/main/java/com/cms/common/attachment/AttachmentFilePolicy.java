@@ -2,10 +2,13 @@ package com.cms.common.attachment;
 
 import com.cms.common.exception.InvalidRequestException;
 
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * 첨부파일 검증 정책(파일명·확장자·Content-Type 화이트리스트·크기·개수 상한) — 공지 첨부와 게시글 첨부가 같은 규칙을 쓴다.
@@ -14,7 +17,8 @@ import java.util.Set;
  */
 public final class AttachmentFilePolicy {
 
-    public static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    public static final int MAX_FILE_SIZE_MB = 10;
+    public static final long MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024L * 1024;
     public static final int MAX_COUNT_PER_OWNER = 5;
     public static final String DEFAULT_CONTENT_TYPE = "application/octet-stream";
 
@@ -25,6 +29,8 @@ public final class AttachmentFilePolicy {
      * (비표준 클라이언트의 제네릭 선언 대응, PLAN-notice-attachment.md 쟁점 5).
      */
     private static final Map<String, Set<String>> ALLOWED_CONTENT_TYPES_BY_EXTENSION = buildAllowedContentTypes();
+
+    private static final List<String> ALLOWED_EXTENSIONS = ALLOWED_CONTENT_TYPES_BY_EXTENSION.keySet().stream().sorted().toList();
 
     private AttachmentFilePolicy() {
     }
@@ -56,6 +62,45 @@ public final class AttachmentFilePolicy {
             throw new InvalidRequestException("허용되지 않는 파일 형식입니다: ." + extension);
         }
         return extension;
+    }
+
+    /**
+     * 전역 검사(허용 확장자)를 먼저 하고, 통과한 확장자가 게시판 허용 집합에 없으면 거부한다 — 전역 화이트리스트가 천장이라 게시판 집합에
+     * 전역 밖 값이 들어 있어도(DB 직접 수정 등) 전역 검사가 먼저 막는다. {@code boardExtensions}가 null이면 게시판 제한이 없다.
+     */
+    public static String requireAllowedExtension(String filename, Set<String> boardExtensions) {
+        String extension = requireAllowedExtension(filename);
+        if (boardExtensions != null && !boardExtensions.contains(extension)) {
+            throw new InvalidRequestException("이 게시판에서 허용하지 않는 파일 형식입니다: ." + extension);
+        }
+        return extension;
+    }
+
+    /** 전역 허용 확장자(정렬된 불변 목록) — 게시판 정책 화면·검증·응답이 함께 쓴다. */
+    public static List<String> allowedExtensions() {
+        return ALLOWED_EXTENSIONS;
+    }
+
+    /**
+     * 게시판이 고른 확장자를 정규형으로 만든다: 원소마다 strip·소문자, 중복 제거, 전역 허용 목록의 부분집합만 허용.
+     * 빈 집합·null 원소·전역 밖 값은 400(메시지에 입력 원문을 싣지 않는다). 전역 전체와 같으면 null — "전체"의 표현을 하나로 둔다.
+     */
+    public static Set<String> normalizeExtensions(Collection<String> requested) {
+        TreeSet<String> normalized = new TreeSet<>();
+        for (String raw : requested) {
+            if (raw == null) {
+                throw new InvalidRequestException("허용 확장자에 빈 값이 있습니다.");
+            }
+            String extension = raw.strip().toLowerCase(Locale.ROOT);
+            if (!ALLOWED_CONTENT_TYPES_BY_EXTENSION.containsKey(extension)) {
+                throw new InvalidRequestException("허용할 수 없는 확장자가 포함되어 있습니다.");
+            }
+            normalized.add(extension);
+        }
+        if (normalized.isEmpty()) {
+            throw new InvalidRequestException("허용 확장자를 하나 이상 선택해주세요.");
+        }
+        return normalized.size() == ALLOWED_EXTENSIONS.size() ? null : normalized;
     }
 
     /** 선언된 Content-Type이 확장자와 맞는지 확인한다. null(레거시 클라이언트)이면 확장자 화이트리스트 통과만으로 허용한다. */

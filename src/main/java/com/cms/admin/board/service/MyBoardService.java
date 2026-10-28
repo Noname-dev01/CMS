@@ -6,6 +6,7 @@ import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.PermissionSnapshot;
+import com.cms.common.attachment.AttachmentFilePolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -35,7 +36,15 @@ public class MyBoardService {
         for (Board board : boardRepository.findByDeletedFalseOrderByIdAsc()) {
             Set<PermissionAction> actions = permissionEvaluator.boardActions(snapshotOnce, authentication, board.getId());
             if (actions.contains(PermissionAction.READ)) {
+                Set<String> boardExtensions = board.attachExtensionSet();
+                // 실효 목록: 제한 없으면 전역 전체. 저장값이 전역 밖이어도 화면에 천장을 넘는 값이 나가지 않게 전역과 교집합만 낸다
+                List<String> extensions = AttachmentFilePolicy.allowedExtensions().stream()
+                        .filter(extension -> boardExtensions == null || boardExtensions.contains(extension))
+                        .toList();
                 result.add(new MyBoardResponse(board.getId(), board.getName(), board.getPublicYn(), board.getAttachmentYn(), board.getWritableYn(),
+                        Math.min(board.getAttachMaxCount(), AttachmentFilePolicy.MAX_COUNT_PER_OWNER),
+                        Math.min(board.getAttachMaxSizeMb(), AttachmentFilePolicy.MAX_FILE_SIZE_MB),
+                        extensions, board.getBodyImageYn(), board.getPublishPeriodYn(),
                         Arrays.stream(PermissionAction.values()).filter(actions::contains).toList()));
             }
         }
