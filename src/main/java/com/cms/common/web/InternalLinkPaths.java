@@ -27,6 +27,7 @@ public final class InternalLinkPaths {
         if (path.indexOf('%') >= 0 || path.indexOf(';') >= 0) {
             return false;
         }
-        return !PrivatePaths.isPrivate(path);
+        // 숫자 게시판 경로는 언제나 404다(공개 게시판 주소는 슬러그만 — PLAN-board-definition.md PR 4a D5)
+        return !PrivatePaths.isPrivate(path) && !BoardLinkPaths.isNumericBoardPath(path);
     }
 }

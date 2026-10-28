@@ -103,6 +103,27 @@ class SiteLinkPolicyTest {
         assertAllowed(PUBLIC_EXTERNAL, "https://cms.example");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"/main/boards/12", "/main/boards/12/posts/1", "/main/boards/+12", "/main/boards/%31%32", "/main/boards/./12",
+            "https://cms.example/main/boards/12"})
+    @DisplayName("숫자 게시판 경로는 모든 사이트에서 거부하고 출력 재검증(permits)도 거짓 — 자기 출처 절대 URL 포함(PLAN-board-definition.md PR 4a D5)")
+    void numericBoardPathRejected(String url) {
+        assertRejected(PUBLIC_EXTERNAL, url);
+        assertThat(policy.permits(PUBLIC_EXTERNAL, url)).isFalse();
+        if (url.startsWith("/")) {
+            assertRejected(ADMIN, url);
+            assertRejected(PUBLIC_INTERNAL_ONLY, url);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/main/boards/board-12", "/main/boards/press", "/main/boards/press/posts/3"})
+    @DisplayName("슬러그 게시판 경로는 허용한다")
+    void slugBoardPathAllowed(String url) {
+        assertAllowed(PUBLIC_EXTERNAL, url);
+        assertThat(policy.permits(PUBLIC_EXTERNAL, url)).isTrue();
+    }
+
     @Test
     @DisplayName("다른 출처(스킴·포트·호스트가 다름)는 외부 링크로 취급해 비공개 경로 검사를 하지 않는다 — 별칭 호스트는 수용한 한계")
     void publicSite_otherOriginIsPlainExternal() {

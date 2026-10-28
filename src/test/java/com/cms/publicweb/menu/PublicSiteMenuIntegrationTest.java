@@ -97,8 +97,8 @@ class PublicSiteMenuIntegrationTest extends MariaDbContainerSupport {
     void tree_activeOnly_ordered_inactiveParentHidesChildren() {
         long second = menu(alpha, null, 2, "둘째", "/alpha/faq", true);
         long first = menu(alpha, null, 1, "첫째", "/alpha/notices", true);
-        menu(alpha, first, 2, "첫째-b", "/alpha/boards/1", true);
-        menu(alpha, first, 1, "첫째-a", "/alpha/boards/2", true);
+        menu(alpha, first, 2, "첫째-b", "/alpha/boards/board-1", true);
+        menu(alpha, first, 1, "첫째-a", "/alpha/boards/board-2", true);
         menu(alpha, null, 3, "꺼진 메뉴", "/alpha/x", false);
         long inactiveParent = menu(alpha, null, 4, "꺼진 부모", "/alpha/y", false);
         menu(alpha, inactiveParent, 1, "꺼진 부모 아래 활성 자식", "/alpha/z", true);

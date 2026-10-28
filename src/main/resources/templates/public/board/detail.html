@@ -11,7 +11,7 @@
 <th:block th:replace="~{public/fragments/site-menu :: siteMenu}"></th:block>
 <div class="public-board-container">
     <div class="public-board-header">
-        <h1><a th:href="@{|${sitePrefix}/boards/{id}|(id=${post.boardId})}" th:text="${post.boardName}">게시판</a></h1>
+        <h1><a th:href="@{|${sitePrefix}/boards/{board}|(board=${post.boardSlug})}" th:text="${post.boardName}">게시판</a></h1>
     </div>
 
     <div class="board-detail">
@@ -30,7 +30,7 @@
             <h3 class="board-attachments-title">첨부파일</h3>
             <ul class="board-attachments-list">
                 <li class="board-attachment-item" th:each="file : ${post.attachments}">
-                    <a th:href="@{|${sitePrefix}/boards/{boardId}/posts/{postId}/attachments/{fid}|(boardId=${post.boardId}, postId=${post.id}, fid=${file.id})}"
+                    <a th:href="@{|${sitePrefix}/boards/{board}/posts/{postId}/attachments/{fid}|(board=${post.boardSlug}, postId=${post.id}, fid=${file.id})}"
                        th:text="${file.originalFilename}"></a>
                     <span class="board-attachment-size" th:text="${file.fileSizeText}"></span>
                 </li>
@@ -38,7 +38,7 @@
         </div>
     </div>
 
-    <a class="board-back-link" th:href="@{|${sitePrefix}/boards/{id}|(id=${post.boardId})}">&larr; 목록으로</a>
+    <a class="board-back-link" th:href="@{|${sitePrefix}/boards/{board}|(board=${post.boardSlug})}">&larr; 목록으로</a>
 </div>
 </body>
 </html>

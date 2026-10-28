@@ -94,7 +94,7 @@ class BoardDisplaySettingsPublicIntegrationTest extends MariaDbContainerSupport 
     }
 
     private String list(long boardId, String... params) throws Exception {
-        var request = get("/main/boards/{id}", boardId).with(fromTestIp());
+        var request = get("/main/boards/board-{id}", boardId).with(fromTestIp());
         for (int i = 0; i < params.length; i += 2) {
             request = request.param(params[i], params[i + 1]);
         }
@@ -102,7 +102,7 @@ class BoardDisplaySettingsPublicIntegrationTest extends MariaDbContainerSupport 
     }
 
     private String detail(long boardId, long postId) throws Exception {
-        return mockMvc.perform(get("/main/boards/{b}/posts/{p}", boardId, postId).with(fromTestIp())).andReturn().getResponse().getContentAsString();
+        return mockMvc.perform(get("/main/boards/board-{b}/posts/{p}", boardId, postId).with(fromTestIp())).andReturn().getResponse().getContentAsString();
     }
 
     private static int count(String haystack, String needle) {

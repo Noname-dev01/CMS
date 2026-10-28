@@ -21,7 +21,7 @@ class HtmlContentSanitizerInternalLinkTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/main/faq", "/main/boards/b1?page=2&keyword=%ED%95%9C", "/main/pages/privacy-a#x"})
+    @ValueSource(strings = {"/main/faq", "/main/boards/b1?page=2&keyword=%ED%95%9C", "/main/pages/privacy-a#x", "/main/boards/board-12/posts/3"})
     @DisplayName("루트 상대 링크는 href가 남고 target 없이 rel만 붙는다(같은 창)")
     void keepsInternalLink(String href) {
         String result = clean("<p><a href=\"" + href.replace("&", "&amp;") + "\">x</a></p>");
@@ -38,6 +38,8 @@ class HtmlContentSanitizerInternalLinkTest {
             "//evil.test/x", "/\\evil.test", "boards/12", "../x", "?a=1", "#a", "/a%31", "/%2F", "/%5C",
             "/admin", "/ADMIN/x", "/admin;v=1", "/actuator/health", "/swagger-ui.html", "/v3/api-docs", "/error",
             "/main/../admin", "/a b", "javascript:alert(1)",
+            // 숫자 게시판 경로 — 공개 게시판 주소는 슬러그만 쓴다(PR 4a D5)
+            "/main/boards/12", "/main/boards/12/posts/3", "/main/boards/+12", "/main/boards/./12", "/main/x/../boards/12",
     })
     @DisplayName("거부된 링크는 href만 지워지고 글자와 지금의 rel·target은 남는다")
     void removesHrefOnly(String href) {

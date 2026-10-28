@@ -152,6 +152,13 @@ public class Board {
     @Column(name = "pin_max_count", nullable = false)
     private Integer pinMaxCount = 0;
 
+    /**
+     * 관리자가 정한 공개 주소 슬러그. null = 기본 슬러그 {@code board-{id}}(저장하지 않는다 — {@link BoardSlug}). 기본값에서 한 번만 바꿀 수 있고
+     * 소프트 삭제도 비우지 않는다(삭제된 게시판이 UNIQUE를 쥐어 한 번 쓴 슬러그가 영구 예약된다 — PLAN-board-definition.md PR 4a D1).
+     */
+    @Column(length = BoardSlug.MAX_LENGTH)
+    private String slug;
+
     /** 낡은 화면 검출용 변경 버전 — 수정·삭제마다 +1, 요청 값과 다르면 서비스가 409(정적 페이지·배너·팝업과 같은 방식). */
     @Builder.Default
     @Column(nullable = false)
@@ -245,9 +252,31 @@ public class Board {
         this.updateDate = now;
     }
 
+    /** 현재 공개 슬러그 — 공개 링크(목록·상세·메인)와 관리 응답이 쓴다. */
+    public String publicSlug() {
+        return BoardSlug.effective(id, slug);
+    }
+
+    /** 기본 슬러그에서 사용자 슬러그로 한 번 바꿀 수 있는가. */
+    public boolean isSlugChangeable() {
+        return slug == null;
+    }
+
+    /**
+     * 사용자 슬러그 지정(1회). 호출자가 형식·중복·"이미 바꿨는가"를 검증한다. 같은 요청의 {@link #update} 뒤에만 불리므로 버전은 올리지 않는다
+     * ({@link #changeSite}와 같은 이유).
+     */
+    public void assignSlug(String slug, LocalDateTime now) {
+        if (this.slug != null) {
+            throw new IllegalStateException("슬러그는 한 번만 바꿀 수 있습니다.");
+        }
+        this.slug = slug;
+        this.updateDate = now;
+    }
+
     /**
      * 소프트 삭제. deleted=true 처리 후 수정 시각을 갱신한다. 소속 사이트와(사이트 전용 공지 게시판의) 키를 비워, 삭제된 행이 사이트 삭제의
-     * FK와 board_key 유일성을 붙잡지 않게 한다.
+     * FK와 board_key 유일성을 붙잡지 않게 한다. 슬러그는 비우지 않는다(영구 예약 — {@link #slug}).
      */
     public void softDelete(LocalDateTime now) {
         this.deleted = true;

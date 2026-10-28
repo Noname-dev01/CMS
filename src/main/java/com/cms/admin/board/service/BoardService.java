@@ -2,6 +2,7 @@ package com.cms.admin.board.service;
 
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.BoardDisplay;
+import com.cms.admin.board.domain.BoardSlug;
 import com.cms.admin.board.domain.BoardWritePolicy;
 import com.cms.admin.board.dto.request.BoardCreateRequest;
 import com.cms.admin.board.dto.request.BoardUpdateRequest;
@@ -16,10 +17,12 @@ import com.cms.admin.site.ContentSiteScope;
 import com.cms.admin.site.SiteScope;
 import com.cms.common.attachment.AttachmentFilePolicy;
 import com.cms.common.exception.ConflictException;
+import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +44,12 @@ public class BoardService {
     private static final String NOT_FOUND_MESSAGE = "게시판을 찾을 수 없습니다.";
     private static final String NOTICE_BOARD_EXISTS_MESSAGE = "이 사이트의 공지 게시판이 이미 있습니다.";
     private static final String STALE_VERSION_MESSAGE = "다른 관리자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.";
+    /** 슬러그 중복은 {@code DUPLICATE_RESOURCE} 409 — 화면이 낡은 버전 409({@code RESOURCE_CONFLICT})와 구분해 모달을 닫지 않는다. */
+    private static final String SLUG_EXISTS_MESSAGE = "이미 쓰였거나 예약된 주소입니다. 다른 주소를 고르세요.";
+    private static final String SLUG_FORMAT_MESSAGE =
+            "주소는 소문자·숫자·하이픈 2~50자여야 하고(하이픈은 처음·끝·연속 불가) 숫자만이나 board-숫자 형태는 쓸 수 없습니다.";
+    /** V9의 고유 키 이름 — 동시 지정의 제약 위반을 공지 게시판 중복과 구분한다. */
+    private static final String SLUG_UNIQUE_KEY = "uk_board_slug";
 
     private final BoardRepository boardRepository;
     private final PostRepository postRepository;
@@ -97,6 +106,11 @@ public class BoardService {
                 request.getWritableYn() == null || request.getWritableYn(),
                 request.getPinMaxCount() != null ? requirePinMaxCount(request.getPinMaxCount()) : 0);
         int sortOrder = request.getSortOrder() != null ? requireSortOrder(request.getSortOrder()) : 0;
+        // 누락·공백 = 기본 슬러그 board-{id}(저장하지 않는다). 지정하면 처음부터 사용자 슬러그라 이후 바꿀 수 없다
+        String slug = request.getSlug() == null || request.getSlug().isBlank() ? null : requireAssignableSlug(request.getSlug());
+        if (slug != null && boardRepository.existsBySlug(slug)) {
+            throw new DuplicateResourceException(SLUG_EXISTS_MESSAGE);
+        }
         BoardWritePolicy writePolicy = new BoardWritePolicy(
                 request.getAttachMaxCount() != null ? requireAttachMaxCount(request.getAttachMaxCount()) : AttachmentFilePolicy.MAX_COUNT_PER_OWNER,
                 request.getAttachMaxSizeMb() != null ? requireAttachMaxSizeMb(request.getAttachMaxSizeMb()) : AttachmentFilePolicy.MAX_FILE_SIZE_MB,
@@ -111,6 +125,7 @@ public class BoardService {
                 .deleted(false)
                 .boardKey(boardKey)
                 .siteId(siteId)
+                .slug(slug)
                 .description(display.description())
                 .listPageSize(display.listPageSize())
                 .authorLabel(display.authorLabel())
@@ -128,9 +143,12 @@ public class BoardService {
                 .updateDate(now)
                 .build();
         try {
-            // 사전 검사를 통과한 동시 생성은 UNIQUE(board_key)가 막는다 — flush에서 잡아 500이 아니라 같은 409로 번역한다
+            // 사전 검사를 통과한 동시 생성은 UNIQUE(board_key)·UNIQUE(slug)가 막는다 — flush에서 잡아 500이 아니라 같은 409로 번역한다
             return BoardResponse.from(boardRepository.saveAndFlush(board));
         } catch (DataIntegrityViolationException e) {
+            if (violates(e, SLUG_UNIQUE_KEY)) {
+                throw new DuplicateResourceException(SLUG_EXISTS_MESSAGE);
+            }
             if (boardKey != null) {
                 throw new ConflictException(NOTICE_BOARD_EXISTS_MESSAGE);
             }
@@ -146,11 +164,16 @@ public class BoardService {
                 && request.getAuthorLabel() == null && request.getShowViewCount() == null && request.getNewBadgeDays() == null
                 && request.getWritableYn() == null && request.getAttachMaxCount() == null && request.getAttachMaxSizeMb() == null
                 && request.getAttachExtensions() == null && request.getBodyImageYn() == null && request.getPublishPeriodYn() == null
-                && request.getSortOrder() == null && request.getPinMaxCount() == null) {
+                && request.getSortOrder() == null && request.getPinMaxCount() == null && request.getSlug() == null) {
             throw new InvalidRequestException("변경할 필드가 없습니다.");
         }
         // 입력 검증은 잠금 전에 — 400이 행 잠금을 쥔 채 나가지 않게 한다
         requireVersionParam(request.getVersion());
+        // 기본 슬러그 형태(board-N)는 "지금 값 그대로"일 때만 통과할 수 있어 잠근 뒤 판정한다. 그 밖은 지정 가능한 형식이어야 한다
+        String requestedSlug = request.getSlug();
+        if (requestedSlug != null && BoardSlug.parseDefault(requestedSlug) == null) {
+            requireAssignableSlug(requestedSlug);
+        }
         Integer sortOrder = request.getSortOrder() != null ? requireSortOrder(request.getSortOrder()) : null;
         Integer pinMaxCount = request.getPinMaxCount() != null ? requirePinMaxCount(request.getPinMaxCount()) : null;
         Integer attachMaxCount = request.getAttachMaxCount() != null ? requireAttachMaxCount(request.getAttachMaxCount()) : null;
@@ -202,10 +225,35 @@ public class BoardService {
                 request.getAttachExtensions() != null ? attachExtensions : currentPolicy.attachExtensions(),
                 request.getBodyImageYn() != null ? request.getBodyImageYn() : currentPolicy.bodyImageYn(),
                 request.getPublishPeriodYn() != null ? request.getPublishPeriodYn() : currentPolicy.publishPeriodYn());
+        // 슬러그: 지금 값과 같으면 변화 없음(멱등), 기본 슬러그일 때만 한 번 바꿀 수 있다
+        boolean slugAssigned = requestedSlug != null && !requestedSlug.equals(board.publicSlug());
+        if (slugAssigned) {
+            if (!board.isSlugChangeable()) {
+                throw new InvalidRequestException("주소(슬러그)는 한 번만 바꿀 수 있습니다.");
+            }
+            if (BoardSlug.parseDefault(requestedSlug) != null) {
+                throw new InvalidRequestException(SLUG_FORMAT_MESSAGE);
+            }
+            if (boardRepository.existsBySlug(requestedSlug)) {
+                throw new DuplicateResourceException(SLUG_EXISTS_MESSAGE);
+            }
+        }
         LocalDateTime now = LocalDateTime.now(clock);
         board.update(name, request.getPublicYn(), request.getAttachmentYn(), sortOrder, display, writePolicy, now);
         if (siteChanged) {
             board.changeSite(requestedSiteId, now);
+        }
+        if (slugAssigned) {
+            board.assignSlug(requestedSlug, now);
+            try {
+                // 사전 검사를 통과한 동시 지정은 UNIQUE(slug)가 막는다 — 여기서 flush해 커밋 단계의 500이 아니라 409로 번역한다
+                boardRepository.flush();
+            } catch (DataIntegrityViolationException e) {
+                if (violates(e, SLUG_UNIQUE_KEY)) {
+                    throw new DuplicateResourceException(SLUG_EXISTS_MESSAGE);
+                }
+                throw e;
+            }
         }
         return BoardResponse.from(board);
     }
@@ -315,6 +363,20 @@ public class BoardService {
             throw new InvalidRequestException(label + "은(는) " + maxLength + "자 이하여야 합니다.");
         }
         return stripped;
+    }
+
+    /** 지정 가능한 사용자 슬러그인가(형식·숫자만·시스템 이름 공간). 자동 소문자화는 하지 않는다 — 입력 원문은 문구에 싣지 않는다. */
+    private static String requireAssignableSlug(String slug) {
+        if (!BoardSlug.isAssignable(slug)) {
+            throw new InvalidRequestException(SLUG_FORMAT_MESSAGE);
+        }
+        return slug;
+    }
+
+    /** 제약 위반의 가장 안쪽 원인 메시지가 그 고유 키 이름을 담는가(GlobalApiExceptionHandler의 회원 고유 키 판정과 같은 방식). */
+    private static boolean violates(DataIntegrityViolationException e, String keyName) {
+        String message = NestedExceptionUtils.getMostSpecificCause(e).getMessage();
+        return message != null && message.contains(keyName);
     }
 
     private static String requireNonBlank(String value) {

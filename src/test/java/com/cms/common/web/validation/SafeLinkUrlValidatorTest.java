@@ -1,5 +1,8 @@
 package com.cms.common.web.validation;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validation;
+import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -35,5 +38,35 @@ class SafeLinkUrlValidatorTest {
             "example.com", "relative/path", "/a b", "/a\nb", "https://exa mple.com"})
     void rejected(String url) {
         assertThat(validator.isValid(url, null)).isFalse();
+    }
+
+    /** 실제 Bean Validation 경로로 문구까지 본다. */
+    static class LinkHolder {
+        @SafeLinkUrl
+        String link;
+
+        LinkHolder(String link) {
+            this.link = link;
+        }
+    }
+
+    @ParameterizedTest
+    @DisplayName("숫자 게시판 경로는 슬러그 주소 안내 문구로 거부한다 — 비정규 id·퍼센트 인코딩·점 세그먼트 변형 포함(PLAN-board-definition.md PR 4a D5)")
+    @ValueSource(strings = {"/main/boards/12", "/main/boards/12/posts/3?x=1", "/main/boards/+12", "/main/boards/%31%32", "/main/%62oards/12",
+            "/main/boards/./12", "/main/x/../boards/12", "/main/boards/%2e/12"})
+    void numericBoardPathRejected(String url) {
+        assertThat(validator.isValid(url, null)).isFalse();
+        try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+            assertThat(factory.getValidator().validate(new LinkHolder(url)))
+                    .extracting(ConstraintViolation::getMessage)
+                    .containsExactly(SafeLinkUrlValidator.NUMERIC_BOARD_PATH_MESSAGE);
+        }
+    }
+
+    @ParameterizedTest
+    @DisplayName("슬러그 게시판 주소는 허용한다")
+    @ValueSource(strings = {"/main/boards/board-12", "/main/boards/press/posts/3", "/boards/12"})
+    void slugBoardPathAllowed(String url) {
+        assertThat(validator.isValid(url, null)).isTrue();
     }
 }

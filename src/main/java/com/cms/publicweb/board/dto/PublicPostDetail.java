@@ -21,6 +21,8 @@ public class PublicPostDetail {
 
     private Long id;
     private Long boardId;
+    /** 공개 링크용 현재 슬러그(목록·첨부 링크) — 사용자 슬러그가 없으면 board-{id}. */
+    private String boardSlug;
     private String boardName;
     private String title;
     private String content;
@@ -40,6 +42,7 @@ public class PublicPostDetail {
         return PublicPostDetail.builder()
                 .id(post.getId())
                 .boardId(board.getId())
+                .boardSlug(board.publicSlug())
                 .boardName(board.getName())
                 .title(post.getTitle())
                 .content(HtmlContentSanitizer.sanitize(post.getContent()).html())

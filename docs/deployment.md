@@ -394,6 +394,29 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 - **코드 계약(배포와 무관하지만 운영자가 알아 둘 것)**: 게시글 생성·수정(`PostService.createPost`·`updatePost`)이 `READ_COMMITTED` 최상위 트랜잭션 진입점으로 바뀌었다 — 고정 개수 판정을 게시판 `FOR UPDATE` 아래서 직렬화하고 그 잠금 뒤의 개수 읽기가 앞서 커밋된 고정을 보게 하기 위해서다. 고정하는 쓰기 동안에는 같은 게시판의 다른 글 쓰기가 잠시 기다린다.
 - **롤백 주의**: V8이 적용된 DB에서 이전 앱으로 되돌려도 기동·동작에는 문제가 없다(모든 새 컬럼이 DEFAULT를 가져 이전 앱의 INSERT가 현행 동작의 기본값을 얻고, `validate`는 남는 컬럼·인덱스를 문제 삼지 않는다). 롤백 중에는 이전 앱이 ① 게시판을 id 순으로 보여 주고 ② 공개 고정 영역을 그리지 않으며 ③ 고정 상한을 모르고(새 고정 자체를 요청할 수 없고) ④ 게시글 수정이 `pinned` 값을 건드리지 않아 고정 상태가 보존된다. 재배포하면 설정과 고정이 그대로 돌아온다. 롤백 중에 만든 게시판·게시글은 DEFAULT(순서 0·고정 끔·고정 아님)다.
 
+## 게시판 슬러그 — 공개 게시판 주소 교체 (2026-10-28, adversarial-review/plan/PLAN-board-definition.md PR 4a)
+
+- **동작**: 공개 게시판 주소가 `/{siteKey}/boards/{슬러그}`로 **완전히 바뀐다** — 슬러그는 기본값 `board-{id}`(저장하지 않음, `board.slug` NULL)이거나 관리자가 한 번 정한 값이다. 숫자 id 주소(`/main/boards/12`·`…/posts/…`·`…/attachments/…`)는 전부 404다. 슬러그를 바꾼 게시판의 옛 주소 `board-{id}`는 새 주소로 **301**(쿼리 유지)이고, 한 번 쓴 슬러그는 게시판을 삭제해도 다시 쓸 수 없다. 외부에 공유된 숫자 주소·검색 색인은 깨진다(실배포 전이라 수용).
+- **저장된 링크 치환(V10, Java 마이그레이션)**: 메뉴·배너·팝업 링크와 게시글·정적 페이지(모든 개정)·FAQ·HTML 팝업 본문의 `/{공개 사이트 키}/boards/{id}…`가 `…/boards/board-{id}…`로 바뀐다. 링크가 바뀐 배너는 `version`, 팝업은 `revision`이 1 오른다 — **배포 전에 열어 둔 배너·팝업 편집 화면은 저장이 409가 되고**, 링크가 바뀐 팝업은 방문자의 "오늘 하루 보지 않기"가 한 번 풀린다. 도메인이 붙은 절대 URL(`https://…/main/boards/12`)은 치환하지 않는다(수용한 손실 — 실배포 이후라면 아래 점검 SQL에 우리 도메인 조건을 더해 확인한다).
+- **배포 전 점검(이전 버전 DB에서, 기대값 0건)**: V10은 아래 행이 있으면 **실패하고 아무것도 바꾸지 않는다** — 미리 찾아 이전 버전 화면에서 고친다.
+
+  ```sql
+  -- 인코딩·점 세그먼트 변형 링크 후보(%62oards처럼 boards를 인코딩해도 잡도록 /boards/ 조건을 붙이지 않는다)
+  SELECT 'menu', menu_no, menu_url FROM menu WHERE menu_url LIKE '%\%%' OR menu_url LIKE '%/.%'
+  UNION ALL SELECT 'banner', id, link_url FROM banner WHERE link_url LIKE '%\%%' OR link_url LIKE '%/.%'
+  UNION ALL SELECT 'popup', id, link_url FROM popup WHERE link_url LIKE '%\%%' OR link_url LIKE '%/.%';
+  -- 치환하면 컬럼 길이를 넘을 수 있는 행(링크 하나당 +6자 — 메뉴 255자, 배너·팝업 500자)
+  SELECT 'menu', menu_no FROM menu WHERE menu_url LIKE '%/boards/%' AND CHAR_LENGTH(menu_url) > 249
+  UNION ALL SELECT 'banner', id FROM banner WHERE link_url LIKE '%/boards/%' AND CHAR_LENGTH(link_url) > 494
+  UNION ALL SELECT 'popup', id FROM popup WHERE link_url LIKE '%/boards/%' AND CHAR_LENGTH(link_url) > 494;
+  ```
+
+  후보가 나와도 지금 열리지 않는 링크(다른 경로)면 V10은 통과한다 — 정확한 판정은 V10이 하고, 본문 상한(게시글 200,000·정적 페이지 500,000·팝업 50,000·FAQ 30,000바이트)도 V10이 판정한다. **배포 전 DB 백업은 필수**다(사용자 작성 본문을 고치는 되돌릴 수 없는 변환).
+- **V10이 실패했을 때**: 업무 데이터는 그대로지만 Flyway가 `success=0` 이력을 남겨 다음 기동을 막는다. 실패 메시지의 `테이블#id`(정적 페이지 개정은 `site_page_revision#{page_id}/{revision_no}`) 행을 이전 버전 앱으로 고치고 → 같은 이미지로 `flyway repair` → 재기동한다(`docs/migration-guide.md` "DDL 실패 복구").
+- **배포 후**: 배너·팝업·메뉴 링크와 본문에 숫자 게시판 주소를 새로 넣을 수 없다(배너·팝업·메뉴 저장 400 "게시판 주소는 슬러그 주소…", 본문은 그 링크의 `href`만 지워진다).
+- **롤백 = 사실상 불가**: 이전 앱은 `board-12`를 숫자로 읽지 못해 **치환된 링크와 공개 게시판 주소가 전부 404**가 된다. 되돌리려면 V9 이전 백업으로 복구한다(그 사이의 데이터는 잃는다). 롤백 중 만든 게시판은 재배포 후 바로 `board-{id}`로 열리지만, 롤백 중 저장한 숫자 링크는 V10이 다시 돌지 않으므로 남는다 — 재배포 뒤 위 점검 SQL의 `/boards/` 조건으로 찾아 화면에서 고친다(저장하면 400 안내).
+- **구·신 앱 혼합 운영 금지**(공개 경로 체계가 다르다 — 위 "공개 경로" 절과 같다).
+
 ## 게시글 최종 수정자 (2026-10-27, adversarial-review/plan/PLAN-board-definition.md PR 0)
 
 - **동작**: 게시글의 생성·수정·삭제와 첨부 업로드·삭제가 `post.updater_id`(V5, `varchar(100) NULL`)에 그 관리자의 userId를, `update_date`에 시각을 함께 남긴다. 관리 화면(게시글 목록 "최종 수정자" 열·상세)에만 보이고 공개 화면에는 나가지 않는다. V5 이전에 만들어져 이후 손대지 않은 글은 NULL(`-` 표시 — 수정자 모름)이다. **원본은 감사 로그**(`POST_UPDATE`·`POST_ATTACHMENT_*` 등)이고 이 값은 조회 편의용 사본이다.

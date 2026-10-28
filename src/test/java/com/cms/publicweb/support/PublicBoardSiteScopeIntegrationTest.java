@@ -111,19 +111,19 @@ class PublicBoardSiteScopeIntegrationTest extends MariaDbContainerSupport {
         long commonPost = post(common, "psc-공통글");
         long alphaPost = post(onlyAlpha, "psc-알파글");
 
-        assertThat(html("/alpha/boards/" + common)).contains("psc-공통글");
-        assertThat(html("/beta/boards/" + common)).contains("psc-공통글");
-        assertThat(html("/alpha/boards/" + onlyAlpha)).contains("psc-알파글");
-        assertThat(html("/alpha/boards/" + onlyAlpha + "/posts/" + alphaPost)).contains("psc-알파글");
+        assertThat(html("/alpha/boards/board-" + common)).contains("psc-공통글");
+        assertThat(html("/beta/boards/board-" + common)).contains("psc-공통글");
+        assertThat(html("/alpha/boards/board-" + onlyAlpha)).contains("psc-알파글");
+        assertThat(html("/alpha/boards/board-" + onlyAlpha + "/posts/" + alphaPost)).contains("psc-알파글");
 
         long missing = onlyAlpha + 100000;
-        int expected = status("/beta/boards/" + missing);
+        int expected = status("/beta/boards/board-" + missing);
         assertThat(expected).isEqualTo(404);
-        assertThat(status("/beta/boards/" + onlyAlpha)).as("다른 사이트 전용 목록").isEqualTo(expected);
-        assertThat(status("/main/boards/" + onlyAlpha)).as("기본 사이트에서 전용 목록").isEqualTo(expected);
-        assertThat(status("/beta/boards/" + onlyAlpha + "/posts/" + alphaPost)).as("다른 사이트 전용 상세").isEqualTo(expected);
-        assertThat(mockMvc.perform(head("/beta/boards/" + onlyAlpha).with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(404);
-        assertThat(status("/beta/boards/" + common + "/posts/" + commonPost)).isEqualTo(200);
+        assertThat(status("/beta/boards/board-" + onlyAlpha)).as("다른 사이트 전용 목록").isEqualTo(expected);
+        assertThat(status("/main/boards/board-" + onlyAlpha)).as("기본 사이트에서 전용 목록").isEqualTo(expected);
+        assertThat(status("/beta/boards/board-" + onlyAlpha + "/posts/" + alphaPost)).as("다른 사이트 전용 상세").isEqualTo(expected);
+        assertThat(mockMvc.perform(head("/beta/boards/board-" + onlyAlpha).with(fromIp())).andReturn().getResponse().getStatus()).isEqualTo(404);
+        assertThat(status("/beta/boards/board-" + common + "/posts/" + commonPost)).isEqualTo(200);
     }
 
     @Test
