@@ -1,5 +1,6 @@
 package com.cms.common.html;
 
+import com.cms.common.web.InternalLinkPaths;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -25,8 +26,8 @@ import java.util.regex.Pattern;
  * {@code style}·{@code class}·{@code on*}·{@code data-*}는 전부 버린다. 처리 순서:
  * <ol>
  *   <li>제목 단계 매핑 — {@code h1}→{@code h2}, {@code h4~h6}→{@code h3}(편집기 clipboard matcher와 같은 결과, 쟁점 3·R2-5)</li>
- *   <li>jsoup {@link Cleaner}로 허용 목록 밖 태그·속성 제거(태그만 벗기고 텍스트는 남김), 링크는 http/https/mailto만,
- *       {@code rel}·{@code target} 강제</li>
+ *   <li>jsoup {@link Cleaner}로 허용 목록 밖 태그·속성 제거(태그만 벗기고 텍스트는 남김), 링크는 http/https/mailto와 루트 상대 내부 링크({@link InternalLinkPaths})만,
+ *       {@code rel} 강제·외부 링크는 {@code target=_blank}</li>
  *   <li>이미지 src 제한 — {@code /content-images/{id}}({@code Long} 범위)만 남기고 나머지 {@code img}는 제거(쟁점 6)</li>
  *   <li>최상위 인라인 노드를 {@code p}로 감싸고, 블록별 공백 정규화(쟁점 3-1)와 빈 블록의 {@code <br>} 보충</li>
  * </ol>
@@ -41,6 +42,13 @@ public final class HtmlContentSanitizer {
     /** 본문 이미지 공개 경로. 다운로드 컨트롤러 경로와 같아야 한다. */
     public static final String CONTENT_IMAGE_PATH_PREFIX = "/content-images/";
 
+    /**
+     * 루트 상대 내부 링크 {@code href}를 Cleaner 통과 동안 맡아 두는 표지 속성. jsoup은 프로토콜 검사를 통과하지 못하는 상대 {@code href}를
+     * {@code preserveRelativeLinks(true)}여도 지우므로, 전처리에서 값을 옮기고 후처리에서 검증을 통과한 것만 {@code href}로 되돌린다.
+     * 결과에는 절대 남지 않는다.
+     */
+    private static final String INTERNAL_HREF_MARK = "data-il";
+
     private static final Pattern CONTENT_IMAGE_SRC = Pattern.compile("^/content-images/([1-9][0-9]{0,18})$");
 
     /** 길이 계산·공백 정규화의 단위 블록. 허용 목록의 블록 태그와 같다. */
@@ -52,10 +60,9 @@ public final class HtmlContentSanitizer {
 
     private static final Safelist SAFELIST = new Safelist()
             .addTags("p", "br", "strong", "em", "u", "s", "h2", "h3", "ol", "ul", "li", "blockquote", "a", "img")
-            .addAttributes("a", "href")
+            .addAttributes("a", "href", INTERNAL_HREF_MARK)
             .addProtocols("a", "href", "http", "https", "mailto")
             .addEnforcedAttribute("a", "rel", "noopener noreferrer nofollow")
-            .addEnforcedAttribute("a", "target", "_blank")
             // img src는 프로토콜 검사 대신 아래 후처리에서 경로 형식으로만 허용한다(상대 경로라 프로토콜 검사로는 표현 불가)
             .addAttributes("img", "src", "alt");
 
@@ -93,6 +100,7 @@ public final class HtmlContentSanitizer {
     private static SanitizedHtml sanitizeOnce(String html, boolean allowImages) {
         Document dirty = Jsoup.parseBodyFragment(html == null ? "" : html, "");
         mapHeadings(dirty.body());
+        markInternalLinks(dirty.body());
 
         Document clean = new Cleaner(SAFELIST).clean(dirty);
         clean.outputSettings()
@@ -100,6 +108,7 @@ public final class HtmlContentSanitizer {
                 .charset(StandardCharsets.UTF_8)
                 .escapeMode(Entities.EscapeMode.base);
         Element body = clean.body();
+        restoreLinks(body);
 
         Set<Long> imageIds = allowImages ? filterImages(body) : removeAllImages(body);
         wrapTopLevelInline(body);
@@ -150,6 +159,34 @@ public final class HtmlContentSanitizer {
             return Long.parseLong(matcher.group(1));
         } catch (NumberFormatException e) {
             return null;
+        }
+    }
+
+    /** 위조된 표지를 지우고, `/`로 시작하는 {@code href}만 표지로 옮긴다(검증은 후처리 한 곳에서 한다). */
+    private static void markInternalLinks(Element body) {
+        for (Element a : body.select("a")) {
+            a.removeAttr(INTERNAL_HREF_MARK);
+            String href = a.attr("href");
+            if (href.startsWith("/")) {
+                a.attr(INTERNAL_HREF_MARK, href);
+            }
+        }
+    }
+
+    /**
+     * 표지의 값이 내부 링크 규칙({@link InternalLinkPaths})을 통과하면 {@code href}로 되돌리고 표지는 항상 지운다.
+     * 외부 링크(남은 {@code href}가 있는 경우)와 {@code href}가 없어진 {@code a}에는 {@code target="_blank"}를 붙이고, 내부 링크는 같은 창이다.
+     */
+    private static void restoreLinks(Element body) {
+        for (Element a : body.select("a")) {
+            String mark = a.attr(INTERNAL_HREF_MARK);
+            a.removeAttr(INTERNAL_HREF_MARK);
+            boolean internal = !mark.isEmpty() && InternalLinkPaths.isAllowedBodyLink(mark);
+            if (internal) {
+                a.attr("href", mark);
+            } else {
+                a.attr("target", "_blank");
+            }
         }
     }
 

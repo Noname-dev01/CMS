@@ -907,3 +907,112 @@ ALTER TABLE `post`
 **후속**
 
 - 없음(PR L은 sanitizer 보안 화이트리스트 변경이라 착수 전 승인이 필요하다).
+
+## PR L 상세 설계 — 본문 루트 상대 내부 링크 허용 (PL-v1, 2026-10-28)
+
+> §5 PR L 초안을 구체화한다. 이 절만 `plan-review-loop` 대상이다. 마이그레이션 없음(현재 최대 V8), `SecurityConfig`·인가 정책 변경 없음.
+
+### PL-0. 사용자 결정 (2026-10-28 — 재질문 금지)
+
+- **sanitizer 보안 화이트리스트 변경 승인**(네 본문 도메인 전부: 게시글·정적 페이지·FAQ 답변·HTML 팝업).
+- **루트 상대 경로(`/…`)만 허용.** 경로 상대(`boards/12`, `../x`)·쿼리만(`?a`)·프래그먼트만(`#a`)은 계속 `href` 제거.
+- **내부 링크는 같은 창**: `target`을 붙이지 않고 `rel`은 유지한다. 외부(http/https/mailto) 링크는 지금처럼 `target="_blank"` + `rel` 강제.
+- 정적 페이지 슬러그가 ASCII인 것은 확인했다(`SiteSlug` `^[a-z0-9]+(-[a-z0-9]+)*$`, 2~50자) — 경로 퍼센트 인코딩 전면 거부로 잃는 공개 경로가 없다.
+
+### PL-1. 정찰 결과 (코드 근거)
+
+1. `HtmlContentSanitizer.SAFELIST`는 `a`의 `href`를 `http`·`https`·`mailto` 프로토콜로만 허용하고 `rel`·`target`을 `addEnforcedAttribute`로 **모든 `a`에** 강제한다. 네 본문(`ContentBodyPolicy.sanitize`·`sanitizePage`·`sanitizePopup`·`sanitizeFaq`와 각 출력용 정리)이 모두 `HtmlContentSanitizer.sanitize(html, allowImages)` 한 곳을 거치므로 허용 규칙은 이 한 곳에서 바꾼다.
+2. **실측(jsoup 1.23.2)**: `Safelist.preserveRelativeLinks(true)`를 켜도 `/main/faq`·`boards/12`·`?a=1`·`#a`·`//evil.test/x` 전부 `href`가 제거된다(프로토콜 검사를 통과하지 못하면 상대 값도 지움). 그래서 **Safelist 설정만으로는 루트 상대 링크를 살릴 수 없다.**
+3. 비공개 경로 판정 `SiteLinkPolicy.isPrivatePath`는 `admin.site` 패키지 소속 `static` 패키지 전용 메서드다. `common.html`이 `admin.site`를 참조하면 의존 방향(common ← admin)이 뒤집힌다. 시험에서 이 메서드를 직접 부르는 곳은 없고(`SiteLinkPolicyTest`·`MenuServiceTest`는 `permits`/`validate` 경유) 규칙 변경 없이 옮길 수 있다.
+4. 루트 상대 경로 형식 규칙은 `SafeUrls.SAME_ORIGIN_PATH_REGEX`(`/` 시작, `//`·`\`·공백·제어문자 금지)가 이미 있다.
+5. Quill 2.0.3 링크 서식(`quill.js`): `Link.sanitize(url)`은 `<a>`에 `href`를 넣어 **브라우저가 풀어낸 절대 URL의 스킴**을 `PROTOCOL_WHITELIST`와 비교한다 — 상대 경로는 `http(s)`로 풀려 통과한다. 편집기 쪽 변경은 없다(툴바·`formats`·`PROTOCOL_WHITELIST` 그대로). `//host`도 편집기는 통과시키지만 서버가 제거한다(편집기 ↔ 서버 불일치는 기존과 같은 방향: 서버가 더 엄격).
+6. 기존 시험 `HtmlContentSanitizerTest.linkProtocols`는 `/admin` 링크의 `href` 제거를 고정한다 — 비공개 접두어라 이번에도 지워지므로 그대로 통과해야 한다.
+
+### PL-2. 설계 결정
+
+**PL-D1. 루트 상대 `href` 보존 방식 — Cleaner 전·후 표지 속성으로 우회**
+
+- 선택지: ① Cleaner 뒤에 원본 `a`와 정리된 `a`를 순서로 짝지어 `href` 복원 ② Cleaner 전에 유효한 값을 임시 속성으로 옮기고 뒤에 되돌림 ③ 상대 링크를 가짜 절대 URL(`https://x.invalid/…`)로 바꿨다 되돌림.
+- **②를 채택**: 전처리에서 모든 `a`의 `data-il` 속성을 지우고(위조 방지), `href`가 `/`로 시작하면 값을 `data-il`로 옮기고 `href`를 지운다. Safelist는 `a`의 `data-il`을 허용 속성으로 둔다. Cleaner 뒤 후처리에서 `data-il` 값이 **내부 링크 검증을 통과하면** `href`로 되돌리고(`target` 제거), 통과하지 못하면 버린다. 결과에 `data-il`은 절대 남지 않는다(항상 제거).
+- 이유: ①은 Cleaner가 요소를 복제해 두 트리의 순서 대응에 의존하는 취약한 가정이다. ③은 본문에 같은 문자열이 실제로 있으면 오인할 수 있다. ②는 검증을 **한 곳(후처리)** 에서만 하므로 위조된 `data-il`이 들어와도 `href`와 같은 검증을 받는다(우회 불가).
+- 멱등성: 결과 `href="/…"`는 다음 패스에서 같은 경로로 처리되어 같은 값이 나온다. 외부 링크는 지금과 같다. 전·후처리는 `sanitizeOnce()` 안에 두어 고정점 반복의 각 패스가 완결되게 한다(PL-v2).
+
+**PL-D2. 내부 링크 검증 규칙 — `common`에 한 벌**
+
+- 새 클래스 `com.cms.common.web.InternalLinkPaths`(이름은 구현 시 확정)에 `isAllowedBodyLink(String href)`를 둔다. 조건은 전부 만족해야 한다:
+  1. `SafeUrls.isSameOriginPath(href)` (`/` 시작, `//`·`\`·공백·제어문자 없음).
+  2. 경로 부분(`?`·`#` 앞)에 `%`가 없다(퍼센트 인코딩 전면 거부 — 쿼리·프래그먼트는 허용). `/%2F`·`/%5C` 같은 숨은 구분자와 `%31` 같은 숫자 변형이 함께 막힌다.
+  3. 경로 부분에 `;`가 없다(`/admin;v=1`처럼 Tomcat이 경로 매개변수를 떼어내는 우회 방지. 이 CMS의 공개 경로에는 `;`가 없다).
+  4. 비공개 경로가 아니다 — `SiteLinkPolicy.isPrivatePath`의 본문을 `common`으로 옮긴 `PrivatePaths.isPrivate(path)`를 공유한다(`.`·`..` 세그먼트, 첫 세그먼트 `admin`·`actuator`·`error`·`v3`·`swagger-ui*`, 소문자화).
+- 이유: 비공개 접두어 규칙이 두 벌이 되면 한쪽만 고쳐지는 표류가 생긴다(초안 결정). `SiteLinkPolicy`는 같은 함수를 호출하도록 바꿔 동작 변화가 없다(`SiteLinkPolicyTest`가 고정).
+- 사이트 범위: 어느 `/{siteKey}/…`든 허용, 존재 여부는 검사하지 않는다(초안 결정 유지). `/content-images/…` 같은 공개 비사이트 경로도 링크로는 허용된다(공개 판정은 그 경로 쪽에서 한다).
+
+**PL-D3. 위반 처리 — 저장 거부 없이 `href`만 제거**
+
+- 기존 sanitizer 동작과 일관: 위반 링크는 글자만 남기고 `href`를 지운다(400 아님). 출력 시에도 같은 정리를 다시 한다(저장·출력 이중, 멱등).
+- 대안(400)은 기각: 4a의 숫자 경로 거부와 달리 여기서는 "허용 목록"이고 기존 동작이 "조용히 제거"다. 화면 안내는 만들지 않는다(과설계).
+
+**PL-D4. 속성 강제 — 내부는 `target` 없음, `rel` 유지**
+
+- `SAFELIST`의 `target` 강제를 없애고 후처리에서 직접 붙인다: 외부 `href`(http/https/mailto)가 남은 `a`에는 `target="_blank"`, 내부 `href`가 남은 `a`에는 붙이지 않는다. `rel="noopener noreferrer nofollow"`는 모든 `a`에 `addEnforcedAttribute` 그대로 유지(사용자 결정 "rel 유지").
+- `href`가 제거되어 남은 `<a>`(글자만 남은 경우)는 **현재 동작 그대로** `rel`·`target`이 붙는다(`<a rel=… target="_blank">x</a>`). 이 동작을 바꾸지 않으려고 "href 없는 `a`에도 `target` 부여" 규칙으로 구현한다 — 시험이 고정.
+- 속성 순서: 외부 링크는 기존 출력(`href`, `rel`, `target`)을 그대로 유지한다. 내부 링크는 Cleaner가 `rel`을 먼저 붙인 뒤 `href`를 복원하므로 `rel`, `href` 순서가 되며 순서는 계약이 아니다 — 시험은 속성 단위로 단언한다(PL-v2).
+
+**PL-D5. 영향 범위**
+
+- 4개 본문 도메인이 허용 목록을 공유하므로 **정적 페이지·팝업·FAQ 답변에서도 내부 링크가 생긴다.** 공개 렌더는 `th:utext` + 출력 시 재정리라 추가 변경이 없다.
+- 4a가 나중에 본문 `/…/boards/{숫자}` 형태를 처리한다(범위 밖). 이 PR은 숫자 경로 거부를 하지 않는다 — 4a 전까지는 게시판 슬러그가 `board-{id}` 기본값이 아직 없다.
+
+### PL-3. 변경 파일
+
+| 파일 | 변경 |
+|---|---|
+| `common/web/InternalLinkPaths.java`(신규) | `isAllowedBodyLink` |
+| `common/web/PrivatePaths.java`(신규) | `SiteLinkPolicy.isPrivatePath` 본문 이동(규칙 동일) |
+| `admin/site/SiteLinkPolicy.java` | `isPrivatePath` 호출을 `PrivatePaths`로 교체 |
+| `common/html/HtmlContentSanitizer.java` | `data-il` 전·후처리, `target` 강제 → 후처리, 클래스 주석(허용 규칙 갱신) |
+| 시험 | `HtmlContentSanitizerTest`(허용·거부 표·멱등·속성), `InternalLinkPathsTest`(신규), `ContentBodyPolicyTest`/`PageBodyPolicyTest`에 왕복 1건씩, 네 도메인 왕복 |
+| 문서 | `admin/board/CLAUDE.md`·`admin/page/CLAUDE.md`·루트 `CLAUDE.md`(콘텐츠 본문 절의 허용 목록 문구), `docs/troubleshooting.md`(필요 시) |
+
+### PL-4. 시험 계획
+
+- 허용: `/main/faq`, `/main/boards/b1?page=2`, `/main/pages/privacy-a#x`, 쿼리의 인코딩(`?k=%ED%95%9C`), 프래그먼트.
+- 거부(`href` 제거): `//evil.test`, `/\evil`, `boards/12`, `../x`, `?a`, `#a`, `/a%31`, `/%2F`, `/%5C`, `/admin`, `/ADMIN/x`, `/admin;v=1`, `/actuator/health`, `/swagger-ui.html`, `/v3/api-docs`, `/error`, `/main/../admin`, 제어 문자·공백, `javascript:`, 위조 `data-il="/admin"`.
+- 우회: 위조 `data-il`(허용 값)과 위험 `href`의 조합, 엔티티 인코딩 입력(`&#47;&#47;evil.test`·`/&#92;evil.test`·`/main/&#46;&#46;/admin`), 중첩 `a`(PL-v2).
+- 속성: 내부 링크는 `target` 없음 + `rel` 있음, 외부 링크는 지금과 동일, `href` 제거 후 남은 `a`는 지금과 동일.
+- 멱등: 허용·거부 표 각각 `sanitize(sanitize(x)) == sanitize(x)`. `data-il`이 결과에 없다.
+- 네 본문 도메인 왕복(저장→출력): 게시글·정적 페이지·FAQ·HTML 팝업 각 1건, 이미지 불허 도메인(`allowImages=false`)에서도 동일.
+- `SiteLinkPolicyTest`·`MenuServiceTest` 무변화 통과(이동 리팩터링의 회귀 방어).
+
+### PL-5. 리스크
+
+- 보안 화이트리스트가 넓어진다 — 오픈 리다이렉트는 없다(서버가 리다이렉트하지 않고 같은 출처 이동). 접근 통제는 URL 게이트가 담당하므로 비공개 경로 링크가 걸려도 인가는 우회되지 않는다(심층 방어 목적).
+- 별칭 호스트의 절대 URL은 이 PR 범위 밖(기존과 같음, 수용한 한계).
+
+### PR L 개정 이력
+
+- PL-v1 (2026-10-28): 최초 작성.
+- PL-v2 (2026-10-28, 리뷰 1라운드 — codex gpt-6.1-sol, ship): 실질 지적 없음. 수용 3건: ① 내부 링크 속성 순서는 `rel`, `href`가 되므로 순서 보장 문구를 삭제하고 시험을 속성 단위로 한다(PL-D4) ② 전·후처리를 `sanitizeOnce()` 안에 둔다(PL-D1) ③ 우회 시험(허용 `data-il` + 위험 `href`, 엔티티 입력, 중첩 `a`)을 PL-4에 추가. 기각 없음.
+
+### 구현·검증 결과 — PR L (2026-10-28)
+
+**Context / 확정 사항**: 본문(HTML)에 루트 상대 내부 링크(`/main/faq` 등)를 허용했다. 사용자 결정(PL-0): 보안 화이트리스트 변경 승인, 루트 상대만, 내부 링크는 같은 창(`rel` 유지). 마이그레이션·인가 정책 변경 없음. 구현 중 계획과 달라진 결정은 없다(리뷰 1라운드 ship 후 PL-v2 보정 3건만 반영).
+
+**구현 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `common/web/PrivatePaths.java`(신규) | `SiteLinkPolicy.isPrivatePath` 본문을 그대로 옮김(규칙 불변) |
+| `common/web/InternalLinkPaths.java`(신규) | `isAllowedBodyLink` — `SafeUrls.isSameOriginPath` ∧ 경로에 `%`·`;` 없음 ∧ 비공개 경로 아님 |
+| `admin/site/SiteLinkPolicy.java` | `isPrivatePath`가 `PrivatePaths`에 위임 |
+| `common/html/HtmlContentSanitizer.java` | `data-il` 표지로 Cleaner 우회(`markInternalLinks`·`restoreLinks`, `sanitizeOnce` 안), `target` 강제를 후처리로 이동 |
+| 시험(신규) | `InternalLinkPathsTest`(41)·`HtmlContentSanitizerInternalLinkTest`(35) |
+| 문서 | 루트 `CLAUDE.md` 콘텐츠 본문 항목, 이 문서, `plan/README.md` |
+
+**검증 결과**
+
+- 영향 범위 시험(`common.*`·`admin.site.*`·`admin.menu.*`·`*ConventionTest`, 이어서 `admin.board`·`page`·`popup`·`faq`·`contentimage`·`publicweb`) **실패 0**. 기존 `HtmlContentSanitizerTest.linkProtocols`(`/admin` 링크 `href` 제거)·`SiteLinkPolicyTest`(72)·`MenuServiceTest` 무변경 통과. 전체 `./gradlew test`는 PR 직전 1회(code-review-loop 마무리).
+- **실측(설계 근거)**: jsoup 1.23.2는 `preserveRelativeLinks(true)`여도 상대 `href`를 지운다 → 표지 속성 방식 채택. Quill 2.0.3 `Link.sanitize`는 상대 경로를 통과시킨다(편집기 변경 없음, `//evil.test`도 편집기는 통과·서버가 제거).
+- **실기(dev `bootRun`, Playwright)**: 정적 페이지를 API로 저장 → 내부 링크는 `href`+`rel`(target 없음), `/admin/…`·`//evil.test/x`는 `href` 제거, 외부 링크는 기존과 동일. 공개 `/main/pages/…` 렌더에서도 같음. 관리 화면 편집기에서 열어 새 내부 링크(`/main/boards/b1?page=2`)를 넣고 UI [저장] → 새 링크 보존·`//evil.test/y`는 제거. 검증용 페이지는 삭제해 원복(204·이후 404). 8080은 `cms-app-dev`를 멈추고 `bootRun`, 끝나고 다시 시작.
+
+**이슈**: 없음(첫 실행부터 전부 통과). 후속: 없음 — 4a가 이 허용 위에서 본문 링크 치환·숫자 경로 거부를 다룬다.
