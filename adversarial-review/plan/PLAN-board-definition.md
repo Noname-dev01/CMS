@@ -1016,3 +1016,196 @@ ALTER TABLE `post`
 - **실기(dev `bootRun`, Playwright)**: 정적 페이지를 API로 저장 → 내부 링크는 `href`+`rel`(target 없음), `/admin/…`·`//evil.test/x`는 `href` 제거, 외부 링크는 기존과 동일. 공개 `/main/pages/…` 렌더에서도 같음. 관리 화면 편집기에서 열어 새 내부 링크(`/main/boards/b1?page=2`)를 넣고 UI [저장] → 새 링크 보존·`//evil.test/y`는 제거. 검증용 페이지는 삭제해 원복(204·이후 404). 8080은 `cms-app-dev`를 멈추고 `bootRun`, 끝나고 다시 시작.
 
 **이슈**: 없음(첫 실행부터 전부 통과). 후속: 없음 — 4a가 이 허용 위에서 본문 링크 치환·숫자 경로 거부를 다룬다.
+
+## PR 4a 상세 설계 — 슬러그 완전 교체 (P4a-v3, 2026-10-28)
+
+> §5 PR 4a 초안을 구체화한다. 이 절만 `plan-review-loop` 대상이다. 확정 결정(슬러그 전역 유일·`board-{id}` 기본값일 때만 1회 변경·옛 슬러그 301·한 번 쓴 슬러그 영구 예약·`board-{숫자}` 시스템 전용·메뉴/배너/팝업/본문 링크 치환·지금 열리는 링크를 치환 못 하면 fail-fast·id 해석은 공통 함수 하나)은 다시 열지 않는다. 마이그레이션은 현재 최대 V8 다음인 **V9(DDL)·V10(DML)**.
+
+### P4a-0. 사용자 결정 (2026-10-28 — 재질문 금지)
+
+- **P4a-v3 승인**(리뷰 3라운드 ship 후). 공개 URL 계약 변경·스키마 변경(`board.slug`)·저장된 링크 일괄 치환·사실상 롤백 불가를 고지받고 승인.
+- **링크 치환은 Flyway Java 마이그레이션**(D6 ②, 이 프로젝트 첫 Java 마이그레이션).
+
+### P4a-1. 정찰 결과 (코드 근거)
+
+1. 공개 게시판 라우트는 `PublicBoardController` 세 개(목록 `/{boardId}`, 상세 `/{boardId}/posts/{postId}`, 첨부 GET·HEAD)이고 id는 `parseId` = `Long.parseLong`(음수도 통과 — 없는 id라 404)이다. 공개 조건은 `BoardRepository.findPublicById(id, siteId)` 한 곳.
+2. 공개 링크를 만드는 곳: `public/board/list.html`(목록·검색·페이지·상세 링크 8곳), `public/board/detail.html`(목록·첨부 3곳), `public/home.html`(새 글 5건 — `PublishedPostRow.boardId`). 관리 화면에는 "공개 화면 보기" 링크가 없다. 배너·팝업 관리 화면의 링크 `placeholder="/boards/2 …"`가 옛 형식이다(사이트 접두어도 없음).
+3. 링크 저장 검증: 메뉴는 DTO `@SafeMenuUrl`(형식) + 서비스 `SiteLinkPolicy.validate`(사이트 정책, 출력 시 `permits` 재검증). **배너·팝업은 DTO `@SafeLinkUrl`(`SafeUrls.isSafeLinkUrl`)만** 있고 서비스 정책이 없다. 셋 다 `%`를 허용한다(`SAME_ORIGIN_PATH_REGEX`는 공백·`\`·제어문자만 막음) — URL 컬럼에 인코딩 변형이 있을 수 있다.
+4. 낙관적 검사 컬럼: 배너 `version`(1부터), 팝업 `revision`(0부터, 수정마다 +1 — "오늘 하루 보지 않기" 해제와 409 겸용), 정적 페이지 `version`, FAQ 항목 `version`. 메뉴·게시글은 없다.
+5. 컬럼 길이: `menu.menu_url` 255, `banner.link_url`·`popup.link_url` 500. 본문은 전부 MEDIUMTEXT이고 도메인 상한은 `ContentBodyPolicy`(정리 후 바이트 — 게시글 200,000·정적 페이지 500,000·팝업 50,000·FAQ 30,000).
+6. 게시판을 만드는 경로: 관리 API `createBoard` 하나. 그러나 **시험은 SQL `INSERT INTO board`(32곳)·`Board.builder()`(30곳)로 슬러그 없이 게시판을 만든다** — 롤백한 이전 앱이 만드는 행과 같은 모양이다. 공개 URL을 쓰는 시험은 약 10개 파일·90곳(`/main/boards/{id}`).
+7. 사이트 시드: `admin`(id 1, ADMIN), `main`(id 2, PUBLIC). `SiteKey` 형식 `^[a-z0-9]+(-[a-z0-9]+)*$` 2~30자. 정적 페이지 슬러그 `SiteSlug`는 같은 정규식 2~50자.
+8. 이 프로젝트에 Java 마이그레이션 선례는 없다. Flyway 위치는 기본값 `classpath:db/migration`(업그레이드 시험도 같은 위치) — 같은 이름의 Java 패키지 `db.migration`에 둔 `BaseJavaMigration` 구현이 함께 스캔된다. MariaDB DDL은 암묵 커밋이라 **fail-fast 롤백이 되려면 DML 마이그레이션을 DDL과 다른 버전으로 분리**해야 한다.
+9. 고유 제약 위반 번역 선례: `GlobalApiExceptionHandler`가 루트 메시지의 제약 이름(`uk_member_user_id`)으로 구분한다.
+
+### P4a-2. 설계 결정
+
+**P4a-D1. 기본 슬러그는 저장하지 않는다 — `board.slug`는 "사용자가 정한 슬러그"만 (초안의 `board_slug` 테이블·백필 대체)**
+
+- 선택지: ① 초안 추천 — `board_slug(slug PK, board_id, kind CURRENT|ALIAS|RETIRED)` 테이블 + 미삭제 게시판에 `board-{id}` 백필 ② `board.slug`·`board.previous_slug` 두 컬럼 + 백필 ③ **`board.slug VARCHAR(50) NULL UNIQUE` 한 컬럼에 사용자 지정 슬러그만 저장하고, 기본 슬러그 `board-{id}`는 id에서 계산한다.**
+- **③ 채택.** 판정:
+  - 현재 슬러그 = `slug ?? "board-" + id`. 변경 가능 = `slug IS NULL`(1회 변경 = NULL → 값, 이후 불변). 별도 `slug_customized` 컬럼이 필요 없다.
+  - **별칭은 저장하지 않아도 정확히 하나로 정해진다**: 1회 변경은 언제나 기본값에서 출발하므로 옛 슬러그는 항상 `board-{id}`다. `/{siteKey}/boards/board-{id}/…`를 받으면 그 게시판이 공개 조건을 통과하고 `slug`가 있을 때 301.
+  - **유일성(현재 ∪ 별칭)**: 기본 슬러그 이름 공간 `board-{숫자}`는 시스템 전용(확정, 사용자 지정 400)이라 사용자 슬러그와 겹칠 수 없고, 기본 슬러그끼리는 id가 유일하다. 사용자 슬러그끼리는 `UNIQUE(slug)`가 DB에서 강제한다(MariaDB UNIQUE는 NULL 중복 허용).
+  - **영구 예약**: 소프트 삭제는 `slug`를 **비우지 않는다**(`board_key`·`site_id`를 비우는 것과 다름) — 삭제된 게시판이 UNIQUE를 계속 쥔다. 기본 슬러그는 id가 재사용되지 않으므로(게시판은 하드 삭제가 없다) 자동으로 영구다. 삭제된 게시판은 현재·별칭 모두 404(301 없음 — 공개 조건이 먼저).
+  - **롤백·시험 호환**: 이전 앱이나 시험 SQL이 만든 게시판(`slug` NULL)은 그대로 `board-{id}`로 열린다 — 초안 리스크 "롤백 후 슬러그 없는 게시판"(후보 i~iii)이 **사라진다**. 백필 DML도 없다.
+- 기각 이유: ①은 테이블·종류 상태 3개·백필·롤백 대응이 모두 필요하고, 1회 변경 규칙 아래에서는 별칭이 항상 계산 가능하다는 사실을 쓰지 않는다. ②는 백필과 두 컬럼 교차 유일성(UNIQUE로 표현 불가) 문제가 남는다.
+
+**P4a-D2. 슬러그 형식·식별 규칙 — `admin.board.domain.BoardSlug` 한 곳**
+
+- 사용자 지정 슬러그: `SiteSlug`와 같은 `^[a-z0-9]+(-[a-z0-9]+)*$`, **2~50자**(정적 페이지 슬러그와 같은 형식 — 연속·앞뒤 하이픈 금지), 숫자만으로 된 값 금지, `^board-[0-9]+$` 금지(시스템 전용). 위반은 400(입력 원문 비반영).
+- 기본 슬러그 식별 `parseDefault(segment)`: `board-` 뒤를 공통 id 함수(P4a-D3)로 읽고 **`"board-" + id`와 원문이 정확히 같을 때만** id를 돌려준다(`board-012`·`board-+12`·전각 숫자는 기본 슬러그가 아니라 404 — 정규형 하나만 열린다).
+- 공개 경로 세그먼트 해석은 "기본 슬러그 → 사용자 슬러그 형식 → 그 밖 404" 순서다. **형식 검사를 DB 조회보다 먼저** 한다 — 컬럼 정렬이 `utf8mb4_general_ci`라 `News`로 조회하면 `news`가 맞아 버린다(형식이 대문자를 막는다).
+
+**P4a-D3. 공통 id 함수 — `common.web.PathIds.parse(String)`**
+
+- `Long.parseLong`으로 읽고 음수면 null, 실패면 null(현 `parseId`와 비음수 구간에서 같은 의미 — `+12`·`0012`·전각 `１２`·아라비아 인도 숫자 `١٢`·혼합을 같은 값으로 연다. 음수는 지금도 없는 id라 404이므로 의미가 같다). 표로 고정하는 시험: `PathIdsTest`가 현 `Long.parseLong` 결과와 대조.
+- 쓰는 곳: 공개 게시판 컨트롤러의 게시글·첨부 id(현 `parseId` 대체), 기본 슬러그 식별(D2), 숫자 게시판 경로 판정(D5), V10 치환(D6). 4b의 `/notices/{id}` 판정도 이 함수를 쓴다.
+
+**P4a-D4. 공개 라우팅 — 세그먼트 해석 + 301**
+
+- 라우트: `{boardId}` 경로 변수 이름을 `{boardSlug}`로 바꾼다(세그먼트 형태 동일 — `SecurityConfig` 매처·레이트리밋 패턴 `/*/boards/**`·`/*/boards/*/posts/*/attachments/*` 불변).
+- `PublicBoardService.resolveBoard(siteId, segment)` → `Found(boardId)` / `Moved(slug)` / `NotFound`(읽기 전용 트랜잭션):
+  - 기본 슬러그면 `findPublicById(id, siteId)` → 없으면 NotFound, `slug`가 있으면 **Moved**, 없으면 Found.
+  - 사용자 슬러그 형식이면 새 `findPublicBySlug(slug, siteId)`(공개·미삭제·사이트 소속 조건을 `findPublicById`와 같게 쿼리에 고정) → Found / NotFound.
+  - 그 밖(숫자만 `12`, 대문자, 형식 위반) NotFound — 숫자 id 경로는 이렇게 404가 된다(완전 교체).
+- 기존 목록·상세·첨부 메서드는 id를 받는 그대로 두고 공개 조건을 다시 확인한다(해석과 조회가 다른 트랜잭션이라 사이의 비공개 전환은 기존과 같은 약한 보장 — 쿼리 1회 추가는 수용).
+- **301 `Location`은 서버가 정규형으로 다시 만든다**(원문 경로를 잘라 붙이지 않는다): `/{현재 사이트 키}/boards/{새 슬러그}` + 상세는 `/posts/{PathIds 정규형}`, 첨부는 `…/attachments/{정규형}` + 원래 쿼리스트링(`getQueryString()` 원문, 있을 때만). 게시글·첨부 id가 `PathIds`로 읽히지 않으면 301 하지 않고 404(잘못된 주소를 다른 주소로 옮겨 주지 않는다). GET·HEAD 모두 301. 첨부 다운로드 집계·조회수 집계는 301 응답에서 일어나지 않는다(새 경로 요청에서 한 번).
+- 비공개·삭제·다른 사이트 게시판의 기본 슬러그는 301 없이 같은 404(새 슬러그가 `Location`으로 새지 않는다).
+
+**P4a-D5. 숫자 게시판 경로 금지 — 판정 함수 하나, 적용 세 곳**
+
+- `common.web.BoardLinkPaths.isNumericBoardPath(String path)`: 루트 상대 경로(또는 메뉴의 자기 출처 절대 URL에서 떼어 낸 경로)의 **경로 부분(`?`·`#` 앞)을 퍼센트 디코딩**(`UriUtils.decode`, 디코딩 실패 = 해당 없음)하고 **점 세그먼트를 브라우저처럼 정리**(`.`은 지우고 `..`은 앞 세그먼트를 지운다 — URL 표준 경로 처리. 디코딩 뒤라 `%2e`·`%2E`도 같다, v3 R2-1)한 뒤 `/`로 나눠 `["", 아무 세그먼트, "boards", s, …]`이고 `PathIds.parse(s) != null`이면 참. 사이트 키 자리는 존재 여부와 무관(형태만 본다 — 저장 시 판정이 사이트 상태에 따라 흔들리지 않게).
+- 적용:
+  1. **본문**: `InternalLinkPaths.isAllowedBodyLink`가 거부(→ sanitizer가 `href`만 제거, 저장·출력 모두). PR L 규칙상 본문 경로에는 `%`가 없어 디코딩은 영향이 없다.
+  2. **배너·팝업 링크**: `SafeLinkUrlValidator`가 거부(DTO 400). 숫자 경로일 때의 문구는 "게시판 주소는 슬러그 주소(예: /main/boards/board-12)를 쓰세요."(`buildConstraintViolationWithTemplate`로 경우별 문구 — 기존 사용처가 없으면 구현 때 확인).
+  3. **메뉴 링크**: `SiteLinkPolicy.violation`이 내부 경로와 자기 출처 절대 URL의 경로에 대해 거부(서비스 400) — 출력 재검증 `permits`도 같은 규칙이라 남은 숫자 메뉴는 링크 없는 라벨이 된다(어차피 404).
+- `SafeUrls.isSafeLinkUrl` 자체는 바꾸지 않는다(공개 배너 출력 `PublicBanner`·통합 검색이 쓰는 형식 판정이다 — 숫자 배너 링크는 출력에서 숨기지 않고 404로 둔다).
+- **마이그레이션 뒤 남은 숫자 경로 행의 저장**(초안 미결정): 그 URL을 그대로 다시 보내는 저장은 위 400이다(배너·팝업 PUT은 전체 교체라 링크를 고치거나 비워야 저장된다). 409가 아니라 400인 이유: 낡은 화면이 아니라 고쳐야 하는 값이고, 화면이 안내 문구를 보여 준다. 메뉴 PATCH에서 `menuUrl`을 보내지 않으면 검증하지 않는다(기존 의미 유지).
+
+**P4a-D6. 링크 치환 — Flyway Java 마이그레이션 `V10__replace_board_links_with_slugs` (핵심 결정, 사용자 승인 대상)**
+
+- 선택지: ① SQL `REGEXP_REPLACE` ② **Java 마이그레이션(`src/main/java/db/migration/V10__….java`, `BaseJavaMigration`)**.
+- **② 추천.** 이유:
+  - D1 덕분에 치환 값에 조인이 필요 없어 ①도 정규형 id(`/main/boards/12` → `/main/boards/board-12`)는 할 수 있다. 그러나 **비정규 id(`+12`·`0012`·전각·아라비아 인도 숫자)는 지금 열리는 링크**인데 SQL로는 `Character.digit` 해석을 재현할 수 없어 fail-fast로만 다룰 수 있고, 그 검출 자체(SIGNAL·저장 프로시저)도 Flyway SQL 스크립트로 쓰기 까다롭다. ②는 런타임과 **같은 함수(`PathIds`·`BoardLinkPaths`)**로 판정하고 비정규 id도 정규형으로 치환한다(fail-fast 대상이 길이 초과·인코딩 변형만 남는다).
+  - 길이·본문 상한(UTF-8 바이트)·HTML 속성 경계를 코드로 정확히 검사하고, 실패 시 어떤 테이블의 어떤 행인지 메시지로 알려 줄 수 있다.
+  - 비용: 이 프로젝트의 첫 Java 마이그레이션이다. 마이그레이션이 앱 코드(공통 함수)를 부르므로 **그 함수를 나중에 바꾸면 아직 V10을 적용하지 않은 DB의 결과가 바뀐다** — 클래스 주석과 `docs/migration-guide.md`에 "V10이 쓰는 함수 목록, 바꿀 때 V10 업그레이드 시험을 함께 본다"를 남긴다. 엔티티·리포지토리·Spring 빈은 쓰지 않는다(JDBC만 — 엔티티는 이후 PR에서 바뀐다). Java 마이그레이션은 Flyway 체크섬이 없다(수정 감지 없음 — 머지 후 수정 금지 규칙은 같다). 첫 실배포 직전 합치기 때 빈 DB에는 치환할 데이터가 없으므로 V10은 흡수 대상에서 **삭제**한다.
+- 트랜잭션: Flyway 기본(마이그레이션 하나 = 트랜잭션 하나, InnoDB DML) — 실패하면 V10 전체가 롤백되고 `flyway_schema_history`에 성공 기록이 남지 않아 이전 버전 앱이 계속 운영된다. V9(DDL)는 이미 적용된 상태로 남지만 `slug` 컬럼은 이전 앱이 모르는 NULL 허용 컬럼이라 무해하다.
+- 대상(전부 키 순으로 읽고 바뀐 행만 UPDATE — **치환 후보만** `LIKE '%/boards/%'`로 줄인다. 사후 검사 후보는 따로다, 아래 fail-fast ②). 키는 `id`이고 **정적 페이지 개정만 복합 키 `(page_id, revision_no)`**(`id` 컬럼이 없다 — 이 키 순으로 읽고 두 키 모두로 UPDATE, 오류 식별자도 `site_page_revision#{page_id}/{revision_no}`, v2 R1-3):
+
+  | 대상 | 컬럼 | 상한(초과 = fail-fast) | 함께 바꾸는 것 |
+  |---|---|---|---|
+  | 공개 사이트 메뉴 | `menu.menu_url`(`site_id`가 `site_type='PUBLIC'`인 행만) | 255자 | 없음(버전 없음) |
+  | 배너 | `banner.link_url` | 500자 | `version + 1` |
+  | 팝업 | `popup.link_url`, `popup.content_html` | 500자 / 정리 후 50,000바이트 | 행당 `revision + 1` 한 번(둘 다 바뀌어도 1) |
+  | 게시글 | `post.content`(삭제된 글 포함) | 200,000바이트 | 없음 |
+  | 정적 페이지 | `site_page_revision.content`(모든 개정) | 500,000바이트 | 없음(`version`·개정 번호 불변 — 초안 결정) |
+  | FAQ | `faq.answer_html` | 30,000바이트 | 없음 |
+
+- **치환 규칙**:
+  - URL 컬럼: 값이 `/{k}/boards/{s}`로 시작하고(`k` = 공개 사이트 키 중 하나, 사용 여부 무관) `s` 뒤가 값의 끝·`/`·`?`·`#`이며 `PathIds.parse(s) = n`이면 `s`를 `board-{n}`으로 바꾼다. 나머지(하위 경로·쿼리·프래그먼트)는 그대로.
+  - HTML 본문: `<a` 태그의 `href="…"` 속성 값에만 같은 규칙(값의 시작 고정). 저장된 본문은 sanitizer 출력이라 태그 이름은 소문자 `a`, 속성은 큰따옴표, 값 안의 `"`는 `&quot;`이다 — 이 가정을 시험으로 고정한다(임의 본문을 sanitizer에 통과시킨 결과에 치환 → 다시 sanitizer = 같은 결과). 태그 경계는 큰따옴표 값을 건너뛰는 정규식(`<a(?:\s+[^\s=>"]+(?:="[^"]*")?)*\s*/?>`)으로 찾는다. 본문 텍스트·`img src`·다른 속성은 바꾸지 않는다(초안 미결정 "HTML 치환 대상" → **`a href`만**).
+  - **게시판 존재 여부는 보지 않는다**(초안 "삭제된 게시판은 치환하지 않음"을 바꿈): 없는·삭제된·다른 사이트 게시판 id의 링크는 치환 전에도 404, 치환 후 `board-{n}`도 404다. 게시판 id는 재사용되지 않으므로 의미가 같고, 치환하지 않고 남기면 그 행이 D5 규칙(저장 400·본문 `href` 제거)에 걸려 편집을 방해한다.
+  - 공개 사이트 키가 아닌 첫 세그먼트(`/admin/boards/12`, 없는 사이트 `/old/boards/12`)는 치환하지 않는다(초안 결정 유지 — 지금 열리지 않는 링크).
+- **fail-fast**(전체 롤백 + 메시지에 `테이블#id` 최대 20개):
+  1. 치환 결과가 위 상한을 넘는 행.
+  2. **치환 후 검사**: URL 컬럼 값의 경로를 디코딩·점 세그먼트 정리해(D5 함수 — 정리하면 숫자 게시판 경로가 되는 `/main/boards/./12`·`/main/x/../boards/12`도 걸린다, v3 R2-1) 공개 사이트 키 + 숫자 게시판 경로가 남아 있으면 실패 — 인코딩 변형(`/main/boards/%31%32`, `/main/%62oards/12`, `/main/%62%6F%61%72%64%73/12`)이 여기 걸린다. **검사 대상은 치환 후보 필터를 쓰지 않고 URL 컬럼의 값이 있는 모든 행**이다(v2 R1-1 — `boards`를 인코딩하면 `LIKE '%/boards/%'`에 걸리지 않아 검사가 호출되지 않는다. 메뉴·배너·팝업은 작은 테이블이라 전체 검사가 싸다). 본문 `href`는 PR L이 경로의 `%`를 막아 인코딩 변형이 저장될 수 없으므로 치환 후보(`/boards/` 포함 행)만 같은 검사를 한다.
+- `docs/deployment.md`에 **배포 전 점검 SQL**(이전 버전 DB에서): URL 컬럼 중 **`%`가 든 모든 행**(`menu_url`·`link_url` `LIKE '%\%%'` — `boards` 인코딩까지 잡도록 `/boards/` 조건을 붙이지 않는다, v2 R1-1)과 **점 세그먼트가 든 모든 행**(`LIKE '%/.%'`, v3 R2-1), 길이 여유(링크 하나당 +6자 — `CHAR_LENGTH(menu_url) > 249` 등). 본문 상한은 마이그레이션이 정확히 판정하고 메시지로 알려 준다. 실배포 전이라 실제로는 0건일 가능성이 높다.
+- **V10 실패 후 복구 절차**(v2 R1-2): 업무 데이터는 트랜잭션 롤백으로 그대로지만 **Flyway는 MariaDB에서 실패 이력(`success=0`)을 남겨 다음 `migrate`를 막는다**. 절차는 기존 `docs/migration-guide.md` "DDL 실패 복구"와 같다 — 실패 메시지의 행을 이전 버전 앱 화면(또는 SQL)으로 고친다 → 같은 마이그레이션 구성으로 `flyway repair`(실패 이력만 정리) → 재기동. 이 순서를 `docs/deployment.md`·`migration-guide.md`의 V10 항목에 적는다.
+
+**P4a-D7. 관리 API·화면**
+
+- `POST /admin/api/boards`: 선택 필드 `slug`(누락·null·공백만 = 기본 슬러그). `PATCH /admin/api/boards/{id}`: 선택 필드 `slug`(누락·null = 유지). 규칙: 형식 400(잠금 전) → 이미 사용자 슬러그가 있는데 다른 값 400("슬러그는 한 번만 바꿀 수 있습니다.") → 같은 값이면 변화 없음(멱등, "변경할 필드 없음" 판정에서는 필드로 센다 — `version`은 기존대로 +1) → 사전 검사 `existsBySlug` 409 → flush 중 `uk_board_slug` 위반도 같은 409(동시 지정). 공지 게시판(시스템 게시판)도 바꿀 수 있다(4b가 현재 슬러그로 302).
+- `Board.assignSlug(slug, now)`: `slug`가 NULL일 때만, `update` 뒤에만 불러 버전을 한 번만 올린다(`changeSite`와 같은 방식). 생성은 빌더에 넣는다.
+- `updateBoard`·`createBoard`는 `saveAndFlush`/`flush`를 `try` 안에서 해 제약 이름으로 409 문구를 고른다(`uk_board_board_key` = 공지 중복, `uk_board_slug` = 슬러그 중복).
+- 응답 `BoardResponse`: `slug`(현재 슬러그 — 항상 있음), `slugChangeable`(사용자 슬러그가 없으면 true). 감사는 기존 `BOARD_CREATE`·`BOARD_UPDATE` 그대로.
+- 화면 `admin/board/manage.html`: 목록에 "주소" 열(현재 슬러그), 모달 기본 묶음에 "주소(슬러그)" 입력 — 생성 시 선택(비우면 `board-{번호}`), 수정 시 `slugChangeable`일 때만 편집 가능하고 아니면 읽기 전용 + 안내("한 번 바꾼 주소는 다시 바꿀 수 없습니다. 이전 주소 board-N은 새 주소로 자동 이동합니다"). 입력값을 그대로 둔 수정은 `slug`를 보내지 않는다.
+- 배너·팝업 화면 `placeholder`를 `/main/boards/board-2 또는 https://example.com`으로 고친다.
+
+**P4a-D8. 공개 링크 생성**
+
+- `Board.publicSlug()`(= `BoardSlug.effective(id, slug)`)를 DTO에 싣는다: `PublicBoardListResult.boardSlug`, `PublicPostDetail.boardSlug`, `PublishedPostRow`/`PublicHomePost.boardSlug`(QueryDSL 프로젝션에 `board.slug`를 더하고 DTO에서 계산). 템플릿의 `{id}` 자리를 슬러그로 바꾼다(`list.html`·`detail.html`·`home.html`). 공지 템플릿(`public/notice/*`)과 공개 메인 공지 5건 링크는 `/notices/…` 그대로(4b 범위).
+
+### P4a-3. 변경 파일
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V9__board_slug.sql`(신규) | `board.slug varchar(50) NULL` + `UNIQUE uk_board_slug`(IF NOT EXISTS) |
+| `src/main/java/db/migration/V10__replace_board_links_with_slugs.java`(신규) | D6 치환·fail-fast(JDBC) |
+| `common/web/PathIds.java`·`BoardLinkPaths.java`(신규) | D3·D5 |
+| `common/web/InternalLinkPaths.java` | 숫자 게시판 경로 거부 |
+| `common/web/validation/SafeLinkUrlValidator.java` | 숫자 게시판 경로 거부 |
+| `admin/site/SiteLinkPolicy.java` | 숫자 게시판 경로 거부 |
+| `admin/board/domain/BoardSlug.java`(신규)·`Board.java` | 형식·식별·`slug` 필드·`assignSlug`·`publicSlug` |
+| `admin/board/repository/BoardRepository.java`·`PostRepositoryImpl`·`PublishedPostRow` | `findPublicBySlug`·`existsBySlug`, 프로젝션 |
+| `admin/board/service/BoardService.java`·`dto/request/Board*Request`·`BoardResponse` | D7 |
+| `publicweb/board/controller/PublicBoardController.java`·`service/PublicBoardService.java`·`dto/*` | D4·D8 |
+| `publicweb/home/dto/PublicHomePost.java` | D8 |
+| 템플릿 | `public/board/list.html`·`detail.html`·`public/home.html`·`admin/board/manage.html`·`admin/banner/manage.html`·`admin/popup/manage.html` |
+| 시험 | 아래 P4a-4, 공개 URL을 쓰는 기존 시험 약 10개 파일의 `/main/boards/{id}` → `/main/boards/board-{id}` 기계적 변경 |
+| 문서 | `admin/board/CLAUDE.md`·`publicweb/board/CLAUDE.md`·`publicweb/support/CLAUDE.md`(링크 형식)·`publicweb/home/CLAUDE.md`·루트 `CLAUDE.md`(콘텐츠 본문 링크 규칙)·`docs/deployment.md`(점검 SQL·롤백 불가)·`docs/migration-guide.md`(첫 Java 마이그레이션·개정 본문 변경 사실·합치기 때 V10 삭제) |
+
+### P4a-4. 시험 계획
+
+- `PathIdsTest`: `12`·`+12`·`0012`·`１２`·`١٢`·혼합·`-1`·`9223372036854775808`·빈 값·`1a`를 `Long.parseLong`과 대조(비음수 구간 같음, 음수·초과·실패 null).
+- `BoardSlugTest`: 형식 허용·거부 표(2자·50자·51자·숫자만·`board-12`·`board-a`(허용)·대문자·연속/앞뒤 하이픈), `parseDefault`(`board-12` → 12, `board-012`·`board-+12`·`board-１２`·`board-` → null).
+- `BoardLinkPathsTest`: `/main/boards/12`·`/x/boards/+12/posts/3?a#b`·`/main/boards/%31%32`·`/main/%62oards/12`(참), `/main/boards/board-12`·`/main/boards/news`·`/main/boards`·`/boards/12`(사이트 세그먼트 없음 — 거짓, 지금도 404)·`/main/boards/-1`(거짓)·잘못된 퍼센트(`%zz`, 거짓), **점 세그먼트 `/main/boards/./12`·`/main/x/../boards/12`·`/main/boards/%2e/12`·`/main/boards/12/.`(참)·`/main/boards/../boards/board-3`(거짓)**(v3 R2-1 — 배너·팝업 저장 400 시험과 V10 fail-fast + 전체 롤백 시험에도 같은 세 사례).
+- 적용 세 곳: sanitizer(`href` 제거 + 멱등), 배너·팝업 API 400 + 문구, 메뉴 API 400 + `permits` false.
+- 공개 라우팅(`PublicBoardSlugIntegrationTest`, `publicweb.board`): 기본 슬러그 목록·상세·첨부 200, 숫자 id 경로 404(목록·상세·첨부 GET·HEAD), 사용자 슬러그 200, 변경 후 기본 슬러그 → 301 `Location`(목록 쿼리스트링 유지, 상세·첨부 정규형 id, HEAD도 301), 비정규 게시글 id(`+5`)의 301 대상은 `posts/5`, 읽을 수 없는 게시글 id는 301 없이 404, 비공개·삭제·다른 사이트 게시판의 기본 슬러그 404(새 슬러그 미노출), 대문자 슬러그 404, `board-012` 404, 공개 목록·상세·메인 템플릿 링크가 현재 슬러그를 쓴다, 301 응답은 조회수·다운로드 수를 올리지 않는다.
+- 관리 API(`BoardSlugApiIntegrationTest`, `admin.board`): 생성 지정·생략 왕복, 1회 변경 후 두 번째 변경 400·같은 값 PATCH 200, 형식·숫자만·`board-7` 400, 다른 게시판의 슬러그 409, **삭제된 게시판의 슬러그로 생성 409 + 그 경로 404**, 동시 지정 하나만 성공(UNIQUE → 409), 공지 게시판 변경 가능, 감사 행.
+- V10 업그레이드 시험(`BoardSlugLinkUpgradeTest`, 루트 패키지 — V9까지 적용한 DB에 행을 넣고 V10): §5 PR 4a "업그레이드 경로 시험"의 모든 사례(목록·상세·첨부·쿼리·프래그먼트·`12` vs `123`·삭제/없는 게시판(치환됨 — D6 변경)·관리자 사이트 메뉴·외부 호스트·`//host`·쿼리 매개변수 안·본문 텍스트·없는 사이트 키·비정규 id(정규형으로 치환)·`long` 초과·길이 정확히 맞음(치환)/1 초과(fail-fast)·인코딩 변형(fail-fast — `%31%32`, `%62oards`, `boards` 전체 인코딩 각각 V10 자체가 실패하는지)), **정적 페이지는 같은 페이지의 여러 개정 + 다른 페이지의 같은 개정 번호**를 넣어 모든 개정이 독립적으로 치환되는지(v2 R1-3), fail-fast 시험은 **실패 → 업무 데이터 그대로(롤백) → `flyway_schema_history`의 V10 `success=0` 확인 → 원인 행 수정 → `repair()` → 재실행 성공 + 치환 결과 확인**까지(v2 R1-2, `ProfileImageUrlShrinkUpgradeTest` 선례), 배너 `version`·팝업 `revision`이 치환된 행만 +1(팝업은 링크·본문 둘 다 바뀌어도 +1), 치환된 본문의 sanitizer 멱등.
+- V9: `slug` 컬럼·UNIQUE 생성, 재실행 무해(IF NOT EXISTS).
+- 기존 시험: 공개 URL 기계적 변경 후 전부 통과, `PublicExposureInventoryTest`·`SitePublicRateLimitConventionTest`·`SecurityConfigTest` 무변화 통과(매처·패턴 불변 확인).
+
+### P4a-5. 리스크
+
+- **공개 URL 계약 변경(승인 대상)**: 숫자 id 게시판 주소가 전부 404. 저장된 링크는 치환하지만 외부 공유·검색 색인은 깨진다(실배포 전이라 수용, §8).
+- **사실상 롤백 불가**: 이전 앱은 `board-12`를 숫자로 읽지 못해 치환된 링크가 전부 404 — 롤백하려면 V10 이전 백업 복구(`docs/deployment.md`). 롤백 중 만든 게시판은 D1 덕분에 재배포 후 바로 `board-{id}`로 열리지만, 롤백 중 저장한 숫자 링크는 V10이 다시 돌지 않으므로 남는다 — 재배포 뒤 점검 SQL로 찾고 화면에서 고친다(저장 시 400 안내).
+- **사용자 작성 데이터 일괄 수정**: 마이그레이션 전 백업 필수, 경계 사례는 업그레이드 시험으로 고정, 정적 페이지 개정 본문이 바뀐다는 사실을 migration-guide에 기록.
+- **첫 Java 마이그레이션**: 앱 코드 함수 의존(D6) — 변경 시 V10 시험이 감지.
+- **팝업 `revision` +1의 부작용**: 링크가 치환된 팝업은 방문자의 "오늘 하루 보지 않기"가 풀린다(1회, 수용).
+
+### PR 4a 개정 이력
+
+- P4a-v1 (2026-10-28): 최초 작성. 초안 대비 바꾼 것 — 별칭 테이블·백필 대신 사용자 지정 슬러그만 저장(D1), 삭제·없는 게시판 링크도 치환(D6), Java 마이그레이션 추천(D6).
+- P4a-v2 변경 (리뷰 1라운드 — codex gpt-6.1-sol, needs-attention 3건 전부 수용, D1 접근은 리뷰어도 유지 판정): R1-1 URL 컬럼 사후 검사는 치환 후보 필터(`LIKE '%/boards/%'`)를 쓰지 않고 값이 있는 모든 행 — `boards`를 인코딩하면 필터에 안 걸려 fail-fast가 호출되지 않는다. 점검 SQL도 `%` 포함 행 전체(D6). R1-2 MariaDB에서 실패한 V10은 `success=0` 이력을 남겨 다음 기동을 막는다 → 복구 절차(수정 → `flyway repair` → 재기동)를 문서화하고 업그레이드 시험을 repair 후 재실행 성공까지 확장(D6·P4a-4). R1-3 `site_page_revision`은 `id`가 없고 복합 키 `(page_id, revision_no)` — 그 키로 읽고 갱신·보고, 시험에 같은 페이지 여러 개정 + 다른 페이지 같은 개정 번호(D6·P4a-4). 기각 없음.
+- P4a-v3 변경 (리뷰 2라운드 — codex, needs-attention 1건 수용, v2 반영은 충분 판정): R2-1 브라우저는 점 세그먼트(`/main/boards/./12`, `/main/x/../boards/12`, `/main/boards/%2e/12`)를 `/main/boards/12`로 정리해 지금 열리는데, 배너·팝업은 `PrivatePaths`를 거치지 않아 저장 거부·V10 사후 검사를 모두 빠져나간다 → `BoardLinkPaths`가 디코딩 뒤 점 세그먼트를 정리하고 판정(저장 400·V10 fail-fast가 같은 함수), 원문 치환 범위는 그대로(정규형만), 점검 SQL에 `LIKE '%/.%'`, 세 사례를 판정·저장·업그레이드 시험에 추가(D5·D6·P4a-4). 기각 없음.
+
+### 구현·검증 결과 — PR 4a (2026-10-28)
+
+**Context / 확정 사항**: 공개 게시판 주소를 슬러그로 완전히 교체했다(`/{siteKey}/boards/{슬러그}`, 숫자 id 404). 사용자 결정(P4a-0): P4a-v3 승인, 링크 치환은 Flyway Java 마이그레이션. 핵심은 D1 — 기본 슬러그 `board-{id}`를 저장하지 않아 별칭 테이블·백필·롤백 후 NULL 대응이 필요 없다.
+
+**구현 중 계획과 달라진 결정**(모두 구현 중 보고)
+- 슬러그 중복 409를 `ConflictException`이 아니라 **`DuplicateResourceException`(코드 `DUPLICATE_RESOURCE`)**으로 냈다 — 관리 화면이 409를 받으면 "낡은 화면"으로 보고 모달을 닫는데, 슬러그 중복은 다른 주소를 고르면 되는 입력 오류라 코드로 구분해야 했다(`RESOURCE_CONFLICT` = 낡은 버전).
+- V10의 본문 상한은 `ContentBodyPolicy` 상수를 부르지 않고 **마이그레이션 시점 값으로 고정**했다 — 일회성 마이그레이션의 판정이 나중의 상한 변경에 흔들리지 않게. 계획이 공유를 요구한 것은 id 해석·경로 판정(`PathIds`·`BoardLinkPaths`)이며 그것은 공유한다.
+- PATCH에 지금 값(기본 슬러그 `board-{id}` 포함)을 그대로 보내면 무변화 200이다(D7 "같은 값 = 무변화"를 기본 슬러그에도 적용 — 형식 검사는 기본 슬러그 형태일 때 잠근 뒤 "지금 값인가"로 판정). 다른 기본 슬러그 형태(`board-7`)·되돌리기는 400.
+
+**구현 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V9__board_slug.sql`(신규) | `board.slug varchar(50) NULL` + `UNIQUE uk_board_slug` |
+| `src/main/java/db/migration/V10__replace_board_links_with_slugs.java`(신규) | 첫 Java 마이그레이션 — 메뉴·배너(+version)·팝업(+revision 행당 1)·게시글·정적 페이지 모든 개정(복합 키)·FAQ 치환, fail-fast(길이·본문 상한·인코딩/점 세그먼트 잔여, URL 컬럼 사후 검사는 전 행) |
+| `common/web/PathIds.java`·`BoardLinkPaths.java`(신규) | id 해석 한 벌, 숫자 게시판 경로 판정(세그먼트별 디코딩 + 점 세그먼트 정리) |
+| `common/web/InternalLinkPaths.java`·`common/web/validation/SafeLinkUrlValidator.java`·`admin/site/SiteLinkPolicy.java` | 숫자 게시판 경로 거부(본문 `href` 제거·배너/팝업 400 안내 문구·메뉴 400 + 출력 재검증) |
+| `admin/board/domain/BoardSlug.java`(신규)·`Board.java` | 형식·기본 슬러그 식별·`slug`·`assignSlug`·`publicSlug`·`isSlugChangeable`, 소프트 삭제는 슬러그 유지 |
+| `admin/board/repository/BoardRepository.java`·`PostRepositoryImpl.java`·`PublishedPostRow.java` | `findPublicBySlug`·`existsBySlug`, 메인 새 글 프로젝션에 `board.slug` |
+| `admin/board/service/BoardService.java`·`dto/request/Board{Create,Update}Request.java`·`dto/response/BoardResponse.java` | 생성·1회 변경·형식 400·중복 409(사전 검사 + flush 중 제약 이름 판정) |
+| `publicweb/board/controller/PublicBoardController.java`·`service/PublicBoardService.java`·`dto/PublicBoardRoute.java`(신규)·`PublicBoardListResult`·`PublicPostDetail`, `publicweb/home/dto/PublicHomePost.java` | 세그먼트 해석·301(정규형 Location)·링크용 `boardSlug` |
+| 템플릿 | `public/board/list.html`·`detail.html`·`public/home.html`(슬러그 링크), `admin/board/manage.html`(주소 열·입력·409 코드 구분), `admin/banner`·`admin/popup/manage.html`(placeholder) |
+| 시험(신규) | `PathIdsTest`·`BoardLinkPathsTest`·`BoardSlugTest`·`BoardSlugApiIntegrationTest`·`PublicBoardSlugIntegrationTest`·`BoardSlugLinkUpgradeTest` |
+| 시험(수정) | 공개 URL을 쓰는 10개 파일 `/{site}/boards/{id}` → `board-{id}`(기계적), `PublicSiteMenuIntegrationTest`(메뉴 픽스처를 슬러그 링크로), 공지 시험 2개(DTO 생성자), `SafeLinkUrlValidatorTest`·`SiteLinkPolicyTest`·`HtmlContentSanitizerInternalLinkTest`(숫자 경로 거부 표 추가) |
+| 문서 | `docs/migration-guide.md`(V9·V10·Java 마이그레이션 규칙), `docs/deployment.md` "게시판 슬러그"(점검 SQL·실패 복구·롤백 불가), `admin/board`·`publicweb/board`·`publicweb/support`·`publicweb/home`·루트 `CLAUDE.md`, 이 문서, `plan/README.md` |
+
+**검증 결과**
+- 영향 범위 시험(`admin.board.*`·`publicweb.*`·`common.*`·`SiteLinkPolicyTest`·`SecurityConfigTest`·`*ConventionTest`·`BaselineSchemaTest`·`BoardSlugLinkUpgradeTest`) 1,340건 **실패 0**(아래 이슈 정리 후). 그 전에 돈 전체 `./gradlew test`(새 시험 작성 전) 2,717건 중 실패 3건은 모두 시험 픽스처 문제였다(이슈). 전체 시험은 PR 직전 1회(code-review-loop 마무리).
+- `SecurityConfigTest`·`PublicExposureInventoryTest`·`SitePublicRateLimitConventionTest`는 **무변경 통과** — 매처·레이트리밋 패턴·공개 인벤토리가 바뀌지 않았음을 확인.
+- **변이 실험**: V10 URL 컬럼 사후 검사를 끄면 `BoardSlugLinkUpgradeTest` 6건 실패, `resolveBoard`의 301 분기를 없애면 `PublicBoardSlugIntegrationTest` 1건 실패(둘 다 원복).
+- **실기(dev `bootRun`, Playwright)**: 기동 전 dev DB(V8)에 숫자 링크가 든 메뉴·배너·게시글 본문을 넣고 띄우자 **실제 V9·V10이 적용**되어 셋 다 `board-N`으로 바뀌고 배너 `version`이 1→2(0.15초). 관리 화면에서 슬러그 없이 게시판 생성(목록 "주소" `board-6`) → 글 저장 시 본문의 `/main/boards/6` `href`만 제거·`/main/boards/board-6` 유지 → 공개 목록·상세 링크가 슬러그, `/main/boards/6`·`…/posts/11`·`board-06` 404 → 모달에서 `Bad` 저장은 모달 안 오류(유지), `verify-4a` 저장 → 재오픈 시 읽기 전용 + 안내 → `board-6` 목록(쿼리 유지)·상세(`011` → `11` 정규화)·HEAD 모두 301, `posts/x` 404, `VERIFY-4A` 404 → 같은 슬러그로 새 게시판 생성은 모달 안 중복 안내 → 배너 PUT `/main/boards/5`·`%35` 400(안내 문구), `board-5` 200 → 게시판을 비공개로 바꾸면 옛·새 주소 모두 404이고 `Location` 없음 → 공개 메인 새 글 링크가 슬러그. 검증 행(게시판·글·메뉴·배너·감사)은 지워 원복했다(dev DB는 V10 상태로 남음). 스크린샷 `adversarial-review/plan/screenshots/pr4a-0{1,2,3}-*.png`(커밋 제외).
+
+**이슈**
+- 공개 URL 일괄 치환(`sed`)이 `SecurityConfigTest`의 **스텁 컨트롤러 매핑 패턴**(`"/main/boards/{boardId}"`)까지 바꿔 요청 URL과 어긋났다(404 2건) — 스텁 6줄만 되돌려 이 파일은 무변경이 됐다. 다른 파일의 `@…Mapping`에는 같은 피해가 없음을 검색으로 확인.
+- `PublicSiteMenuIntegrationTest`가 숫자 게시판 메뉴 링크를 픽스처로 써서 새 출력 재검증이 의도대로 숨겼다(1건) — 픽스처를 슬러그 링크로 바꿈.
+- MockMvc URI 템플릿은 `%`를 한 번 더 인코딩한다(`%ED` → `%25ED`) — 쿼리 유지 시험은 `URI`를 직접 넘긴다(서버 동작 문제 아님).
+
+**후속**: 없음 — 4b(`/notices` 흡수)가 같은 `PathIds`와 현재 슬러그(302 대상)를 쓴다.
