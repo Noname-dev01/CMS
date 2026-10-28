@@ -37,6 +37,9 @@ public class BoardUpdateRequest {
     @Schema(description = "표시 대상 — \"COMMON\" 또는 사이트 ID 문자열 (null이면 기존값 유지, 공지 게시판은 변경 불가)", example = "COMMON")
     private String siteScope;
 
+    @Schema(description = "관리 화면 표시 순서 0..9999 (null이면 유지)", example = "10")
+    private Integer sortOrder;
+
     // 지울 수 있는 문자열(설명·작성자 표시명): 누락·null = 유지, "" 또는 공백만 = 삭제. 길이는 정리 후 서비스가 검사한다(@Size 없음 — 정리 전 길이로 막지 않게).
     @Schema(description = "공개 목록 머리의 설명 (null이면 유지, 빈 문자열이면 삭제, 정리 후 500자 이하)", example = "보도자료를 올립니다.")
     private String description;
@@ -55,6 +58,9 @@ public class BoardUpdateRequest {
 
     @Schema(description = "쓰기 허용 — false면 쓰기 중지(보관). 공통 공지 게시판은 끌 수 없다 (null이면 유지)", example = "false")
     private Boolean writableYn;
+
+    @Schema(description = "상단 고정 최대 글 수 0..5, 0 = 고정 끔 — 낮추거나 꺼도 이미 고정된 글은 그대로 (null이면 유지)", example = "3")
+    private Integer pinMaxCount;
 
     @Schema(description = "게시글당 첨부 개수 상한 1..5 (null이면 유지)", example = "3")
     private Integer attachMaxCount;

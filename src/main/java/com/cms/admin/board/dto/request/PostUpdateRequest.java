@@ -37,6 +37,9 @@ public class PostUpdateRequest {
     @Schema(description = "노출 여부 (null이면 기존값 유지)", example = "false")
     private Boolean useYn;
 
+    @Schema(description = "공개 목록 1페이지 상단 고정 여부 (null이면 기존값 유지). 새로 고정하면 게시판 상한이 0이면 400, 상한을 넘으면 409. 해제(false)는 언제나 가능", example = "true")
+    private Boolean pinned;
+
     @Valid
     @Schema(description = "노출 기간(예약 게시). 없으면(키 없음·null) 기존 기간 유지, 있으면 시작·종료를 통째로 교체({}면 제한 없음으로 비움)")
     private PostPublishPeriodRequest publishPeriod;
@@ -55,11 +58,13 @@ public class PostUpdateRequest {
     /** {@code DISABLED} 필수 — creator로 인식되면 같은 키가 중복될 때 마지막 값이 이겨 {@code publishPeriod} 세터의 중복 거부가 동작하지 않는다. */
     @JsonCreator(mode = JsonCreator.Mode.DISABLED)
     @Builder
-    public PostUpdateRequest(String title, String content, String contentFormat, Boolean useYn, PostPublishPeriodRequest publishPeriod) {
+    public PostUpdateRequest(String title, String content, String contentFormat, Boolean useYn, Boolean pinned,
+                             PostPublishPeriodRequest publishPeriod) {
         this.title = title;
         this.content = content;
         this.contentFormat = contentFormat;
         this.useYn = useYn;
+        this.pinned = pinned;
         this.publishPeriod = publishPeriod;
     }
 

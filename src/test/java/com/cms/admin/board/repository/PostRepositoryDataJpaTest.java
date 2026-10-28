@@ -475,4 +475,66 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(reloaded.getPublishStart()).isEqualTo(P_START);
         assertThat(reloaded.getPublishEnd()).isEqualTo(P_END);
     }
+
+    // ===================== 상단 고정 (PLAN-board-definition.md PR 3) =====================
+
+    private Post savePinned(Long board, String title, boolean useYn, boolean deleted, LocalDateTime createDate,
+                            LocalDateTime start, LocalDateTime end) {
+        Post saved = postRepository.save(Post.builder()
+                .boardId(board).title(title).content("본문").useYn(useYn).deleted(deleted).pinned(true)
+                .authorId("admin01").createDate(createDate).updateDate(createDate)
+                .publishStart(start).publishEnd(end).build());
+        em.flush();
+        em.clear();
+        return saved;
+    }
+
+    @Test
+    @DisplayName("findPinnedPublished는 고정·노출·미삭제·기간 안의 그 게시판 글만 최신순(+id)으로 limit건 반환한다")
+    void pinned_publishedFiltersOrderAndLimit() {
+        String marker = "고정영역" + System.nanoTime();
+        LocalDateTime now = P_START.plusDays(1);
+        LocalDateTime t = LocalDateTime.of(2026, 10, 1, 0, 0);
+        Post older = savePinned(boardId, marker + "-older", true, false, t, null, null);
+        Post sameA = savePinned(boardId, marker + "-sameA", true, false, t.plusDays(1), null, null);
+        Post sameB = savePinned(boardId, marker + "-sameB", true, false, t.plusDays(1), null, null);
+        savePinned(boardId, marker + "-hidden", false, false, t, null, null);
+        savePinned(boardId, marker + "-deleted", true, true, t, null, null);
+        savePinned(boardId, marker + "-scheduled", true, false, t, now.plusDays(1), null);
+        savePinned(boardId, marker + "-expired", true, false, t, null, now.minusDays(1));
+        savePinned(otherBoardId, marker + "-other", true, false, t, null, null);
+        savePostWithPeriod(marker + "-notPinned", true, null, null);
+
+        assertThat(postRepository.findPinnedPublished(boardId, now, 5)).extracting(Post::getId)
+                .containsExactly(sameB.getId(), sameA.getId(), older.getId());
+        assertThat(postRepository.findPinnedPublished(boardId, now, 2)).extracting(Post::getId)
+                .as("limit").containsExactly(sameB.getId(), sameA.getId());
+    }
+
+    @Test
+    @DisplayName("고정 영역의 기간 경계는 일반 공개 조건과 같다 — 시작 포함·종료 미포함")
+    void pinned_periodBoundariesMatchPublicCondition() {
+        String marker = "고정경계" + System.nanoTime();
+        Post post = savePinned(boardId, marker, true, false, LocalDateTime.of(2026, 10, 1, 0, 0), P_START, P_END);
+
+        assertThat(postRepository.findPinnedPublished(boardId, P_START.minusNanos(1_000), 5)).isEmpty();
+        assertThat(postRepository.findPinnedPublished(boardId, P_START, 5)).extracting(Post::getId).containsExactly(post.getId());
+        assertThat(postRepository.findPinnedPublished(boardId, P_END.minusNanos(1_000), 5)).extracting(Post::getId).containsExactly(post.getId());
+        assertThat(postRepository.findPinnedPublished(boardId, P_END, 5)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("countByBoardIdAndPinnedTrueAndDeletedFalse는 노출 여부·기간과 무관하게 세고 삭제된 글·다른 게시판 글은 세지 않는다")
+    void pinned_countIgnoresVisibilityButNotDeletion() {
+        LocalDateTime t = LocalDateTime.of(2026, 10, 1, 0, 0);
+        savePinned(boardId, "개수-노출", true, false, t, null, null);
+        savePinned(boardId, "개수-비노출", false, false, t, null, null);
+        savePinned(boardId, "개수-예약", true, false, t, P_START, null);
+        savePinned(boardId, "개수-삭제", true, true, t, null, null);
+        savePinned(otherBoardId, "개수-다른", true, false, t, null, null);
+        savePostWithPeriod("개수-고정아님", true, null, null);
+
+        assertThat(postRepository.countByBoardIdAndPinnedTrueAndDeletedFalse(boardId)).isEqualTo(3);
+        assertThat(postRepository.countByBoardIdAndPinnedTrueAndDeletedFalse(otherBoardId)).isEqualTo(1);
+    }
 }

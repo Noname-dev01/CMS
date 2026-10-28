@@ -51,10 +51,10 @@
                                 <div class="table-responsive">
                                     <table class="table table-bordered table-hover mb-0">
                                         <thead class="thead-light">
-                                        <tr><th>#</th><th>이름</th><th>표시 대상</th><th>공개</th><th>첨부</th><th>사용</th><th>목록 크기</th><th>수정일</th></tr>
+                                        <tr><th>#</th><th>순서</th><th>이름</th><th>표시 대상</th><th>공개</th><th>첨부</th><th>사용</th><th>목록 크기</th><th>수정일</th></tr>
                                         </thead>
                                         <tbody id="boardList">
-                                        <tr><td colspan="8" class="text-muted">불러오는 중...</td></tr>
+                                        <tr><td colspan="9" class="text-muted">불러오는 중...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -90,6 +90,11 @@
                                     <div class="form-group">
                                         <label for="boardName">이름</label>
                                         <input type="text" class="form-control" id="boardName" maxlength="100" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="boardSortOrder">표시 순서</label>
+                                        <input type="number" class="form-control" id="boardSortOrder" min="0" max="9999" step="1" value="0" aria-describedby="boardSortOrderHint">
+                                        <small class="form-text text-muted" id="boardSortOrderHint">0~9999. 작을수록 먼저, 같으면 #번호 순입니다. 게시판 목록·게시글 화면·권한 관리 화면에 쓰입니다.</small>
                                     </div>
                                     <div class="form-group">
                                         <label for="boardSiteScope">표시 대상</label>
@@ -150,6 +155,18 @@
                                     <div class="form-group form-check">
                                         <input type="checkbox" class="form-check-input" id="boardShowViewCount">
                                         <label class="form-check-label" for="boardShowViewCount">공개 화면에 조회수 표시</label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="boardPinMaxCount">상단 고정 최대 개수</label>
+                                        <select class="form-control" id="boardPinMaxCount" aria-describedby="boardPinMaxCountHint">
+                                            <option value="0">0개 (고정 끔)</option>
+                                            <option value="1">1개</option>
+                                            <option value="2">2개</option>
+                                            <option value="3">3개</option>
+                                            <option value="4">4개</option>
+                                            <option value="5">5개</option>
+                                        </select>
+                                        <small class="form-text text-muted" id="boardPinMaxCountHint">공개 목록 1페이지(검색하지 않을 때) 맨 위에 고정 글을 따로 보입니다. 낮추거나 꺼도 이미 고정된 글은 그대로이고, 공개 화면에는 상한만큼만 보입니다.</small>
                                     </div>
 
                                     <hr>
@@ -227,6 +244,8 @@
     const boardListPageSize = document.getElementById("boardListPageSize");
     const boardNewBadgeDays = document.getElementById("boardNewBadgeDays");
     const boardShowViewCount = document.getElementById("boardShowViewCount");
+    const boardSortOrder = document.getElementById("boardSortOrder");
+    const boardPinMaxCount = document.getElementById("boardPinMaxCount");
     const boardAttachMaxCount = document.getElementById("boardAttachMaxCount");
     const boardAttachMaxSizeMb = document.getElementById("boardAttachMaxSizeMb");
     const boardExtensionChecks = Array.from(document.querySelectorAll(".board-attach-extension"));
@@ -352,7 +371,7 @@
         if (boards.length === 0) {
             const tr = document.createElement("tr");
             const cell = td("게시판이 없습니다.");
-            cell.colSpan = 8;
+            cell.colSpan = 9;
             cell.className = "text-muted";
             tr.appendChild(cell);
             boardList.appendChild(tr);
@@ -362,6 +381,7 @@
             const tr = document.createElement("tr");
             tr.className = "board-row" + (editing && editing.id === board.id ? " table-active" : "");
             tr.appendChild(td(String(board.id)));
+            tr.appendChild(td(String(board.sortOrder == null ? 0 : board.sortOrder)));
             tr.appendChild(td(board.name));
             const scopeCell = document.createElement("td");
             scopeCell.appendChild(scope.badge(board.siteId));
@@ -431,6 +451,8 @@
     // 표시·쓰기 설정 입력을 서버 응답 값으로 채운다(null = 기본값). 새 게시판은 현행 동작과 같은 기본값이다.
     function fillDisplay(board) {
         boardWritable.checked = !board || board.writableYn !== false;
+        boardSortOrder.value = String(board && board.sortOrder ? board.sortOrder : 0);
+        boardPinMaxCount.value = String(board && board.pinMaxCount ? board.pinMaxCount : 0);
         boardDescription.value = board && board.description ? board.description : "";
         boardAuthorLabel.value = board && board.authorLabel ? board.authorLabel : "";
         boardListPageSize.value = String(board && board.listPageSize ? board.listPageSize : 10);
@@ -487,7 +509,7 @@
     function setSaving(value) {
         saving = value;
         [boardName, boardPublic, boardAttachment, boardWritable, boardDescription, boardAuthorLabel, boardListPageSize,
-            boardNewBadgeDays, boardShowViewCount, boardAttachMaxCount, boardAttachMaxSizeMb, boardBodyImage, boardPublishPeriod]
+            boardNewBadgeDays, boardShowViewCount, boardSortOrder, boardPinMaxCount, boardAttachMaxCount, boardAttachMaxSizeMb, boardBodyImage, boardPublishPeriod]
             .concat(boardExtensionChecks)
             .concat([btnSave, btnNew, btnDelete, btnModalClose, btnModalCloseX]).forEach(function (el) { el.disabled = value; });
         syncScopeControls();
@@ -509,6 +531,11 @@
             showError("새 글 표시 기간은 0~30일의 정수여야 합니다.");
             return;
         }
+        const sortOrder = Number(boardSortOrder.value);
+        if (boardSortOrder.value.trim() === "" || !Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 9999) {
+            showError("표시 순서는 0~9999의 정수여야 합니다.");
+            return;
+        }
         const selectedExtensions = boardExtensionChecks.filter(function (check) { return check.checked; }).map(function (check) { return check.value; });
         if (selectedExtensions.length === 0) {
             showError("허용 확장자를 하나 이상 선택하세요.");
@@ -524,6 +551,8 @@
             publicYn: boardPublic.checked,
             attachmentYn: boardAttachment.checked,
             writableYn: boardWritable.checked,
+            sortOrder: sortOrder,
+            pinMaxCount: Number(boardPinMaxCount.value),
             // 비우면 ""를 보낸다 — 수정에서는 "삭제", 생성에서는 "없음"으로 서버가 해석한다(누락은 수정에서 "유지")
             description: boardDescription.value,
             authorLabel: boardAuthorLabel.value,

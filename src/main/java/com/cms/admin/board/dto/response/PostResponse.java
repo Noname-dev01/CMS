@@ -28,6 +28,8 @@ public class PostResponse {
     private String title;
     private String content;
     private Boolean useYn;
+    @Schema(description = "공개 목록 1페이지 상단 고정 여부")
+    private Boolean pinned;
     private String authorId;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
@@ -50,6 +52,7 @@ public class PostResponse {
                 .title(post.getTitle())
                 .content(HtmlContentSanitizer.sanitize(post.getContent()).html())
                 .useYn(post.getUseYn())
+                .pinned(post.getPinned())
                 .authorId(post.getAuthorId())
                 .createDate(post.getCreateDate())
                 .updateDate(post.getUpdateDate())

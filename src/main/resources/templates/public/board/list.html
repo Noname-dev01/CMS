@@ -23,6 +23,18 @@
         <a class="board-search-reset" th:if="${keyword != null}" th:href="@{|${sitePrefix}/boards/{id}|(id=${boardId})}">전체 보기</a>
     </form>
 
+    <!--/* 상단 고정 영역 — 검색하지 않은 1페이지에서만 채워진다. 고정 글은 아래 일반 목록에도 그대로 나온다 */-->
+    <ul class="board-list board-pinned-list" th:if="${not #lists.isEmpty(pinnedPosts)}" aria-label="상단 고정 글">
+        <li class="board-list-item" th:each="post : ${pinnedPosts}">
+            <a th:href="@{|${sitePrefix}/boards/{boardId}/posts/{postId}|(boardId=${boardId}, postId=${post.id})}">
+                <span class="board-title"><span class="board-pinned-badge">고정</span><span th:text="${post.title}"></span><span class="board-new-badge" th:if="${post.newBadge}">NEW</span></span>
+                <span class="board-meta-extra" th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
+                <span class="board-meta-extra" th:if="${post.viewCount != null}" th:text="|조회 ${post.viewCount}|"></span>
+                <span class="board-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
+            </a>
+        </li>
+    </ul>
+
     <ul class="board-list" th:if="${not #lists.isEmpty(posts)}">
         <li class="board-list-item" th:each="post : ${posts}">
             <a th:href="@{|${sitePrefix}/boards/{boardId}/posts/{postId}|(boardId=${boardId}, postId=${post.id})}">

@@ -19,6 +19,8 @@ public class MyBoardResponse {
     private final Boolean attachmentYn;
     @Schema(description = "쓰기 허용 — false(쓰기 중지)면 화면이 새 글·수정·첨부 업로드 버튼을 숨긴다(서버 판정이 최종)")
     private final Boolean writableYn;
+    @Schema(description = "상단 고정 최대 글 수(0 = 고정 끔) — 화면이 고정 체크박스를 보일지 정한다(서버 판정이 최종)")
+    private final Integer pinMaxCount;
     @Schema(description = "게시글당 첨부 개수 상한 — 화면 안내용(서버 판정이 최종)")
     private final Integer attachMaxCount;
     @Schema(description = "첨부 파일당 크기 상한(MB)")

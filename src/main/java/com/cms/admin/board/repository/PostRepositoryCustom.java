@@ -23,6 +23,12 @@ public interface PostRepositoryCustom {
     Page<Post> searchPublished(Long boardId, String keyword, LocalDateTime now, Pageable pageable);
 
     /**
+     * 공개 목록 상단 고정 영역 — 한 게시판의 고정·노출·미삭제 게시글을 최신순(+id 보조)으로 {@code limit}건. 공개 조건은 {@link #searchPublished}와
+     * 같은 조건 객체를 쓴다(고정은 표시 순서일 뿐 공개 판정이 아니다). 게시판의 공개 여부와 {@code limit}(게시판 고정 상한)은 호출자가 정한다.
+     */
+    List<Post> findPinnedPublished(Long boardId, LocalDateTime now, int limit);
+
+    /**
      * 통합 검색 — 삭제되지 않은 게시판의 삭제되지 않은 게시글을 제목으로 검색한다(노출 여부 무관 — 관리 화면용). {@code boardIds}가 null이면 모든
      * 게시판(ADMIN), 아니면 그 게시판들로 한정한다(MANAGER의 READ 게시판 집합). 빈 컬렉션은 호출자가 거르고 부르지 않는다. 최신순 + id 보조 정렬.
      */

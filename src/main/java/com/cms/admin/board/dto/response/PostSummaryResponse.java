@@ -23,6 +23,8 @@ public class PostSummaryResponse {
     private Long boardId;
     private String title;
     private Boolean useYn;
+    @Schema(description = "공개 목록 1페이지 상단 고정 여부")
+    private Boolean pinned;
     private String authorId;
     private LocalDateTime createDate;
     private LocalDateTime updateDate;
@@ -44,6 +46,7 @@ public class PostSummaryResponse {
                 .boardId(post.getBoardId())
                 .title(post.getTitle())
                 .useYn(post.getUseYn())
+                .pinned(post.getPinned())
                 .authorId(post.getAuthorId())
                 .createDate(post.getCreateDate())
                 .updateDate(post.getUpdateDate())

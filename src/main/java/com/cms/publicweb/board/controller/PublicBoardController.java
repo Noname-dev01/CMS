@@ -225,6 +225,7 @@ public class PublicBoardController {
         model.addAttribute("description", listResult.description());
         model.addAttribute("authorLabel", listResult.authorLabel());
         model.addAttribute("keyword", listResult.keyword());
+        model.addAttribute("pinnedPosts", listResult.pinned());
         model.addAttribute("posts", result.getContent());
         model.addAttribute("page", result.getNumber());
         model.addAttribute("totalPages", result.getTotalPages());

@@ -13,8 +13,11 @@ import java.util.Optional;
 
 public interface BoardRepository extends JpaRepository<Board, Long> {
 
-    /** 삭제되지 않은 게시판 전체(id 순) — 게시판 관리·권한관리 매트릭스·내 게시판 목록용. */
-    List<Board> findByDeletedFalseOrderByIdAsc();
+    /**
+     * 삭제되지 않은 게시판 전체(표시 순서 → id 순) — 게시판 관리·권한관리 매트릭스·내 게시판 목록용. 네 호출자가 같은 순서를 쓰도록 이 메서드
+     * 하나만 둔다(PLAN-board-definition.md PR 3).
+     */
+    List<Board> findByDeletedFalseOrderBySortOrderAscIdAsc();
 
     Optional<Board> findByIdAndDeletedFalse(Long id);
 
