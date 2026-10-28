@@ -1,6 +1,6 @@
 # PLAN-board-definition — 게시판 정의 관리 고도화
 
-- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1 머지(#179·#180) · PR 2 상세 설계(P2-v2, 리뷰 2라운드 ship) 후 구현·검증 완료(2026-10-28, 미커밋)****
+- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1·2 머지(#179·#180·#181) · PR 3 상세 설계(P3-v2, 리뷰 3라운드 ship) 후 구현·검증 완료(2026-10-28, 미커밋)****
 - 로드맵: 아직 정식 항목 아님(이 계획이 리뷰를 통과하면 `/updateRoadmap` 또는 로드맵 갱신으로 등록)
 - 개정 이력:
   - v1: 초안(전체 분할·결정·PR 1 상세).
@@ -746,3 +746,164 @@ ALTER TABLE `board`
 **후속**
 
 - 없음(PR 3 착수 때 §7의 PR 3 미결정 목록을 상세 설계에서 정한다).
+
+---
+
+## PR 3 상세 설계 — 표시 순서 + 상단 고정 (P3-v1, 2026-10-28)
+
+§5 "PR 3" 윤곽의 상세 설계다. 개정 이력은 이 절 끝 "PR 3 개정 이력".
+
+### P3-0. 사용자 결정 (2026-10-28 — 재질문 금지)
+
+| # | 질문 | 결정 |
+|---|---|---|
+| U3-1 | 게시판 순서 방식 | **숫자 "표시 순서" 필드**(`board.sort_order`, 게시판 모달에서 입력, 정렬 = `sort_order` → `id`). FAQ식 순서 반영 API(`PUT /order`·가드 행·0..n-1 불변식)는 **하지 않는다** — 윤곽의 "생성과 순서 저장의 직렬화 수단" 쟁점이 사라진다 |
+| U3-2 | 고정 글 공개 노출 | **검색하지 않은 1페이지 상단에만** 고정 영역. 고정 글은 일반 목록에서도 빼지 않는다(COUNT·페이지 수 불변). 공지 템플릿에도 같게 |
+| U3-3 | 고정 설정 형태 | **상한 하나 `pin_max_count` 0..5**(0 = 고정 끔, `new_badge_days` 0 = 끔과 같은 방식). "허용 꺼짐 + 상한 3" 같은 모순 상태가 없다 |
+
+### P3-1. 정찰 결과 (코드 근거)
+
+- **게시판 목록 정렬**: 미삭제 게시판 목록은 `BoardRepository.findByDeletedFalseOrderByIdAsc` 하나이고 호출자는 `BoardService.getBoards`(게시판 관리)·`MyBoardService.getMyBoards`(게시글 화면 "내 게시판")·`MemberPermissionService.getMatrix`·`replace`(권한관리 게시판 표) 네 곳이다. 공개 화면에는 게시판 색인이 없다(§6). 시험의 목 호출은 `MemberPermissionServiceBoardTest` 3곳.
+- **게시판 수정**: `BoardService.updateBoard`는 입력 검증(잠금 전) → 게시판 `FOR UPDATE` → `version` 409 → "누락 = 유지"로 최종값 계산 → `Board.update(name, publicYn, attachmentYn, BoardDisplay, BoardWritePolicy, now)`(`version` +1). "변경할 필드 없음" 400은 요청 필드를 전부 나열해 판정한다.
+- **게시글 쓰기 잠금**: 생성 = 게시판 `FOR SHARE`(`findByIdAndDeletedFalseForShare`), 수정 = 게시글 `FOR UPDATE` → 게시판 `FOR SHARE`(`PostService.lockPostForWrite`, `LockedPost(post, board)` 반환), 삭제 = 게시글 `FOR UPDATE` + 게시판 비잠금 확인. 게시판 PATCH·삭제 = 게시판 `FOR UPDATE`이고 게시글 행을 잠그지 않는다(삭제의 게시글 존재 확인 `existsByBoardIdAndDeletedFalse`는 비잠금 읽기). 권한 PUT = 회원 `FOR UPDATE` → 게시판 `FOR SHARE`.
+- **요청 DTO**: `PostCreateRequest`·`PostUpdateRequest`는 `@JsonCreator(mode = DISABLED)` 생성자 + `@Builder`이고 `publishPeriod` 세터만 중복 키를 거부한다(그 밖의 필드는 일반 세터 — `com.cms.admin.board` CLAUDE.md "예약 게시"). 새 `Boolean` 필드는 생성자 인자 추가로 충분하다.
+- **공개 목록**: `PublicBoardService.getPublishedPosts`가 게시판 공개 조회 → 목록 크기·페이지 보정 → `PostRepositoryImpl.searchPublished`(QueryDSL, SELECT·COUNT가 `isPublished` 조건 객체 공유). `PublicNoticeService`는 같은 메서드에 위임하므로 **고정 영역 계산은 한 곳**이고, 템플릿은 `public/board/list.html`·`public/notice/list.html` 두 벌(모델 이름 `posts`·`notices`)이다. 공개 메인은 `findLatestPublished`(고정 무시 — 윤곽 추천 그대로).
+- **인덱스**: `post`는 `idx_post_board_deleted_use_create(board_id, deleted, use_yn, create_date)` 하나. 공개 목록 요청마다 이 인덱스로 그 게시판의 공개 행 전체를 세는 COUNT가 이미 돈다.
+- **화면**: `manage.html` 모달은 "기본"·"공개 화면 표시"·"작성 정책" 세 묶음, 목록 8열. `posts.html`의 목록은 9열(`colspan="9"`), 폼은 `formUseYn` 체크박스 옆에 노출 기간, 변경 감지(`buildEditPayload`)는 바뀐 필드만 보낸다. 게시판 선택은 `MyBoardResponse` 목록 순서 그대로다.
+
+### P3-2. 설계 결정
+
+**D3-1. 스키마** — `V8__board_sort_order_and_pin.sql`(DDL 두 문장, `ADD COLUMN IF NOT EXISTS`)
+
+```sql
+ALTER TABLE `board`
+  ADD COLUMN IF NOT EXISTS `sort_order` int(11) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS `pin_max_count` int(11) NOT NULL DEFAULT 0;
+ALTER TABLE `post`
+  ADD COLUMN IF NOT EXISTS `pinned` bit(1) NOT NULL DEFAULT 0,
+  ADD INDEX IF NOT EXISTS `idx_post_board_pinned` (`board_id`, `pinned`, `deleted`, `create_date`);
+```
+
+- DEFAULT = 현행 동작(순서 0 → 모두 같아 id 순 = 지금과 같음, 고정 끔, 고정 안 된 글). 롤백한 앱이 만든 게시판·게시글도 재배포 후 지금과 같다(쟁점 6). 기존 테이블에 `NOT NULL` 컬럼을 더하므로 **업그레이드 경로 시험**(`BoardSortOrderPinUpgradeTest`, PR 2의 `BoardWritePolicyUpgradeTest` 형식 — V7까지 → 게시판·게시글 행 → V8 → `0·0`·`0`, 기존 컬럼 보존) + `BaselineSchemaTest` 단언.
+- **인덱스 `idx_post_board_pinned(board_id, pinned, deleted, create_date)`를 추가한다**(윤곽의 "고정용 인덱스 실측" 해소, P3-v2 — 리뷰 P3-R1-2): 고정 개수 COUNT(D3-3)는 **게시판 `FOR UPDATE`를 쥔 채** 실행되고 비노출·예약 글까지 세므로, 기존 인덱스(`board_id, deleted, use_yn, create_date`)로는 그 게시판의 미삭제 글 전체를 훑는 동안 같은 게시판의 쓰기가 기다린다. 새 인덱스는 COUNT(`board_id = ? ∧ pinned = 1 ∧ deleted = 0`)와 공개 고정 영역(같은 접두 + `create_date` 역순, 남은 `use_yn`·기간은 고정 행 몇 개에만 적용)을 모두 **고정 행 범위(삭제 글 포함 소수)**로 줄인다. 유지 비용은 게시글 쓰기마다 인덱스 하나 — 수용. 구현 후 dev DB에서 두 쿼리의 `EXPLAIN`이 이 인덱스를 쓰는지 확인해 결과에 남긴다(옵티마이저가 다른 인덱스를 고르면 원인을 기록하고 사용자에게 보고).
+
+**D3-2. 표시 순서(`sort_order`)** — U3-1
+
+- 범위 **0..9999 정수**(밖은 400 "표시 순서는 0~9999여야 합니다."). 작은 값이 먼저, 같으면 `id` 오름차순. 연속성(0..n-1)·유일성은 요구하지 않는다 — 그래서 생성·삭제와 직렬화할 것이 없고(다른 행을 고치지 않는다) 게시판 PATCH의 `version` 409가 같은 게시판의 동시 편집만 막으면 된다. 서로 다른 두 게시판에 같은 값을 넣는 동시 저장은 둘 다 성공하고 id 순으로 갈린다 — 의도한 결과다.
+- 저장소: `findByDeletedFalseOrderByIdAsc`를 **`findByDeletedFalseOrderBySortOrderAscIdAsc`로 이름째 바꾼다**(옛 이름을 남기면 새 호출자가 다른 순서를 쓰는 표류가 생긴다). 호출자 네 곳(P3-1)이 모두 새 순서를 쓴다 — 게시판 관리 목록·"내 게시판" 선택·권한관리 게시판 표가 같은 순서다.
+- 요청: `BoardCreateRequest.sortOrder`(선택, 누락 = 0)·`BoardUpdateRequest.sortOrder`(누락·null = 유지). 범위 검증은 서비스 한 곳·잠금 전(PR 1 규칙 — DTO에 범위 어노테이션 없음). "변경할 필드 없음" 판정에 포함. 응답 `BoardResponse.sortOrder`.
+- 엔티티: `Board.update`의 "null = 유지" 인자(이름·공개·첨부와 같은 무리)에 `sortOrder`를 더한다 — 지울 수 없는 값이라 `BoardDisplay`의 "최종값 전부 대입" 무리에 넣을 이유가 없다.
+
+**D3-3. 고정 상한(`pin_max_count`)과 고정 글 개수 규칙** — U3-3
+
+- 범위 **0..5**(`Board.MAX_PIN_COUNT = 5`, 밖은 400). 0 = 고정 끔. "공개 화면 표시" 묶음이므로 `BoardDisplay`에 넣는다(PATCH 누락·null = 유지, 생성 누락 = 0). 응답 `BoardResponse.pinMaxCount`, `MyBoardResponse.pinMaxCount`(게시글 화면 체크박스 표시용).
+- **고정 개수 = 그 게시판의 미삭제(`deleted=0`) ∧ `pinned=1` 게시글 수**. 노출 여부·노출 기간은 보지 않는다 — 공개 상태는 시각에 따라 바뀌므로 그것으로 세면 예약 글이 공개되는 순간 상한을 넘을 수 있다. 소프트 삭제된 글의 `pinned`는 그대로 남지만 세지 않는다(복원 API가 없다).
+- **새로 고정하는 쓰기**(생성 `pinned=true`, 또는 수정 `pinned=true`이면서 지금 고정 아님): 게시판 `pin_max_count = 0`이면 **400** "상단 고정을 허용하지 않는 게시판입니다."(`Board.PIN_DISABLED_MESSAGE`), 이 글을 뺀 고정 개수 ≥ 상한이면 **409** "상단 고정은 최대 N개까지 가능합니다. 다른 글의 고정을 먼저 해제하세요."(첨부 개수 초과 409와 같은 성질 — 입력 자체는 옳고 현재 상태와 충돌). 판정 순서: 쓰기 중지 400 → 예약 400(PR 2) → 고정 400 → 고정 409.
+- **이미 고정된 글에 `pinned=true`**: 개수가 늘지 않으므로 통과(상한을 낮춘 뒤·0으로 끈 뒤에도). **고정 해제(`pinned=false`)는 언제나 허용**(상한·0과 무관) — 개수를 줄이는 방향이다. `null`(키 누락) = 유지.
+- **상한을 낮추거나 0으로 꺼도 기존 `pinned` 값은 그대로**(PR 2 D2-7과 같은 규칙 — 데이터를 건드리지 않는다). 공개 고정 영역은 그 시점의 상한만큼만 보이고(D3-5), 0이면 영역이 사라진다. 다시 켜면 돌아온다. 관리 화면에는 고정 표시가 계속 보여 해제할 수 있다.
+
+**D3-4. 고정 상한의 동시성** — 윤곽 v2(R1-2) 확정: **새로 고정할 수 있는 쓰기는 게시판 행을 `FOR UPDATE`로 잡는다**
+
+- `FOR SHARE`끼리는 서로 막지 않아, 상한 4/5에서 두 글을 동시에 고정하면 둘 다 "4 < 5"를 보고 6이 된다. 그래서 **요청에 `pinned=true`가 있으면**(현재 값과 무관하게 — 잠금 모드는 게시글을 읽기 전에 정해야 하고, 읽은 뒤 `FOR SHARE` → `FOR UPDATE`로 올리면 같은 행을 공유 잠금한 두 트랜잭션이 서로의 승격을 기다리는 교착이 생긴다) 게시판을 처음부터 `FOR UPDATE`로 잡는다: 생성 = 게시판 `FOR UPDATE`, 수정 = 게시글 `FOR UPDATE` → 게시판 `FOR UPDATE`. `pinned`가 없거나 `false`면 지금처럼 `FOR SHARE`.
+- **개수 읽기가 최신 커밋을 보게 하는 방법**(P3-v2 — 리뷰 P3-R1-1): REPEATABLE READ에서 비잠금 COUNT는 그 트랜잭션의 **첫 일관 읽기 시점 스냅샷**을 쓴다. 메서드 안에서 게시판 잠금 전에 비잠금 읽기가 없더라도, 호출자 트랜잭션에 참여하면 그 앞의 읽기가 스냅샷을 이미 만들었을 수 있고(앞서 고정하고 커밋한 글을 못 봄), 같은 영속성 컨텍스트에 먼저 로드된 `Board`는 잠금 조회가 돌려줘도 값이 갱신되지 않는다. 그래서 `site` 패키지 선례(`SiteService` — "쓰기 서비스는 컨트롤러가 호출하는 최상위 트랜잭션 진입점 + `READ_COMMITTED`")를 따른다:
+  - `PostService.createPost`·`updatePost`를 **`@Transactional(isolation = READ_COMMITTED)`**로 바꾼다 — 비잠금 읽기마다 최신 커밋을 보므로 게시판 X 잠금 뒤의 COUNT가 직렬화된 앞 고정을 반드시 본다(메서드 안 읽기 순서에 기대지 않는다). 영향 검토: 두 메서드의 다른 읽기는 잠금 읽기(게시글·게시판·이미지 `FOR SHARE`)와 참조 투영 조회뿐이라 의미가 바뀌지 않고, `media` 패키지가 이미지를 지우는 진입점에 쓰는 것과 같은 격리 수준이라 갭 락이 오히려 준다. 게시글 삭제·첨부 서비스는 고정 판정이 없어 그대로 둔다.
+  - **두 메서드는 최상위 진입점이다**(호출자는 `PostController` 둘뿐 — 정찰 확인). 클래스 주석에 계약으로 적고, 시험이 **실행 중 트랜잭션의 격리 수준을 관측**해 `READ_COMMITTED`임을 고정한다(`SiteMenuConcurrencyIntegrationTest`의 진입점 격리 수준 관측과 같은 방식). 참여 트랜잭션에서는 격리 수준 설정이 무시되므로, 서비스 안에 다른 트랜잭션을 열고 부르는 새 호출자를 만들면 이 보장이 깨진다는 점을 `com.cms.admin.board` CLAUDE.md에 남긴다.
+  - 대안 기각: COUNT를 잠금 읽기(`FOR SHARE`)로 — 고정 글 행을 공유 잠금하는 동안 그 글을 `FOR UPDATE`로 쥔 수정(게시글 X → 게시판 S/X 대기)과 반대 방향 의존이 생겨 교착한다. 게시판 행에 고정 개수 카운터를 두는 안 — 해제·삭제도 게시판 X를 잡아야 하고 직접 SQL·롤백 기간에 표류한다.
+- **교착 검토**: 잠금 순서는 게시글 X → 게시판 X(기존 게시글 X → 게시판 S와 같은 방향). 게시판 행만 잡는 쓰기(PATCH·삭제)는 게시글 행을 잠그지 않고, 권한 PUT은 회원 X → 게시판 S로 게시글을 잠그지 않으며, 고정 쓰기는 회원 행을 잠그지 않는다 → 대기 그래프에 순환이 없다. 이미지 참조 교체(`replaceRefs`의 이미지 `FOR SHARE`)는 지금처럼 게시판 잠금 뒤다.
+- 비용: 고정 쓰기 동안 그 게시판의 다른 게시글 생성·수정(`FOR SHARE`)이 잠시 기다린다 — 고정 변경은 드물어 수용(윤곽 그대로). 게시판 PATCH가 고정 쓰기와 직렬화되므로 "상한을 2로 낮추는 PATCH와 세 번째 고정"이 끼어들지 않는다.
+- 시험(P3-v2 — 리뷰 P3-R1-3, 요청 시작만 맞추면 `FOR SHARE` 변이도 우연히 직렬화돼 통과할 수 있다): 상한 2·고정 1개 상태에서 **시험이 별도 JDBC 트랜잭션으로 게시판 행을 `LOCK IN SHARE MODE`로 먼저 쥔다** → 두 고정 요청을 보낸다 → `LockWaitObserver`로 **두 요청이 모두 그 게시판 행의 잠금 대기에 들어갔음**을 확인한다(올바른 구현은 X 요청이라 둘 다 대기, `FOR SHARE` 변이는 대기가 0건이라 여기서 확정 실패) → 시험 잠금을 놓는다 → **정확히 하나 200·하나 409**, DB 고정 개수 2. 조합은 생성↔생성·생성↔수정·수정↔수정(생성과 수정은 잠금 순서가 달라 따로 본다). 변이 실험(고정 쓰기의 게시판 잠금을 `FOR SHARE`로, 격리 수준을 기본값으로)으로 실패를 확인한다.
+
+**D3-5. 공개 고정 영역** — U3-2
+
+- `PublicBoardService.getPublishedPosts`: **검색어가 비어 있고 보정된 페이지가 0이며 게시판 `pin_max_count > 0`일 때만** `postRepository.findPinnedPublished(boardId, now, min(pin_max_count, MAX_PIN_COUNT))`를 한 번 더 부른다. 그 밖에는 쿼리 없이 빈 목록. 결과는 `PublicBoardListResult.pinned`(`List<PublicPostSummary>`, 항상 non-null)로 싣고 일반 목록과 같은 `toSummary`(조회수·새 글 배지 규칙)를 쓴다.
+- `findPinnedPublished`(`PostRepositoryImpl`, QueryDSL): 조건 = `boardId` ∧ `deleted=false` ∧ **기존 `isPublished(post, now)`** ∧ `pinned=true`, 정렬 `createDate desc, id desc`(일반 목록과 같은 순서), `limit`. **공개 조건 객체를 새로 쓰지 않고 재사용한다** — "공개 경로 한 쌍"(쟁점 2) 중 목록 계열에 하나가 더 붙는 것이고, 상세·첨부·본문 이미지·메인은 바뀌지 않는다(고정은 표시 순서일 뿐 공개 판정이 아니다). `PostRepositoryDataJpaTest`의 경계 대조에 고정 쿼리를 추가해 "비노출·예약·만료·삭제·다른 게시판의 고정 글은 영역에 없다"를 고정한다.
+- 고정 글은 **일반 목록에서도 빼지 않는다** — 일반 목록·COUNT 쿼리는 그대로라 페이지 수·`hasNext`가 지금과 같다(1페이지에서 같은 글이 영역과 목록에 함께 보일 수 있다 — 흔한 게시판 동작이고, 빼면 COUNT 조건이 갈려 "공개 경로 한 쌍"의 조건 객체 공유가 깨진다).
+- 템플릿: `public/board/list.html`·`public/notice/list.html`에 목록 위 `<ul class="board-pinned-list">`(공지는 `notice-` 접두어) — 행마다 "고정" 표시 + 제목·작성자 표시명·조회수·날짜(일반 행과 같은 `th:text`, 링크는 같은 상세 경로). `pinned`가 비면 영역 자체를 그리지 않는다. CSS는 `board.css`·`notice.css`에 같은 규칙(두 파일이 따로인 기존 구조 유지). 컨트롤러 두 곳이 모델 `pinnedPosts`를 더한다. 이스케이프 없는 출력은 늘지 않는다(`PublicBoardTemplateConventionTest`·`PublicNoticeTemplateConventionTest` 그대로 통과해야 함).
+- 공개 메인(`findLatestPublished`)·공개 상세·첨부·본문 이미지: 변경 없음.
+
+**D3-6. 관리 API·화면**
+
+- 요청: `PostCreateRequest.pinned`(`Boolean`, 누락·null = false)·`PostUpdateRequest.pinned`(누락·null = 유지) — 생성자 인자에 추가(`@JsonCreator(DISABLED)` 유지). 수정의 "변경할 필드 없음" 판정에 포함. 권한은 기존 그대로(생성 = CREATE, 수정 = UPDATE — 고정은 게시글 수정이다. 새 권한·경로 없음).
+- 엔티티: `Post.pinned`(`@Builder.Default false`), `Post.update(title, content, useYn, pinned, updaterId, now)`로 인자 추가(null = 유지, 같은 쓰기에서 `touch`). 개수 질의 `PostRepository.countByBoardIdAndPinnedTrueAndDeletedFalseAndIdNot(boardId, postId)`(생성은 `countByBoardIdAndPinnedTrueAndDeletedFalse`).
+- 응답: `PostResponse.pinned`·`PostSummaryResponse.pinned`. 관리 목록 정렬은 바꾸지 않는다(정렬 화이트리스트에 `pinned`를 넣지 않는다 — 관리 화면은 고정 여부를 표시로만 본다).
+- `posts.html`: 폼에 "상단 고정" 체크박스 — **게시판 `pinMaxCount > 0`이거나 수정 중인 글이 이미 고정일 때만** 보인다(끈 게시판에서도 해제는 할 수 있게). 안내 "이 게시판은 최대 N개까지 고정할 수 있습니다. 공개 목록 1페이지 상단에 보입니다." / 끈 게시판의 고정 글이면 "고정이 꺼진 게시판입니다. 해제만 할 수 있습니다." 변경 감지는 값이 바뀐 경우에만 `pinned`를 보낸다. 목록 제목 칸 앞에 "고정" 배지(`textContent`), 상세에 "상단 고정: 예/아니오". 열 수(9)는 늘리지 않는다.
+- `manage.html`: "기본" 묶음에 "표시 순서"(number 0..9999, 기본 0, 안내 "작을수록 먼저, 같으면 #번호 순. 게시판 목록·게시글 화면·권한 관리에 쓰입니다."), "공개 화면 표시" 묶음에 "상단 고정 최대 개수"(select 0(끔)..5, 안내 "낮추거나 꺼도 이미 고정된 글은 그대로이고 공개 영역에 상한만큼 보입니다."). 목록에 "순서" 열 추가(8 → 9열, 빈 목록 `colSpan` 9). 저장 중 잠금 목록(`setSaving`)에 두 입력을 더한다. 화면 목록은 서버 응답 순서 그대로(저장 응답으로 보정한 뒤 재조회가 순서를 바로잡는다).
+- 감사: 기존 `BOARD_UPDATE`·`POST_CREATE`·`POST_UPDATE` 그대로(새 행위 종류 없음).
+
+**D3-7. 롤백**
+
+- 이전 앱(V7까지)은 새 컬럼을 모른다: 게시판은 id 순으로 보이고, 공개 고정 영역이 없으며, 고정 상한·고정 판정을 하지 않는다(새 고정 자체를 할 수 없다 — 요청 필드를 모름). 이전 앱의 게시글 수정은 `pinned`를 매핑하지 않아 값을 건드리지 않으므로 재배포 후 고정 상태가 그대로 돌아온다. 롤백 중 만든 게시판·게시글은 DEFAULT(순서 0·고정 끔·고정 아님). `docs/deployment.md`에 "게시판 표시 순서·상단 고정" 롤백 주의로 적는다.
+
+### P3-3. 변경 파일
+
+| 층 | 파일 | 변경 |
+|---|---|---|
+| 스키마 | `db/migration/V8__board_sort_order_and_pin.sql` | 신규(`board` 2·`post` 1 컬럼) |
+| 도메인 | `Board.java`·`BoardDisplay.java`, `Post.java` | `sortOrder`·`pinMaxCount`(+`MAX_PIN_COUNT`·`PIN_DISABLED_MESSAGE`), `pinned`·`update` 인자 |
+| 저장소 | `BoardRepository`, `PostRepository`·`PostRepositoryCustom`·`PostRepositoryImpl` | 정렬 메서드 이름 교체, 고정 개수·`findPinnedPublished`, 게시판 `FOR UPDATE` 재사용 |
+| 서비스 | `BoardService`·`MyBoardService`·`MemberPermissionService`, `PostService` | 순서·상한 검증, 새 정렬, 고정 판정·잠금 모드 |
+| 공개 | `PublicBoardService`, `PublicBoardListResult`, `PublicBoardController`·`PublicNoticeController` | 고정 영역·모델 `pinnedPosts` |
+| DTO | `BoardCreateRequest`·`BoardUpdateRequest`·`BoardResponse`·`MyBoardResponse`, `PostCreateRequest`·`PostUpdateRequest`·`PostResponse`·`PostSummaryResponse` | 새 필드 |
+| 화면 | `admin/board/manage.html`·`posts.html`, `public/board/list.html`·`public/notice/list.html`, `css/public/board.css`·`notice.css` | D3-5·D3-6 |
+| 시험 | P3-4 | |
+| 문서 | `com/cms/admin/board/CLAUDE.md`·`publicweb/board/CLAUDE.md`·`publicweb/notice/CLAUDE.md`(한 줄)·`docs/migration-guide.md`(V8)·`docs/deployment.md`(롤백) | |
+
+인가 정책·`SecurityConfig`·공개 URL·레이트리밋·sanitizer·공개 판정(상세·첨부·이미지·메인) 변경 없음. 공용 코드(`common/**`·`config/**`)는 바꾸지 않지만 마이그레이션이 있어 **PR 직전 전체 `./gradlew test`**(CLAUDE.md 검증 범위 — 마이그레이션은 전체 대상).
+
+### P3-4. 시험 계획
+
+- 스키마: `BaselineSchemaTest`(새 컬럼 3개 타입·NULL·DEFAULT), `BoardSortOrderPinUpgradeTest` 신규(V7 → V8 기존 행).
+- 단위 `BoardServiceTest`: 순서 −1·0·9999·10000, 상한 −1·0·5·6 400(**잠금 조회 전**), 누락 PATCH 유지, 새 필드만 보낸 PATCH가 "변경 없음"이 아님.
+- 단위 `PostServiceTest`: `pinned=true`면 게시판을 `FOR UPDATE` 메서드로 잠그고(생성·수정), 없거나 `false`면 `FOR SHARE`, 상한 0 → 400, 개수 = 상한 → 409(쓰기 호출 없음), 이미 고정 + `true` → 개수 질의 없이 통과, 해제는 상한 0에서도 통과, 판정 순서(쓰기 중지 → 예약 → 고정 400 → 409).
+- 저장소 `PostRepositoryDataJpaTest`: `findPinnedPublished`가 공개 경계(비노출·시작 전·종료·삭제·다른 게시판·고정 아님) 행을 빼고 `createDate desc, id desc`·`limit`을 지킴. 개수 질의가 삭제 글을 빼고 비노출·예약 글을 셈.
+- 통합 `BoardSortOrderPinApiIntegrationTest` 신규(실 DB, MockMvc): 게시판 순서 왕복과 세 목록(게시판 관리·내 게시판·권한 매트릭스)의 순서(`sort_order` → `id`, 같은 값 id 순), 상한 왕복, 고정 생성·수정·해제 왕복(응답·DB), 상한 0 게시판 고정 400, 상한 초과 409, **상한을 2→1로 낮춘 뒤 고정 2개 그대로·새 고정 409·해제 200·0으로 끈 뒤 해제 200**, 쓰기 중지 게시판 고정 400(쓰기 중지 메시지), MANAGER(게시판 UPDATE만) 고정 200·READ만 403.
+- 동시성 `BoardPinConcurrencyIntegrationTest` 신규: D3-4 시험(시험 잠금 → 두 요청 대기 관측 → 해제 → 정확히 하나 409, 세 조합) + 고정 쓰기 ↔ 게시판 PATCH(상한 낮춤) 직렬화(PATCH가 먼저 커밋되면 고정 409) + **`createPost`·`updatePost` 실행 중 격리 수준 = `READ_COMMITTED` 관측**. 변이 실험(잠금 모드 `FOR SHARE`로·격리 수준 기본값으로) 확인.
+- 스키마 단언에 `idx_post_board_pinned` 열 순서 포함, 구현 후 `EXPLAIN`(고정 COUNT·고정 영역)을 결과에 기록.
+- 공개 `BoardPinPublicIntegrationTest` 신규(`publicweb.board`): 1페이지 상단 영역(일반·공지 경로 모두), 2페이지·검색 중에는 영역 없음, 영역 글이 일반 목록에도 있고 총 페이지 수 불변, 상한만큼만(상한 낮춤 후), 상한 0이면 영역 없음, 비노출·예약·만료 고정 글은 영역에 없음, 다른 사이트 전용 게시판 404 그대로, 제목 XSS 이스케이프, 공개 메인 새 글 순서 불변.
+- 기존 시험 회귀: `MemberPermissionServiceBoardTest`(메서드 이름 교체), `PostApiIntegrationTest`·`PublicBoardIntegrationTest`·`BoardDisplaySettingsPublicIntegrationTest`는 DEFAULT로 그대로 통과해야 한다. 템플릿 컨벤션 시험 두 개.
+- 화면(playwright): 게시판 모달 순서·상한 저장·재열기·목록 순서, 게시글 화면 게시판 선택 순서, 고정 체크박스 표시 조건(상한 0 게시판 숨김·끈 게시판의 고정 글은 해제만), 목록 "고정" 배지, 공개 목록 1페이지 영역·2페이지 없음(일반·공지).
+
+### PR 3 개정 이력
+
+- P3-v1: 초안(사용자 결정 U3-1~3 반영, 인덱스 없음 결정, 고정 개수 = 미삭제 고정 글, 잠금 모드는 요청 `pinned=true`로 사전 결정).
+- P3-v2 변경(리뷰 1라운드): P3-R1-1 고정 COUNT의 스냅샷 의존 제거 — `createPost`·`updatePost`를 `READ_COMMITTED` + 최상위 진입점 계약(`SiteService` 선례), 실행 격리 수준 관측 시험(D3-4). 기각: COUNT 잠금 읽기(교착 방향), 게시판 고정 카운터(해제·삭제도 X 잠금·표류). P3-R1-2 "최대 두 배" 논리는 잠금 안 COUNT에 성립하지 않아 철회하고 인덱스 `idx_post_board_pinned(board_id, pinned, deleted, create_date)` 추가(D3-1). P3-R1-3 동시성 시험을 "시험이 게시판 행 공유 잠금 → 두 요청 대기 관측 → 해제" 구조로, 생성↔생성·생성↔수정·수정↔수정 세 조합(D3-4·P3-4).
+- 리뷰 2라운드: READ_COMMITTED 전환의 영향(이미지 참조 교체·쓰기 중지·예약·감사 AOP)은 결함 없음 확인. 기각: P3-R2-1 V8 인덱스 생성이 배포 기동 60초 제한을 넘을 위험 — 아직 실배포 전이고 첫 실배포 직전에 V3~Vn을 기준 스키마로 합치므로(루트 CLAUDE.md "스키마 관리") V8이 대규모 운영 `post`에서 실행될 경로가 없다. 부분 적용 후 재실행은 모든 절이 `IF NOT EXISTS`라 `flyway repair` 뒤 그대로 다시 돈다 — 이 사실만 `docs/migration-guide.md` V8 항목에 적는다.
+- 리뷰 3라운드: ship(새 지적 없음). 사용자 승인 대기.
+
+### 구현·검증 결과 — PR 3 (2026-10-28)
+
+**Context**: 게시판 목록 순서가 id 순으로 고정돼 관리자가 순서를 정할 수 없었고, 공개 목록에는 중요한 글을 위에 두는 수단이 없었다. 이 PR은 게시판 표시 순서(숫자 필드)와 게시글 상단 고정(게시판별 상한)을 넣는다.
+
+**핵심 확정 사항**: P3-v2 설계 그대로 구현했다 — `board.sort_order`(0..9999, 작은 값 먼저·같으면 id)·`board.pin_max_count`(0..5, 0 = 끔)·`post.pinned`와 인덱스 `idx_post_board_pinned`(V8, 전부 현행 동작 DEFAULT), 순서는 일반 PATCH(`version` 409)로 바꾸고 순서 반영 API·가드 행은 두지 않음, 고정 개수 = 미삭제 `pinned` 글 수(노출·기간 무관), 새 고정만 400(끔)·409(상한), 해제·이미 고정된 글의 재고정은 항상 통과, 상한을 낮춰도 기존 `pinned`는 그대로, 고정 요청은 게시판 `FOR UPDATE`를 처음부터 잡고 `createPost`·`updatePost`는 `READ_COMMITTED` 최상위 진입점, 공개 고정 영역은 검색 없는 1페이지에서만 같은 `isPublished` 조건 객체로 조회(일반 목록·COUNT 불변). **계획과 달라진 결정은 없다.** 구현 중 코드 결함 1건을 시험이 잡아 고쳤다: 고정 판정에서 개수 COUNT를 인자로 먼저 평가해 상한 0(고정 끔) 게시판에서도 불필요한 COUNT가 나갔다 → `requirePinAllowed(board)`가 상한을 먼저 보고 필요할 때만 센다(`PostServiceTest.createPost_pinRejected`).
+
+**구현 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V8__board_sort_order_and_pin.sql` | 신규 — `board` 2컬럼 + `post.pinned` + 인덱스(`IF NOT EXISTS`, DEFAULT = 현행 동작) |
+| `admin/board/domain/Board.java`·`BoardDisplay.java`·`Post.java` | `sortOrder`·`pinMaxCount`(+상수·문구)·`pinned`, `Board.update`(순서 인자)·`Post.update`(고정 인자) |
+| `admin/board/repository/**` | 정렬 메서드를 `findByDeletedFalseOrderBySortOrderAscIdAsc`로 교체, 고정 개수 질의, `findPinnedPublished` |
+| `admin/board/service/BoardService.java`·`MyBoardService.java`·`PostService.java`, `admin/permission/service/MemberPermissionService.java` | 검증(잠금 전)·새 정렬·고정 판정·`lockBoard(exclusive)`·`READ_COMMITTED` |
+| `admin/board/dto/**` | 게시판·게시글 요청/응답 새 필드(`MyBoardResponse.pinMaxCount` 포함) |
+| `publicweb/board/**`·`publicweb/notice/controller` | `PublicBoardListResult.pinned`, 고정 영역 조회, 모델 `pinnedPosts`/`pinnedNotices` |
+| `templates/admin/board/manage.html`·`posts.html`, `templates/public/board/list.html`·`public/notice/list.html`, `css/public/board.css`·`notice.css` | D3-5·D3-6 |
+| 시험(신규) | `BoardSortOrderPinApiIntegrationTest`(14)·`BoardPinConcurrencyIntegrationTest`(5)·`BoardPinPublicIntegrationTest`(7)·`BoardSortOrderPinUpgradeTest`(2) + `BaselineSchemaTest`·`PostRepositoryDataJpaTest`(3)·`PostServiceTest`(8)·`BoardServiceTest`(2) 추가 |
+| 시험(기존 수정) | 시그니처 맞춤 4곳(`Post.update`·`PublicBoardListResult` 생성자), `MemberPermissionServiceBoardTest`의 저장소 메서드 이름 |
+| 문서 | `com/cms/admin/board/CLAUDE.md`(새 절)·`publicweb/board/CLAUDE.md`·`publicweb/notice/CLAUDE.md`·`docs/migration-guide.md`(V8)·`docs/deployment.md`(롤백) |
+
+**검증 결과**
+
+- 영향 범위 시험(`admin.board`·`publicweb.board`·`publicweb.notice`·`admin.permission`·`admin.contentimage`·`*ConventionTest`)과 새 시험 전부 **실패 0**. 전체 `./gradlew test`는 PR 직전 1회(code-review-loop 마무리)로 남긴다.
+- **변이 실험**: 고정 쓰기의 게시판 잠금을 `FOR SHARE`로 바꾸면 `BoardPinConcurrencyIntegrationTest` 3건(생성↔생성·생성↔수정·수정↔수정)이 실패하고, `createPost`·`updatePost`의 `READ_COMMITTED`를 지우면 격리 수준 관측 시험 1건이 실패함을 확인 후 복원. 리뷰 1라운드에서 우려한 "요청 시작만 맞추는 시험은 잘못된 구현도 통과"를 시험이 게시판 행을 먼저 `LOCK IN SHARE MODE`로 쥐고 요청의 잠금 대기를 관측하는 구조로 해소했다.
+- **실기(dev, `bootRun`, Playwright)**: dev DB(V7)에 V8 적용(`Successfully applied 1 migration … v8`). ① 게시판 관리 목록에 "순서" 열 ② UI로 게시판 생성(순서 5·상한 2), 재열기 때 값 유지(스크린샷 `board-definition-pr3-screenshots/01~02`) ③ 게시글 목록 "고정" 배지, 수정 모드의 "상단 고정" 스위치와 안내 문구(`03~04`), UI 저장 → DB `pinned=1` ④ 상한 도달 상태에서 세 번째 고정 → 409 + 한국어 안내 ⑤ 익명 `/main/boards/5`: 고정 영역(B·A 최신순) + 일반 목록에도 포함(`05`), `?page=1`·`?keyword=`에는 영역 없음 ⑥ 익명 `GET /admin/api/boards` 401 ⑦ 검증 글·게시판을 API로 삭제(게시판 행은 소프트 삭제로 남음).
+- **`EXPLAIN`**(리뷰 1라운드 P3-R1-2): 고정 개수 COUNT는 `idx_post_board_pinned`(Using index), 공개 고정 영역 조회도 같은 인덱스를 쓴다(possible_keys에 기존 인덱스와 함께 올랐고 옵티마이저가 새 인덱스를 고름, rows 2 — 데이터가 적은 dev 기준).
+- **롤백 호환 실측**: V8이 적용된 DB에서 V4까지만 아는 이전 앱 이미지(`cms-app-dev`)가 "newer than the latest available migration" 경고만 남기고 기동, health 200.
+
+**이슈**
+
+- 첫 실행에서 시험 3건이 실패했으나 모두 시험 쪽 오류였다(게시글 삭제 응답 204를 200으로 기대, 공개 영역 위치 비교 기준 오류, 고정 판정의 COUNT 평가 순서는 위 코드 결함). 환경 문제는 없었다(Docker Desktop 정상).
+- 8080을 Docker가 자동 재시작한 `cms-app-dev`가 점유 — 멈추고 `bootRun`, 검증 후 다시 시작했다.
+
+**후속**
+
+- 없음(PR L은 sanitizer 보안 화이트리스트 변경이라 착수 전 승인이 필요하다).
