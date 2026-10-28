@@ -1,13 +1,12 @@
 package com.cms.admin.site;
 
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.web.PrivatePaths;
 import com.cms.common.web.SafeUrls;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 
 /**
@@ -135,38 +134,8 @@ public class SiteLinkPolicy {
         return "https".equals(scheme) ? 443 : "http".equals(scheme) ? 80 : -1;
     }
 
-    /**
-     * 공개 사이트에서 거부할 비공개 경로인가. {@code ?}·{@code #} 앞에서 자르고 한 번 퍼센트 디코딩(실패·잔여 {@code %}는 거부)·소문자화한 뒤,
-     * {@code .}/{@code ..} 세그먼트가 있거나 첫 세그먼트가 {@code admin}·{@code actuator}·{@code error}·{@code v3}이거나
-     * {@code swagger-ui}로 시작하면 거부한다.
-     */
+    /** 공개 사이트에서 거부할 비공개 경로인가 — 규칙은 {@link PrivatePaths}에 한 벌만 둔다(본문 내부 링크와 공유). */
     static boolean isPrivatePath(String path) {
-        int cut = path.length();
-        for (int i = 0; i < path.length(); i++) {
-            char c = path.charAt(i);
-            if (c == '?' || c == '#') {
-                cut = i;
-                break;
-            }
-        }
-        String decoded;
-        try {
-            // URLDecoder는 '+'를 공백으로 바꾸므로 먼저 보존한다.
-            decoded = URLDecoder.decode(path.substring(0, cut).replace("+", "%2B"), StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException e) {
-            return true;
-        }
-        if (decoded.indexOf('%') >= 0) {
-            return true;
-        }
-        String[] segments = decoded.toLowerCase(Locale.ROOT).split("/", -1);
-        for (String segment : segments) {
-            if (segment.equals(".") || segment.equals("..")) {
-                return true;
-            }
-        }
-        String first = segments.length > 1 ? segments[1] : "";
-        return first.equals("admin") || first.equals("actuator") || first.equals("error") || first.equals("v3")
-                || first.startsWith("swagger-ui");
+        return PrivatePaths.isPrivate(path);
     }
 }
