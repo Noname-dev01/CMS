@@ -99,6 +99,7 @@ class PostAttachmentServiceTest {
         // 게시판은 살아 있고 첨부를 허용한다 — 게시글 락 조회 뒤의 게시판 확인과 목록·다운로드의 게시글 확인에 쓰인다(개별 시험이 필요하면 덮어쓴다)
         Board board = Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false).build();
         lenient().when(boardRepository.findByIdAndDeletedFalse(BOARD_ID)).thenReturn(Optional.of(board));
+        lenient().when(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).thenReturn(Optional.of(board));
         lenient().when(postRepository.findByIdAndBoardIdAndDeletedFalse(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.eq(BOARD_ID)))
                 .thenAnswer(invocation -> Optional.of(Post.builder().id(invocation.getArgument(0)).boardId(BOARD_ID).title("게시글")
                         .content("본문").useYn(true).deleted(false).authorId("admin01").build()));
@@ -503,7 +504,7 @@ class PostAttachmentServiceTest {
     @DisplayName("게시판이 첨부를 허용하지 않으면(attachmentYn=false) 새 업로드는 400이고 파일을 저장하지 않는다")
     void upload_attachmentNotAllowed_invalidRequest() {
         given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(activePost()));
-        given(boardRepository.findByIdAndDeletedFalse(BOARD_ID)).willReturn(Optional.of(
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(
                 Board.builder().id(BOARD_ID).name("첨부 불가").publicYn(true).attachmentYn(false).deleted(false).build()));
         MockMultipartFile file = new MockMultipartFile("file", "a.pdf", "application/pdf", "x".getBytes());
 
@@ -517,7 +518,8 @@ class PostAttachmentServiceTest {
     @DisplayName("삭제된 게시판의 게시글에는 업로드·삭제가 404다 — 게시글 락을 잡은 뒤 게시판 미삭제를 확인한다")
     void uploadAndDelete_boardDeleted_notFound() {
         given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(activePost()));
-        given(boardRepository.findByIdAndDeletedFalse(BOARD_ID)).willReturn(Optional.empty());
+        given(boardRepository.findByIdAndDeletedFalse(BOARD_ID)).willReturn(Optional.empty());           // 삭제: 잠금 없는 확인
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.empty());   // 업로드: 공유 잠금 확인
         MockMultipartFile file = new MockMultipartFile("file", "a.pdf", "application/pdf", "x".getBytes());
 
         assertThrows(ResourceNotFoundException.class, () -> postAttachmentService.upload(BOARD_ID, 1L, file));

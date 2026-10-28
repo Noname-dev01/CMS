@@ -17,5 +17,7 @@ public class MyBoardResponse {
     private final String name;
     private final Boolean publicYn;
     private final Boolean attachmentYn;
+    @Schema(description = "쓰기 허용 — false(쓰기 중지)면 화면이 새 글·수정·첨부 업로드 버튼을 숨긴다(서버 판정이 최종)")
+    private final Boolean writableYn;
     private final List<PermissionAction> actions;
 }

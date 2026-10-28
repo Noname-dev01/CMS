@@ -119,6 +119,9 @@
                 </div>
 
                 <div class="admin-manage-shell">
+                    <div id="boardWriteStoppedNote" class="alert alert-warning d-none" role="status">
+                        쓰기가 중지된 게시판입니다. 조회·첨부 삭제·게시글 삭제만 할 수 있습니다.
+                    </div>
                     <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
 
                     <div class="card shadow mb-0 admin-panel">
@@ -376,12 +379,21 @@
     let currentBoard = null;    // 선택된 게시판(목록·새 글 작성의 대상)
     let modalBoard = null;      // 모달을 연 시점의 게시판 — 모달이 열려 있는 동안 API 경로의 boardId는 이 값만 쓴다
 
+    // 쓰기 중지(보관) 게시판에서는 새 글·수정·첨부 업로드가 서버에서 400이다 — 버튼 표시도 CREATE·UPDATE를 닫는다. 읽기·삭제와 첨부 삭제는
+    // board.actions를 직접 보므로 영향이 없다(보관 게시판의 글을 지울 수 있어야 한다). 서버 판정이 최종이다.
+    function actionAllowed(board, action) {
+        if (board === null || board.actions.indexOf(action) < 0) {
+            return false;
+        }
+        return !((action === "CREATE" || action === "UPDATE") && board.writableYn === false);
+    }
+
     function can(action) {
-        return currentBoard !== null && currentBoard.actions.indexOf(action) >= 0;
+        return actionAllowed(currentBoard, action);
     }
 
     function canModal(action) {
-        return modalBoard !== null && modalBoard.actions.indexOf(action) >= 0;
+        return actionAllowed(modalBoard, action);
     }
 
     function postsUrl(board) {
@@ -1303,6 +1315,7 @@
         pageState.page = 0;
         searchForm.reset();
         btnNewPost.classList.toggle("d-none", !can("CREATE"));
+        document.getElementById("boardWriteStoppedNote").classList.toggle("d-none", board.writableYn !== false);
         postArea.classList.remove("d-none");
         editor.setUploadUrl("/admin/api/boards/" + encodeURIComponent(board.boardId) + "/content-images");
         loadPosts(0);

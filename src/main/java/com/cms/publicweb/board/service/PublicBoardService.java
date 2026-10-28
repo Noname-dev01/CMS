@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * 공개(비로그인) 게시판 조회 전용 Service. 관리 서비스와 별도 클래스로 두는 이유는 공지와 같다 — 공개 불변식이 선택적 필터가 아니라 이 클래스가
@@ -40,10 +41,11 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class PublicBoardService {
 
-    private static final int PAGE_SIZE = 10;
-
-    /** 단일 요청이 만들 수 있는 OFFSET 상한 — 문법적으로 유효한 거대 page 값이 큰 스캔 비용을 유발하지 못하게 한다(공지와 같은 상한). */
-    private static final int MAX_PAGE = 1000;
+    /**
+     * 단일 요청이 만들 수 있는 OFFSET 상한(포함) — 문법적으로 유효한 거대 page 값이 큰 스캔 비용을 유발하지 못하게 한다. 게시판마다 목록 크기가 달라도
+     * 이 값이 같아야 비용 계약이 유지되므로 허용 페이지를 {@code MAX_OFFSET / 목록 크기}로 계산한다(크기 10이면 예전 상한 1000과 같다).
+     */
+    static final int MAX_OFFSET = 10_000;
 
     /** 검색어 상한 — {@code String.length()}(UTF-16 코드 유닛) 기준으로 목록 화면 입력란의 {@code maxlength}와 같다. */
     static final int MAX_KEYWORD_LENGTH = 100;
@@ -62,19 +64,23 @@ public class PublicBoardService {
     public Optional<PublicBoardListResult> getPublishedPosts(Long siteId, Long boardId, int page, String rawKeyword) {
         LocalDateTime now = LocalDateTime.now(clock);
         return boardRepository.findPublicById(boardId, PublicSite.requireId(siteId)).map(board -> {
-            Pageable pageable = PageRequest.of(normalizePage(page), PAGE_SIZE,
+            int pageSize = board.getListPageSize();
+            Pageable pageable = PageRequest.of(normalizePage(page, pageSize), pageSize,
                     Sort.by(Sort.Order.desc("createDate"), Sort.Order.desc("id")));
             String keyword = rawKeyword == null ? "" : rawKeyword.strip();
+            boolean showViewCount = Boolean.TRUE.equals(board.getShowViewCount());
+            int badgeDays = board.getNewBadgeDays();
+            // 조회수·배지는 게시판 설정에 따라 서비스가 DTO를 만들 때 거른다(템플릿이 아니라 여기서)
+            Function<Post, PublicPostSummary> toSummary = post -> PublicPostSummary.from(post, showViewCount,
+                    NewBadge.isNew(post.getCreateDate(), post.getPublishStart(), badgeDays, now));
 
             if (keyword.isEmpty()) {
-                return new PublicBoardListResult(board.getId(), board.getName(),
-                        postRepository.searchPublished(board.getId(), null, now, pageable).map(PublicPostSummary::from), null);
+                return result(board, postRepository.searchPublished(board.getId(), null, now, pageable).map(toSummary), null);
             }
             if (keyword.length() > MAX_KEYWORD_LENGTH) {
-                return new PublicBoardListResult(board.getId(), board.getName(), Page.empty(pageable), keyword);
+                return result(board, Page.empty(pageable), keyword);
             }
-            return new PublicBoardListResult(board.getId(), board.getName(),
-                    postRepository.searchPublished(board.getId(), keyword, now, pageable).map(PublicPostSummary::from), keyword);
+            return result(board, postRepository.searchPublished(board.getId(), keyword, now, pageable).map(toSummary), keyword);
         });
     }
 
@@ -119,8 +125,12 @@ public class PublicBoardService {
         return PublicPostDetail.from(board, post, postAttachmentRepository.findByPostIdOrderByIdAsc(post.getId()));
     }
 
-    private int normalizePage(int page) {
-        if (page < 0 || page > MAX_PAGE) {
+    private static PublicBoardListResult result(Board board, Page<PublicPostSummary> page, String keyword) {
+        return new PublicBoardListResult(board.getId(), board.getName(), board.getDescription(), board.getAuthorLabel(), page, keyword);
+    }
+
+    private static int normalizePage(int page, int pageSize) {
+        if (page < 0 || page > MAX_OFFSET / pageSize) {
             return 0;
         }
         return page;

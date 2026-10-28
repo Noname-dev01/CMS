@@ -60,7 +60,10 @@ public class PostAttachmentService {
         String updaterId = requireCurrentAdminUserId();
         Post post = postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(postId, boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(POST_NOT_FOUND));
-        Board board = requireBoard(boardId);
+        // 게시판 행 공유 잠금 — 쓰기 중지 전환(게시판 FOR UPDATE)과 진행 중 업로드를 직렬화한다. 순서는 게시글 → 게시판(PLAN-board-definition.md §4 D5)
+        Board board = boardRepository.findByIdAndDeletedFalseForShare(boardId)
+                .orElseThrow(() -> new ResourceNotFoundException(PostService.BOARD_NOT_FOUND));
+        PostService.requireWritable(board);
         if (!Boolean.TRUE.equals(board.getAttachmentYn())) {
             throw new InvalidRequestException("첨부를 허용하지 않는 게시판입니다.");
         }

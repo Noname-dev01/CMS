@@ -35,7 +35,7 @@ public class MyBoardService {
         for (Board board : boardRepository.findByDeletedFalseOrderByIdAsc()) {
             Set<PermissionAction> actions = permissionEvaluator.boardActions(snapshotOnce, authentication, board.getId());
             if (actions.contains(PermissionAction.READ)) {
-                result.add(new MyBoardResponse(board.getId(), board.getName(), board.getPublicYn(), board.getAttachmentYn(),
+                result.add(new MyBoardResponse(board.getId(), board.getName(), board.getPublicYn(), board.getAttachmentYn(), board.getWritableYn(),
                         Arrays.stream(PermissionAction.values()).filter(actions::contains).toList()));
             }
         }

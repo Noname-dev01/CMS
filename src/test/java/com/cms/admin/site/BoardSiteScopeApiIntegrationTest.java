@@ -85,6 +85,19 @@ class BoardSiteScopeApiIntegrationTest extends MariaDbContainerSupport {
         return mockMvc.perform(builder.with(asAdmin()).with(csrf()).contentType(MediaType.APPLICATION_JSON).content(json)).andReturn();
     }
 
+    /** 게시판 PATCH — 낡은 화면 검사(version)를 통과하도록 DB의 현재 버전을 본문에 붙인다. {@code json}은 객체 리터럴이어야 한다. */
+    private MvcResult patchBoard(long id, String json) throws Exception {
+        long version = jdbc.queryForObject("SELECT version FROM board WHERE id = ?", Long.class, id);
+        String body = json.substring(0, json.lastIndexOf('}')) + (json.trim().equals("{}") ? "" : ",") + "\"version\":" + version + "}";
+        return send(patch("/admin/api/boards/{id}", id), body);
+    }
+
+    /** 게시판 DELETE — DB의 현재 버전을 쿼리로 붙인다. */
+    private MvcResult deleteBoard(long id) throws Exception {
+        long version = jdbc.queryForObject("SELECT version FROM board WHERE id = ?", Long.class, id);
+        return sendNoBody(delete("/admin/api/boards/{id}?version=" + version, id));
+    }
+
     private MvcResult sendNoBody(MockHttpServletRequestBuilder builder) throws Exception {
         return mockMvc.perform(builder.with(asAdmin()).with(csrf())).andReturn();
     }
@@ -168,13 +181,13 @@ class BoardSiteScopeApiIntegrationTest extends MariaDbContainerSupport {
     void updateScope() throws Exception {
         long id = create("bs-수정", "\"siteScope\":\"" + alpha + "\"");
 
-        assertThat(send(patch("/admin/api/boards/{id}", id), "{\"name\":\"bs-수정2\"}").getResponse().getStatus()).isEqualTo(200);
+        assertThat(patchBoard(id, "{\"name\":\"bs-수정2\"}").getResponse().getStatus()).isEqualTo(200);
         assertThat(siteIdOf(id)).as("누락 = 유지").isEqualTo(alpha);
 
-        assertThat(send(patch("/admin/api/boards/{id}", id), "{\"siteScope\":\"" + beta + "\"}").getResponse().getStatus()).isEqualTo(200);
+        assertThat(patchBoard(id, "{\"siteScope\":\"" + beta + "\"}").getResponse().getStatus()).isEqualTo(200);
         assertThat(siteIdOf(id)).isEqualTo(beta);
 
-        MvcResult common = send(patch("/admin/api/boards/{id}", id), "{\"siteScope\":\"COMMON\"}");
+        MvcResult common = patchBoard(id, "{\"siteScope\":\"COMMON\"}");
         assertThat(common.getResponse().getStatus()).isEqualTo(200);
         assertThat(body(common).path("siteId").isNull() || body(common).path("siteId").isMissingNode()).isTrue();
         assertThat(siteIdOf(id)).isNull();
@@ -186,7 +199,7 @@ class BoardSiteScopeApiIntegrationTest extends MariaDbContainerSupport {
         long id = create("bs-잘못수정", "\"siteScope\":\"" + alpha + "\"");
         String[] invalid = {"\"\"", "\"abc\"", "\"0\"", "\"9223372036854775808\"", "\"99999\"", "\"1\""};
         for (String value : invalid) {
-            assertThat(send(patch("/admin/api/boards/{id}", id), "{\"siteScope\":" + value + "}").getResponse().getStatus())
+            assertThat(patchBoard(id, "{\"siteScope\":" + value + "}").getResponse().getStatus())
                     .as(value).isEqualTo(400);
         }
         assertThat(siteIdOf(id)).isEqualTo(alpha);
@@ -198,16 +211,16 @@ class BoardSiteScopeApiIntegrationTest extends MariaDbContainerSupport {
         long commonNotice = jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class);
         long siteNotice = create("bs-알파공지", "\"siteScope\":\"" + alpha + "\",\"noticeBoard\":true");
 
-        assertThat(send(patch("/admin/api/boards/{id}", commonNotice), "{\"siteScope\":\"" + alpha + "\"}").getResponse().getStatus()).isEqualTo(400);
-        assertThat(send(patch("/admin/api/boards/{id}", siteNotice), "{\"siteScope\":\"" + beta + "\"}").getResponse().getStatus()).isEqualTo(400);
-        assertThat(send(patch("/admin/api/boards/{id}", siteNotice), "{\"siteScope\":\"COMMON\"}").getResponse().getStatus()).isEqualTo(400);
+        assertThat(patchBoard(commonNotice, "{\"siteScope\":\"" + alpha + "\"}").getResponse().getStatus()).isEqualTo(400);
+        assertThat(patchBoard(siteNotice, "{\"siteScope\":\"" + beta + "\"}").getResponse().getStatus()).isEqualTo(400);
+        assertThat(patchBoard(siteNotice, "{\"siteScope\":\"COMMON\"}").getResponse().getStatus()).isEqualTo(400);
         assertThat(siteIdOf(siteNotice)).isEqualTo(alpha);
         assertThat(keyOf(siteNotice)).isEqualTo("NOTICE:" + alpha);
 
-        assertThat(send(patch("/admin/api/boards/{id}", siteNotice), "{\"siteScope\":\"" + alpha + "\",\"name\":\"bs-알파공지-개명\"}").getResponse().getStatus())
+        assertThat(patchBoard(siteNotice, "{\"siteScope\":\"" + alpha + "\",\"name\":\"bs-알파공지-개명\"}").getResponse().getStatus())
                 .as("같은 값").isEqualTo(200);
-        assertThat(send(patch("/admin/api/boards/{id}", siteNotice), "{\"publicYn\":false}").getResponse().getStatus()).isEqualTo(400);
-        assertThat(send(patch("/admin/api/boards/{id}", commonNotice), "{\"siteScope\":\"COMMON\"}").getResponse().getStatus())
+        assertThat(patchBoard(siteNotice, "{\"publicYn\":false}").getResponse().getStatus()).isEqualTo(400);
+        assertThat(patchBoard(commonNotice, "{\"siteScope\":\"COMMON\"}").getResponse().getStatus())
                 .as("공통 공지에 COMMON(변화 없음)").isEqualTo(200);
     }
 
@@ -217,14 +230,14 @@ class BoardSiteScopeApiIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("삭제: 공통 공지 게시판은 409. 전용 공지 게시판은 글이 있으면 409, 없으면 삭제되며 소속·키가 비워지고 같은 사이트에 다시 만들 수 있다")
     void deleteNoticeBoards() throws Exception {
         long commonNotice = jdbc.queryForObject("SELECT id FROM board WHERE board_key = 'NOTICE'", Long.class);
-        assertThat(sendNoBody(delete("/admin/api/boards/{id}", commonNotice)).getResponse().getStatus()).isEqualTo(409);
+        assertThat(deleteBoard(commonNotice).getResponse().getStatus()).isEqualTo(409);
 
         long siteNotice = create("bs-알파공지", "\"siteScope\":\"" + alpha + "\",\"noticeBoard\":true");
         jdbc.update("INSERT INTO post (board_id, title, content, use_yn, deleted, author_id) VALUES (?, 'bs-글', '<p>x</p>', 1, 0, 'admin')", siteNotice);
-        assertThat(sendNoBody(delete("/admin/api/boards/{id}", siteNotice)).getResponse().getStatus()).as("글이 남음").isEqualTo(409);
+        assertThat(deleteBoard(siteNotice).getResponse().getStatus()).as("글이 남음").isEqualTo(409);
 
         jdbc.update("DELETE FROM post WHERE board_id = ?", siteNotice);
-        assertThat(sendNoBody(delete("/admin/api/boards/{id}", siteNotice)).getResponse().getStatus()).isIn(200, 204);
+        assertThat(deleteBoard(siteNotice).getResponse().getStatus()).isIn(200, 204);
         assertThat(siteIdOf(siteNotice)).as("소속 해제").isNull();
         assertThat(keyOf(siteNotice)).as("키 해제").isNull();
         assertThat(jdbc.queryForObject("SELECT deleted FROM board WHERE id = ?", Boolean.class, siteNotice)).isTrue();
@@ -243,9 +256,9 @@ class BoardSiteScopeApiIntegrationTest extends MariaDbContainerSupport {
         long notice = create("bs-알파공지", "\"siteScope\":\"" + alpha + "\",\"noticeBoard\":true");
 
         assertThat(sendNoBody(delete("/admin/api/sites/{id}", alpha)).getResponse().getStatus()).isEqualTo(409);
-        assertThat(sendNoBody(delete("/admin/api/boards/{id}", scoped)).getResponse().getStatus()).isIn(200, 204);
+        assertThat(deleteBoard(scoped).getResponse().getStatus()).isIn(200, 204);
         assertThat(sendNoBody(delete("/admin/api/sites/{id}", alpha)).getResponse().getStatus()).as("공지 게시판이 남음").isEqualTo(409);
-        assertThat(sendNoBody(delete("/admin/api/boards/{id}", notice)).getResponse().getStatus()).isIn(200, 204);
+        assertThat(deleteBoard(notice).getResponse().getStatus()).isIn(200, 204);
 
         assertThat(sendNoBody(delete("/admin/api/sites/{id}", alpha)).getResponse().getStatus()).isIn(200, 204);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM site WHERE id = ?", Integer.class, alpha)).isZero();

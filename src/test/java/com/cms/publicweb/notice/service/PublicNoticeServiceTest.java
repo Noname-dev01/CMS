@@ -54,7 +54,7 @@ class PublicNoticeServiceTest {
     @DisplayName("목록·상세·첨부 조회는 공지 게시판 ID로 게시판 서비스에 위임한다")
     void delegatesToBoardServiceWithNoticeBoardId() {
         noticeBoardExists();
-        PublicBoardListResult list = new PublicBoardListResult(NOTICE_BOARD_ID, "공지사항", new PageImpl<>(List.of()), null);
+        PublicBoardListResult list = new PublicBoardListResult(NOTICE_BOARD_ID, "공지사항", null, null, new PageImpl<>(List.of()), null);
         PublicPostDetail detail = PublicPostDetail.builder().id(1L).title("t").build();
         PublicPostAttachmentRef ref = new PublicPostAttachmentRef("f.pdf", "k");
         given(publicBoardService.getPublishedPosts(SITE_ID, NOTICE_BOARD_ID, 2, "점검")).willReturn(Optional.of(list));

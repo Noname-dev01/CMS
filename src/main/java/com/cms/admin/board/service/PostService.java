@@ -1,5 +1,6 @@
 package com.cms.admin.board.service;
 
+import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.dto.request.PostCreateRequest;
 import com.cms.admin.board.dto.request.PostPublishPeriodRequest;
@@ -66,9 +67,10 @@ public class PostService {
                 ? request.getPublishPeriod().toPeriod()
                 : new PostPublishPeriodRequest.Period(null, null);
 
-        // 게시판 행 공유 잠금 — 삭제된 게시판이면 404, 이 트랜잭션이 끝날 때까지 게시판 삭제(FOR UPDATE)가 기다린다
-        boardRepository.findByIdAndDeletedFalseForShare(boardId)
+        // 게시판 행 공유 잠금 — 삭제된 게시판이면 404, 이 트랜잭션이 끝날 때까지 게시판 삭제·수정(FOR UPDATE)이 기다린다
+        Board board = boardRepository.findByIdAndDeletedFalseForShare(boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(BOARD_NOT_FOUND));
+        requireWritable(board);
 
         LocalDateTime now = LocalDateTime.now(clock);
         Post saved = postRepository.save(
@@ -106,7 +108,7 @@ public class PostService {
         // 현재 사용자도 잠금 전에 — 403이 행 잠금을 쥔 채 나가지 않게 한다
         String updaterId = requireCurrentAdminUserId();
 
-        Post target = lockPost(boardId, postId);
+        Post target = lockPostForWrite(boardId, postId);
 
         String title = request.getTitle() != null
                 ? requireNonBlank(request.getTitle(), "제목은 공백일 수 없습니다.")
@@ -181,6 +183,26 @@ public class PostService {
                 .orElseThrow(() -> new ResourceNotFoundException(POST_NOT_FOUND));
         requireBoard(boardId);
         return target;
+    }
+
+    /**
+     * 수정용 잠금 — 게시글 행 {@code FOR UPDATE} → 게시판 행 {@code FOR SHARE} 후 쓰기 중지면 400. 게시판 공유 잠금이 쓰기 중지 전환(게시판
+     * {@code FOR UPDATE})과 진행 중 수정을 직렬화한다(PLAN-board-definition.md §4 D5). 게시판 쪽 잠금(PATCH·삭제)은 게시글 행을 잠그지 않아
+     * 순환이 없고, 이미지 참조 교체보다 먼저 잡아 이미지 잠금과도 순환하지 않는다. 삭제는 판정이 없어 {@link #lockPost}를 그대로 쓴다.
+     */
+    private Post lockPostForWrite(Long boardId, Long postId) {
+        Post target = postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(postId, boardId)
+                .orElseThrow(() -> new ResourceNotFoundException(POST_NOT_FOUND));
+        Board board = boardRepository.findByIdAndDeletedFalseForShare(boardId)
+                .orElseThrow(() -> new ResourceNotFoundException(BOARD_NOT_FOUND));
+        requireWritable(board);
+        return target;
+    }
+
+    static void requireWritable(Board board) {
+        if (!Boolean.TRUE.equals(board.getWritableYn())) {
+            throw new InvalidRequestException(Board.WRITE_STOPPED_MESSAGE);
+        }
     }
 
     private void requireBoard(Long boardId) {

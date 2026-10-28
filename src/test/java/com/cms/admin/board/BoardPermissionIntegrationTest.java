@@ -107,7 +107,7 @@ class BoardPermissionIntegrationTest extends MariaDbContainerSupport {
         assertThat(created.get("name").asString()).as("앞뒤 공백 제거").isEqualTo("자료실");
 
         mockMvc.perform(patch("/admin/api/boards/{id}", id).with(asAdmin()).with(csrf())
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"publicYn\":false,\"attachmentYn\":false}"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"publicYn\":false,\"attachmentYn\":false,\"version\":1}"))
                 .andExpect(status().isOk());
         assertThat(jdbc.queryForObject("SELECT public_yn FROM board WHERE id = ?", Boolean.class, id)).isFalse();
         assertThat(jdbc.queryForObject("SELECT attachment_yn FROM board WHERE id = ?", Boolean.class, id)).isFalse();
@@ -117,9 +117,9 @@ class BoardPermissionIntegrationTest extends MariaDbContainerSupport {
         mockMvc.perform(post("/admin/api/boards").with(asAdmin()).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"x\",\"attachmentYn\":true}")).andExpect(status().isBadRequest());
         mockMvc.perform(patch("/admin/api/boards/{id}", id).with(asAdmin()).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isBadRequest());
+                .contentType(MediaType.APPLICATION_JSON).content("{\"version\":2}")).andExpect(status().isBadRequest());
         mockMvc.perform(patch("/admin/api/boards/{id}", Long.MAX_VALUE).with(asAdmin()).with(csrf())
-                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"x\"}")).andExpect(status().isNotFound());
+                .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"x\",\"version\":1}")).andExpect(status().isNotFound());
 
         List<String> audits = jdbc.queryForList("SELECT CONCAT(action_type, ':', action_result, ':', COALESCE(target_id, ''), ':',"
                         + " COALESCE(target_label, '')) FROM admin_action_log WHERE id > ? AND target_type = 'BOARD' AND action_result = 'SUCCESS'"
@@ -141,7 +141,7 @@ class BoardPermissionIntegrationTest extends MariaDbContainerSupport {
         mockMvc.perform(post("/admin/api/boards").with(asManager).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"x\",\"publicYn\":true,\"attachmentYn\":true}")).andExpect(status().isForbidden());
         mockMvc.perform(patch("/admin/api/boards/{id}", id).with(asManager).with(csrf()).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"x\"}")).andExpect(status().isForbidden());
+                .content("{\"name\":\"x\",\"version\":1}")).andExpect(status().isForbidden());
         mockMvc.perform(get("/admin/board/manage").with(asManager)).andExpect(status().isForbidden());
 
         mockMvc.perform(get("/admin/board/manage").with(asAdmin())).andExpect(status().isOk());

@@ -33,7 +33,7 @@
                 <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
 
                 <p class="text-muted small">
-                    게시판을 만들고 공개 여부·첨부 허용 여부를 정합니다. 매니저에게 게시판별 권한을 주려면 권한 관리 화면을 쓰세요.
+                    게시판을 만들고 공개 노출·첨부 허용·사용(쓰기 허용) 여부와 공개 화면의 표시 방식을 정합니다. 매니저에게 게시판별 권한을 주려면 권한 관리 화면을 쓰세요.
                     첨부 허용을 끄면 새 첨부 업로드만 막히고 기존 첨부는 그대로 남습니다.
                 </p>
 
@@ -51,10 +51,10 @@
                                 <div class="table-responsive">
                                     <table class="table table-bordered table-hover mb-0">
                                         <thead class="thead-light">
-                                        <tr><th>#</th><th>이름</th><th>표시 대상</th><th>공개</th><th>첨부</th><th>수정일</th></tr>
+                                        <tr><th>#</th><th>이름</th><th>표시 대상</th><th>공개</th><th>첨부</th><th>사용</th><th>목록 크기</th><th>수정일</th></tr>
                                         </thead>
                                         <tbody id="boardList">
-                                        <tr><td colspan="6" class="text-muted">불러오는 중...</td></tr>
+                                        <tr><td colspan="8" class="text-muted">불러오는 중...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -107,11 +107,49 @@
                                     </div>
                                     <div class="form-group form-check">
                                         <input type="checkbox" class="form-check-input" id="boardPublic" checked>
-                                        <label class="form-check-label" for="boardPublic">공개 게시판(공개 사이트에 노출)</label>
+                                        <label class="form-check-label" for="boardPublic">공개 사이트에 노출 <span class="text-muted">(끄면 관리자 전용 내부 게시판)</span></label>
                                     </div>
                                     <div class="form-group form-check">
                                         <input type="checkbox" class="form-check-input" id="boardAttachment" checked>
                                         <label class="form-check-label" for="boardAttachment">첨부 허용</label>
+                                    </div>
+                                    <div class="form-group form-check">
+                                        <input type="checkbox" class="form-check-input" id="boardWritable" checked aria-describedby="boardWritableHint">
+                                        <label class="form-check-label" for="boardWritable">사용(쓰기 허용)</label>
+                                        <small class="form-text text-muted" id="boardWritableHint">끄면 쓰기가 중지(보관)됩니다 — 새 글·수정·첨부 업로드·본문 이미지 업로드가 막히고, 조회·첨부 삭제·게시글 삭제만 가능합니다. 노출 여부만 끄는 수정도 막히니 글을 숨기려면 잠시 켜거나 위의 공개 노출을 끄세요. 공개 노출은 위 설정이 따로 정하고, 공통 공지 게시판은 끌 수 없습니다.</small>
+                                    </div>
+
+                                    <hr>
+                                    <h6 class="font-weight-bold text-gray-800">공개 화면 표시</h6>
+                                    <div class="form-group">
+                                        <label for="boardDescription">설명 <span class="text-muted">(목록 상단에 보임, 평문)</span></label>
+                                        <textarea class="form-control" id="boardDescription" rows="2" maxlength="600" placeholder="비우면 표시하지 않습니다"></textarea>
+                                        <small class="form-text text-muted">최대 500자(앞뒤 공백 제외).</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="boardAuthorLabel">작성자 표시명 <span class="text-muted">(예: 관리자, 홍보팀)</span></label>
+                                        <input type="text" class="form-control" id="boardAuthorLabel" maxlength="60" placeholder="비우면 작성자를 표시하지 않습니다" aria-describedby="boardAuthorLabelHint">
+                                        <small class="form-text text-muted" id="boardAuthorLabelHint">로그인 ID는 공개되지 않고 이 이름만 모든 글에 같게 보입니다. 최대 50자.</small>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group col-6">
+                                            <label for="boardListPageSize">목록 크기</label>
+                                            <select class="form-control" id="boardListPageSize">
+                                                <option value="10">10건</option>
+                                                <option value="20">20건</option>
+                                                <option value="30">30건</option>
+                                                <option value="50">50건</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group col-6">
+                                            <label for="boardNewBadgeDays">새 글 표시 기간(일)</label>
+                                            <input type="number" class="form-control" id="boardNewBadgeDays" min="0" max="30" step="1" value="0" aria-describedby="boardNewBadgeHint">
+                                        </div>
+                                    </div>
+                                    <small class="form-text text-muted mb-3" id="boardNewBadgeHint">0이면 새 글 배지를 끕니다. 예약 게시 글은 공개된 시각부터 셉니다.</small>
+                                    <div class="form-group form-check">
+                                        <input type="checkbox" class="form-check-input" id="boardShowViewCount">
+                                        <label class="form-check-label" for="boardShowViewCount">공개 화면에 조회수 표시</label>
                                     </div>
                 </form>
             </div>
@@ -141,6 +179,12 @@
     const boardName = document.getElementById("boardName");
     const boardPublic = document.getElementById("boardPublic");
     const boardAttachment = document.getElementById("boardAttachment");
+    const boardWritable = document.getElementById("boardWritable");
+    const boardDescription = document.getElementById("boardDescription");
+    const boardAuthorLabel = document.getElementById("boardAuthorLabel");
+    const boardListPageSize = document.getElementById("boardListPageSize");
+    const boardNewBadgeDays = document.getElementById("boardNewBadgeDays");
+    const boardShowViewCount = document.getElementById("boardShowViewCount");
     const boardSiteScope = document.getElementById("boardSiteScope");
     const boardNotice = document.getElementById("boardNotice");
     const boardNoticeGroup = document.getElementById("boardNoticeGroup");
@@ -261,7 +305,7 @@
         if (boards.length === 0) {
             const tr = document.createElement("tr");
             const cell = td("게시판이 없습니다.");
-            cell.colSpan = 6;
+            cell.colSpan = 8;
             cell.className = "text-muted";
             tr.appendChild(cell);
             boardList.appendChild(tr);
@@ -283,6 +327,8 @@
             tr.appendChild(scopeCell);
             tr.appendChild(td(board.publicYn ? "공개" : "비공개"));
             tr.appendChild(td(board.attachmentYn ? "허용" : "금지"));
+            tr.appendChild(td(board.writableYn ? "사용" : "쓰기 중지"));
+            tr.appendChild(td(board.listPageSize + "건"));
             tr.appendChild(td(formatDate(board.updateDate)));
             tr.addEventListener("click", function () { startEdit(board); });
             boardList.appendChild(tr);
@@ -324,6 +370,7 @@
         boardName.value = board.name;
         boardPublic.checked = !!board.publicYn;
         boardAttachment.checked = !!board.attachmentYn;
+        fillDisplay(board);
         scope.set(board.siteId);
         boardNotice.checked = false;
         boardNoticeGroup.classList.add("d-none");           // 공지 게시판 만들기는 생성 모드에서만
@@ -334,6 +381,16 @@
         openModal();
     }
 
+    // 표시·쓰기 설정 입력을 서버 응답 값으로 채운다(null = 기본값). 새 게시판은 현행 동작과 같은 기본값이다.
+    function fillDisplay(board) {
+        boardWritable.checked = !board || board.writableYn !== false;
+        boardDescription.value = board && board.description ? board.description : "";
+        boardAuthorLabel.value = board && board.authorLabel ? board.authorLabel : "";
+        boardListPageSize.value = String(board && board.listPageSize ? board.listPageSize : 10);
+        boardNewBadgeDays.value = String(board && board.newBadgeDays ? board.newBadgeDays : 0);
+        boardShowViewCount.checked = !!(board && board.showViewCount);
+    }
+
     // 폼과 편집 상태를 새 게시판 작성 상태로 되돌린다(모달은 열지 않는다).
     function resetForm() {
         editing = null;
@@ -341,6 +398,7 @@
         boardForm.reset();
         boardPublic.checked = true;
         boardAttachment.checked = true;
+        fillDisplay(null);
         scope.reset();
         boardNotice.checked = false;
         boardNoticeGroup.classList.remove("d-none");
@@ -374,7 +432,8 @@
     // 저장 중에는 입력·작성 대상 전환을 잠가 응답 반영 시 초안이 덮어써지지 않게 한다
     function setSaving(value) {
         saving = value;
-        [boardName, boardPublic, boardAttachment, btnSave, btnNew, btnDelete, btnModalClose, btnModalCloseX].forEach(function (el) { el.disabled = value; });
+        [boardName, boardPublic, boardAttachment, boardWritable, boardDescription, boardAuthorLabel, boardListPageSize,
+            boardNewBadgeDays, boardShowViewCount, btnSave, btnNew, btnDelete, btnModalClose, btnModalCloseX].forEach(function (el) { el.disabled = value; });
         syncScopeControls();
     }
 
@@ -389,7 +448,26 @@
             return;
         }
         const target = editing;                        // 요청 시작 시점의 대상을 고정한다
-        const payload = { name: name, publicYn: boardPublic.checked, attachmentYn: boardAttachment.checked };
+        const badgeDays = Number(boardNewBadgeDays.value);
+        if (!Number.isInteger(badgeDays) || badgeDays < 0 || badgeDays > 30) {
+            showError("새 글 표시 기간은 0~30일의 정수여야 합니다.");
+            return;
+        }
+        const payload = {
+            name: name,
+            publicYn: boardPublic.checked,
+            attachmentYn: boardAttachment.checked,
+            writableYn: boardWritable.checked,
+            // 비우면 ""를 보낸다 — 수정에서는 "삭제", 생성에서는 "없음"으로 서버가 해석한다(누락은 수정에서 "유지")
+            description: boardDescription.value,
+            authorLabel: boardAuthorLabel.value,
+            listPageSize: Number(boardListPageSize.value),
+            newBadgeDays: badgeDays,
+            showViewCount: boardShowViewCount.checked
+        };
+        if (target) {
+            payload.version = target.version;               // 편집 시작 시점의 버전 — 낡은 화면이면 서버가 409로 거른다
+        }
         if (!target) {
             payload.siteScope = scope.value();
             payload.noticeBoard = boardNotice.checked;
@@ -424,6 +502,11 @@
                 showPageError(await extractErrorMessage(response, "게시판을 찾을 수 없습니다."));
                 closeModal();
                 await loadList();
+            } else if (response.status === 409 && target) {
+                // 다른 관리자가 먼저 수정했다 — 낡은 입력으로 덮어쓰지 않도록 모달을 닫고 안내한 뒤 최신 값을 다시 읽는다
+                showPageError(await extractErrorMessage(response, "다른 관리자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요."));
+                closeModal();
+                await loadList();
             } else {
                 showError(await extractErrorMessage(response, "저장에 실패했습니다."));
             }
@@ -445,7 +528,7 @@
         }
         setSaving(true);
         try {
-            const response = await fetch(BOARDS_URL + "/" + encodeURIComponent(target.id), {
+            const response = await fetch(BOARDS_URL + "/" + encodeURIComponent(target.id) + "?version=" + encodeURIComponent(target.version), {
                 method: "DELETE",
                 headers: getCsrfHeaders()
             });

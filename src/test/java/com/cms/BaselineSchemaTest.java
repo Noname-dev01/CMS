@@ -285,6 +285,24 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("게시판 표시 설정(V6): 새 컬럼 7개의 타입·NULL·기본값이 현행 동작이고, 생략한 INSERT(이전 앱)는 그 기본값을 얻는다")
+    void boardDisplaySettingsColumns() throws Exception {
+        assertThat(rows("SELECT CONCAT(column_name, '|', column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS"
+                + " WHERE table_schema = '" + SCHEMA + "' AND table_name = 'board' AND column_name IN ('description', 'list_page_size',"
+                + " 'author_label', 'show_view_count', 'new_badge_days', 'writable_yn', 'version') ORDER BY column_name")).containsExactly(
+                "author_label|varchar(50)|YES|NULL",
+                "description|varchar(500)|YES|NULL",
+                "list_page_size|int(11)|NO|10",
+                "new_badge_days|int(11)|NO|0",
+                "show_view_count|bit(1)|NO|b'0'",
+                "version|int(11)|NO|1",
+                "writable_yn|bit(1)|NO|b'1'");
+        st.executeUpdate("INSERT INTO board (name, public_yn, attachment_yn, deleted) VALUES ('표시설정 기본값', 1, 1, 0)");
+        assertThat(rows("SELECT CONCAT(list_page_size, '|', show_view_count + 0, '|', new_badge_days, '|', writable_yn + 0, '|', version) FROM board"
+                + " WHERE name = '표시설정 기본값'")).as("이전 앱처럼 새 컬럼을 모르는 INSERT").containsExactly("10|0|0|1|1");
+    }
+
+    @Test
     @DisplayName("프로필 이미지 URL 축소(V4): member.profile_image_url은 NULL 허용·기본값 없는 varchar(255)다")
     void profileImageUrlShrunk() throws Exception {
         assertThat(rows("SELECT CONCAT(column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS WHERE table_schema = '"

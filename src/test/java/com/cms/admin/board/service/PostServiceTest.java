@@ -115,7 +115,9 @@ class PostServiceTest {
 
     /** 게시판이 살아 있다고 가정(수정·삭제·조회의 게시판 미삭제 확인). */
     private void boardAlive() {
-        given(boardRepository.findByIdAndDeletedFalse(BOARD_ID)).willReturn(Optional.of(board()));
+        lenient().when(boardRepository.findByIdAndDeletedFalse(BOARD_ID)).thenReturn(Optional.of(board()));
+        // 수정은 게시판을 FOR SHARE로 읽는다(쓰기 중지 판정과 전환 직렬화) — 삭제는 잠금 없는 읽기라 둘 다 준비한다
+        lenient().when(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).thenReturn(Optional.of(board()));
     }
 
     private void givenSaveEchoesWithId() {
@@ -368,7 +370,7 @@ class PostServiceTest {
     @DisplayName("삭제된 게시판의 게시글은 수정할 수 없다 — 404")
     void updatePost_boardDeleted_notFound() {
         given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(existingPost()));
-        given(boardRepository.findByIdAndDeletedFalse(BOARD_ID)).willReturn(Optional.empty());
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.empty());
 
         assertThrows(ResourceNotFoundException.class,
                 () -> postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().title("변경").build()));

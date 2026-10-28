@@ -151,7 +151,7 @@ class PublicNoticeControllerTest {
 
     /** 서비스가 돌려주는 목록 결과(공지 게시판 공개 상태). */
     private static Optional<PublicBoardListResult> listResult(Page<PublicPostSummary> page, String keyword) {
-        return Optional.of(new PublicBoardListResult(3L, "공지사항", page, keyword));
+        return Optional.of(new PublicBoardListResult(3L, "공지사항", null, null, page, keyword));
     }
 
     /** 검색하지 않은 목록 결과(keyword=null). */
