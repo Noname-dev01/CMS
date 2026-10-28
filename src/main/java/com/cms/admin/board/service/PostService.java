@@ -71,6 +71,7 @@ public class PostService {
         Board board = boardRepository.findByIdAndDeletedFalseForShare(boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(BOARD_NOT_FOUND));
         requireWritable(board);
+        requirePeriodAllowed(board, period);
 
         LocalDateTime now = LocalDateTime.now(clock);
         Post saved = postRepository.save(
@@ -89,7 +90,7 @@ public class PostService {
                         .build()
         );
         contentImageService.replaceRefs(ContentImageService.OWNER_POST, saved.getId(),
-                ContentImageService.SCOPE_BOARD, boardId, content.imageIds());
+                ContentImageService.SCOPE_BOARD, boardId, content.imageIds(), Boolean.TRUE.equals(board.getBodyImageYn()));
 
         return PostResponse.from(saved, now);
     }
@@ -108,7 +109,10 @@ public class PostService {
         // 현재 사용자도 잠금 전에 — 403이 행 잠금을 쥔 채 나가지 않게 한다
         String updaterId = requireCurrentAdminUserId();
 
-        Post target = lockPostForWrite(boardId, postId);
+        LockedPost locked = lockPostForWrite(boardId, postId);
+        Post target = locked.post();
+        Board board = locked.board();
+        requirePeriodAllowed(board, period);
 
         String title = request.getTitle() != null
                 ? requireNonBlank(request.getTitle(), "제목은 공백일 수 없습니다.")
@@ -125,7 +129,7 @@ public class PostService {
         if (content != null) {
             // 게시글 행 잠금 안에서 본문과 참조를 함께 바꾼다 — 같은 게시글의 동시 저장이 직렬화된다
             contentImageService.replaceRefs(ContentImageService.OWNER_POST, target.getId(),
-                    ContentImageService.SCOPE_BOARD, boardId, content.imageIds());
+                    ContentImageService.SCOPE_BOARD, boardId, content.imageIds(), Boolean.TRUE.equals(board.getBodyImageYn()));
         }
 
         return PostResponse.from(target, now);
@@ -190,13 +194,28 @@ public class PostService {
      * {@code FOR UPDATE})과 진행 중 수정을 직렬화한다(PLAN-board-definition.md §4 D5). 게시판 쪽 잠금(PATCH·삭제)은 게시글 행을 잠그지 않아
      * 순환이 없고, 이미지 참조 교체보다 먼저 잡아 이미지 잠금과도 순환하지 않는다. 삭제는 판정이 없어 {@link #lockPost}를 그대로 쓴다.
      */
-    private Post lockPostForWrite(Long boardId, Long postId) {
+    private LockedPost lockPostForWrite(Long boardId, Long postId) {
         Post target = postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(postId, boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(POST_NOT_FOUND));
         Board board = boardRepository.findByIdAndDeletedFalseForShare(boardId)
                 .orElseThrow(() -> new ResourceNotFoundException(BOARD_NOT_FOUND));
         requireWritable(board);
-        return target;
+        return new LockedPost(target, board);
+    }
+
+    /** 수정용으로 잠근 게시글과 게시판 — 게시판 정책(작성 정책)은 공유 잠금이 돌려준 이 행의 값으로 판정한다. */
+    private record LockedPost(Post post, Board board) {
+    }
+
+    /**
+     * 예약 게시를 허용하지 않는 게시판은 시작·종료 중 하나라도 값이 있는 새 입력을 거부한다. 기존 기간은 계속 유효하고, 기간을 비우는 입력
+     * (둘 다 null)과 기간 필드가 없는 요청은 통과한다(PLAN-board-definition.md PR 2 D2-5).
+     */
+    private static void requirePeriodAllowed(Board board, PostPublishPeriodRequest.Period period) {
+        if (period != null && (period.start() != null || period.end() != null)
+                && !Boolean.TRUE.equals(board.getPublishPeriodYn())) {
+            throw new InvalidRequestException(Board.PUBLISH_PERIOD_DISABLED_MESSAGE);
+        }
     }
 
     static void requireWritable(Board board) {

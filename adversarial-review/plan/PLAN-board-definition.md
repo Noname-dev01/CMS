@@ -1,6 +1,6 @@
 # PLAN-board-definition — 게시판 정의 관리 고도화
 
-- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0 머지(#179) · PR 1 구현·검증 완료(2026-10-27, 미커밋)****
+- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1 머지(#179·#180) · PR 2 상세 설계(P2-v2, 리뷰 2라운드 ship) 후 구현·검증 완료(2026-10-28, 미커밋)****
 - 로드맵: 아직 정식 항목 아님(이 계획이 리뷰를 통과하면 `/updateRoadmap` 또는 로드맵 갱신으로 등록)
 - 개정 이력:
   - v1: 초안(전체 분할·결정·PR 1 상세).
@@ -316,7 +316,7 @@ ALTER TABLE `board`
 
 | PR | 미결정(원본은 각 PR 절) |
 |---|---|
-| 2 | 본문 이미지를 끈 게시판에서 이미지 든 기존 글 수정(추천 (iii) 새 이미지만 막기) / 예약 게시를 끈 게시판의 기존 예약 글 / 정책 변경↔업로드 경합의 게시판 `FOR SHARE`와 잠금 순서 |
+| 2 | **결정 완료(PR 2 상세 설계 P2-v2)** — ① (iii) 존재하는 새 이미지만 400(깨진 ID는 조용히 뺌) ② 기존 기간 유효·설정만 400·비우기 허용 ③ PR 1 게시판 `FOR SHARE` 재사용, 새 잠금 없음 |
 | 3 | 순서 저장과 생성의 직렬화 수단(가드 행 vs 전체 `FOR UPDATE`) / 고정 글 공개 노출 범위 / 순서 저장 범위 축소 여부 / 고정용 인덱스 |
 | L | 경로 상대·쿼리만·프래그먼트만 링크 허용 여부(추천 루트 상대만) / 내부 링크 `target`·`rel` / 정적 페이지 슬러그 ASCII 확인 |
 | 4a | SQL vs Java 마이그레이션(핵심) / 별칭 저장 구조(`board_slug` 추천) / 생성 시 슬러그 필수 여부 / 롤백 후 슬러그 없는 게시판 대응 / 마이그레이션 후 남은 숫자 경로 행 처리 / HTML 치환 대상 범위 |
@@ -570,3 +570,179 @@ PR 1의 새 글 배지 경계는 결정됐다(2026-10-27, "PR 1 상세 설계 �
 
 - 마지막 허용 페이지의 '다음' 링크가 0페이지로 돌아가는 기존 한계(글이 10,000건 넘는 극단 경우) — 두 공개 컨트롤러의 모델 계약 변경이 필요해 범위 밖, 후속 후보.
 - PR 2 이후: 계획 문서 §5. PR 2 착수 때 §7의 PR 2 미결정 목록을 상세 설계에서 정한다.
+
+---
+
+## PR 2 상세 설계 — 작성 정책 (P2-v1, 2026-10-28)
+
+§5 "PR 2" 윤곽의 상세 설계다. 개정 이력은 이 절 끝 "PR 2 개정 이력".
+
+### P2-1. 정찰 결과 (코드 근거)
+
+- **첨부 검증**: `AttachmentFilePolicy`(공용, `common/attachment`)는 정적 상수 `MAX_FILE_SIZE`(10MB)·`MAX_COUNT_PER_OWNER`(5)·`ALLOWED_CONTENT_TYPES_BY_EXTENSION`(15개 확장자)와 정적 메서드뿐이다. **main 코드의 소비자는 `PostAttachmentService.upload` 하나**(공지는 게시글이 됐고 프로필·배너·팝업·미디어는 `ImageFileValidator`를 쓴다 — §8 "공용 코드" 리스크 확인 완료). `upload`의 판정 순서: 게시글 `FOR UPDATE` → 게시판 `FOR SHARE` → 쓰기 중지 400 → `attachmentYn` 400 → 빈 파일 400 → 파일명 → 확장자 400 → Content-Type 400 → 크기 400 → 개수 **409** → 저장. 멀티파트 상한은 `spring.servlet.multipart.max-file-size: 10MB`(`application.yml`)라 10MB 초과 파일은 서비스에 닿지 않는다.
+- **본문 검증**: `ContentBodyPolicy.sanitize(raw, format)`는 게시글 전용(이미지 허용, 10,001자). 다른 소비자(`sanitizePage`·`sanitizePopup`·`sanitizeFaq`)는 이미 이미지를 불허한다. 게시글 이미지 참조는 `ContentImageService.replaceRefs(OWNER_POST, postId, SCOPE_BOARD, boardId, imageIds)` — 이미 `alreadyReferenced`(이 게시글이 지금 참조하는 이미지 ID, 투영 조회)를 계산해 "라이브러리 이미지는 이미 참조 중이면 권한 회수 뒤에도 유지"를 판정한다. 같은 메서드를 배너·팝업·미디어가 다른 owner로 부른다.
+- **본문 이미지 업로드**: 진입점은 `ContentImageService.uploadForBoard` 하나 — 권한 재판정(403) → 게시판 `FOR SHARE` → 쓰기 중지 400 → 저장. 라이브러리 이미지는 업로드가 아니라 `replaceRefs`로만 들어온다.
+- **예약 게시**: `PostPublishPeriodRequest.toPeriod()`가 잠금 전에 엄격 파싱한다. 생성은 객체 없음 = 기간 없음, 수정은 객체 없음 = 유지·객체 있음 = 통째 교체(`{}` = 비움).
+- **잠금(PR 1에서 이미 정리됨)**: 생성 = 게시판 `FOR SHARE`, 수정 = 게시글 `FOR UPDATE` → 게시판 `FOR SHARE`(`lockPostForWrite`), 첨부 업로드 = 게시글 `FOR UPDATE` → 게시판 `FOR SHARE`, 본문 이미지 업로드 = 게시판 `FOR SHARE`. 게시판 PATCH = 게시판 `FOR UPDATE`. **정책을 읽어야 하는 모든 쓰기가 이미 게시판 공유 잠금 안에 있다.**
+- **화면**: `posts.html`은 편집기(`NoticeEditor.create`)를 **페이지에 하나만** 만들고 게시판마다 `setUploadUrl`만 바꾼다. `allowImages`는 생성 시 고정 옵션이고, `false`면 이미지 서식(`formats`)까지 빠져 **기존 글을 불러올 때 `<img>`가 지워진다**(`setHtml`은 `clipboard.convert`를 거친다). 첨부 영역은 `MyBoardResponse.attachmentYn`·`writableYn`·`actions`로 표시를 정한다. `manage.html`(ADMIN 전용) 모달은 "기본"·"공개 화면 표시" 두 묶음이다.
+- **시험 영향**: `MyBoardResponse`는 `@AllArgsConstructor`(생성자 호출은 `MyBoardService` 한 곳), `Board.update`의 호출자는 `BoardService` 한 곳(시험 직접 호출 없음). `AttachmentFilePolicyTest`가 전역 상수 값을 단언한다(바꾸지 않는다). 첨부 상한 시험은 `PostApiIntegrationTest`(5개 상한·`attachmentYn`)에 있다.
+
+### P2-2. 설계 결정
+
+**D2-1. 스키마** — `V7__board_write_policy.sql`(DDL 한 문장, V5·V6과 같이 `ADD COLUMN IF NOT EXISTS`)
+
+```sql
+ALTER TABLE `board`
+  ADD COLUMN IF NOT EXISTS `attach_max_count` int(11) NOT NULL DEFAULT 5,
+  ADD COLUMN IF NOT EXISTS `attach_max_size_mb` int(11) NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS `attach_extensions` varchar(200) DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS `body_image_yn` bit(1) NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS `publish_period_yn` bit(1) NOT NULL DEFAULT 1;
+```
+
+- 모든 DEFAULT = 현행 동작(5개·10MB·전역 확장자 전체·이미지 허용·예약 허용). 롤백한 앱이 만든 게시판도 재배포 후 지금과 같다(쟁점 6). 기존 테이블에 `NOT NULL` 컬럼을 더하므로 **업그레이드 경로 시험 대상**(`BoardWritePolicyUpgradeTest`, PR 1의 `BoardDisplaySettingsUpgradeTest` 형식) + `BaselineSchemaTest` 단언.
+- `attach_extensions`: **소문자·중복 제거·사전순·쉼표 구분** 정규형만 저장한다. NULL = 전역 화이트리스트 전체. 길이 200은 전역 15개를 모두 이어도 약 60자라 여유가 있다.
+- 단위는 MB 정수(1..10) — 바이트로 저장하면 화면·메시지가 소수 MB가 되고 전역 상한과의 비교가 흐려진다. 판정은 `size > mb × 1024 × 1024`.
+
+**D2-2. 전역 상한은 천장 — 검증 진입점은 `AttachmentFilePolicy` 하나**
+
+- 게시판 값의 범위: `attach_max_count ∈ 1..MAX_COUNT_PER_OWNER(5)`, `attach_max_size_mb ∈ 1..10`(상수 `MAX_FILE_SIZE_MB = 10`을 두고 `MAX_FILE_SIZE`를 그것으로 정의 — 두 값이 갈라지지 않게), `attach_extensions ⊆ 전역 키`. 범위 밖은 게시판 저장 400. **0개(= 첨부 금지)는 받지 않는다** — 그 의미는 `attachmentYn=false`가 이미 가진다(두 표현이 생기면 어느 쪽이 원본인지 흐려진다).
+- `AttachmentFilePolicy`에 추가(전역 판정을 먼저 하고 게시판 제한을 뒤에 하는 순서를 이 클래스가 강제):
+  - `allowedExtensions()` — 전역 키의 정렬된 불변 목록(화면 체크박스·응답·검증 공용).
+  - `normalizeExtensions(Collection<String>)` — 원소마다 `strip`·소문자(`Locale.ROOT`), 중복 제거 후 전역 부분집합인지 검사(아니면 400 — 메시지에 입력 원문을 싣지 않는다), null 원소·빈 집합 400, **전역 전체와 같으면 null**(= "전체", D2-3), 아니면 정렬 집합.
+  - `requireAllowedExtension(filename, Set<String> boardExtensions)` — 기존 단일 인자판(전역)을 먼저 호출해 **전역 실패 메시지가 그대로** 나오고, 통과한 확장자가 게시판 집합(null이면 생략)에 없으면 400 "이 게시판에서 허용하지 않는 파일 형식입니다: .x". 기존 단일 인자판은 남긴다.
+- **DB 값이 전역 밖이어도 천장이 지킨다**: 직접 SQL로 `attach_extensions='exe'`를 넣어도 전역 판정이 먼저라 `.exe`는 여전히 400이다. 저장 값 파싱(`Board.attachExtensionSet()`)은 쉼표로 자르고 빈 토큰을 버리기만 한다 — 재검증하지 않는 이유는 천장 판정이 업로드마다 먼저 돌기 때문이다(시험으로 고정). 게시판 크기·개수 값도 판정 시 `min(게시판 값, 전역 상한)`으로 쓴다(직접 SQL로 20을 넣어도 천장 유지).
+- 업로드 판정 순서(기존 순서에 게시판 값만 끼운다): 쓰기 중지 400 → `attachmentYn` 400 → 빈 파일 → 파일명 → **확장자(전역 → 게시판) 400** → Content-Type 400 → **크기(게시판 MB) 400** → **개수(게시판 상한) 409**. 메시지는 게시판 값으로 만든다("첨부파일은 3MB 이하만…", "게시글당 첨부파일은 최대 2개까지…"). 상태 코드는 기존 그대로다.
+
+**D2-3. 확장자 PATCH 의미** — 2상태 + 정규화
+
+- 요청 필드 `attachExtensions: string[]`. **키 누락·`null` = 유지**, 배열 = 통째 교체. 빈 배열 = 400(첨부 금지는 `attachmentYn`). **전역 전체와 같은 집합 = NULL로 저장**("전체 허용").
+- 선택지: (a) 전체 선택을 그대로 목록으로 저장 (b) **전체 = NULL로 정규화**. → (b). 이유: NULL과 "전체 목록"이 두 표현으로 공존하면 전역 화이트리스트에 확장자가 추가될 때 게시판마다 결과가 갈린다(목록 저장 게시판만 새 확장자를 못 받음). 기본값(NULL)과 "모두 체크"가 같은 의미여야 화면 체크박스가 정직하다. 수용하는 결과: 전역에 확장자가 늘면 NULL 게시판은 자동으로 받는다 — 기본 동작과 같다.
+- 응답(`BoardResponse.attachExtensions`)은 **저장값 그대로**이고 전체 허용(NULL)이면 **키가 빠진다**(전역 `default-property-inclusion: non_null` — P2-v2, 리뷰 P2-R1-4). 계약은 "키 누락 = 전체". 화면은 `null`·`undefined`를 모두 전체로 읽고, 시험은 PR 1의 `absent()` 헬퍼로 키 부재를 단언한다. `MyBoardResponse.attachExtensions`는 **실효 목록**(NULL이면 전역 전체를 펼쳐서 — 항상 있음)이라 게시글 화면은 "전체"를 따로 해석할 필요 없이 `accept`·안내에 그대로 쓴다.
+- **원소 수 상한**(P2-v2, 리뷰 P2-R1-3): 요청 DTO의 `attachExtensions`에 `@Size(max = 50)`(초과 400 — 전역 15개의 중복·대소문자 변형을 넉넉히 받는 값). 문자열 필드에 DTO `@Size`를 두지 않은 PR 1 규칙(정리 전 길이로 400을 내지 않게)과 달리 **원소 개수는 정리 전후가 같아** DTO에서 막아도 의미가 바뀌지 않는다. 원소 하나의 길이 상한은 두지 않는다 — JSON 요청 본문 전체 크기는 이름·설명 같은 기존 문자열 필드와 공통인 프로젝트 차원 사안이고(multipart 한도는 JSON에 적용되지 않는다), ADMIN 전용 API이며, 긴 원소는 전역 화이트리스트 대조에서 즉시 400이다.
+
+**D2-4. 본문 이미지 허용(`body_image_yn`)을 끈 게시판** — 미결정 ① 해소: **(iii) 기존 이미지는 유지, 새 이미지만 거부**
+
+- 선택지: (i) 저장 시 sanitizer가 이미지를 지움 — 관리자가 제목만 고쳐도 본문 이미지가 조용히 사라지는 데이터 손실 (ii) 이미지가 있으면 400 — 기존 글은 이미지를 손으로 지우기 전에는 오타 하나도 못 고친다 (iii) **이 글이 이미 참조 중인 이미지는 유지, 그 밖의 이미지 ID가 본문에 있으면 400**. → (iii)(윤곽의 추천).
+- **"새 이미지"의 정의는 참조 테이블 기준이다**: 본문의 이미지 ID 중 **실제로 존재하는 이미지**(`findAllByIdForShare`가 돌려준 행)이면서 `content_image_ref`에서 이 게시글(owner `POST`)이 지금 참조하지 않는 것. 업로드한 이미지·라이브러리에서 고른 이미지·다른 글 본문에서 복사해 붙인 `<img src="/content-images/N">`이 모두 여기에 걸린다. 생성은 참조가 없으므로 **존재하는 이미지가 하나라도 있으면 400**.
+- **존재하지 않는 ID는 허용 게시판과 똑같이 조용히 뺀다**(P2-v2, 리뷰 P2-R1-1): sanitizer는 형식이 맞는 `/content-images/{id}`를 남기고 `replaceRefs`는 존재하는 이미지만 참조로 저장하므로, 지금도 **본문에는 있지만 참조가 없는 깨진 ID**가 생길 수 있다. 이것을 "새 이미지"로 거부하면 그런 기존 글은 정책을 끈 뒤 오타 하나도 못 고친다((ii)의 문제가 다시 생김). 존재하지 않는 ID는 아무것도 보여 주지 않으므로(공개 404) 막을 이유가 없다.
+- 구현 위치: `replaceRefs`에 오버로드 `replaceRefs(ownerType, ownerId, scopeType, scopeId, imageIds, boolean allowNewImages)`를 더하고 기존 5인자판은 `true`로 위임한다(배너·팝업·미디어 호출부 무변경). `allowNewImages=false`면 이미지 행을 잠가 읽는 루프(기존 출처·라이브러리 판정과 같은 자리)에서 `alreadyReferenced`에 없는 행을 만나면 **삭제·쓰기 전에** 400 "본문 이미지를 허용하지 않는 게시판입니다. 새로 넣은 이미지를 지워 주세요." — 이미 계산하는 `alreadyReferenced`(투영 조회)를 재사용하고, 거부가 쓰기 전이라 기존 참조가 남는다(기존 출처 400과 같은 성질). 판정 순서는 이 새 이미지 검사를 출처·라이브러리 검사보다 **먼저** 둔다(불허 게시판에서는 어떤 새 이미지든 같은 문구).
+  - 대안: `PostService`가 참조 ID를 따로 읽어 비교 — 같은 투영 조회가 두 번 돌고 "이미 참조 중" 규칙이 두 곳에 생긴다. 기각.
+- 출력·공개 판정은 바꾸지 않는다: 기존 이미지는 공개 화면에 계속 보이고(`existsPublishedPostRef` 그대로), 이 설정은 **쓰기 정책**이지 표시 정책이 아니다.
+- **업로드도 막는다**: `uploadForBoard`는 쓰기 중지 판정 뒤에 `body_image_yn=false`면 400(문구 상수 `Board.BODY_IMAGE_DISABLED_MESSAGE` "본문 이미지를 허용하지 않는 게시판입니다."). 막지 않으면 저장에 못 쓰는 미참조 이미지가 쌓여 카운터 용량만 먹는다. 판정 순서는 권한 403 → 404 → 쓰기 중지 400 → 이미지 불허 400.
+- **본문 정리는 그대로**(`ContentBodyPolicy.sanitize` 무변경 — `allowImages=true`로 정리). 이미지를 불허하는 sanitizer로 바꾸면 그것이 곧 (i)이다.
+
+**D2-5. 예약 게시 허용(`publish_period_yn`)을 끈 게시판** — 미결정 ② 해소: **기존 기간은 계속 유효, 새로 "설정"하는 입력만 400**
+
+- 선택지: (a) **기존 예약·만료 글의 기간은 그대로 유효하고, 시작이나 종료가 있는 새 입력만 400** (b) 끄는 순간 공개 조건에서 기간을 무시 — 공개 경로 다섯 곳(쟁점 2)과 공지·본문 이미지 판정에 게시판 조건을 넣어야 하고, 끄는 순간 예약 글이 즉시 공개되거나 만료 글이 되살아난다(되돌릴 수 없는 노출). → (a)(윤곽의 추천).
+- 규칙: 게시판이 끈 상태에서 `publishPeriod`의 **`start`나 `end` 중 하나라도 값이 있으면 400** "예약 게시를 허용하지 않는 게시판입니다.". **`{}`(비우기)는 허용**한다 — 기간을 없애는 것은 정책을 줄이는 방향이고, 끄기 전에 걸어 둔 예약을 풀 수단이 있어야 한다. 객체 없음(생성 = 기간 없음, 수정 = 유지)은 그대로다. 같은 값을 다시 보내는 PATCH도 400이다(화면은 바뀐 경우에만 보낸다 — 단순성을 위해 "현재 값과 같으면 허용"을 두지 않는다).
+- 판정 위치: 파싱(`toPeriod`, 형식 400)은 지금처럼 잠금 전, 게시판 정책 판정은 게시판 `FOR SHARE` 뒤(값을 알아야 하므로). 생성 = 게시판 공유 잠금 직후, 수정 = `lockPostForWrite` 직후. 쓰기 중지 판정 뒤에 둔다(쓰기 중지가 더 넓은 거부).
+- 공개 경로·`DisplayPeriod`·공개 쿼리는 **바꾸지 않는다**.
+
+**D2-6. 정책 변경 ↔ 진행 중 쓰기의 경합** — 미결정 ③ 해소: **새 잠금 없음, PR 1의 게시판 `FOR SHARE`를 그대로 쓴다**
+
+- 정책을 읽는 모든 쓰기(생성·수정·첨부 업로드·본문 이미지 업로드)는 PR 1 이후 이미 게시판 행 `FOR SHARE` 안에서 판정한다(P2-1). 정책 변경은 게시판 PATCH(`FOR UPDATE`)다. 따라서 "업로드가 옛 정책(10MB)으로 판정을 마친 뒤 정책 변경(3MB)이 커밋되고 업로드가 그 뒤 커밋" 같은 끼어들기는 생기지 않는다 — 진행 중 업로드가 끝날 때까지 PATCH가 기다리고, PATCH 뒤의 업로드는 새 값을 읽는다.
+- 잠금 순서는 PR 1 P1-2 ⑧의 교착 검토 그대로다(게시글 X → 게시판 S, 게시판 쪽 쓰기는 게시글 행을 잠그지 않음). 새 대기 관계가 생기지 않는다.
+- 시험: PR 1의 `BoardDisplaySettingsConcurrencyIntegrationTest`가 같은 잠금을 고정했고(변이 실험 확인됨), 이 PR은 잠금을 바꾸지 않는다. 다만 판정이 **잠금 조회가 돌려준 게시판의 값**을 쓰는지(잠금 없는 다른 조회 결과가 아니라)는 단위 시험으로 고정한다.
+
+**D2-7. 기존 데이터 — 상한을 낮춰도 이미 넘은 글은 그대로**(윤곽 기본안 확정)
+
+- 첨부 개수 판정은 업로드 시점에만 한다. 상한을 5→2로 낮춘 게시판의 3개짜리 글은 그대로 보이고 다운로드·삭제된다. 새 업로드만 409("최대 2개")이며 **2개 미만으로 지운 뒤에야** 다시 올릴 수 있다. 확장자·크기도 같다(기존 첨부는 재검증하지 않음). `attachmentYn=false`와 같은 규칙.
+
+**D2-8. 엔티티·DTO·API**
+
+- `Board`: 필드 5개(`@Builder.Default` — `attachMaxCount = 5`, `attachMaxSizeMb = 10`, `bodyImageYn = true`, `publishPeriodYn = true`, `attachExtensions = null`), 읽기 도우미 `attachExtensionSet()`(null = 전체), 문구 상수 `BODY_IMAGE_DISABLED_MESSAGE`·`PUBLISH_PERIOD_DISABLED_MESSAGE`. 쓰기는 PR 1의 `BoardDisplay`와 **분리한 record `BoardWritePolicy`**(`attachMaxCount, attachMaxSizeMb, attachExtensions(정규형 문자열|null), bodyImageYn, publishPeriodYn`)를 받아 `update(name, publicYn, attachmentYn, display, writePolicy, now)`로 전부 대입한다. `BoardDisplay`에 넣지 않는 이유: 이름 그대로 "공개 화면 표시" 묶음이고 화면 모달 묶음과도 맞춘다.
+- `BoardService`: 생성은 모든 새 필드 선택(누락 = DEFAULT), 수정은 "누락·null = 유지". 범위 검증은 **잠금 전**(PR 1 규칙). "변경할 필드 없음" 400 판정에 새 필드 5개를 더한다.
+- 요청: `BoardCreateRequest`·`BoardUpdateRequest`에 `attachMaxCount`·`attachMaxSizeMb`(Integer)·`attachExtensions`(List<String>)·`bodyImageYn`·`publishPeriodYn`(Boolean). DTO에 범위 어노테이션을 두지 않는다 — 범위·정규화는 서비스 한 곳(PR 1 P1-2 ⑦과 같은 이유). 목록 원소 수는 정규화 과정에서 전역 부분집합 검사로 사실상 15개 이하가 되지만, 수천 원소 배열이 정규화 루프에 들어오는 것은 요청 본문 크기 한도에 맡긴다.
+- 응답: `BoardResponse`에 5개(확장자는 저장값 `List<String>|null`), `MyBoardResponse`에 5개(확장자는 실효 목록). `MyBoardService`가 실효 목록을 펼친다.
+- API 경로·권한·감사(`BOARD_UPDATE`)는 바뀌지 않는다. `version` +1은 PR 1의 `update` 한 곳이 그대로 맡는다.
+
+**D2-9. 화면**
+
+- `manage.html`(ADMIN): 모달에 세 번째 묶음 **"작성 정책"** — 첨부 최대 개수(select 1..5)·파일당 최대 크기(select 1..10MB)·허용 확장자(체크박스, 목록은 서버 모델 `attachmentExtensions` = `AttachmentFilePolicy.allowedExtensions()`로 렌더해 JS 하드코딩 없음 — 모두 체크 = 전체), 본문 이미지 허용·예약 게시 허용 체크박스. 첨부 관련 입력은 `attachmentYn`이 꺼져 있어도 편집할 수 있게 둔다(첨부를 다시 켤 때의 값). 안내 문구: "상한을 낮춰도 이미 올린 첨부·이미지·예약 기간은 그대로이고 새 입력만 막습니다." 확장자를 하나도 고르지 않으면 클라이언트에서 막는다(서버도 400). 저장 중 잠금 목록(`setSaving`)에 새 입력을 더한다. 목록 열은 늘리지 않는다(정책은 모달에서 본다).
+- `posts.html`: 첨부 영역에 안내 "최대 N개 · 파일당 N MB · 허용 형식: pdf, …"(`textContent`)와 파일 입력 `accept`(`.pdf,.docx…`) — 서버 판정이 최종. 본문 이미지를 끈 게시판이면 편집기 이미지·라이브러리 버튼을 숨기고 안내("이 게시판은 새 본문 이미지를 허용하지 않습니다. 기존 이미지는 유지됩니다."), 예약 게시를 끈 게시판이면 생성·수정 폼의 노출 시작·종료 입력을 숨기고 안내("이 게시판은 예약 게시를 허용하지 않습니다. 이미 설정된 기간은 그대로 적용됩니다."). 상세 보기의 상태·기간 표시는 그대로. 기간 입력을 숨기면 변경 감지가 기간을 보내지 않게 한다(숨긴 입력의 값으로 `publishPeriod`를 만들지 않는다).
+  - **기간 해제 버튼**(P2-v2, 리뷰 P2-R1-2 — 게시판 정책은 ADMIN 전용이라 "잠시 켜고 비우기"는 게시판별 UPDATE만 가진 MANAGER의 수단이 못 되고, 켜 둔 동안 다른 작성자의 새 예약도 열린다): 예약을 끈 게시판에서 수정 중인 글에 기존 기간(시작·종료 중 하나라도)이 있으면 숨긴 입력 자리에 기존 기간 표시와 **"기간 해제"** 버튼을 보인다. 누르면 폼 상태에 "해제 예정"만 표시하고, 저장 시 `publishPeriod: {}`를 보낸다(다른 변경과 함께 한 번의 PATCH — 버튼이 따로 요청을 보내지 않아 저장 중 잠금·늦은 응답 처리 흐름을 그대로 쓴다). 취소하면 되돌린다. 서버는 D2-5대로 `{}`를 허용한다.
+- `notice-editor.js`: 새 메서드 `setImageUploadEnabled(enabled)` — 툴바 `.ql-image`·`.ql-library-image` 버튼 숨김 + 파일 붙여넣기·끌어놓기·버튼 업로드를 `onError` 안내로 끊음. **이미지 서식(`formats`)과 붙여넣기 matcher는 그대로 둔다** — `allowImages=false`처럼 서식을 빼면 기존 글을 불러올 때 이미지가 지워져(P2-1) 저장 시 (i)이 된다. 붙여넣은 `/content-images/N` 이미지는 서버 400이 최종 판정이다. 편집기는 페이지에 하나라 게시판을 열 때마다 `setUploadUrl`과 함께 호출한다.
+
+**D2-10. 롤백**
+
+- 이전 앱(V6까지)은 새 컬럼을 모르므로 **게시판별 작성 정책을 무시**하고 전역 상한(5개·10MB·전체 확장자·이미지·예약 허용)으로 동작한다 — 롤백 기간에 정책보다 큰 첨부·새 이미지·예약 글이 들어올 수 있다. 재배포 후에도 그 데이터는 그대로 둔다(D2-7과 같은 규칙). `docs/deployment.md`에 "게시판 작성 정책" 롤백 주의로 적는다. 롤백 중 만든 게시판은 DEFAULT(현행 동작)다.
+
+### P2-3. 변경 파일
+
+| 층 | 파일 | 변경 |
+|---|---|---|
+| 스키마 | `db/migration/V7__board_write_policy.sql` | 신규(컬럼 5개) |
+| 공용 | `common/attachment/AttachmentFilePolicy.java` | `MAX_FILE_SIZE_MB`·`allowedExtensions()`·`normalizeExtensions()`·`requireAllowedExtension(filename, set)` |
+| 도메인 | `admin/board/domain/Board.java`·`BoardWritePolicy.java`(신규 record) | 필드·기본값·`update` 인자·`attachExtensionSet()`·문구 상수 |
+| 서비스 | `BoardService` | 범위·정규화·PATCH 유지·변경 없음 판정 |
+| 서비스 | `PostService` | 예약 정책 판정, `replaceRefs(…, allowNewImages)` |
+| 서비스 | `PostAttachmentService` | 게시판 확장자·크기·개수 |
+| 서비스 | `contentimage/ContentImageService` | `replaceRefs` 오버로드, `uploadForBoard` 이미지 불허 400 |
+| 서비스·DTO | `MyBoardService`, `BoardCreateRequest`·`BoardUpdateRequest`·`BoardResponse`·`MyBoardResponse` | 새 필드 |
+| 컨트롤러 | `BoardPageController` | 모델 `attachmentExtensions` |
+| 화면 | `admin/board/manage.html`·`posts.html`, `static/js/admin/notice-editor.js` | D2-9 |
+| 시험 | P2-4 | |
+| 문서 | `com/cms/admin/board/CLAUDE.md`·`contentimage/CLAUDE.md`(오버로드 한 줄)·`docs/migration-guide.md`(V7)·`docs/deployment.md`(롤백) | |
+
+인가 정책·`SecurityConfig`·공개 경로·공개 쿼리·레이트리밋·sanitizer 허용 목록 변경 없음. **공용 코드(`common/attachment`) 변경이라 PR 직전 전체 `./gradlew test` 대상**.
+
+### P2-4. 시험 계획
+
+- 스키마: `BaselineSchemaTest`(새 컬럼 5개 타입·NULL·DEFAULT), `BoardWritePolicyUpgradeTest` 신규(V6까지 적용 → 게시판 2행 → V7 → 기존 행 `5·10·NULL·1·1`, 기존 컬럼 보존).
+- 단위 `AttachmentFilePolicyTest`: `normalizeExtensions` — 대소문자·공백·중복 정리, 전역 밖 400, null 원소·빈 집합 400, 전역 전체 = null, 순서 무관 정규형. `requireAllowedExtension(filename, set)` — 전역 밖(`exe`)은 게시판 집합에 넣어도 **전역 메시지 400**, 전역 안·게시판 밖 400(게시판 메시지), null 집합 = 전역만.
+- 단위 `BoardServiceTest`: 개수 0·1·5·6, 크기 0·1·10·11, 확장자 빈 배열·전역 밖 400(**잠금 조회 전**), 전체 선택 → null 저장, 누락 PATCH 유지, 새 필드만 보낸 PATCH가 "변경 없음"이 아님.
+- 단위 `PostServiceTest`·`PostAttachmentServiceTest`·`ContentImageServiceTest`: 정책 판정이 잠금 조회가 돌려준 게시판 값을 쓴다(D2-6), 예약 끈 게시판 — 생성 `start`만/`end`만 400·`{}`·객체 없음 통과, 수정 설정 400·`{}` 통과·객체 없음 통과. `replaceRefs` `allowNewImages=false` — 기존 참조만 = 통과, 존재하는 새 ID 하나 = 400이고 삭제·저장 호출 없음, 존재하지 않는 ID = 통과(참조에서 빠짐). 업로드 판정 순서(403 → 쓰기 중지 → 이미지 불허). DB에 전역 밖 값이 들어 있어도 천장(`exe`·크기 20·개수 9).
+- 통합 `BoardWritePolicyApiIntegrationTest` 신규(실 DB, MockMvc):
+  - 게시판 생성·수정 왕복(응답·DB), 확장자 `["PDF"," pdf ","hwp"]` → `hwp,pdf`, 일부 → 전체로 바꾸면 NULL·응답에 키 없음(`absent()`), `MyBoardResponse` 실효 목록, 원소 51개(같은 값 반복) 400·50개 200.
+  - 첨부: 크기 1MB 게시판에 정확히 1MB 200·1MB+1바이트 400, 확장자 `pdf`만 게시판에 png 400·pdf 200·`exe` 전역 메시지 400, 상한 2 게시판에서 2개 뒤 409(메시지에 2), **상한을 5→2로 낮춘 뒤 3개짜리 글은 목록·다운로드·삭제 200, 새 업로드 409, 하나 지운 뒤에도 2개라 409, 하나 더 지우면 200**.
+  - 본문 이미지: 끈 게시판 업로드 400, 생성에 이미지 400, **이미지 든 기존 글(허용일 때 작성 → 정책 끔)의 제목만 수정 200·본문 그대로 보낸 수정 200·참조 유지**, 미참조 이미지를 넣은 수정 400·기존 참조 유지, 이미지를 지운 수정 200·참조 감소, 공개 상세에서 기존 이미지 200, **존재하지 않는 이미지 ID가 본문에 든 기존 글(허용일 때 작성) → 정책 끔 → 같은 본문의 글자만 고친 수정 200**(P2-R1-1).
+  - 예약: 끈 게시판 생성 시 기간 400·`{}` 200, 예약 글(허용 시 작성) → 정책 끔 → 제목 수정 200·기간 그대로·공개 목록에 시작 전 미노출(기간 유효), 기간 설정 PATCH 400, `{}` PATCH 200·즉시 공개.
+  - 쓰기 중지와 겹침: 쓰기 중지 + 이미지 불허 게시판의 업로드는 쓰기 중지 메시지(순서).
+- 기존 시험 회귀: `PostApiIntegrationTest`(전역 5개 상한·`attachmentYn`)는 DEFAULT로 그대로 통과해야 한다.
+- 화면(playwright): 게시판 모달의 작성 정책 저장·재열기 값 유지(확장자 일부·전체), 게시글 화면의 첨부 안내·`accept`, 이미지 끈 게시판의 툴바 버튼 숨김 + 기존 이미지 글 열기 시 이미지 유지, 예약 끈 게시판의 기간 입력 숨김 + 기존 예약 글의 "기간 해제" → 저장 → 기간 없음(게시판 UPDATE만 가진 MANAGER로 — P2-R1-2).
+
+### PR 2 개정 이력
+
+- P2-v1: 초안(미결정 3건 — ① (iii) 새 이미지만 거부 ② 기존 기간 유효·설정만 400·비우기 허용 ③ PR 1 게시판 `FOR SHARE` 재사용, 새 잠금 없음).
+- P2-v2 변경(리뷰 1라운드): P2-R1-1 "새 이미지"를 **존재하는 이미지 중 미참조**로 한정 — 존재하지 않는 ID는 허용 게시판처럼 조용히 빼서, 깨진 ID가 든 기존 글도 정책을 끈 뒤 고칠 수 있게(D2-4, 시험 추가). P2-R1-2 예약 끈 게시판의 기존 기간을 게시판별 UPDATE 권한만으로 풀 수 있게 "기간 해제" 버튼(저장 시 `{}`) 추가 — 게시판 정책은 ADMIN 전용이라 "잠시 켜기" 우회는 MANAGER에게 불가(D2-9). P2-R1-3 `attachExtensions` 원소 수 DTO `@Size(max = 50)`(개수는 정리 전후가 같아 DTO에 둬도 됨, D2-3). 기각: 원소 하나의 길이 상한 — JSON 본문 크기는 기존 문자열 필드와 공통인 프로젝트 차원 사안이고 ADMIN 전용·긴 원소는 화이트리스트 대조에서 즉시 400. P2-R1-4 전역 `non_null`이라 전체 허용은 응답에서 **키 누락**(계약 "누락 = 전체", 시험은 `absent()`)(D2-3).
+- 리뷰 2라운드: ship(새 지적 없음). 사용자 승인 2026-10-28, 구현·검증 같은 날(아래 "구현·검증 결과 — PR 2").
+
+### 구현·검증 결과 — PR 2 (2026-10-28)
+
+**Context**: 첨부 개수·크기·확장자, 본문 이미지, 예약 게시가 전역 상수·무조건 허용에 묶여 있어 게시판마다 다른 작성 규칙을 둘 수 없었다. 이 PR은 게시판별 작성 정책 5개를 넣되, 전역 상한을 천장으로 두고 상한을 낮춰도 기존 데이터는 건드리지 않는다(새 입력만 막는다).
+
+**핵심 확정 사항**: P2-v2 설계 그대로 구현했다 — 정책 컬럼 5개(V7, 전부 현행 동작 DEFAULT), 전역 검사 → 게시판 제한 순서를 `AttachmentFilePolicy`가 강제(DB를 직접 고쳐도 전역 상한 유지), 허용 확장자는 전체 선택 = NULL로 정규화(응답에서는 키 누락), 본문 이미지를 끈 게시판은 기존 참조 유지 + 존재하는 새 이미지만 400(깨진 ID는 조용히 뺌), 예약을 끈 게시판은 기존 기간 유효 + 설정만 400·비우기 허용(화면 "기간 해제"), 새 잠금 없음(PR 1의 게시판 `FOR SHARE` 안에서 잠금 읽기 행의 값으로 판정). **계획과 달라진 구현 결정은 없다.** 구현 중 정한 세부: `Board.update`의 인자는 `BoardDisplay`와 분리한 `BoardWritePolicy`, `PostService.lockPostForWrite`가 `LockedPost(post, board)`를 돌려줘 수정이 잠근 게시판 행의 정책을 쓴다.
+
+**구현 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V7__board_write_policy.sql` | 신규 — `board` 컬럼 5개(`IF NOT EXISTS`, DEFAULT = 현행 동작) |
+| `common/attachment/AttachmentFilePolicy.java` | `MAX_FILE_SIZE_MB`·`allowedExtensions()`·`normalizeExtensions()`·`requireAllowedExtension(filename, set)` |
+| `admin/board/domain/Board.java`·`BoardWritePolicy.java`(신규 record) | 필드·기본값·`update` 인자·`writePolicy()`·`attachExtensionSet()`·문구 상수 |
+| `admin/board/service/BoardService.java` | 범위 검증·확장자 정규화·PATCH 유지·"변경 없음" 판정 확장 |
+| `admin/board/service/PostService.java`·`PostAttachmentService.java` | 예약 정책 판정, `replaceRefs(…, allowNewImages)`, 게시판 확장자·크기·개수(전역과 `min`) |
+| `admin/contentimage/service/ContentImageService.java` | `replaceRefs` 오버로드, `uploadForBoard` 이미지 불허 400 |
+| `admin/board/service/MyBoardService.java`, `dto/**` | 새 필드(내 게시판은 실효 확장자 목록) |
+| `admin/board/controller/BoardPageController.java` | 모델 `attachmentExtensions` |
+| `templates/admin/board/manage.html`·`posts.html`, `static/js/admin/notice-editor.js` | "작성 정책" 묶음, 첨부 안내·`accept`, 기간 해제, `setImageUploadEnabled` |
+| 시험(신규) | `BoardWritePolicyApiIntegrationTest`(13)·`BoardWritePolicyUpgradeTest`(1) + `BaselineSchemaTest`·`BoardServiceTest`·`PostServiceTest`·`PostAttachmentServiceTest`·`AttachmentFilePolicyTest` 추가 |
+| 시험(기존 수정) | `PostServiceTest`의 `replaceRefs` 검증을 6인자로 |
+| 문서 | `com/cms/admin/board/CLAUDE.md`(새 절)·`contentimage/CLAUDE.md`·`docs/migration-guide.md`(V7)·`docs/deployment.md`(롤백) |
+
+**검증 결과**
+
+- 영향 범위 시험(`admin.board`·`admin.contentimage`·`admin.permission`·`admin.media`·`publicweb.board`·`publicweb.notice`·`common`·`*ConventionTest`·`BaselineSchemaTest`): **실패 0**. 새 통합 시험 13건이 실행됐음을 결과 XML로 확인. 전체 `./gradlew test`는 PR 직전 1회(code-review-loop 마무리)로 남긴다.
+- 변이 실험: `replaceRefs`의 새 이미지 거부 조건과 `PostService.requirePeriodAllowed`의 예약 판정을 각각 무력화하면 `BoardWritePolicyApiIntegrationTest`·`PostServiceTest`에서 7건이 실패함을 확인 후 복원.
+- 실기(dev, `bootRun`, Playwright): dev DB(V6)에 V7 적용(`Successfully applied 1 migration … v7`). ① UI로 게시판 생성 — 개수 2·3MB·hwp/pdf·이미지 끔·예약 끔 저장, 재열기 때 값 그대로(스크린샷 `board-definition-pr2-screenshots/01-policy-modal.png`·`02-policy-modal-reopened.png`) ② 예약을 끈 게시판에 기간 있는 글 생성 API 400 ③ 예약 글(정책 끄기 전 작성)의 수정 화면: 기간 입력 숨김 + 기존 기간 표시 + "기간 해제", 이미지 버튼 숨김 + 안내(`03-posts-edit-period-locked.png`) ④ "기간 해제" → 저장 → 기간 없음·상태 ACTIVE ⑤ 첨부 영역 안내 "최대 2개 · 파일당 3MB · 허용 형식: hwp, pdf"와 `accept=".hwp,.pdf"` ⑥ 기본 설정 게시판(공지)은 기간 입력·이미지 버튼이 그대로 보임(회귀 없음) ⑦ 익명 게시판 PATCH·목록 401 ⑧ 검증 글·게시판을 API로 삭제(게시판 행은 소프트 삭제로 남음).
+- **롤백 호환 실측**: V7이 적용된 DB에서 V4까지만 아는 이전 앱 이미지(`cms-app-dev`)가 경고만 남기고 기동, health 200.
+
+**이슈**
+
+- 첫 시험 실행에서 DB 의존 시험이 전부 `initializationError`(Docker Desktop 미기동 — 환경 문제). 기동 후 해결, 코드 원인 없음. 코드 쪽 실패는 `PostServiceTest`의 5인자 `replaceRefs` 검증 2건뿐(6인자로 정리).
+- 8080을 Docker가 자동 재시작한 `cms-app-dev`가 점유 — 멈추고 `bootRun`, 검증 후 다시 시작했다.
+
+**후속**
+
+- 없음(PR 3 착수 때 §7의 PR 3 미결정 목록을 상세 설계에서 정한다).

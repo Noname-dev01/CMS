@@ -151,6 +151,48 @@
                                         <input type="checkbox" class="form-check-input" id="boardShowViewCount">
                                         <label class="form-check-label" for="boardShowViewCount">공개 화면에 조회수 표시</label>
                                     </div>
+
+                                    <hr>
+                                    <h6 class="font-weight-bold text-gray-800">작성 정책</h6>
+                                    <small class="form-text text-muted mb-2">상한을 낮춰도 이미 올린 첨부·이미지·예약 기간은 그대로이고 새 입력만 막습니다. 첨부 설정은 위의 "첨부 허용"을 켤 때 적용됩니다.</small>
+                                    <div class="form-row">
+                                        <div class="form-group col-6">
+                                            <label for="boardAttachMaxCount">첨부 최대 개수(글당)</label>
+                                            <select class="form-control" id="boardAttachMaxCount">
+                                                <option value="1">1개</option>
+                                                <option value="2">2개</option>
+                                                <option value="3">3개</option>
+                                                <option value="4">4개</option>
+                                                <option value="5" selected>5개</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group col-6">
+                                            <label for="boardAttachMaxSizeMb">파일당 최대 크기</label>
+                                            <select class="form-control" id="boardAttachMaxSizeMb">
+                                                <option th:each="mb : ${#numbers.sequence(1, 10)}" th:value="${mb}" th:text="${mb + 'MB'}" th:selected="${mb == 10}"></option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <fieldset class="form-group" aria-describedby="boardAttachExtensionsHint">
+                                        <legend class="col-form-label pt-0">허용 확장자</legend>
+                                        <div id="boardAttachExtensions">
+                                            <div class="form-check form-check-inline" th:each="ext : ${attachmentExtensions}">
+                                                <input type="checkbox" class="form-check-input board-attach-extension" th:id="${'boardExt_' + ext}" th:value="${ext}" checked>
+                                                <label class="form-check-label" th:for="${'boardExt_' + ext}" th:text="${ext}"></label>
+                                            </div>
+                                        </div>
+                                        <small class="form-text text-muted" id="boardAttachExtensionsHint">모두 체크하면 전체 허용입니다. 하나 이상 골라야 합니다.</small>
+                                    </fieldset>
+                                    <div class="form-group form-check">
+                                        <input type="checkbox" class="form-check-input" id="boardBodyImage" checked aria-describedby="boardBodyImageHint">
+                                        <label class="form-check-label" for="boardBodyImage">본문 이미지 허용</label>
+                                        <small class="form-text text-muted" id="boardBodyImageHint">끄면 새 이미지를 넣을 수 없습니다. 이미 글에 들어 있는 이미지는 그대로 보입니다.</small>
+                                    </div>
+                                    <div class="form-group form-check">
+                                        <input type="checkbox" class="form-check-input" id="boardPublishPeriod" checked aria-describedby="boardPublishPeriodHint">
+                                        <label class="form-check-label" for="boardPublishPeriod">예약 게시 허용</label>
+                                        <small class="form-text text-muted" id="boardPublishPeriodHint">끄면 노출 시작·종료를 새로 설정할 수 없습니다. 이미 설정된 기간은 계속 적용되고, 글 수정 화면에서 해제할 수 있습니다.</small>
+                                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -185,6 +227,11 @@
     const boardListPageSize = document.getElementById("boardListPageSize");
     const boardNewBadgeDays = document.getElementById("boardNewBadgeDays");
     const boardShowViewCount = document.getElementById("boardShowViewCount");
+    const boardAttachMaxCount = document.getElementById("boardAttachMaxCount");
+    const boardAttachMaxSizeMb = document.getElementById("boardAttachMaxSizeMb");
+    const boardExtensionChecks = Array.from(document.querySelectorAll(".board-attach-extension"));
+    const boardBodyImage = document.getElementById("boardBodyImage");
+    const boardPublishPeriod = document.getElementById("boardPublishPeriod");
     const boardSiteScope = document.getElementById("boardSiteScope");
     const boardNotice = document.getElementById("boardNotice");
     const boardNoticeGroup = document.getElementById("boardNoticeGroup");
@@ -389,6 +436,13 @@
         boardListPageSize.value = String(board && board.listPageSize ? board.listPageSize : 10);
         boardNewBadgeDays.value = String(board && board.newBadgeDays ? board.newBadgeDays : 0);
         boardShowViewCount.checked = !!(board && board.showViewCount);
+        // 작성 정책 — attachExtensions는 전체 허용이면 응답에서 키가 빠진다(null·undefined 모두 전체)
+        boardAttachMaxCount.value = String(board && board.attachMaxCount ? board.attachMaxCount : 5);
+        boardAttachMaxSizeMb.value = String(board && board.attachMaxSizeMb ? board.attachMaxSizeMb : 10);
+        const allowed = board && Array.isArray(board.attachExtensions) ? board.attachExtensions : null;
+        boardExtensionChecks.forEach(function (check) { check.checked = allowed === null || allowed.indexOf(check.value) >= 0; });
+        boardBodyImage.checked = !board || board.bodyImageYn !== false;
+        boardPublishPeriod.checked = !board || board.publishPeriodYn !== false;
     }
 
     // 폼과 편집 상태를 새 게시판 작성 상태로 되돌린다(모달은 열지 않는다).
@@ -433,7 +487,9 @@
     function setSaving(value) {
         saving = value;
         [boardName, boardPublic, boardAttachment, boardWritable, boardDescription, boardAuthorLabel, boardListPageSize,
-            boardNewBadgeDays, boardShowViewCount, btnSave, btnNew, btnDelete, btnModalClose, btnModalCloseX].forEach(function (el) { el.disabled = value; });
+            boardNewBadgeDays, boardShowViewCount, boardAttachMaxCount, boardAttachMaxSizeMb, boardBodyImage, boardPublishPeriod]
+            .concat(boardExtensionChecks)
+            .concat([btnSave, btnNew, btnDelete, btnModalClose, btnModalCloseX]).forEach(function (el) { el.disabled = value; });
         syncScopeControls();
     }
 
@@ -453,7 +509,17 @@
             showError("새 글 표시 기간은 0~30일의 정수여야 합니다.");
             return;
         }
+        const selectedExtensions = boardExtensionChecks.filter(function (check) { return check.checked; }).map(function (check) { return check.value; });
+        if (selectedExtensions.length === 0) {
+            showError("허용 확장자를 하나 이상 선택하세요.");
+            return;
+        }
         const payload = {
+            attachMaxCount: Number(boardAttachMaxCount.value),
+            attachMaxSizeMb: Number(boardAttachMaxSizeMb.value),
+            attachExtensions: selectedExtensions,      // 모두 체크하면 서버가 "전체 허용"으로 저장한다
+            bodyImageYn: boardBodyImage.checked,
+            publishPeriodYn: boardPublishPeriod.checked,
             name: name,
             publicYn: boardPublic.checked,
             attachmentYn: boardAttachment.checked,

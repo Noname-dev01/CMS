@@ -3,6 +3,7 @@ package com.cms.admin.board.service;
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.dto.request.PostCreateRequest;
+import com.cms.admin.board.dto.request.PostPublishPeriodRequest;
 import com.cms.admin.board.dto.request.PostSearchRequest;
 import com.cms.admin.board.dto.request.PostUpdateRequest;
 import com.cms.admin.board.dto.response.PostPageResponse;
@@ -46,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
@@ -185,7 +187,7 @@ class PostServiceTest {
         ArgumentCaptor<Post> captor = ArgumentCaptor.forClass(Post.class);
         verify(postRepository).save(captor.capture());
         assertEquals("<p>안녕<img src=\"/content-images/3\"></p>", captor.getValue().getContent());
-        verify(contentImageService).replaceRefs("POST", 7L, "BOARD", BOARD_ID, java.util.Set.of(3L));
+        verify(contentImageService).replaceRefs("POST", 7L, "BOARD", BOARD_ID, java.util.Set.of(3L), true);
     }
 
     @ParameterizedTest
@@ -262,7 +264,7 @@ class PostServiceTest {
         postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().useYn(false).build());
 
         assertFalse(target.getUseYn());
-        verify(contentImageService, never()).replaceRefs(any(), any(), any(), any(), any());
+        verify(contentImageService, never()).replaceRefs(any(), any(), any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -279,7 +281,7 @@ class PostServiceTest {
                 .content("<p>새 본문<img src=\"/content-images/9\"></p>").contentFormat("HTML").build());
 
         assertEquals("<p>새 본문<img src=\"/content-images/9\"></p>", target.getContent());
-        verify(contentImageService).replaceRefs("POST", 1L, "BOARD", BOARD_ID, java.util.Set.of(9L));
+        verify(contentImageService).replaceRefs("POST", 1L, "BOARD", BOARD_ID, java.util.Set.of(9L), true);
     }
 
     @Test
@@ -511,5 +513,97 @@ class PostServiceTest {
         assertThrows(ResourceNotFoundException.class,
                 () -> postService.getPosts(BOARD_ID, PostSearchRequest.builder().build(), PageRequest.of(0, 20)));
         verify(postRepository, never()).searchPosts(any(), any(), any());
+    }
+
+    // ===================== 작성 정책 (PLAN-board-definition.md PR 2) =====================
+
+    private Board policyBoard(boolean bodyImageYn, boolean publishPeriodYn) {
+        return Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false)
+                .bodyImageYn(bodyImageYn).publishPeriodYn(publishPeriodYn).build();
+    }
+
+    private static PostCreateRequest createWithPeriod(PostPublishPeriodRequest period) {
+        return PostCreateRequest.builder().title("제목").content("<p>본문</p>").contentFormat("HTML").publishPeriod(period).build();
+    }
+
+    @Test
+    @DisplayName("생성: 예약 게시를 끈 게시판에서 시작 또는 종료가 있는 기간은 400이고 저장하지 않는다")
+    void createPost_periodDisabled_rejectsSetPeriod() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(policyBoard(true, false)));
+
+        for (PostPublishPeriodRequest period : new PostPublishPeriodRequest[] {
+                new PostPublishPeriodRequest("2026-12-01T00:00", null),
+                new PostPublishPeriodRequest(null, "2026-12-31T00:00"),
+                new PostPublishPeriodRequest("2026-12-01T00:00", "2026-12-31T00:00")}) {
+            InvalidRequestException e = assertThrows(InvalidRequestException.class, () -> postService.createPost(BOARD_ID, createWithPeriod(period)));
+            assertEquals(Board.PUBLISH_PERIOD_DISABLED_MESSAGE, e.getMessage());
+        }
+        verify(postRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("생성: 예약 게시를 끈 게시판도 기간 없음·빈 기간 객체({})는 통과한다")
+    void createPost_periodDisabled_allowsNoPeriod() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(policyBoard(true, false)));
+        given(postRepository.save(any(Post.class))).willAnswer(invocation -> invocation.getArgument(0));
+
+        postService.createPost(BOARD_ID, createWithPeriod(null));
+        postService.createPost(BOARD_ID, createWithPeriod(new PostPublishPeriodRequest(null, null)));
+        verify(postRepository, org.mockito.Mockito.times(2)).save(any(Post.class));
+    }
+
+    @Test
+    @DisplayName("수정: 예약 게시를 끈 게시판은 기간 설정 400, 비우기({})와 기간 필드 없는 수정은 통과 — 기존 기간은 그대로다")
+    void updatePost_periodDisabled_clearAllowedSetRejected() {
+        Post target = existingPost();
+        target.changePublishPeriod(LocalDateTime.of(2026, 12, 1, 0, 0), null);
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(policyBoard(true, false)));
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+
+        assertThrows(InvalidRequestException.class, () -> postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder()
+                .publishPeriod(new PostPublishPeriodRequest("2027-01-01T00:00", null)).build()));
+        assertEquals(LocalDateTime.of(2026, 12, 1, 0, 0), target.getPublishStart());
+
+        postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().title("제목만 수정").build());
+        assertEquals("제목만 수정", target.getTitle());
+        assertEquals(LocalDateTime.of(2026, 12, 1, 0, 0), target.getPublishStart());
+
+        postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().publishPeriod(new PostPublishPeriodRequest(null, null)).build());
+        assertEquals(null, target.getPublishStart());
+    }
+
+    @Test
+    @DisplayName("본문 이미지를 끈 게시판: 생성·수정이 replaceRefs에 allowNewImages=false를 넘긴다")
+    void bodyImagePolicy_passedToReplaceRefs() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn("admin01");
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(policyBoard(false, true)));
+        given(postRepository.save(any(Post.class))).willAnswer(invocation -> {
+            Post p = invocation.getArgument(0);
+            return Post.builder().id(7L).boardId(p.getBoardId()).title(p.getTitle()).content(p.getContent()).useYn(p.getUseYn())
+                    .deleted(false).authorId("admin01").createDate(p.getCreateDate()).updateDate(p.getUpdateDate()).build();
+        });
+
+        postService.createPost(BOARD_ID, createWithPeriod(null));
+        verify(contentImageService).replaceRefs("POST", 7L, "BOARD", BOARD_ID, java.util.Set.of(), false);
+
+        Post target = existingPost();
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+        postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder().content("<p>글자만</p>").contentFormat("HTML").build());
+        verify(contentImageService).replaceRefs("POST", 1L, "BOARD", BOARD_ID, java.util.Set.of(), false);
+    }
+
+    @Test
+    @DisplayName("정책 판정은 게시판 공유 잠금이 돌려준 행의 값을 쓴다 — 잠금 없는 읽기가 다른 값을 돌려줘도 영향이 없다")
+    void policyReadFromLockedBoardRow() {
+        Post target = existingPost();
+        // 잠금 없는 읽기는 예약 허용, 잠금(FOR SHARE) 읽기는 예약 금지 — 판정은 잠금 읽기 값을 따라야 한다
+        lenient().when(boardRepository.findByIdAndDeletedFalse(BOARD_ID)).thenReturn(Optional.of(policyBoard(true, true)));
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(policyBoard(true, false)));
+        given(postRepository.findByIdAndBoardIdAndDeletedFalseForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+
+        assertThrows(InvalidRequestException.class, () -> postService.updatePost(BOARD_ID, 1L, PostUpdateRequest.builder()
+                .publishPeriod(new PostPublishPeriodRequest("2027-01-01T00:00", null)).build()));
     }
 }

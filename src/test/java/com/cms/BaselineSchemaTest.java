@@ -303,6 +303,22 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("게시판 작성 정책(V7): 새 컬럼 5개의 타입·NULL·기본값이 현행 동작이고, 생략한 INSERT(이전 앱)는 그 기본값을 얻는다")
+    void boardWritePolicyColumns() throws Exception {
+        assertThat(rows("SELECT CONCAT(column_name, '|', column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS"
+                + " WHERE table_schema = '" + SCHEMA + "' AND table_name = 'board' AND column_name IN ('attach_max_count', 'attach_max_size_mb',"
+                + " 'attach_extensions', 'body_image_yn', 'publish_period_yn') ORDER BY column_name")).containsExactly(
+                "attach_extensions|varchar(200)|YES|NULL",
+                "attach_max_count|int(11)|NO|5",
+                "attach_max_size_mb|int(11)|NO|10",
+                "body_image_yn|bit(1)|NO|b'1'",
+                "publish_period_yn|bit(1)|NO|b'1'");
+        st.executeUpdate("INSERT INTO board (name, public_yn, attachment_yn, deleted) VALUES ('작성정책 기본값', 1, 1, 0)");
+        assertThat(rows("SELECT CONCAT(attach_max_count, '|', attach_max_size_mb, '|', IFNULL(attach_extensions, 'NULL'), '|', body_image_yn + 0, '|',"
+                + " publish_period_yn + 0) FROM board WHERE name = '작성정책 기본값'")).as("이전 앱처럼 새 컬럼을 모르는 INSERT").containsExactly("5|10|NULL|1|1");
+    }
+
+    @Test
     @DisplayName("프로필 이미지 URL 축소(V4): member.profile_image_url은 NULL 허용·기본값 없는 varchar(255)다")
     void profileImageUrlShrunk() throws Exception {
         assertThat(rows("SELECT CONCAT(column_type, '|', is_nullable, '|', IFNULL(column_default, 'NULL')) FROM information_schema.COLUMNS WHERE table_schema = '"

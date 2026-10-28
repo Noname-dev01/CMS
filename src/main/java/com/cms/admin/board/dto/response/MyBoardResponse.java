@@ -19,5 +19,15 @@ public class MyBoardResponse {
     private final Boolean attachmentYn;
     @Schema(description = "쓰기 허용 — false(쓰기 중지)면 화면이 새 글·수정·첨부 업로드 버튼을 숨긴다(서버 판정이 최종)")
     private final Boolean writableYn;
+    @Schema(description = "게시글당 첨부 개수 상한 — 화면 안내용(서버 판정이 최종)")
+    private final Integer attachMaxCount;
+    @Schema(description = "첨부 파일당 크기 상한(MB)")
+    private final Integer attachMaxSizeMb;
+    @Schema(description = "실효 허용 확장자 — 게시판이 제한하지 않으면 전역 허용 목록 전체를 펼친 값(항상 있음)")
+    private final List<String> attachExtensions;
+    @Schema(description = "본문 이미지 허용 — false면 화면이 이미지 버튼을 숨긴다(서버 판정이 최종)")
+    private final Boolean bodyImageYn;
+    @Schema(description = "예약 게시 허용 — false면 화면이 노출 기간 입력을 숨긴다(서버 판정이 최종)")
+    private final Boolean publishPeriodYn;
     private final List<PermissionAction> actions;
 }

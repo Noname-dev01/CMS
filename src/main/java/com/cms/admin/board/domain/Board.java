@@ -11,6 +11,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -40,6 +41,10 @@ public class Board {
 
     /** 쓰기 중지 게시판의 쓰기 거부 문구 — 게시글·첨부·본문 이미지 서비스가 같은 문구를 쓴다(400). */
     public static final String WRITE_STOPPED_MESSAGE = "쓰기가 중지된 게시판입니다.";
+
+    public static final String BODY_IMAGE_DISABLED_MESSAGE = "본문 이미지를 허용하지 않는 게시판입니다.";
+
+    public static final String PUBLISH_PERIOD_DISABLED_MESSAGE = "예약 게시를 허용하지 않는 게시판입니다.";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -105,6 +110,30 @@ public class Board {
     @Column(name = "writable_yn", nullable = false)
     private Boolean writableYn = true;
 
+    /** 게시글당 첨부 개수 상한 — 전역 상한({@code AttachmentFilePolicy.MAX_COUNT_PER_OWNER}) 이하만 쓴다. */
+    @Builder.Default
+    @Column(name = "attach_max_count", nullable = false)
+    private Integer attachMaxCount = 5;
+
+    /** 첨부 파일당 크기 상한(MB) — 전역 상한 이하만 쓴다. */
+    @Builder.Default
+    @Column(name = "attach_max_size_mb", nullable = false)
+    private Integer attachMaxSizeMb = 10;
+
+    /** 허용 확장자 정규형(소문자·사전순·쉼표 구분). null = 전역 화이트리스트 전체. */
+    @Column(name = "attach_extensions", length = 200)
+    private String attachExtensions;
+
+    /** 본문 이미지 허용. false면 새 이미지만 거부하고 이미 참조 중인 이미지는 유지한다. */
+    @Builder.Default
+    @Column(name = "body_image_yn", nullable = false)
+    private Boolean bodyImageYn = true;
+
+    /** 예약 게시 허용. false면 새 기간 설정만 거부하고 기존 기간은 계속 유효하다(비우기는 허용). */
+    @Builder.Default
+    @Column(name = "publish_period_yn", nullable = false)
+    private Boolean publishPeriodYn = true;
+
     /** 낡은 화면 검출용 변경 버전 — 수정·삭제마다 +1, 요청 값과 다르면 서비스가 409(정적 페이지·배너·팝업과 같은 방식). */
     @Builder.Default
     @Column(nullable = false)
@@ -116,7 +145,8 @@ public class Board {
      *
      * @param now 앱 Clock 기준 현재 시각 — updateDate에 기록
      */
-    public void update(String name, Boolean publicYn, Boolean attachmentYn, BoardDisplay display, LocalDateTime now) {
+    public void update(String name, Boolean publicYn, Boolean attachmentYn, BoardDisplay display, BoardWritePolicy writePolicy,
+                       LocalDateTime now) {
         if (name != null) {
             this.name = name;
         }
@@ -132,6 +162,11 @@ public class Board {
         this.showViewCount = display.showViewCount();
         this.newBadgeDays = display.newBadgeDays();
         this.writableYn = display.writableYn();
+        this.attachMaxCount = writePolicy.attachMaxCount();
+        this.attachMaxSizeMb = writePolicy.attachMaxSizeMb();
+        this.attachExtensions = writePolicy.attachExtensions();
+        this.bodyImageYn = writePolicy.bodyImageYn();
+        this.publishPeriodYn = writePolicy.publishPeriodYn();
         this.version = Math.incrementExact(this.version);
         this.updateDate = now;
     }
@@ -139,6 +174,29 @@ public class Board {
     /** 현재 표시 설정 — 서비스가 PATCH의 "누락 = 유지"를 계산하는 출발점. */
     public BoardDisplay display() {
         return new BoardDisplay(description, listPageSize, authorLabel, showViewCount, newBadgeDays, writableYn);
+    }
+
+    /** 현재 작성 정책 — 서비스가 PATCH의 "누락 = 유지"를 계산하는 출발점. */
+    public BoardWritePolicy writePolicy() {
+        return new BoardWritePolicy(attachMaxCount, attachMaxSizeMb, attachExtensions, bodyImageYn, publishPeriodYn);
+    }
+
+    /**
+     * 게시판이 허용한 확장자 집합. null = 게시판 제한 없음(전역 전체). 저장값은 서비스가 정규화해 넣지만 DB를 직접 고쳐도 천장은
+     * {@code AttachmentFilePolicy}의 전역 검사가 먼저 지키므로 여기서는 자르기만 한다.
+     */
+    public Set<String> attachExtensionSet() {
+        if (attachExtensions == null) {
+            return null;
+        }
+        Set<String> result = new HashSet<>();
+        for (String token : attachExtensions.split(",")) {
+            String extension = token.strip();
+            if (!extension.isEmpty()) {
+                result.add(extension);
+            }
+        }
+        return result;
     }
 
     /** 시스템 게시판(키가 있는 게시판)인지. 비공개 전환과 표시 대상 변경이 금지된다(공통 공지는 삭제도 금지 — {@link #isCommonNotice}). */

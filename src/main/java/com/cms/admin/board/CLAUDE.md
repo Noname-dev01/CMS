@@ -61,6 +61,19 @@
 - **롤백**: 이전 앱은 모든 새 컬럼이 DEFAULT라 그대로 동작하지만 **쓰기 중지를 무시**하고 `version`을 올리지 않는다(`docs/deployment.md` "게시판 표시 설정·쓰기 중지").
 - 시험: `BoardServiceTest`(검증은 잠금 전·version 비교·3상태), `BoardDisplaySettingsApiIntegrationTest`(관리 API 계약 전부), `BoardDisplaySettingsConcurrencyIntegrationTest`, `BoardDisplaySettingsPublicIntegrationTest`(`publicweb.board`, 일반·공지 템플릿), `NewBadgeTest`, `BoardDisplaySettingsUpgradeTest`(루트 패키지 — V5 → V6 기존 행).
 
+## 게시판 작성 정책 (2026-10-28, V7, `PLAN-board-definition.md` PR 2 — 적대적 리뷰 2라운드 ship)
+
+- **새 설정 5개**(`board`): `attach_max_count`(1..5)·`attach_max_size_mb`(1..10)·`attach_extensions`(전역 허용 목록의 부분집합, **NULL = 전체**)·`body_image_yn`·`publish_period_yn`. 전부 현행 동작 DEFAULT라 이전 앱이 만든 행도 지금과 같다. 쓰기는 PR 1의 `BoardDisplay`와 분리한 record `BoardWritePolicy`로 `Board.update`에 최종값을 넘긴다. 범위·정규화는 `BoardService` 한 곳이고(요청 DTO에는 `attachExtensions`의 원소 수 `@Size(max = 50)`만 — 개수는 정리 전후가 같다), "변경할 필드 없음" 판정에 새 필드가 포함된다.
+- **전역 상한이 천장이다 — 검증 진입점은 `AttachmentFilePolicy` 하나**(`requireAllowedExtension(filename, boardSet)`가 전역 검사를 먼저 하고 게시판 제한을 뒤에 한다). `PostAttachmentService`는 게시판 값을 `min(게시판 값, 전역 상수)`로 쓰므로 DB를 직접 고쳐 전역 밖 확장자·초과 크기를 넣어도 막힌다(시험 고정). 0개(첨부 금지)는 두지 않는다 — 그 뜻은 `attachmentYn=false`가 가진다.
+- **확장자 표현은 하나**: `normalizeExtensions`가 소문자·중복 제거·정렬 후 **전역 전체와 같으면 null**로 돌려준다 — "전체"를 NULL과 "모든 확장자 나열" 두 표현으로 두면 전역에 확장자가 늘 때 게시판마다 결과가 갈린다. 요청은 키 누락·null = 유지, 배열 = 통째 교체, 빈 배열 400. **응답은 전역 `non_null` 설정 때문에 전체 허용이면 `attachExtensions` 키가 빠진다**("키 누락 = 전체"). `MyBoardResponse.attachExtensions`는 실효 목록(전체면 전역 전체를 펼침, 항상 있음).
+- **본문 이미지를 끈 게시판 = 기존 이미지 유지 + 새 이미지만 400**: `ContentImageService.replaceRefs(…, allowNewImages)` 오버로드가 **실제로 존재하는** 이미지 중 이 글이 지금 참조하지 않는 것을 보면 삭제·쓰기 전에 400이다(기존 5인자판은 `true`로 위임 — 배너·팝업·미디어 호출부 무변경). **존재하지 않는 ID는 허용 게시판처럼 조용히 뺀다** — sanitizer는 형식이 맞는 ID를 남기므로 깨진 ID가 든 기존 글이 있을 수 있고, 거부하면 그 글은 정책을 끈 뒤 오타도 못 고친다. 이미지 업로드(`uploadForBoard`)도 쓰기 중지 판정 뒤에 400. `ContentBodyPolicy.sanitize`는 그대로(이미지를 불허하는 sanitizer로 바꾸면 저장 때 이미지가 조용히 사라진다).
+- **예약 게시를 끈 게시판 = 기존 기간은 유효, 시작·종료가 있는 새 입력만 400**: 공개 경로 다섯 곳·`DisplayPeriod`는 건드리지 않는다(끄는 순간 예약 글이 즉시 공개되는 되돌릴 수 없는 노출을 피함). **기간 비우기(`{}`)와 기간 필드 없는 수정은 허용**한다 — 게시판 정책은 ADMIN 전용이라 MANAGER는 "잠시 켜기"를 못 하므로 화면의 "기간 해제" 버튼(저장 시 `publishPeriod: {}`)이 UPDATE 권한만으로 기존 예약을 풀 수단이다.
+- **잠금 변경 없음**: 정책을 읽는 모든 쓰기가 PR 1 이후 이미 게시판 `FOR SHARE` 안이라 정책 변경(PATCH `FOR UPDATE`)과 직렬화된다. 판정은 **잠금 읽기가 돌려준 `Board` 행의 값**으로 한다(`PostService.lockPostForWrite`가 `LockedPost(post, board)`를 돌려준다 — 잠금 없는 다른 조회 결과를 쓰지 않는다. 시험 고정). 새 쓰기 경로를 만들면 이 판정과 잠금을 같이 넣는다.
+- **기존 데이터는 그대로**: 상한을 낮춰도 이미 넘은 첨부는 조회·다운로드·삭제되고 새 업로드만 막힌다(개수는 상한 미만이 되어야 다시 올릴 수 있다).
+- **화면**: `manage.html` "작성 정책" 묶음(확장자 체크박스는 서버 모델 `attachmentExtensions` = `AttachmentFilePolicy.allowedExtensions()`로 렌더 — 모두 체크 = 전체). `posts.html`은 첨부 영역에 안내와 `accept`, 이미지를 끈 게시판은 `NoticeEditor.setImageUploadEnabled(false)`(**이미지 서식·붙여넣기 matcher는 유지** — `allowImages=false`처럼 서식을 빼면 이미지가 든 기존 글을 열 때 이미지가 지워진다), 예약을 끈 게시판은 기간 입력 대신 기존 기간 + "기간 해제". 서버 판정이 최종이다.
+- **롤백**: 이전 앱은 정책을 무시하고 전역 상한으로 동작한다(`docs/deployment.md` "게시판 작성 정책").
+- 시험: `BoardWritePolicyApiIntegrationTest`(정책 왕복·검증·첨부 한도·상한 낮춤·본문 이미지·예약), `BoardServiceTest`·`PostServiceTest`·`PostAttachmentServiceTest`·`AttachmentFilePolicyTest`(단위, 잠금 행 값 사용·천장), `BoardWritePolicyUpgradeTest`(루트 패키지 — V6 → V7 기존 행). 변이 실험: 새 이미지 거부 조건·예약 판정을 무력화하면 7건이 실패함을 확인.
+
 ## 시험
 
 `BoardPermissionIntegrationTest`(PR A: ADMIN 생성·수정·감사, MANAGER 403, 게시판별 부여·회수), **`PostApiIntegrationTest`**(게시글 생명주기·감사, 게시판 A만 가진 MANAGER의 B 전 API 403, READ 의존, IDOR 404, 첨부 왕복·상한·`attachmentYn`, 이미지 출처 400, 게시판 삭제, 페이지 게이트, 통합 검색), **`AbstractBoardDeleteRaceTest`**(`innodb_snapshot_isolation` OFF·ON 서브클래스 — 회수 PUT ↔ 게시판 삭제 래치: OFF=200·ON=409, 게시글 생성 ↔ 게시판 삭제: 삭제가 공유 잠금을 기다리다 409; 변이 실험으로 `FOR SHARE` 제거 시 실패 확인), `com.cms.publicweb.board`의 시험(공개 불변식·스트리밍·템플릿), `FileStorageTransactionSupportTest`·`AttachmentFilePolicyTest`·`ContentBodyPolicyTest`(공용 추출).

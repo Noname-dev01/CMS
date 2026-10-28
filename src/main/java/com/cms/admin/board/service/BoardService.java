@@ -2,6 +2,7 @@ package com.cms.admin.board.service;
 
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.BoardDisplay;
+import com.cms.admin.board.domain.BoardWritePolicy;
 import com.cms.admin.board.dto.request.BoardCreateRequest;
 import com.cms.admin.board.dto.request.BoardUpdateRequest;
 import com.cms.admin.board.dto.response.BoardResponse;
@@ -13,6 +14,7 @@ import com.cms.admin.permission.MemberBoardPermissionRepository;
 import com.cms.admin.permission.PermissionChangedEvent;
 import com.cms.admin.site.ContentSiteScope;
 import com.cms.admin.site.SiteScope;
+import com.cms.common.attachment.AttachmentFilePolicy;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -26,6 +28,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 게시판 정의 관리(ADMIN 전용, PLAN-board.md 쟁점 6). 삭제는 살아 있는 게시글이 없을 때만 가능하다 — 삭제 API는 이 검사와 함께 PR B에서 처음
@@ -92,6 +95,12 @@ public class BoardService {
                 Boolean.TRUE.equals(request.getShowViewCount()),
                 request.getNewBadgeDays() != null ? requireNewBadgeDays(request.getNewBadgeDays()) : 0,
                 request.getWritableYn() == null || request.getWritableYn());
+        BoardWritePolicy writePolicy = new BoardWritePolicy(
+                request.getAttachMaxCount() != null ? requireAttachMaxCount(request.getAttachMaxCount()) : AttachmentFilePolicy.MAX_COUNT_PER_OWNER,
+                request.getAttachMaxSizeMb() != null ? requireAttachMaxSizeMb(request.getAttachMaxSizeMb()) : AttachmentFilePolicy.MAX_FILE_SIZE_MB,
+                request.getAttachExtensions() != null ? joinExtensions(request.getAttachExtensions()) : null,
+                request.getBodyImageYn() == null || request.getBodyImageYn(),
+                request.getPublishPeriodYn() == null || request.getPublishPeriodYn());
         LocalDateTime now = LocalDateTime.now(clock);
         Board board = Board.builder()
                 .name(name)
@@ -106,6 +115,11 @@ public class BoardService {
                 .showViewCount(display.showViewCount())
                 .newBadgeDays(display.newBadgeDays())
                 .writableYn(display.writableYn())
+                .attachMaxCount(writePolicy.attachMaxCount())
+                .attachMaxSizeMb(writePolicy.attachMaxSizeMb())
+                .attachExtensions(writePolicy.attachExtensions())
+                .bodyImageYn(writePolicy.bodyImageYn())
+                .publishPeriodYn(writePolicy.publishPeriodYn())
                 .createDate(now)
                 .updateDate(now)
                 .build();
@@ -126,11 +140,15 @@ public class BoardService {
         if (request.getName() == null && request.getPublicYn() == null && request.getAttachmentYn() == null
                 && request.getSiteScope() == null && request.getDescription() == null && request.getListPageSize() == null
                 && request.getAuthorLabel() == null && request.getShowViewCount() == null && request.getNewBadgeDays() == null
-                && request.getWritableYn() == null) {
+                && request.getWritableYn() == null && request.getAttachMaxCount() == null && request.getAttachMaxSizeMb() == null
+                && request.getAttachExtensions() == null && request.getBodyImageYn() == null && request.getPublishPeriodYn() == null) {
             throw new InvalidRequestException("변경할 필드가 없습니다.");
         }
         // 입력 검증은 잠금 전에 — 400이 행 잠금을 쥔 채 나가지 않게 한다
         requireVersionParam(request.getVersion());
+        Integer attachMaxCount = request.getAttachMaxCount() != null ? requireAttachMaxCount(request.getAttachMaxCount()) : null;
+        Integer attachMaxSizeMb = request.getAttachMaxSizeMb() != null ? requireAttachMaxSizeMb(request.getAttachMaxSizeMb()) : null;
+        String attachExtensions = request.getAttachExtensions() != null ? joinExtensions(request.getAttachExtensions()) : null;
         Integer listPageSize = request.getListPageSize() != null ? requireListPageSize(request.getListPageSize()) : null;
         Integer newBadgeDays = request.getNewBadgeDays() != null ? requireNewBadgeDays(request.getNewBadgeDays()) : null;
         // 지울 수 있는 문자열: null = 유지, 공백만 = 삭제(null 저장) — 정리 결과의 null과 "유지"를 구분하려고 요청 여부를 따로 본다
@@ -168,8 +186,16 @@ public class BoardService {
                 request.getShowViewCount() != null ? request.getShowViewCount() : current.showViewCount(),
                 newBadgeDays != null ? newBadgeDays : current.newBadgeDays(),
                 request.getWritableYn() != null ? request.getWritableYn() : current.writableYn());
+        BoardWritePolicy currentPolicy = board.writePolicy();
+        BoardWritePolicy writePolicy = new BoardWritePolicy(
+                attachMaxCount != null ? attachMaxCount : currentPolicy.attachMaxCount(),
+                attachMaxSizeMb != null ? attachMaxSizeMb : currentPolicy.attachMaxSizeMb(),
+                // 확장자는 요청 여부로 구분한다 — 정규화 결과 null(전체 허용)과 "유지"를 섞지 않는다
+                request.getAttachExtensions() != null ? attachExtensions : currentPolicy.attachExtensions(),
+                request.getBodyImageYn() != null ? request.getBodyImageYn() : currentPolicy.bodyImageYn(),
+                request.getPublishPeriodYn() != null ? request.getPublishPeriodYn() : currentPolicy.publishPeriodYn());
         LocalDateTime now = LocalDateTime.now(clock);
-        board.update(name, request.getPublicYn(), request.getAttachmentYn(), display, now);
+        board.update(name, request.getPublicYn(), request.getAttachmentYn(), display, writePolicy, now);
         if (siteChanged) {
             board.changeSite(requestedSiteId, now);
         }
@@ -222,6 +248,26 @@ public class BoardService {
             throw new InvalidRequestException("목록 크기는 10·20·30·50 중 하나여야 합니다.");
         }
         return value;
+    }
+
+    private static int requireAttachMaxCount(int value) {
+        if (value < 1 || value > AttachmentFilePolicy.MAX_COUNT_PER_OWNER) {
+            throw new InvalidRequestException("첨부 개수는 1~" + AttachmentFilePolicy.MAX_COUNT_PER_OWNER + "개여야 합니다.");
+        }
+        return value;
+    }
+
+    private static int requireAttachMaxSizeMb(int value) {
+        if (value < 1 || value > AttachmentFilePolicy.MAX_FILE_SIZE_MB) {
+            throw new InvalidRequestException("첨부 파일 크기는 1~" + AttachmentFilePolicy.MAX_FILE_SIZE_MB + "MB여야 합니다.");
+        }
+        return value;
+    }
+
+    /** 허용 확장자 정규화 → 저장 문자열. 전역 전체를 고르면 null(전체 허용), 빈 집합·전역 밖 값은 400. */
+    private static String joinExtensions(List<String> requested) {
+        Set<String> normalized = AttachmentFilePolicy.normalizeExtensions(requested);
+        return normalized == null ? null : String.join(",", normalized);
     }
 
     private static int requireNewBadgeDays(int value) {

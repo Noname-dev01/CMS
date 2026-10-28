@@ -15,6 +15,8 @@
  * - options.pickLibraryImage(기본 없음): 함수를 주면 이미지 툴바 옆에 "라이브러리" 버튼이 생긴다(PLAN-media-library.md D10). 버튼을 누르면
  *   pickLibraryImage(function (item) { ... })를 부르고, 호출 쪽이 선택 모달을 열어 고른 이미지를 콜백에 넘기면 /content-images/{id}로 삽입한다.
  *   본문 src 계약·sanitizer 허용 목록·formats는 그대로다(라이브러리 이미지도 본문에서는 같은 경로다). allowImages가 false면 무시한다.
+ * - setImageUploadEnabled(enabled): 본문 이미지를 허용하지 않는 게시판(PLAN-board-definition.md PR 2)에서 새 이미지 입력만 끈다 — allowImages=false와 달리
+ *   이미지 서식·붙여넣기 matcher는 유지해 이미 이미지가 든 글을 열어도 이미지가 지워지지 않는다.
  * - 로딩: clipboard.convert는 서식 없는 마지막 개행을 버려 끝 빈 문단이 재편집마다 줄어든다 — Quill 자신의 초기 로딩처럼 빈 문단을
  *   하나 덧붙여 변환한다(R5-1).
  */
@@ -89,6 +91,10 @@
             return CONTENT_IMAGE_SRC.test(node.getAttribute("src") || "") ? delta : new Delta();
         }
 
+        // 이미지 입력 가능 여부(setImageUploadEnabled). 이미지 서식(formats)·붙여넣기 matcher는 그대로 둔다 — allowImages=false처럼 서식을 빼면
+        // 이미 이미지가 든 글을 불러올 때 <img>가 지워져 저장 때 본문 이미지가 사라진다. 막는 것은 새로 넣는 입력(버튼·업로드)뿐이다.
+        let imageInputEnabled = true;
+
         let generation = 0;
         let pending = [];       // 대기 중인 삽입: { index }
         let busyCount = 0;
@@ -148,6 +154,10 @@
 
         /** 라이브러리 이미지를 지금 선택 위치에 /content-images/{id}로 넣는다(진행 중 업로드 세대가 바뀌었으면 호출 쪽이 버린다). */
         function openLibrary() {
+            if (!imageInputEnabled) {
+                onError("이 게시판은 본문 이미지를 허용하지 않습니다.");
+                return;
+            }
             const myGeneration = generation;
             const range = quill.getSelection(true);
             const index = range ? range.index : quill.getLength() - 1;
@@ -160,6 +170,10 @@
         }
 
         function pickImages() {
+            if (!imageInputEnabled) {
+                onError("이 게시판은 본문 이미지를 허용하지 않습니다.");
+                return;
+            }
             const input = document.createElement("input");
             input.type = "file";
             input.accept = IMAGE_MIME_TYPES.join(",");
@@ -173,6 +187,10 @@
 
         async function uploadFiles(index, files) {
             if (!files || files.length === 0) {
+                return;
+            }
+            if (!imageInputEnabled) {
+                onError("이 게시판은 본문 이미지를 허용하지 않습니다.");
                 return;
             }
             if (!uploadUrl) {
@@ -253,9 +271,22 @@
             uploadUrl = url || null;
         }
 
+        /**
+         * 새 이미지 입력(툴바 버튼·라이브러리·파일 붙여넣기·끌어놓기)을 켜거나 끈다. 끄면 툴바 이미지 버튼을 숨기고 업로드 경로는 안내만 한다.
+         * 본문에 이미 있는 이미지는 그대로 열리고 저장된다(서버가 새 이미지만 거부한다 — 서버 판정이 최종).
+         */
+        function setImageUploadEnabled(enabled) {
+            imageInputEnabled = enabled !== false;
+            const toolbar = quill.getModule("toolbar").container;
+            toolbar.querySelectorAll("button.ql-image, button.ql-library-image").forEach(function (button) {
+                button.style.display = imageInputEnabled ? "" : "none";
+            });
+        }
+
         return {
             setHtml: setHtml,
             setUploadUrl: setUploadUrl,
+            setImageUploadEnabled: setImageUploadEnabled,
             invalidate: invalidate,
             getHtml: function () { return quill.getSemanticHTML(); },
             isChanged: function () { return quill.getSemanticHTML() !== initialHtml; },

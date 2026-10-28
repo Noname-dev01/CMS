@@ -8,6 +8,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.TreeSet;
 
 @Getter
 @Builder
@@ -35,6 +37,16 @@ public class BoardResponse {
     private Integer newBadgeDays;
     @Schema(description = "쓰기 허용(false = 쓰기 중지·보관)")
     private Boolean writableYn;
+    @Schema(description = "게시글당 첨부 개수 상한")
+    private Integer attachMaxCount;
+    @Schema(description = "첨부 파일당 크기 상한(MB)")
+    private Integer attachMaxSizeMb;
+    @Schema(description = "허용 확장자 — 키가 없으면 전역 허용 목록 전체")
+    private List<String> attachExtensions;
+    @Schema(description = "본문 이미지 허용 여부")
+    private Boolean bodyImageYn;
+    @Schema(description = "예약 게시 허용 여부")
+    private Boolean publishPeriodYn;
     @Schema(description = "게시판 변경 버전 — 수정·삭제 요청에 그대로 보낸다")
     private Integer version;
     private LocalDateTime createDate;
@@ -54,6 +66,11 @@ public class BoardResponse {
                 .showViewCount(board.getShowViewCount())
                 .newBadgeDays(board.getNewBadgeDays())
                 .writableYn(board.getWritableYn())
+                .attachMaxCount(board.getAttachMaxCount())
+                .attachMaxSizeMb(board.getAttachMaxSizeMb())
+                .attachExtensions(board.getAttachExtensions() == null ? null : List.copyOf(new TreeSet<>(board.attachExtensionSet())))
+                .bodyImageYn(board.getBodyImageYn())
+                .publishPeriodYn(board.getPublishPeriodYn())
                 .version(board.getVersion())
                 .createDate(board.getCreateDate())
                 .updateDate(board.getUpdateDate())
