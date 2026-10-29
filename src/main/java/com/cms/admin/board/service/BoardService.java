@@ -3,6 +3,7 @@ package com.cms.admin.board.service;
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.BoardDisplay;
 import com.cms.admin.board.domain.BoardSlug;
+import com.cms.admin.board.domain.BoardType;
 import com.cms.admin.board.domain.BoardWritePolicy;
 import com.cms.admin.board.dto.request.BoardCreateRequest;
 import com.cms.admin.board.dto.request.BoardUpdateRequest;
@@ -104,7 +105,8 @@ public class BoardService {
                 Boolean.TRUE.equals(request.getShowViewCount()),
                 request.getNewBadgeDays() != null ? requireNewBadgeDays(request.getNewBadgeDays()) : 0,
                 request.getWritableYn() == null || request.getWritableYn(),
-                request.getPinMaxCount() != null ? requirePinMaxCount(request.getPinMaxCount()) : 0);
+                request.getPinMaxCount() != null ? requirePinMaxCount(request.getPinMaxCount()) : 0,
+                request.getBoardType() != null ? BoardType.parse(request.getBoardType()).name() : BoardType.LIST.name());
         int sortOrder = request.getSortOrder() != null ? requireSortOrder(request.getSortOrder()) : 0;
         // 누락·공백 = 기본 슬러그 board-{id}(저장하지 않는다). 지정하면 처음부터 사용자 슬러그라 이후 바꿀 수 없다
         String slug = request.getSlug() == null || request.getSlug().isBlank() ? null : requireAssignableSlug(request.getSlug());
@@ -133,6 +135,7 @@ public class BoardService {
                 .newBadgeDays(display.newBadgeDays())
                 .writableYn(display.writableYn())
                 .pinMaxCount(display.pinMaxCount())
+                .boardType(display.boardType())
                 .sortOrder(sortOrder)
                 .attachMaxCount(writePolicy.attachMaxCount())
                 .attachMaxSizeMb(writePolicy.attachMaxSizeMb())
@@ -164,7 +167,8 @@ public class BoardService {
                 && request.getAuthorLabel() == null && request.getShowViewCount() == null && request.getNewBadgeDays() == null
                 && request.getWritableYn() == null && request.getAttachMaxCount() == null && request.getAttachMaxSizeMb() == null
                 && request.getAttachExtensions() == null && request.getBodyImageYn() == null && request.getPublishPeriodYn() == null
-                && request.getSortOrder() == null && request.getPinMaxCount() == null && request.getSlug() == null) {
+                && request.getSortOrder() == null && request.getPinMaxCount() == null && request.getSlug() == null
+                && request.getBoardType() == null) {
             throw new InvalidRequestException("변경할 필드가 없습니다.");
         }
         // 입력 검증은 잠금 전에 — 400이 행 잠금을 쥔 채 나가지 않게 한다
@@ -176,6 +180,8 @@ public class BoardService {
         }
         Integer sortOrder = request.getSortOrder() != null ? requireSortOrder(request.getSortOrder()) : null;
         Integer pinMaxCount = request.getPinMaxCount() != null ? requirePinMaxCount(request.getPinMaxCount()) : null;
+        // 유형: 누락 = 저장 원본 유지(알 수 없는 값이어도 건드리지 않는다), 명시하면 엄격 파싱한 이름만 저장한다
+        String boardType = request.getBoardType() != null ? BoardType.parse(request.getBoardType()).name() : null;
         Integer attachMaxCount = request.getAttachMaxCount() != null ? requireAttachMaxCount(request.getAttachMaxCount()) : null;
         Integer attachMaxSizeMb = request.getAttachMaxSizeMb() != null ? requireAttachMaxSizeMb(request.getAttachMaxSizeMb()) : null;
         String attachExtensions = request.getAttachExtensions() != null ? joinExtensions(request.getAttachExtensions()) : null;
@@ -216,7 +222,8 @@ public class BoardService {
                 request.getShowViewCount() != null ? request.getShowViewCount() : current.showViewCount(),
                 newBadgeDays != null ? newBadgeDays : current.newBadgeDays(),
                 request.getWritableYn() != null ? request.getWritableYn() : current.writableYn(),
-                pinMaxCount != null ? pinMaxCount : current.pinMaxCount());
+                pinMaxCount != null ? pinMaxCount : current.pinMaxCount(),
+                boardType != null ? boardType : current.boardType());
         BoardWritePolicy currentPolicy = board.writePolicy();
         BoardWritePolicy writePolicy = new BoardWritePolicy(
                 attachMaxCount != null ? attachMaxCount : currentPolicy.attachMaxCount(),

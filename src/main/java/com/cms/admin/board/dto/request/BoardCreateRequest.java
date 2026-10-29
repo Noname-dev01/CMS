@@ -71,6 +71,10 @@ public class BoardCreateRequest {
     @Schema(description = "공개 목록 1페이지 상단에 고정할 수 있는 글 수(0..5, 0 = 고정 끔). 누락 = 0", example = "0")
     private Integer pinMaxCount;
 
+    // 문자열로 받아 서비스가 정확히 일치할 때만 받는다(Jackson이 ""를 null로 읽는 함정을 피한다 — 팝업 종류·대표 이미지와 같은 방식)
+    @Schema(description = "공개 목록의 모양 — LIST(목록형)·GALLERY(갤러리형)·WEBZINE(웹진형), 대소문자 정확히. 누락 = LIST", example = "LIST")
+    private String boardType;
+
     // 작성 정책도 모두 선택이다(누락 = 현행 동작). 범위·정규화는 서비스 한 곳이 한다. 원소 개수는 정리 전후가 같아 여기서 막는다.
     @Schema(description = "게시글당 첨부 개수 상한(1..5). 누락 = 5", example = "5")
     private Integer attachMaxCount;

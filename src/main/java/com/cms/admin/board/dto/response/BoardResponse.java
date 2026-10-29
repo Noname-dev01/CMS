@@ -41,6 +41,8 @@ public class BoardResponse {
     private Integer sortOrder;
     @Schema(description = "상단 고정 최대 글 수(0 = 고정 끔)")
     private Integer pinMaxCount;
+    @Schema(description = "공개 목록의 모양(LIST·GALLERY·WEBZINE) — 알 수 없는 저장값은 LIST로 보인다")
+    private String boardType;
     @Schema(description = "게시글당 첨부 개수 상한")
     private Integer attachMaxCount;
     @Schema(description = "첨부 파일당 크기 상한(MB)")
@@ -76,6 +78,7 @@ public class BoardResponse {
                 .writableYn(board.getWritableYn())
                 .sortOrder(board.getSortOrder())
                 .pinMaxCount(board.getPinMaxCount())
+                .boardType(board.type().name())
                 .attachMaxCount(board.getAttachMaxCount())
                 .attachMaxSizeMb(board.getAttachMaxSizeMb())
                 .attachExtensions(board.getAttachExtensions() == null ? null : List.copyOf(new TreeSet<>(board.attachExtensionSet())))
