@@ -13,6 +13,7 @@ import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
 import com.cms.admin.board.repository.PostRepository;
 import com.cms.admin.contentimage.service.ContentImageService;
+import com.cms.admin.contentimage.service.ContentImageThumbnailService;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
 import com.cms.common.exception.ConflictException;
@@ -32,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Set;
 
 /**
  * 게시글 관리(PLAN-board.md 쟁점 7). 공지({@code NoticeService})와 같은 구조 — 본문은 {@link ContentBodyPolicy}로 정리하고, 게시판별 권한은
@@ -55,11 +57,13 @@ public class PostService {
 
     static final String BOARD_NOT_FOUND = "게시판을 찾을 수 없습니다.";
     static final String POST_NOT_FOUND = "게시글을 찾을 수 없습니다.";
+    static final String COVER_NOT_IN_BODY = "대표 이미지는 본문에 들어 있는 이미지 중에서 골라야 합니다.";
 
     private final PostRepository postRepository;
     private final PostAttachmentRepository postAttachmentRepository;
     private final BoardRepository boardRepository;
     private final ContentImageService contentImageService;
+    private final ContentImageThumbnailService thumbnailService;
     private final AdminSecurityService adminSecurityService;
     private final Clock clock;
 
@@ -101,8 +105,11 @@ public class PostService {
                         .publishEnd(period.end())
                         .build()
         );
-        contentImageService.replaceRefs(ContentImageService.OWNER_POST, saved.getId(),
+        Set<Long> refs = contentImageService.replaceRefs(ContentImageService.OWNER_POST, saved.getId(),
                 ContentImageService.SCOPE_BOARD, boardId, content.imageIds(), Boolean.TRUE.equals(board.getBodyImageYn()));
+        if (request.getCoverImageId() != null) {
+            applyCoverImage(saved, request.getCoverImageId(), refs);
+        }
 
         return PostResponse.from(saved, now);
     }
@@ -111,7 +118,7 @@ public class PostService {
     @AdminActionLogged(actionType = AdminActionTypes.POST_UPDATE, targetType = "POST", targetIdExpression = "id")
     public PostResponse updatePost(Long boardId, Long postId, PostUpdateRequest request) {
         if (request.getTitle() == null && request.getContent() == null && request.getUseYn() == null
-                && request.getPinned() == null && request.getPublishPeriod() == null) {
+                && request.getPinned() == null && request.getPublishPeriod() == null && !request.hasCoverImageId()) {
             throw new InvalidRequestException("변경할 필드가 없습니다.");
         }
         // 기간 검증은 잠금 전에 — 400이 행 잠금을 쥔 채 나가지 않게 한다. 객체가 있으면 시작·종료를 통째로 교체한다(null = 그쪽 열림).
@@ -144,10 +151,25 @@ public class PostService {
         if (period != null) {
             target.changePublishPeriod(period.start(), period.end());
         }
+        Set<Long> refs = null;
         if (content != null) {
             // 게시글 행 잠금 안에서 본문과 참조를 함께 바꾼다 — 같은 게시글의 동시 저장이 직렬화된다
-            contentImageService.replaceRefs(ContentImageService.OWNER_POST, target.getId(),
+            refs = contentImageService.replaceRefs(ContentImageService.OWNER_POST, target.getId(),
                     ContentImageService.SCOPE_BOARD, boardId, content.imageIds(), Boolean.TRUE.equals(board.getBodyImageYn()));
+        }
+        // 대표 이미지(PR 5 D3): 키가 있으면 그 값(null = 해제)이 우선이고, 키 없이 본문만 바뀌었을 때는 저장 시점의 현재 대표가 새 참조에 남아 있는지로
+        // 자동 해제를 정한다 — 낡은 화면이 보낸 값이 아니라 DB 값 기준이라 다른 관리자가 그 사이 바꾼 대표를 덮어쓰지 않는다
+        if (request.hasCoverImageId()) {
+            if (request.getCoverImageId() == null) {
+                target.changeCoverImage(null);
+            } else {
+                Set<Long> current = refs != null
+                        ? refs
+                        : contentImageService.findReferencedImageIds(ContentImageService.OWNER_POST, target.getId());
+                applyCoverImage(target, request.getCoverImageId(), current);
+            }
+        } else if (refs != null && target.getCoverImageId() != null && !refs.contains(target.getCoverImageId())) {
+            target.changeCoverImage(null);
         }
 
         return PostResponse.from(target, now);
@@ -243,6 +265,19 @@ public class PostService {
         if (postRepository.countByBoardIdAndPinnedTrueAndDeletedFalse(board.getId()) >= max) {
             throw new ConflictException("상단 고정은 최대 " + max + "개까지 가능합니다. 다른 글의 고정을 먼저 해제하세요.");
         }
+    }
+
+    /**
+     * 대표 이미지를 지정한다 — 그 글의 참조(저장 후 집합)에 있어야 하고(없으면 400, 존재하지 않는 이미지도 참조에서 빠졌으므로 같은 400),
+     * 썸네일을 보장한 뒤(디코딩 실패 400·용량 409·자리 없음 503이 이 저장 전체를 롤백한다) 값을 바꾼다. 새 잠금은 없다 — 게시글 행 잠금이 같은 글의
+     * 동시 저장을 직렬화하고, 대표 후보는 이 글이 참조 중이라 라이브러리 삭제가 409로 막힌다.
+     */
+    private void applyCoverImage(Post post, Long coverImageId, Set<Long> referencedImageIds) {
+        if (!referencedImageIds.contains(coverImageId)) {
+            throw new InvalidRequestException(COVER_NOT_IN_BODY);
+        }
+        thumbnailService.ensureThumbnail(coverImageId);
+        post.changeCoverImage(coverImageId);
     }
 
     /** 수정용으로 잠근 게시글과 게시판 — 게시판 정책(작성 정책)은 공유 잠금이 돌려준 이 행의 값으로 판정한다. */
