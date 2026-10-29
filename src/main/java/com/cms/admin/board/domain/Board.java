@@ -153,6 +153,14 @@ public class Board {
     private Integer pinMaxCount = 0;
 
     /**
+     * 공개 목록의 모양 — {@link BoardType} 이름의 <b>저장 원본</b>. 알 수 없는 값도 그대로 보존하고 읽을 때만 {@link #type()}이 {@code LIST}로 본다
+     * (PLAN-board-definition.md PR 6 D2).
+     */
+    @Builder.Default
+    @Column(name = "board_type", nullable = false, length = 20)
+    private String boardType = BoardType.LIST.name();
+
+    /**
      * 관리자가 정한 공개 주소 슬러그. null = 기본 슬러그 {@code board-{id}}(저장하지 않는다 — {@link BoardSlug}). 기본값에서 한 번만 바꿀 수 있고
      * 소프트 삭제도 비우지 않는다(삭제된 게시판이 UNIQUE를 쥐어 한 번 쓴 슬러그가 영구 예약된다 — PLAN-board-definition.md PR 4a D1).
      */
@@ -191,6 +199,7 @@ public class Board {
         this.newBadgeDays = display.newBadgeDays();
         this.writableYn = display.writableYn();
         this.pinMaxCount = display.pinMaxCount();
+        this.boardType = display.boardType();
         this.attachMaxCount = writePolicy.attachMaxCount();
         this.attachMaxSizeMb = writePolicy.attachMaxSizeMb();
         this.attachExtensions = writePolicy.attachExtensions();
@@ -202,7 +211,12 @@ public class Board {
 
     /** 현재 표시 설정 — 서비스가 PATCH의 "누락 = 유지"를 계산하는 출발점. */
     public BoardDisplay display() {
-        return new BoardDisplay(description, listPageSize, authorLabel, showViewCount, newBadgeDays, writableYn, pinMaxCount);
+        return new BoardDisplay(description, listPageSize, authorLabel, showViewCount, newBadgeDays, writableYn, pinMaxCount, boardType);
+    }
+
+    /** 해석된 유형 — 읽기 전용 소비자(공개 화면·응답)용. 알 수 없는 저장값은 {@code LIST}. 쓰기에는 {@link #getBoardType()} 원본을 쓴다. */
+    public BoardType type() {
+        return BoardType.fromStored(boardType);
     }
 
     /** 현재 작성 정책 — 서비스가 PATCH의 "누락 = 유지"를 계산하는 출발점. */

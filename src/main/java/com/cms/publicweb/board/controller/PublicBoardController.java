@@ -250,6 +250,7 @@ public class PublicBoardController {
         model.addAttribute("boardName", listResult.boardName());
         model.addAttribute("description", listResult.description());
         model.addAttribute("authorLabel", listResult.authorLabel());
+        model.addAttribute("boardType", listResult.boardType().name());
         model.addAttribute("keyword", listResult.keyword());
         model.addAttribute("pinnedPosts", listResult.pinned());
         model.addAttribute("posts", result.getContent());

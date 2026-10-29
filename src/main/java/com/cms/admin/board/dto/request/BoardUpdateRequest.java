@@ -66,6 +66,9 @@ public class BoardUpdateRequest {
     @Schema(description = "상단 고정 최대 글 수 0..5, 0 = 고정 끔 — 낮추거나 꺼도 이미 고정된 글은 그대로 (null이면 유지)", example = "3")
     private Integer pinMaxCount;
 
+    @Schema(description = "공개 목록의 모양 — LIST·GALLERY·WEBZINE, 대소문자 정확히 (null이면 저장된 값을 그대로 유지, 그 밖은 400)", example = "GALLERY")
+    private String boardType;
+
     @Schema(description = "게시글당 첨부 개수 상한 1..5 (null이면 유지)", example = "3")
     private Integer attachMaxCount;
 

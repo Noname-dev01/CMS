@@ -101,10 +101,19 @@
 - **API `coverImageId` 3상태(PATCH)**: 키 없음 = 유지, `null` = 해제, 정수 = 지정(생성은 누락·`null` = 없음). **세터가 `Object`로 받아 `CoverImageIdInput.parse`가 엄격 파싱**한다 — 정수 1 이상과 `null`만, 문자열(`""`·`"12"`)·소수·불리언·배열·객체·0·음수·`long` 초과는 400. `Long` 필드로 바꾸지 않는다(Jackson이 `""`를 `null`(= 해제)로 읽어 화면 버그가 대표를 조용히 지운다 — 팝업 기간의 함정과 같다). 중복 키는 거부하는 플래그(`coverImageIdSet`)가 `publishPeriodSet`과 같은 이유로 `@JsonIgnore` + `@Getter/@Setter(NONE)`이다(JSON 속성이면 우회된다). `PostUpdateRequest.hasCoverImageId()`가 "키 있음"을 가르고, 빌더로 만든 요청은 값이 있을 때만 "있음"이라 **해제(명시 null)를 만드는 시험은 `clearCoverImage()`를 쓴다**. "변경할 필드 없음" 400 판정에 대표 키 존재가 포함된다(대표만 바꾸는 PATCH도 유효).
 - **자동 해제는 서버가 저장 시점의 DB 값으로 정한다**: 본문이 바뀌었고 요청에 키가 없는데 현재 대표가 새 참조에 없으면 `null`로 바꾼다. 키가 있으면 그 값이 우선. **화면은 사용자가 직접 고른 경우에만 키를 보낸다**(본문에서 대표를 지워 자동으로 "없음"이 된 것은 보내지 않는다) — 그래야 낡은 화면이 다른 관리자가 그 사이 바꾼 대표를 덮어쓰지 않는다(`PostCoverImageApiIntegrationTest.staleScreenDoesNotOverwriteOtherAdminsCover`, 실기 확인: 페이로드에 `coverImageId` 키가 없다).
 - **잠금·트랜잭션 변경 없음**: 대표 지정은 기존 `createPost`·`updatePost`(`READ_COMMITTED` 최상위) 안에서 일어나고 새 잠금이 없다 — 게시글 행 `FOR UPDATE`가 같은 글의 동시 저장을, 이미지 참조 잠금이 라이브러리 삭제를 막는다. 판정 순서: 쓰기 중지 → 예약 → 고정 → (참조 교체) → 대표 지정 → 썸네일. 쓰기 중지 게시판은 대표 변경도 400이다. 썸네일 400(디코딩 실패·CMYK·계수 버퍼 초과 등)·409(카운터 용량)·503(생성 자리 없음)은 **본문 저장까지 전부 롤백**한다(화면은 입력을 보존한다).
-- **응답**: `PostResponse.coverImageId`(상세·생성·수정 응답)만이다. 목록 DTO·공개 DTO에는 없다 — **공개 목록·상세 표시는 PR 6**(게시판 유형)에서 한다.
+- **응답**: `PostResponse.coverImageId`(상세·생성·수정 응답)만이다. 관리 목록 DTO·공개 상세 DTO에는 없고, **공개 목록 DTO(`PublicPostSummary`)에는 PR 6(게시판 유형)부터 있다**(아래 "게시판 유형").
 - **롤백 후 깨진 불변식**: 이전 앱이 본문에서 대표를 빼면 "대표 ∉ 참조"가 남을 수 있고, 그 상태에서 그 글 수정과 그 이미지 삭제(FK `SET NULL`이 글 행 잠금을 기다림)가 겹치면 교착 → 전역 핸들러 **409 "다시 시도"**다. 재배포 직후 복구 SQL로 전제를 없앤다(`docs/deployment.md` "게시글 대표 이미지·썸네일").
 - **화면**(`posts.html`): 편집 폼 "대표 이미지" 묶음 — 편집기 본문의 이미지(`NoticeEditor.getImageIds()`, `onChange` 옵션이 본문 변경 때 선택지를 다시 그린다)를 미리보기 라디오 + "없음"으로 보인다(이미지가 없으면 숨김). 보기 모드는 `/content-images/{id}?size=thumb` 미리보기. 변경 감지는 `coverUserChanged ∧ 선택값 ≠ 연 시점 값`일 때만 `coverImageId`를 보낸다.
 - 시험: `PostCoverImageApiIntegrationTest`(지정·썸네일·카운터 바이트만·공유 이미지·동시 지정·검증 롤백·503·409·PATCH 3상태·엄격 파싱 9값·중복 키·자동 해제·낡은 화면·쓰기 중지·삭제 수명주기), `PostCoverImageUpgradeTest`.
+
+## 게시판 유형 (2026-10-29, V13, `PLAN-board-definition.md` PR 6 — 적대적 리뷰 2라운드 ship)
+
+- **`board.board_type`**(`VARCHAR(20) NOT NULL DEFAULT 'LIST'`, CHECK 없음): 공개 목록의 **모양만** 정한다 — `LIST` 목록형(현행)·`GALLERY` 대표 이미지 격자·`WEBZINE` 대표 이미지 + 요약. 공개 경로·공개 조건·레이트리밋은 유형과 무관하다. 공지 게시판(공통·전용)도 바꿀 수 있고 쓰기 중지 게시판도 바꿀 수 있다(정의 변경이라 게시글 쓰기가 아니다).
+- **저장 원본과 해석값을 분리한다 — `BoardDisplay.boardType`은 문자열 원본이다**(리뷰 R1-1): `Board.getBoardType()`은 DB 원본, `Board.type()`은 해석값(`BoardType.fromStored` — null·알 수 없는 값은 `LIST`, 읽기 전용 소비자인 공개 화면·응답용). 해석값을 `BoardDisplay`에 넣으면 "누락 = 현재값" 계산과 `Board.update`의 전체 대입이 알 수 없는 저장값을 관계없는 수정에서 `LIST`로 덮어써 다음 버전으로 재배포해도 복구되지 않는다. **새 코드가 `BoardDisplay`에 `type()`을 넣지 않는다**(`BoardTypeApiIntegrationTest.unknownStoredValueSurvivesUnrelatedEdits`가 고정, 변이 실험으로 확인).
+- **API**: 생성·수정 요청의 `boardType`은 **문자열로 받아 서비스가 `BoardType.parse`로 엄격 파싱**한다 — 이름과 정확히 같은 문자열만(대소문자 구분, 앞뒤 공백 불허, `""`는 400, 문구에 입력 원문 없음). `Integer`·enum 필드로 바꾸지 않는다(Jackson이 `""`를 null로 읽는 함정 — 팝업·대표 이미지와 같다). 생성: 누락 = `LIST`. 수정: **누락·`null` = 저장 원본 유지**, 값이 있으면 그 이름 저장, 검증은 행 잠금 전. "변경할 필드 없음" 판정에 `boardType`이 포함된다. 응답 `BoardResponse.boardType`은 해석값이다(알 수 없는 원본은 `LIST`로 보인다 — 원본은 응답에 싣지 않는다). `MyBoardResponse`에는 없다.
+- **화면**(`manage.html`): "공개 화면 표시" 묶음의 "목록 모양" select. **생성은 항상 보내고 수정은 편집 시작 시점 응답 값에서 바꿨을 때만 `boardType`을 보낸다**(슬러그·표시 대상과 같은 방식 — 알 수 없는 원본이 `LIST`로 보이는 게시판에서 다른 설정만 저장해도 원본이 보존된다).
+- **롤백**: 이전 앱은 `board_type`을 모르고 모든 게시판이 목록형으로 보인다. 롤백 중 만든 게시판은 DEFAULT `LIST`이고, 이전 앱의 게시판 수정은 저장된 유형을 건드리지 않는다. 정리할 데이터 없음(`docs/deployment.md` "게시판 유형"). **실제 이전 앱(V12 코드)을 V13 DB에 띄워 확인했다** — Flyway는 "스키마 버전 13이 최신 마이그레이션(12)보다 새롭다" 경고만 내고 기동한다.
+- 시험: `BoardTypeTest`(단위), `BoardTypeApiIntegrationTest`(실스택 — 입력 계약·유지/변경·`version`·공지·MANAGER 403·알 수 없는 저장값 보존), `BoardTypeUpgradeTest`(루트 패키지 — V12 → V13), 공개 쪽은 `publicweb.board`의 `BoardTypePublicIntegrationTest`.
 
 ## 시험
 
