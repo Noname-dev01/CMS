@@ -35,13 +35,54 @@
         </li>
     </ul>
 
-    <ul class="board-list" th:if="${not #lists.isEmpty(posts)}">
+    <!--/* 일반 글 목록은 게시판 유형(boardType)에 따라 모양만 다르다 — 목록형(LIST)이 기본이고 알 수 없는 유형도 서비스가 LIST로 넘긴다.
+         썸네일은 대표 이미지가 있는 글만 /content-images/{id}?size=thumb로 보이고, 없는 글은 CSS 자리표시다(요청이 생기지 않는다). */-->
+    <ul class="board-list" th:if="${boardType == 'LIST' and not #lists.isEmpty(posts)}">
         <li class="board-list-item" th:each="post : ${posts}">
             <a th:href="@{|${sitePrefix}/boards/{board}/posts/{postId}|(board=${boardSlug}, postId=${post.id})}">
                 <span class="board-title"><span th:text="${post.title}"></span><span class="board-new-badge" th:if="${post.newBadge}">NEW</span></span>
                 <span class="board-meta-extra" th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
                 <span class="board-meta-extra" th:if="${post.viewCount != null}" th:text="|조회 ${post.viewCount}|"></span>
                 <span class="board-date" th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
+            </a>
+        </li>
+    </ul>
+
+    <ul class="board-gallery" th:if="${boardType == 'GALLERY' and not #lists.isEmpty(posts)}">
+        <li class="board-gallery-item" th:each="post : ${posts}">
+            <a th:href="@{|${sitePrefix}/boards/{board}/posts/{postId}|(board=${boardSlug}, postId=${post.id})}">
+                <span class="board-thumb">
+                    <img th:if="${post.coverImageId != null}" th:src="@{/content-images/{imageId}(imageId=${post.coverImageId}, size='thumb')}"
+                         alt="" loading="lazy" decoding="async">
+                    <span class="board-thumb-empty" th:unless="${post.coverImageId != null}" aria-hidden="true"></span>
+                </span>
+                <span class="board-gallery-title"><span th:text="${post.title}"></span><span class="board-new-badge" th:if="${post.newBadge}">NEW</span></span>
+                <span class="board-gallery-meta">
+                    <span th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
+                    <span th:if="${post.viewCount != null}" th:text="|조회 ${post.viewCount}|"></span>
+                    <span th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
+                </span>
+            </a>
+        </li>
+    </ul>
+
+    <ul class="board-webzine" th:if="${boardType == 'WEBZINE' and not #lists.isEmpty(posts)}">
+        <li class="board-webzine-item" th:each="post : ${posts}">
+            <a th:href="@{|${sitePrefix}/boards/{board}/posts/{postId}|(board=${boardSlug}, postId=${post.id})}">
+                <span class="board-thumb">
+                    <img th:if="${post.coverImageId != null}" th:src="@{/content-images/{imageId}(imageId=${post.coverImageId}, size='thumb')}"
+                         alt="" loading="lazy" decoding="async">
+                    <span class="board-thumb-empty" th:unless="${post.coverImageId != null}" aria-hidden="true"></span>
+                </span>
+                <span class="board-webzine-body">
+                    <span class="board-webzine-title"><span th:text="${post.title}"></span><span class="board-new-badge" th:if="${post.newBadge}">NEW</span></span>
+                    <span class="board-webzine-excerpt" th:if="${post.excerpt != null}" th:text="${post.excerpt}"></span>
+                    <span class="board-gallery-meta">
+                        <span th:if="${authorLabel != null}" th:text="${authorLabel}"></span>
+                        <span th:if="${post.viewCount != null}" th:text="|조회 ${post.viewCount}|"></span>
+                        <span th:text="${#temporals.format(post.createDate, 'yyyy-MM-dd')}"></span>
+                    </span>
+                </span>
             </a>
         </li>
     </ul>

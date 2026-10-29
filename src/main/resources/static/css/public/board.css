@@ -324,3 +324,163 @@ body {
     line-height: 1.5;
     vertical-align: middle;
 }
+
+/* 게시판 유형(PLAN-board-definition.md PR 6): 갤러리형·웹진형 글 목록. 목록형(.board-list)과 고정 영역은 위 규칙 그대로다. */
+.board-thumb {
+    display: block;
+    position: relative;
+    overflow: hidden;
+    background: #edf0f3;
+}
+
+.board-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* 대표 이미지가 없는 글의 자리표시 — 이미지 요청 없이 단색 칸만 보인다 */
+.board-thumb-empty {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #e4e9ee, #d3dae1);
+}
+
+.board-gallery {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+    gap: 1rem;
+}
+
+.board-gallery-item {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+}
+
+.board-gallery-item a {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    color: #2c3e50;
+    text-decoration: none;
+}
+
+.board-gallery-item a:hover {
+    background-color: #f8f9fb;
+}
+
+.board-gallery-item .board-thumb {
+    aspect-ratio: 4 / 3;
+}
+
+.board-gallery-title {
+    padding: 0.75rem 0.9rem 0.25rem;
+    font-weight: 500;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+
+.board-gallery-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.1rem 0.6rem;
+    padding: 0 0.9rem 0.8rem;
+    font-size: 0.8rem;
+    color: #95a5a6;
+}
+
+.board-gallery-meta > span {
+    max-width: 9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.board-webzine {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    overflow: hidden;
+}
+
+.board-webzine-item {
+    border-bottom: 1px solid #edf0f3;
+}
+
+.board-webzine-item:last-child {
+    border-bottom: none;
+}
+
+.board-webzine-item a {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    color: #2c3e50;
+    text-decoration: none;
+}
+
+.board-webzine-item a:hover {
+    background-color: #f8f9fb;
+}
+
+.board-webzine-item .board-thumb {
+    flex: 0 0 9rem;
+    aspect-ratio: 4 / 3;
+    border-radius: 8px;
+}
+
+.board-webzine-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.board-webzine-title {
+    font-weight: 700;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.board-webzine-excerpt {
+    color: #5f6b76;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+}
+
+.board-webzine-body .board-gallery-meta {
+    padding: 0;
+    margin-top: auto;
+}
+
+/* 좁은 화면에서는 웹진형 썸네일을 위로 올린다 */
+@media (max-width: 520px) {
+    .board-webzine-item a {
+        flex-direction: column;
+    }
+
+    .board-webzine-item .board-thumb {
+        flex-basis: auto;
+        width: 100%;
+    }
+}

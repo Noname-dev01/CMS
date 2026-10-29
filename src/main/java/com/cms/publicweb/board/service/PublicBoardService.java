@@ -2,6 +2,7 @@ package com.cms.publicweb.board.service;
 
 import com.cms.admin.board.domain.Board;
 import com.cms.admin.board.domain.BoardSlug;
+import com.cms.admin.board.domain.BoardType;
 import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
@@ -111,14 +112,19 @@ public class PublicBoardService {
             boolean showViewCount = Boolean.TRUE.equals(board.getShowViewCount());
             int badgeDays = board.getNewBadgeDays();
             // 조회수·배지는 게시판 설정에 따라 서비스가 DTO를 만들 때 거른다(템플릿이 아니라 여기서)
+            Function<Post, PublicPostSummary> toPinnedSummary = post -> PublicPostSummary.from(post, showViewCount,
+                    NewBadge.isNew(post.getCreateDate(), post.getPublishStart(), badgeDays, now), null);
+            // 요약은 웹진형의 일반 목록에서만 계산한다(고정 영역은 모든 유형에서 목록형 한 줄이라 요약을 쓰지 않는다)
+            boolean webzine = board.type() == BoardType.WEBZINE;
             Function<Post, PublicPostSummary> toSummary = post -> PublicPostSummary.from(post, showViewCount,
-                    NewBadge.isNew(post.getCreateDate(), post.getPublishStart(), badgeDays, now));
+                    NewBadge.isNew(post.getCreateDate(), post.getPublishStart(), badgeDays, now),
+                    webzine ? PostExcerpt.of(post.getContent()) : null);
 
             if (keyword.isEmpty()) {
                 // 고정 영역은 검색하지 않은 1페이지에서만, 게시판 고정 상한이 0보다 클 때만 조회한다(그 밖에는 쿼리 없이 빈 목록)
                 List<PublicPostSummary> pinned = normalizedPage == 0 && board.getPinMaxCount() > 0
                         ? postRepository.findPinnedPublished(board.getId(), now, Math.min(board.getPinMaxCount(), Board.MAX_PIN_COUNT))
-                                .stream().map(toSummary).toList()
+                                .stream().map(toPinnedSummary).toList()
                         : List.of();
                 return result(board, pinned, postRepository.searchPublished(board.getId(), null, now, pageable).map(toSummary), null);
             }
@@ -171,7 +177,8 @@ public class PublicBoardService {
     }
 
     private static PublicBoardListResult result(Board board, List<PublicPostSummary> pinned, Page<PublicPostSummary> page, String keyword) {
-        return new PublicBoardListResult(board.getId(), board.publicSlug(), board.getName(), board.getDescription(), board.getAuthorLabel(), pinned, page, keyword);
+        return new PublicBoardListResult(board.getId(), board.publicSlug(), board.getName(), board.getDescription(), board.getAuthorLabel(),
+                board.type(), pinned, page, keyword);
     }
 
     private static int normalizePage(int page, int pageSize) {
