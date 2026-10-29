@@ -1,6 +1,6 @@
 # PLAN-board-definition — 게시판 정의 관리 고도화
 
-- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1·2·3·L·4a 머지(#179~#184) · PR 4b 머지(#185) · PR 5 상세 설계(P5-v5, 리뷰 5라운드) 후 구현·검증 완료(2026-10-29, 미커밋)****
+- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1·2·3·L·4a 머지(#179~#184) · PR 4b 머지(#185) · PR 5 머지(#186) · PR 6 상세 설계(P6-v2, 리뷰 2라운드) 후 구현·검증 완료(2026-10-29, 미커밋 — 전체 시험·코드 리뷰 게이트 전)****
 - 로드맵: 아직 정식 항목 아님(이 계획이 리뷰를 통과하면 `/updateRoadmap` 또는 로드맵 갱신으로 등록)
 - 개정 이력:
   - v1: 초안(전체 분할·결정·PR 1 상세).
@@ -1570,3 +1570,169 @@ ALTER TABLE `post`
 - 한 번 만든 시험 헬퍼(`delete`에서 카운터 단언식)가 `baselineBytes - imageSize`로 읽기 어려워 식을 단순화했다(결과 동일).
 
 **후속**: PR 6(게시판 유형)에서 공개 목록·상세의 대표 이미지 표시, 대표 없는 글의 자리표시 이미지, **썸네일 레이트리밋 `content-image`(240/60초)가 갤러리 한 페이지(최대 50장)에 충분한지** 재평가. 수용한 한계: PNG zlib 끝 체크섬이 없어도 픽셀이 다 있으면 통과, 무해한 경고를 내는 JPEG도 대표 불가, 큰 4:4:4 JPEG(약 8.4M 화소 초과)·긴 변 960 초과 인터레이스 PNG도 대표 불가.
+
+---
+
+## PR 6 상세 설계 — 게시판 유형 (P6-v2, 2026-10-29)
+
+§5 "PR 6 — 게시판 유형" 윤곽의 상세 설계. 게시판마다 공개 목록의 모양(목록형·갤러리형·웹진형)을 고르게 하고, PR 5가 만든 대표 이미지 썸네일을 공개 목록에 처음 보인다. 스키마 V13(DDL만), `SecurityConfig`·공개 경로·공개 조건·레이트리밋 설정 무변경.
+
+### P6-0. 사용자 결정 (2026-10-29 — 재질문 금지)
+
+| # | 질문 | 결정 |
+|---|---|---|
+| U6-1 | 템플릿 분기 | **`public/board/list.html` 한 파일 안에서 분기** — 검색·페이지 이동·고정 영역은 공유, 글 목록 부분만 유형별 블록 |
+| U6-2 | 공지 게시판 유형 | **바꿀 수 있다** — PR 4b 이후 공지도 같은 게시판 템플릿이라 막을 이유가 없다(§5 초안의 "LIST 고정" 근거가 사라짐). 공지 게시판 예외 규칙을 만들지 않는다 |
+| U6-3 | 웹진 요약 | **조회 때 추출, 120자** — 저장된 본문 HTML 앞부분에서 텍스트만 뽑아 공백을 접고, 120 코드 포인트를 넘으면 자르고 `…`. 스키마·저장 경로 무변경, 웹진형에서만 계산 |
+| U6-4 | 썸네일 레이트리밋 | **한도(`content-image` 240/60초)·`no-store` 유지 + `loading="lazy"`** — 50칸 페이지를 평균 12.5초보다 빨리 계속 넘기면 일부 칸이 깨진 이미지가 되는 것은 수용한 한계(페이지 자체는 별도 버킷이라 정상, 새로고침하면 회복, 기본 목록 크기 10이면 사실상 무관) |
+
+### P6-1. 정찰 결과 (코드 근거)
+
+- **공개 목록**: `PublicBoardService.getPublishedPosts`가 `searchPublished`(QueryDSL, `Page<Post>` — 엔티티 전체, 본문 `content` 포함)와 `findPinnedPublished`를 불러 `PublicPostSummary.from(post, showViewCount, newBadge)`로 바꾼다. 조회수·배지는 **서비스가 DTO를 만들 때 거른다**(PR 1 규약). 목록 쿼리가 이미 본문을 읽고 있어 요약 추출에 추가 쿼리가 없다.
+- **공개 DTO**: `PublicPostSummary`(id·title·createDate·viewCount·newBadge)에 대표 이미지가 없다. `Post.coverImageId`(V12)는 있다. `PublicBoardListResult`·컨트롤러 `renderList`가 모델을 만든다.
+- **썸네일 공개**: `/content-images/{id}?size=thumb`는 원본과 같은 공개 판정(`existsPublishedPostRef` — 공개 글이 참조)을 거치고 썸네일이 없으면 원본(작은 이미지)을 준다. 응답은 `no-store`·`nosniff`. 대표 ∈ 그 글의 참조(PR 5 불변식)라 **공개 목록에 보이는 글의 대표는 같은 공개 판정을 통과한다** — 새 공개 규칙이 필요 없다. 이미지 경로는 사이트 무관(`sitePrefix` 없음).
+- **레이트리밋**: `content-image`(`/content-images/*`, 240/60초)는 목록 HTML의 `public-board`(120/60초)와 버킷이 다르다. 한도 초과는 `sendError(429)` → HTML 오류 페이지라 `<img>`는 깨진 이미지가 된다(`RateLimitFilter.reject`).
+- **템플릿 컨벤션**: `PublicBoardTemplateConventionTest`가 `list.html`·`detail.html`의 `th:utext`를 detail 본문 한 곳으로 고정한다 — 한 파일 분기(U6-1)면 시험 목록이 그대로다.
+- **게시판 설정 쓰기 경로**: 표시 설정은 record `BoardDisplay`로 `Board.update`에 최종값을 전부 대입한다(`new BoardDisplay(` 호출은 `BoardService` 2곳·`Board.display()` 1곳뿐, 시험에는 없다). 화면(`manage.html`)은 저장 때 모든 표시 필드를 보내고 `version`으로 낡은 화면을 409로 거른다.
+- **입력 파싱 교훈**: Jackson은 `""`를 `Integer`·`Long`에서 `null`로 읽는다(팝업 기간·PR 5 대표 이미지). 열거형의 빈 문자열 처리도 강제 변환 설정에 따라 달라질 수 있어 확인 비용이 든다 → 문자열로 받아 서비스가 엄격 파싱하는 기존 방식(팝업 `type`과 같은 방향)을 쓴다.
+- **마이그레이션**: 최대 V12(Java V10·V11 포함). 업그레이드 경로 시험 형식은 `BoardSortOrderPinUpgradeTest`.
+- **공개 메인·상세**: 메인 최신 글(`findLatestPublished` → `PublishedPostRow`)과 상세는 유형과 무관하다. 상세에는 대표가 항상 본문 안에 있어 따로 보일 필요가 없다.
+
+### P6-2. 설계 결정
+
+**D1. 스키마 — `board.board_type VARCHAR(20) NOT NULL DEFAULT 'LIST'`(V13, DDL만)**
+- 기존 행·롤백한 이전 앱이 만든 행은 `LIST`(현행 화면). `IF NOT EXISTS`로 재실행 멱등. CHECK 제약은 두지 않는다 — 값 검증은 서비스가 하고, 다음 유형을 더할 때 마이그레이션이 필요 없게 한다.
+- 대안 비교: `TINYINT` 코드(읽기 어렵고 의미가 숨는다) / 별도 설정 테이블(과설계) → 문자열 컬럼.
+
+**D2. 엔티티 — 문자열 컬럼 + 알 수 없는 값은 `LIST`로 읽기**
+- `BoardType` enum(`LIST`·`GALLERY`·`WEBZINE`)을 `admin.board.domain`에 둔다. 엔티티 필드는 `String boardType`(`@Builder.Default "LIST"`)이고 `Board.type()`이 `BoardType.fromStored(raw)` — 알 수 없는 값·null은 `LIST`.
+- 왜: `@Enumerated(STRING)`이면 DB에 모르는 값(다음 PR이 더한 유형으로 배포했다가 이 버전으로 롤백, 수동 수정)이 하나만 있어도 그 게시판을 읽는 모든 화면(관리 목록·내 게시판·공개)이 500이 된다. 목록형으로 보이는 쪽이 안전한 실패다. 비용은 메서드 하나.
+- `BoardDisplay`에 **저장 원본 문자열** `String boardType`을 더한다(표시 설정이고 "최종값 전부 대입" 규약 그대로) — 해석된 enum이 아니다. `Board.display()`는 원본을 그대로 담고 `Board.update`는 그것을 그대로 대입한다. 그래서 **유형을 언급하지 않은 수정은 알 수 없는 원본도 그대로 보존**한다(v2, 리뷰 R1-1 — 해석값을 넣으면 읽기 쪽의 안전한 대체가 관계없는 저장에서 `LIST`로 기록돼, 다음 버전으로 재배포해도 원래 유형이 돌아오지 않는다). 해석(`type()`)은 읽기 소비자(공개 화면·응답)만 쓴다.
+
+**D3. 관리 API — `boardType` 문자열, 서비스 엄격 파싱**
+- 생성·수정 요청에 `String boardType`. 생성: 누락·`null` = `LIST`. 수정: 누락·`null` = **저장 원본 유지**(D2 — 알 수 없는 값이어도 건드리지 않는다), 값이 있으면 `BoardType.parse` 결과의 이름을 저장. 값은 **`LIST`·`GALLERY`·`WEBZINE`과 정확히 같은 문자열만**(대소문자 구분, 앞뒤 공백 불허) — `""`·`"gallery"`·`" LIST"`·그 밖은 400 "게시판 유형은 LIST·GALLERY·WEBZINE 중 하나여야 합니다."(입력 원문을 문구에 싣지 않는다). 숫자·불리언 등 비문자열은 기존 역직렬화 400 경로.
+- 검증은 **행 잠금 전**(PR 1 규약). "변경할 필드 없음" 400 판정에 `boardType`을 더한다. 같은 값으로 바꾸는 PATCH도 다른 표시 필드처럼 `version` +1(기존 규칙 — 화면이 매번 모든 필드를 보낸다).
+- 응답 `BoardResponse.boardType`(해석된 값, 항상 있음 — 알 수 없는 원본이면 `LIST`로 보인다. 원본은 응답에 싣지 않는다). `MyBoardResponse`(게시글 관리 화면용)에는 넣지 않는다 — 소비자가 없다(아래 범위 밖).
+- 공지 게시판(공통·전용)도 바꿀 수 있다(U6-2). 쓰기 중지 게시판도 바꿀 수 있다(정의 변경은 게시글 쓰기가 아니다 — 기존 표시 설정과 같다).
+- 권한·감사: 기존 `BOARD_UPDATE`·ADMIN 전용 그대로.
+
+**D4. 공개 DTO — 대표 이미지는 항상, 요약은 웹진형만**
+- `PublicPostSummary`에 `coverImageId`(Long, null = 대표 없음)·`excerpt`(String, null = 계산 안 함)를 더한다. `from(post, showViewCount, newBadge, boardType)` — 서비스가 유형을 넘기고 **요약은 `WEBZINE`일 때만 계산**한다(목록형·갤러리형은 비용 0). `coverImageId`는 유형과 무관하게 싣는다(값 복사뿐, 목록형 템플릿은 쓰지 않는다).
+- 고정 영역(`pinned`)도 같은 `toSummary`를 쓰지만 **모든 유형에서 목록형 한 줄로 보인다**(D6) — 웹진형 고정 영역에는 요약을 계산하지 않도록 고정 영역은 `excerpt` 없이 만든다(`toSummary`를 둘로).
+- 공개 DTO에는 여전히 작성자 ID·`useYn`이 없다(기존 규약).
+
+**D5. 요약 추출 — `PostExcerpt.of(String storedHtml)`(`publicweb.board.service`, `NewBadge`와 같은 위치)**
+1. 입력이 null·빈 문자열이면 null.
+2. 저장된 본문은 이미 저장 시 정리된 HTML이다. 출력이 `th:text`(이스케이프)라 HTML로 다시 내보내지 않으므로 **sanitizer를 다시 돌리지 않고** 텍스트만 뽑는다.
+3. 비용 상한: 앞 **20,000 UTF-16 코드 유닛**만 파싱한다(자르는 위치가 하위 서로게이트면 한 칸 앞에서 자른다 — 짝 잃은 서로게이트 방지). 목록 50건 × 본문 최대 200,000바이트를 통째로 파싱하지 않기 위해서다. 잘린 태그·엔티티는 jsoup이 관대하게 처리한다. 앞부분이 이미지·빈 문단뿐인 글은 요약이 비어 보일 수 있다(수용 — 120자를 채우려 전체를 파싱하는 비용과 맞바꾸지 않는다).
+4. `Jsoup.parseBodyFragment(…).body().text()` — 블록 경계·`<br>`이 공백이 되는지는 시험으로 고정한다(되지 않으면 블록 요소 뒤에 공백을 넣는 순회로 바꾼다 — 구현 중 보고).
+5. ` `(저장 형식의 `&nbsp;`)을 일반 공백으로 바꾸고 모든 공백 연속을 한 칸으로 접은 뒤 앞뒤 공백 제거. 비면 null(템플릿이 요약 줄을 생략).
+6. **120 코드 포인트** 초과면 120 코드 포인트까지 자르고 끝 공백을 지운 뒤 `…`. 이하면 그대로. 결합 문자열(이모지 ZWJ)의 중간이 잘릴 수 있다(수용 — 표시 문자열일 뿐).
+- 대안 비교: 저장 시 컬럼(백필·`PostService` 변경 — U6-3에서 기각) / sanitizer에 텍스트 출력 추가(공용 보안 코드 변경 — 기각).
+
+**D6. 공개 목록 템플릿 — `list.html` 한 파일, 글 목록 부분만 분기**
+- 컨트롤러가 모델 `boardType`(문자열 이름 `LIST`·`GALLERY`·`WEBZINE`)을 더한다(`PublicBoardListResult.boardType`).
+- 공유: 머리·설명·검색 폼·**고정 영역(모든 유형에서 지금의 목록형 한 줄)**·빈 목록 문구·페이지 이동. 고정 영역을 격자로 만들지 않는 이유: 고정은 최대 5건의 "공지성" 글이고 격자 위에 작은 격자를 하나 더 두면 같은 글이 두 번 큰 칸으로 보인다.
+- `LIST`: 지금 마크업 그대로(회귀 없음).
+- `GALLERY`: `<ul class="board-gallery">` 격자 — 칸마다 썸네일 영역(정사각에 가까운 고정 비율, `object-fit: cover`) + 제목(2줄 말줄임) + NEW 배지 + 날짜, 작성자 표시명·조회수는 있을 때 작은 메타 줄. CSS 그리드 `repeat(auto-fill, minmax(…))`라 화면 폭에 따라 2~4열(목록 크기 10·20·30·50과 열 수를 맞추지 않는다 — 마지막 줄이 덜 차는 것은 정상).
+- `WEBZINE`: `<ul class="board-webzine">` 행 — 왼쪽 썸네일 + 오른쪽 제목·요약(있으면, 2~3줄 말줄임)·메타(작성자 표시명·조회수·날짜). 좁은 화면에서는 썸네일을 위로.
+- **썸네일**: `<img th:src="@{/content-images/{id}(id=${post.coverImageId}, size='thumb')}" alt="" loading="lazy" decoding="async">`. `alt=""` — 바로 옆에 같은 링크 안의 제목이 있어 장식 이미지다(스크린리더가 제목을 두 번 읽지 않게). 링크는 칸 전체 하나(`<a>` 안에 이미지·제목).
+- **대표 없는 글의 자리표시**: 정적 이미지 파일이 아니라 **CSS 자리표시**(`<span class="board-thumb board-thumb-empty" aria-hidden="true">`, 배경색 + 가운데 아이콘 문자 없이 단색). 이유: 요청·레이트리밋 소비 0, `static/`에 새 파일·최상위 디렉터리 없음(`SecurityConfig.STATIC_PUBLIC_PATHS` 무관). §5 초안의 "정적 리소스"를 바꾼 것이다.
+- 출력은 전부 `th:text`·`th:src`(URL 표현식) — `th:utext` 추가 없음(컨벤션 시험 그대로 통과). `coverImageId`는 서버의 `Long`이라 URL 주입 여지가 없다.
+- `board.css`에 격자·웹진·썸네일·자리표시 스타일을 더한다(기존 규칙 수정 없음).
+
+**D7. 썸네일 실패의 모습(수용 범위 명시)**
+- 레이트리밋 429·롤백으로 깨진 불변식(대표 ∉ 참조 → 404)·파일 유실은 그 칸이 깨진 이미지로 보인다. 공개 템플릿에 스크립트를 넣지 않는다는 기존 원칙(공개 메인 팝업 조각만 예외) 때문에 `onerror` 대체를 하지 않는다. 깨진 불변식은 PR 5의 재배포 직후 복구 SQL이 정리한다(`docs/deployment.md` "게시글 대표 이미지·썸네일").
+- 같은 페이지에 같은 대표가 고정 영역·목록에 두 번 나와도 고정 영역은 썸네일을 쓰지 않으므로 이미지 요청은 한 번이다.
+
+**D8. 관리 화면(`manage.html`) — "공개 화면 표시" 묶음에 "목록 모양" select**
+- 선택지: 목록형 / 갤러리형(대표 이미지 격자) / 웹진형(대표 이미지 + 요약). 안내 문구: "대표 이미지는 게시글 편집 화면에서 고릅니다. 대표가 없는 글은 빈 칸으로 보입니다." **편집 시작 시점의 응답 값에서 사용자가 바꿨을 때만 `boardType`을 보낸다**(슬러그·표시 대상과 같은 방식, v2 R1-1) — 알 수 없는 원본이 `LIST`로 보이는 게시판에서 다른 설정만 저장해도 원본이 보존된다. 생성은 항상 보낸다. `version` 409 보호는 그대로. `fillDisplay`·`setSaving` 잠금 목록에 추가. 목록 표에 열을 더하지 않는다(10열 유지 — 모달에서 확인).
+- 게시글 관리 화면(`posts.html`)은 바꾸지 않는다 — 대표 이미지 선택 UI는 PR 5에 이미 있다.
+
+**D9. 범위 밖(이 PR에서 하지 않음)**
+- 상세 화면의 대표 이미지 표시·`og:image` 메타(대표는 항상 본문 안에 있다).
+- 공개 메인 최신 글의 썸네일.
+- 목록 쿼리가 본문을 읽지 않게 하는 최적화(지금도 읽고 있는 기존 동작 — 별도 작업).
+- 게시글 관리 화면에서 "갤러리형 게시판" 안내(`MyBoardResponse` 필드 추가 필요 — 후속 후보).
+- 유형과 목록 크기 교차 검증(U6-4에서 기각).
+
+**D10. 롤백**
+- 이전 앱은 `board_type`을 모르고 목록형으로 보인다. 롤백 중 만든 게시판은 DEFAULT `LIST`. 재배포하면 저장된 유형이 다시 보인다. 데이터 정리 없음(`docs/deployment.md`에 짧은 절 추가).
+
+### P6-3. 변경 파일
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V13__board_type.sql`(신규) | `board.board_type` |
+| `admin/board/domain/BoardType.java`(신규) | enum + `fromStored`(관대) + `parse`(엄격, 실패 시 `InvalidRequestException`) |
+| `admin/board/domain/Board.java`·`BoardDisplay.java` | 필드·`type()`·`update` 대입·`display()` |
+| `admin/board/dto/request/BoardCreateRequest.java`·`BoardUpdateRequest.java` | `String boardType` |
+| `admin/board/dto/response/BoardResponse.java` | `boardType` |
+| `admin/board/service/BoardService.java` | 파싱(잠금 전)·"변경 필드 없음"·생성 기본값 |
+| `publicweb/board/service/PostExcerpt.java`(신규) | D5 |
+| `publicweb/board/dto/PublicPostSummary.java`·`PublicBoardListResult.java` | `coverImageId`·`excerpt`·`boardType` |
+| `publicweb/board/service/PublicBoardService.java`·`controller/PublicBoardController.java` | DTO 생성·모델 `boardType` |
+| `templates/public/board/list.html`·`static/css/public/board.css` | D6 |
+| `templates/admin/board/manage.html` | D8 |
+| 문서 | `admin/board`·`publicweb/board` `CLAUDE.md`, 루트 `CLAUDE.md` 지침 표, `docs/deployment.md`(롤백 절), `docs/migration-guide.md`(V13), `adversarial-review/plan/README.md` |
+
+### P6-4. 시험 계획
+
+- `BoardTypeTest`(단위): `parse` 정확 일치 3값 통과, `""`·소문자·공백 포함·알 수 없는 값 400(문구에 원문 없음), `fromStored` null·알 수 없는 값 → `LIST`.
+- `PostExcerptTest`(단위): null·빈 본문 → null / 블록 경계·`<br>` 공백 / `&nbsp;` 연속 접기 / 이미지만 있는 본문 → null / 120 코드 포인트 경계(120 그대로, 121 → 120 + `…`, 끝 공백 제거) / 서로게이트 쌍(이모지)이 120 경계에서 쪼개지지 않음 / 20,000 유닛 상한 뒤의 텍스트는 무시되고 경계의 하위 서로게이트에서 짝 잃은 문자가 생기지 않음 / 태그 문자열(`&lt;script&gt;`)은 문자 그대로 텍스트.
+- `BoardTypeApiIntegrationTest`(`admin.board`, 실스택): 생성 기본 `LIST`·지정 왕복 / PATCH 유지(누락)·변경·`version` +1 / **DB에 알 수 없는 원본(`'FUTURE'`)을 넣고 `boardType` 없이 이름·다른 표시 설정을 PATCH하면 원본이 그대로**(v2 R1-1), 같은 게시판에 `boardType: "GALLERY"`를 명시하면 그때만 바뀜 / 400 값 매트릭스(`""`·소문자·`" LIST"`·숫자·불리언) 후 DB 불변 / `boardType`만 보낸 PATCH 유효 / 낡은 `version` 409 / 공지 게시판 변경 허용 / MANAGER 403(기존 게이트) / DB에 알 수 없는 값을 직접 넣어도 관리 목록·상세 200이고 `LIST`로 보임.
+- `BoardTypePublicIntegrationTest`(`publicweb.board`, 실스택): 목록형 마크업 불변(격자 클래스 없음) / 갤러리형: 대표 있는 글은 `/content-images/{id}?size=thumb` + `loading="lazy"`·`alt=""`, 대표 없는 글은 자리표시, 그 썸네일 URL을 익명 GET하면 200 / 웹진형: 요약 표시·XSS 문자열 이스케이프·대표 없는 글 / 고정 영역은 모든 유형에서 목록형 한 줄(썸네일 없음) / 검색 결과·2페이지도 같은 유형 / 공지 게시판 갤러리형 / 비공개 글의 대표는 목록에 나오지 않고 그 썸네일은 404(기존 판정 재확인).
+- `PublicBoardTemplateConventionTest`: 변경 없이 통과해야 한다(`th:utext` 추가 없음 확인).
+- `BoardTypeUpgradeTest`(루트 패키지): V12 → V13, 기존 게시판(시드 공지 포함) `LIST`, 기존 설정 보존, 재실행 멱등.
+- 기존 회귀: `admin.board.*`·`publicweb.board.*`·`*ConventionTest`. `BoardServiceTest`가 `BoardDisplay`를 만드는 곳이 없음을 확인했으나 `Board.update` 호출 시험은 컴파일로 잡힌다.
+- 실기: 갤러리·웹진 화면 스크린샷(데스크톱·좁은 폭), 관리 모달 왕복(유형을 바꾸지 않은 저장의 페이로드에 `boardType` 키가 없음 — v2 R1-1), 익명으로 썸네일 GET.
+
+### P6-5. 리스크
+
+- **목록 요청당 jsoup 파싱**(웹진형만): 최대 50건 × 20,000 유닛. 본문은 이미 메모리에 있어 I/O는 없다. 느려지면 저장 시 컬럼으로 옮긴다(U6-3에서 미룬 선택지).
+- **썸네일 429**: U6-4에서 수용. 목록 크기 50 갤러리를 빠르게 넘길 때만, 같은 NAT 뒤 여러 사용자는 버킷을 나눠 쓴다(기존 레이트리밋 전체의 한계).
+- **알 수 없는 유형 값의 조용한 대체**: DB의 오타가 오류 없이 목록형으로 보인다 — 관리 화면 응답도 `LIST`라 운영자가 알아채기 어렵다. 500보다 낫다고 판단(D2).
+- 공개 HTML 마크업이 유형마다 달라져 외부 스크래퍼가 있다면 깨질 수 있다(실배포 전 — 해당 없음).
+
+### PR 6 개정 이력
+
+- P6-v1 (2026-10-29): 최초 작성. §5 윤곽 대비 바꾼 것 — 공지 게시판 유형 변경 허용(U6-2, 템플릿이 한 벌이 됨), 자리표시는 정적 파일이 아니라 CSS(D6), 고정 영역은 모든 유형에서 목록형(D6), 알 수 없는 DB 값은 `LIST`로 읽음(D2), 요약은 앞 20,000 유닛만 파싱(D5).
+- P6-v2 변경 (리뷰 1라운드 — codex gpt-6.1-sol, needs-attention 1건 수용): R1-1 알 수 없는 저장값을 해석한 `LIST`가 관계없는 수정(서비스의 "누락 = 현재값"·화면의 전체 필드 전송)으로 DB에 기록돼 원본이 영구 소실됨 → `BoardDisplay.boardType`은 저장 원본 문자열, 누락 PATCH는 원본 그대로 재대입, 화면은 연 시점 값에서 바꿨을 때만 전송, 보존 시험 추가(D2·D3·D8·P6-4). 기각 없음.
+
+### 구현·검증 결과 — PR 6 (2026-10-29)
+
+**Context / 확정 사항**: 게시판마다 공개 목록의 모양(목록형 `LIST`·갤러리형 `GALLERY`·웹진형 `WEBZINE`)을 고르게 하고, PR 5의 대표 이미지 썸네일을 공개 목록에 처음 보인다. 글 목록의 모양만 바뀌고 공개 경로·공개 조건·레이트리밋 규칙은 그대로다. 사용자 결정(P6-0): `list.html` 한 파일 분기, 공지 게시판도 유형 변경 가능, 웹진 요약은 조회 때 추출 120자, 썸네일 한도·`no-store` 유지 + `loading="lazy"`. 스키마 V13(DDL만), `SecurityConfig`·공개 경로 무변경. 리뷰 반영: 알 수 없는 저장값이 관계없는 수정으로 `LIST`로 덮이는 문제(R1-1) — `BoardDisplay.boardType`을 저장 원본 문자열로 두고 화면은 바꿨을 때만 전송.
+
+**구현 중 계획과 달라진 결정**
+- **요약 추출은 처음부터 순회 방식**: 계획 D5-4는 `body().text()`를 쓰고 블록 경계가 공백이 되는지 시험으로 고정한 뒤 안 되면 순회로 바꾼다고 했다. 블록·`br` 경계를 확실히 공백으로 만들려고 `PostExcerpt.collect`(텍스트 노드 순회, `isBlock()`·`br`은 앞뒤 공백)를 바로 썼다 — 시험 `blockBoundariesBecomeSpaces`가 고정한다.
+- **`PublicPostSummary.from`의 인자**: 계획은 `from(post, showViewCount, newBadge, boardType)`이었지만 DTO가 유형을 알 필요가 없어 `from(post, showViewCount, newBadge, excerpt)`로 했다(서비스가 웹진형일 때만 요약을 계산해 넘긴다). 고정 영역은 요약 없이 만드는 `toPinnedSummary`를 따로 둔다.
+
+**구현 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V13__board_type.sql`(신규) | `board.board_type varchar(20) NOT NULL DEFAULT 'LIST'` (`IF NOT EXISTS`) |
+| `admin/board/domain/BoardType.java`(신규) | enum + `fromStored`(관대) + `parse`(엄격) |
+| `admin/board/domain/Board.java`·`BoardDisplay.java` | 원본 문자열 필드·`type()`·`update` 대입·`display()` |
+| `admin/board/dto/request/BoardCreateRequest.java`·`BoardUpdateRequest.java`·`dto/response/BoardResponse.java` | `boardType` |
+| `admin/board/service/BoardService.java` | 파싱(잠금 전)·"변경 필드 없음"·생성 기본값·수정 누락 = 원본 유지 |
+| `publicweb/board/service/PostExcerpt.java`(신규) | 요약 추출 |
+| `publicweb/board/dto/PublicPostSummary.java`·`PublicBoardListResult.java`·`service/PublicBoardService.java`·`controller/PublicBoardController.java` | `coverImageId`·`excerpt`·`boardType` |
+| `templates/public/board/list.html`·`static/css/public/board.css` | 유형별 글 목록(격자·웹진·자리표시) |
+| `templates/admin/board/manage.html` | "목록 모양" select, 바꿨을 때만 전송 |
+| 시험(신규) | `BoardTypeTest`(19)·`PostExcerptTest`(9)·`BoardTypeApiIntegrationTest`(10)·`BoardTypePublicIntegrationTest`(9)·`BoardTypeUpgradeTest`(2) |
+| 문서 | `admin/board`·`publicweb/board` `CLAUDE.md`, 루트 `CLAUDE.md`(지침 표), `docs/deployment.md`(게시판 유형 절), `docs/migration-guide.md`(V13), `adversarial-review/plan/README.md` |
+
+**검증 결과**
+- 신규 시험 49건 통과. **영향 범위 시험**(`admin.board.*`·`publicweb.board.*`·`*ConventionTest`·`Board*UpgradeTest`) 60개 클래스 589건, 실패·오류 0. **전체 `./gradlew test`는 `code-review-loop` 마무리에서 1회 돌린다**(마이그레이션을 추가했으므로 필수 — 이 문서 작성 시점에는 미실행, `BaselineSchemaTest`도 그때 확인).
+- **변이 실험**: ① 수정에서 유형 누락 시 원본 대신 해석값(`LIST`)을 쓰게 바꾸면 `BoardTypeApiIntegrationTest.unknownStoredValueSurvivesUnrelatedEdits`가 정확히 1건 실패(원복 확인) ② 웹진 요약 계산을 끄면 `BoardTypePublicIntegrationTest` 2건(웹진 요약·고정 영역)이 실패(원복 확인).
+- **실기(dev `bootRun` 8081 — 8080은 `cms-app-dev`가 점유, Playwright)**: 실제 V13이 dev DB에 적용(기존 게시판 전부 `LIST`). 관리 모달 "목록 모양"에서 갤러리형을 골라 만들면 요청에 `boardType":"GALLERY"`가 실린다. **설명만 바꿔 저장한 PATCH 페이로드에 `boardType` 키가 없다.** DB 값을 `FUTURE`로 바꾸면 모달은 `LIST`로 열리고(500 없음) 설명만 바꿔 저장해도 **DB는 `FUTURE` 그대로**(version만 증가), 모달에서 갤러리형을 명시해 저장하면 그때 `GALLERY`로 바뀐다. 이미지 3장(1200×800·900×900·300×200)과 글 5건으로 확인: 갤러리형은 격자 5칸·썸네일 3장 로딩 완료(`480×320`·`480×480`·작은 원본 `300×200`, `alt=""`·`loading="lazy"`)·자리표시 2칸·제목의 `<b>`는 글자 그대로. 웹진형은 요약 표시, 긴 본문은 정확히 121자(120 + `…`), 본문 속 `<script>` 문자열은 평문, 390px 폭에서 썸네일이 위로 올라가고 가로 스크롤 없음. 목록형은 `board-list-item`만 있고 격자·웹진 클래스·`<img>`가 없다. 익명 curl: 공개 글이 참조하는 대표의 `?size=thumb`는 200(`nosniff`·`no-store`·`image/png`), `size=large`·`THUMB`·빈 값은 404, **글을 비노출로 바꾸면 그 대표의 썸네일·원본이 404가 되고 목록에서도 사라지며 복구하면 다시 200**, 숫자 id 경로 404, 익명 POST 403. 검증 행(게시판 #9·글 5·이미지 3·썸네일 2·감사 12행)과 파일은 지워 원복했고 카운터는 0/0, 8081 앱은 종료했다(dev DB는 V13 상태로 남음). 스크린샷 `adversarial-review/plan/screenshots/pr6-0{1,2,3,4}-*.png`(커밋 제외).
+- **롤백 호환 — 실제 이전 앱으로 확인(2026-10-29, 사후 검증)**: `origin/master`(V12 코드, #186)를 별도 워크트리로 받아 8082에서 V13이 적용된 dev DB에 띄웠다. ① **기동 성공** — Flyway가 `Successfully validated 13 migrations` 뒤 `Schema `cms` has a version (13) that is newer than the latest available migration (12) !` **경고만** 내고 `No migration necessary`로 넘어간다(오류 0건, 설정 없이 Flyway 기본값 `*:future` 무시). ② 갤러리형으로 저장된 게시판의 공개 화면은 이전 앱에서 200 + 목록형(`board-list-item` 1, 격자 0). ③ **이전 앱의 게시판 생성**(새 컬럼을 모르는 INSERT) → 201, DB `board_type`은 `LIST`. ④ **이전 앱의 갤러리형 게시판 수정**(이름·설명 PATCH) → 200, `board_type`은 `GALLERY` 그대로(이전 엔티티의 UPDATE에 새 컬럼이 없다). ⑤ 이전 앱 관리 목록 GET 200. ⑥ 이전 앱을 내리고 새 코드를 다시 띄우면 이전 앱이 만든 게시판은 `LIST`, 수정한 게시판은 `GALLERY` 격자로 다시 보이고 V13은 다시 실행되지 않는다. 검증 행·파일은 지워 원복했다. (첫 시도의 400은 curl 인자의 한글이 깨진 요청 문제였고 ASCII 본문으로 다시 보내 통과 — 앱·DB 문제 아님)
+- **429 실제 재현(2026-10-29, 사후 검증)**: 50칸 갤러리 게시판(글 50·서로 다른 이미지 50)을 만들어 확인했다. **한도가 가득 찬 상태에서 연속 300건**(`curl` 한 번): **250건까지 200, 251번째부터 429**(성공 252·429 48) — 버스트 240 + 연속 요청 중 회복분과 맞는다. 429는 `Retry-After: 1`·`Content-Type: text/html`·본문 `429 - 요청이 너무 많습니다`(`error/429`)이고 그 순간에도 목록 HTML은 200(`public-board`는 별도 버킷). 실제 브라우저에서 같은 갤러리를 쉬지 않고(회차당 약 1초, 끝까지 스크롤) 9번 넘기면 1~6회차는 50장 모두 정상이다가 **7회차부터 50장 중 43~46장이 깨졌다**(페이지 제목·카드 50개는 정상). 깨진 칸은 회색 썸네일 영역에 깨진 이미지 아이콘이 보이고 제목·날짜는 정상이다(`pr6-05-…png`). **15초 뒤 새로고침하면 첫 화면 이미지 9장이 모두 정상**이다. 참고: `loading="lazy"` 때문에 스크롤하지 않으면 첫 화면 분량(9장 안팎)만 요청하므로 "끝까지 내리며 빠르게 넘기는" 경우가 최악이다. 브라우저 회차 수(6회 = 300장)가 서버 측 용량(약 250)보다 많았던 것은 같은 URL의 브라우저 메모리 캐시 재사용 때문일 수 있으나 확인하지 않았다 — 서버 동작의 정확한 수치는 curl 결과다.
+- **실행 검증하지 않은 것**: 없음(위 두 항목을 포함해 계획에서 미뤄 둔 항목은 모두 확인했다). 확인하지 않은 부분은 브라우저 회차와 서버 용량의 차이 원인뿐이다.
+
+**이슈**
+- 시험 헬퍼 `isPaired`(서로게이트 경계 시험)가 짝 잃은 문자를 못 가려내는 약한 검사여서 UTF-8 왕복 비교로 바꿨다(결과 동일, 검출력만 강화).
+- `BoardTypeUpgradeTest`의 Flyway `locations`에 같은 경로를 두 번 적은 실수를 첫 실행 전에 고쳤다(Java 마이그레이션 V10·V11은 같은 classpath 경로에서 잡힌다).
+
+**후속**: 없음 — 이 PR로 게시판 정의 고도화 계획(PR 0~6)이 끝난다. 수용한 한계: 갤러리 50칸을 평균 12.5초보다 빨리 계속 넘기면 일부 칸이 깨진 이미지(`content-image` 240/60초)·앞부분이 이미지뿐인 글의 웹진 요약은 비어 보임(앞 20,000자만 읽음)·DB의 알 수 없는 유형 값은 오류 없이 목록형으로 보여 운영자가 알아채기 어려움(배포 문서에 점검 SQL). 후속 후보: 상세 화면·공개 메인의 대표 이미지 표시(`og:image` 포함), 게시글 관리 화면의 "갤러리형 게시판" 안내(`MyBoardResponse`에 유형 추가 필요), 목록 쿼리가 본문을 읽지 않게 하는 최적화(웹진이 느려지면 저장 시 요약 컬럼).
