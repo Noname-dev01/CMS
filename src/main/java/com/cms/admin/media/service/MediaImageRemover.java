@@ -2,9 +2,11 @@ package com.cms.admin.media.service;
 
 import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.domain.ContentImageRef;
+import com.cms.admin.contentimage.domain.ContentImageThumb;
 import com.cms.admin.contentimage.domain.ContentImageUsage;
 import com.cms.admin.contentimage.repository.ContentImageRefRepository;
 import com.cms.admin.contentimage.repository.ContentImageRepository;
+import com.cms.admin.contentimage.repository.ContentImageThumbRepository;
 import com.cms.admin.contentimage.repository.ContentImageUsageRepository;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.common.storage.FileStorage;
@@ -29,6 +31,7 @@ public class MediaImageRemover {
     private final ContentImageRepository imageRepository;
     private final ContentImageRefRepository refRepository;
     private final ContentImageUsageRepository usageRepository;
+    private final ContentImageThumbRepository thumbRepository;
     private final FileStorage fileStorage;
 
     /**
@@ -55,6 +58,13 @@ public class MediaImageRemover {
         ContentImageUsage usage = usageRepository.findByIdForUpdate(ContentImageUsage.SINGLETON_ID)
                 .orElseThrow(() -> new IllegalStateException("content_image_usage 카운터 행이 없습니다(V2 시드 누락)."));
         usage.release(image.getFileSize());
+        // 썸네일은 이미지 행을 FOR UPDATE로 잡은 뒤에 읽는다 — 썸네일 생성은 이미지 공유 잠금 아래서 하므로 이 읽기가 생성과 직렬화된다.
+        // 행은 FK ON DELETE CASCADE로 함께 사라지고, 바이트는 여기서 돌려주고, 파일은 커밋 후 지운다(PLAN-board-definition.md PR 5 D6).
+        thumbRepository.findById(image.getId()).ifPresent(thumb -> {
+            usage.releaseBytes(thumb.getFileSize());
+            FileStorageTransactionSupport.deleteAfterCommit(fileStorage, thumb.getStorageKey(), ContentImageThumb.NAMESPACE,
+                    "image thumb id=" + image.getId());
+        });
         imageRepository.delete(image);
         if (image.isRootNamespace()) {
             FileStorageTransactionSupport.deleteAfterCommit(fileStorage, image.getStorageKey(), "image id=" + image.getId());
