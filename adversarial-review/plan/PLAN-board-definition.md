@@ -1,6 +1,6 @@
 # PLAN-board-definition — 게시판 정의 관리 고도화
 
-- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1·2·3·L·4a 머지(#179~#184) · PR 4b 상세 설계(P4b-v2, 리뷰 2라운드 ship) 후 구현·검증 완료(2026-10-28, 미커밋)****
+- 작성: 2026-10-26 / 상태: **v1 초안. 전체 분할·결정·PR별 윤곽 작성, PR 1 상세 설계 포함, PR 0(게시글 마지막 수정자) 추가, PR 4를 4a(슬러그)·4b(공지 흡수)로 분할. 사용자 결정 Q1~Q6 반영 완료. 적대적 리뷰 5라운드(v6) — 5라운드 지적 2건 반영. **전체 계획 확정(사용자, 2026-10-26)** — 남은 쟁점은 4a·4b 상세 설계 범위로 해당 PR 착수 때 별도 리뷰. 착수 순서: PR 0 → PR 1. **PR 0·1·2·3·L·4a 머지(#179~#184) · PR 4b 머지(#185) · PR 5 상세 설계(P5-v5, 리뷰 5라운드) 후 구현·검증 완료(2026-10-29, 미커밋)****
 - 로드맵: 아직 정식 항목 아님(이 계획이 리뷰를 통과하면 `/updateRoadmap` 또는 로드맵 갱신으로 등록)
 - 개정 이력:
   - v1: 초안(전체 분할·결정·PR 1 상세).
@@ -1373,3 +1373,200 @@ ALTER TABLE `post`
 - 변이 실험 중 미추적 파일(V11)을 `git checkout`으로 되돌리려다 되돌려지지 않았다 — 백업 사본으로 복원하고 내용을 확인했다(작업 절차 실수, 코드 영향 없음).
 
 **후속**: 없음. 남은 순서는 PR 5(대표 이미지 + 썸네일) → PR 6(게시판 유형) — 4b 이후라 공개 화면이 한 벌이므로 게시판 템플릿만 보면 된다(§2).
+
+---
+
+## PR 5 상세 설계 — 대표 이미지 + 썸네일 (P5-v5, 2026-10-28)
+
+> §5 PR 5 초안을 구체화한다. 이 절만 `plan-review-loop` 대상이다. 확정 결정(썸네일 공개 경로 `/content-images/{id}?size=thumb` — `SecurityConfig` 매처 무변경, 서버가 썸네일을 생성, 디코딩 실패 400 + 저장 전체 롤백, 동시 생성 상한, 새 라이브러리 없이 JDK `ImageIO`)은 다시 열지 않는다. 마이그레이션은 현재 최대 V11(Java) 다음인 **V12(DDL, SQL)** 하나.
+
+### P5-0. 사용자 결정 (2026-10-28 — 재질문 금지)
+
+- **P5-v5 승인**(리뷰 5라운드 후). 스키마 변경 V12(`post.cover_image_id` + FK `SET NULL`, `content_image_thumb` + FK `CASCADE`)·공용 코드 변경(`thumb` 예약 네임스페이스, 503 `ServiceBusyException`)을 고지받고 승인. 인가 정책 변경 없음.
+- 썸네일 생성은 **게시글 저장 트랜잭션 안**(D4 ①).
+- 카운터에 썸네일 **바이트만 포함**, 개수 제외(D6 ①).
+- 알 수 없는 `size` 값은 **404**(D5).
+- 이미지 단위 썸네일(D4)·본문 참조 이미지 중 선택(D1)은 추천안 그대로.
+
+### P5-1. 정찰 결과 (코드 근거)
+
+1. **이미지는 한 테이블·한 카운터·한 참조 테이블**이다(`content_image`·`content_image_usage`·`content_image_ref`, `com.cms.admin.media` CLAUDE.md). 게시글 본문이 참조할 수 있는 이미지는 그 게시판 출처(`BOARD`) + 라이브러리 계열(`LIBRARY`·`BANNER`·`POPUP`)이다. 라이브러리 계열 중 `BANNER`·`POPUP` 출처 파일은 **`banner`·`popup` 네임스페이스**에 있다(루트가 아님) — 썸네일 원본을 읽을 때 `namespace`에 따라 루트/네임스페이스 API를 고른다.
+2. **공개 판정은 원본 하나**(`PublicContentImageService.findViewable` — 공개 글 참조 `existsPublishedPostRef` ∨ 그 게시판 READ ∨ 라이브러리 계열 + MEDIA READ). 응답은 `nosniff`·`no-store`, 스트리밍(조회 트랜잭션과 파일 열기 분리). 레이트리밋 `content-image`(`/content-images/*` 240/60초)는 경로만 보므로 `?size=thumb`에도 같은 버킷이 적용된다.
+3. **본문 이미지 검증은 헤더만 본다**(`ContentImageService.LIMITS = (4096, 4096², fullDecode=false)` — 전체 디코드는 힙 약 64MB). 썸네일은 전체 디코드가 필요하다 → 메모리 대책이 필요하다(D4).
+4. **참조 교체** `replaceRefs`는 대상 이미지를 id 오름차순 `FOR SHARE`로 읽고(존재 확인 + 삭제 방지) 결과 집합을 돌려주지 않는다(`void`). 게시글 수정은 본문이 바뀔 때만 이것을 부른다(`PostService.updatePost`).
+5. **이미지 삭제 경로는 `MediaImageRemover.deleteLocked` 하나**다(라이브러리 삭제 `MediaService.delete`, 배너·팝업 삭제의 `detachOwner`가 부른다). 이미지 행 `FOR UPDATE` → 남은 참조 잠금 읽기 → 카운터 `release` → 행 삭제 → 커밋 후 파일 삭제. 진입점은 `READ_COMMITTED`.
+6. **카운터** `ContentImageUsage.reserve(bytes, maxBytes, maxCount)`는 바이트·개수를 함께 올린다(이미지 1개 = 개수 1). `release(bytes)`도 개수를 1 내린다.
+7. **수동 회수 절차**(`docs/deployment.md` "편집기 본문 이미지"): ② 회수 대상(미참조 이미지) → ③ 한 트랜잭션(참조·행 삭제·카운터 재계산) → ④ 커밋 후 파일 삭제 → ⑤ 루트 영역 "행 없는 파일"(보존 = 루트 `content_image` + `post_attachment` 키, `profile/`·`banner/`·`popup/` 제외) → ⑤-2 프로필 → ⑤-3 배너 → ⑤-4 팝업. `LocalDiskFileStorage.RESERVED_NAMESPACES = {profile, banner, popup}`(루트 API가 이 최상위 세그먼트를 해석하지 않는다).
+8. **게시글 PATCH 입력**은 "키 없음 = 유지" 규칙이고, 3상태가 필요한 `publishPeriod`는 세터 + 중복 플래그(`@JsonIgnore` + `@Getter(NONE)`/`@Setter(NONE)`) + 생성자 `@JsonCreator(mode = DISABLED)` 패턴을 쓴다(`com.cms.admin.board` CLAUDE.md "예약 게시"). Jackson은 `Long` 필드에 `""`·`"12"`를 강제 변환한다(팝업 CLAUDE.md의 함정).
+9. **관리 화면**(`posts.html`)은 편집기를 페이지에 하나만 두고 `editor.getHtml()`·`isChanged()`만 쓴다. 편집기에는 "본문의 이미지 ID 목록" API가 없다(본문 `src`는 `/content-images/{id}`만 허용되므로 HTML에서 읽을 수 있다).
+10. **503 예외가 없다**(`common/exception`에 `ConflictException`·`InvalidRequestException`·`RateLimitedException`(429 + `Retry-After`) 등). JPEG의 EXIF 방향(Orientation)은 `ImageIO`가 적용하지 않지만 **브라우저는 원본 `<img>`에 적용한다**(`image-orientation: from-image` 기본) — 그대로 축소하면 휴대폰 사진 썸네일이 원본과 다르게 눕는다.
+
+### P5-2. 설계 결정
+
+**P5-D1. 대표 이미지 = 그 글 본문이 참조하는 이미지 중 하나 (초안 추천 그대로)**
+
+- 선택지: ① **본문 참조 이미지 중 선택** ② 별도 업로드(새 출처·새 참조 종류·새 공개 판정).
+- **① 채택.** 공개 판정이 기존 `content_image_ref`를 그대로 따른다(새 공개 규칙 없음). ②는 본문에 없는 이미지를 공개하는 새 경로라 공개 판정·수명주기·회수 절차가 한 벌 더 생긴다. 본문에 이미지를 넣고 싶지 않은 갤러리 글의 요구는 PR 6 이후 실제 요청이 생기면 다룬다.
+- 스키마: `post.cover_image_id BIGINT NULL`, FK → `content_image(id)` **`ON DELETE SET NULL`**. 불변식 "대표 이미지 ∈ 그 글의 참조"는 서비스가 지키고(아래), FK는 그 불변식이 깨진 경우(롤백한 이전 앱이 본문에서 이미지를 뺀 뒤 그 이미지를 지움)에 이미지 삭제를 막지 않고 대표만 비우는 최후 방어선이다. RESTRICT면 이전 앱의 라이브러리 삭제가 FK 오류가 된다.
+
+**P5-D2. API 계약 — `coverImageId` 3상태 (게시글 생성·수정)**
+
+- 생성: 키 없음·`null` = 대표 없음, 정수 = 그 이미지.
+- 수정(PATCH): **키 없음 = 유지, `null` = 해제, 정수 = 지정**. `publishPeriod`와 같은 세터 + 중복 플래그 패턴(중복 키 400, 플래그는 JSON 속성 아님, 생성자 `@JsonCreator(DISABLED)`는 이미 있다).
+- **엄격 파싱**: 세터가 `Object`로 받아 `Integer`·`Long`(1 이상)과 `null`만 허용한다. 문자열(`""`·`"12"`)·소수·불리언·배열·객체는 400(메시지에 입력 원문 없음). 이유 — `Long`으로 받으면 Jackson이 `""`를 `null`(= 해제)로 바꿔 화면 버그가 대표를 조용히 지운다(팝업 기간에서 겪은 함정, 정찰 8).
+- "변경할 필드 없음" 400 판정에 `coverImageId` 키 존재를 포함한다(대표만 바꾸는 PATCH가 유효).
+- 응답: `PostResponse.coverImageId`(상세). 목록 DTO·공개 DTO에는 넣지 않는다(공개 표시는 PR 6 — D9).
+
+**P5-D3. 검증과 불변식 유지 — 게시글 저장 트랜잭션 안**
+
+- 판정 대상 집합 = **저장 후 그 글의 참조 이미지 ID 집합**. 본문이 바뀌면 `replaceRefs`가 저장한 집합(반환값을 `void` → `Set<Long>`으로 바꾼다 — 기존 호출자는 반환값을 무시하므로 영향 없음), 본문이 그대로면 `findImageIdsByOwner(POST, postId)`.
+- 지정(`coverImageId = n`): `n ∉ 집합`이면 **400** "대표 이미지는 본문에 들어 있는 이미지 중에서 골라야 합니다." 존재하지 않는 이미지 ID는 `replaceRefs`가 조용히 빼므로 같은 400이 된다.
+- **자동 해제**: 본문이 바뀌었고 요청에 `coverImageId` 키가 없으며 현재 대표가 새 집합에 없으면 대표를 `null`로 바꾼다(본문에서 이미지를 지우면 대표도 사라진다 — 별도 오류로 저장을 막지 않는다). 응답의 `coverImageId`로 화면이 결과를 안다.
+- 본문이 그대로이고 키가 없으면 대표를 보지 않는다(롤백 기간에 깨진 대표도 그대로 둔다 — 다음 본문 저장이나 대표 지정 때 정리된다).
+- 판정 순서: 기존 순서(쓰기 중지 → 예약 → 고정) 뒤, 참조 교체 뒤에 대표 판정 → 썸네일 보장(D4). 쓰기 중지 게시판은 대표 변경도 400(기존 `requireWritable`이 먼저 막는다).
+- 잠금: 새 잠금 없음. 게시글 행 `FOR UPDATE`가 같은 글의 동시 저장을 직렬화하고, 대표 후보는 이 글이 참조 중인 이미지라 라이브러리 삭제가 409로 막힌다(참조 잠금 읽기 — 정찰 5). 본문이 그대로인 대표 지정은 이미지 행을 잠그지 않는다 — 참조가 이미 커밋돼 있어 삭제가 409이기 때문이다.
+
+**P5-D4. 썸네일 생성 — 이미지 단위, 대표 지정 때 동기, 트랜잭션 안 (초안 미결정 → 추천, 승인 때 확인)**
+
+- **이미지 단위**(초안 추천): 새 테이블 `content_image_thumb(image_id PK, storage_key, content_type, file_size, create_date)`, FK `image_id` → `content_image(id)` **`ON DELETE CASCADE`**. 같은 이미지를 여러 글이 대표로 써도 한 번만 만든다. 공개 판정은 원본과 같다(D5). 글 단위(`post.cover_thumb_key`)는 같은 이미지마다 다시 만들고 글 삭제·대표 교체마다 파일 수명주기가 생겨 기각.
+- **컬럼이 아니라 별도 테이블인 이유(동시성)**: 두 글이 같은 썸네일 없는 이미지를 동시에 대표로 지정하면 둘 다 이미지 행 `FOR SHARE`(참조 교체)를 쥔 상태다. `content_image`에 썸네일 컬럼을 두고 `UPDATE … WHERE thumb IS NULL`하면 서로의 공유 잠금을 기다리는 S→X 승격 교착이 된다. 별도 테이블에 **`INSERT IGNORE`**(PK = `image_id`)하면 뒤 트랜잭션은 앞 트랜잭션의 행 잠금만 기다렸다가(교착 없음 — 자식 행 INSERT의 부모 FK 검사는 공유 잠금이라 쥔 공유 잠금과 충돌하지 않는다) 0행을 받고, 자기가 만든 파일을 즉시 지운다. 앞이 롤백되면 뒤가 넣는다.
+- **생성 시점: 대표 지정이 포함된 저장 때 동기**, 그 이미지에 썸네일 행이 없을 때만. 지연 생성(공개 GET이 쓰기)은 초안대로 기각. 이미 있는 이미지는 비용 0.
+- **트랜잭션 안/밖 (추천: 안)**: ① **안** — 참조 교체 뒤 같은 트랜잭션에서 원본 읽기 → 생성 → `FileStorage.store` + `deleteOnRollback` → 행 기록. 디코딩 실패 400이 본문 저장까지 원자적으로 되돌리고 파일 정리가 기존 유틸 하나다. 대가: 생성 시간(축소 디코딩 기준 수십~수백 ms)과 자리 대기(D4 상한, 최대 2초)만큼 커넥션·게시글 행 잠금을 쥔다. ② 밖 — 저장 트랜잭션 전에 생성해 파일만 남기고 트랜잭션이 행을 기록. 커넥션 점유는 없지만 트랜잭션 전 실패·강제 종료가 "행 없는 파일"을 남기고(커밋 전 단계라 `deleteOnRollback`이 없다), 검증(대표 ∈ 참조) 전에 아무 이미지 ID로 디코딩을 시킬 수 있으며, `READ_COMMITTED` 최상위 진입점(`createPost`·`updatePost`)을 감싸는 비트랜잭션 파사드가 하나 더 생긴다. **관리자 전용·이미지당 1회라 ①을 추천**한다.
+- **동시 생성 상한**: `Semaphore(2)`, `tryAcquire(2초)` 실패(또는 인터럽트)면 **503** + `Retry-After: 2` "다른 대표 이미지를 만드는 중입니다. 잠시 후 다시 저장하세요."(트랜잭션 롤백 — 본문도 저장되지 않음, 화면은 입력 보존). 새 예외 `common/exception/ServiceBusyException` + `GlobalApiExceptionHandler` 매핑(코드 `SERVICE_BUSY`). 429(`RateLimitedException`)를 재사용하지 않는 이유 — 429는 "이 사용자가 너무 많이 보냈다"는 뜻이라 원인이 다르고, 레이트리밋 규약(고정 문구·`RATE_LIMITED`)과 섞인다.
+- **메모리: 축소 디코딩**(v2, 리뷰 R1-4 — 계수 계산 정정). 순서: ① 세마포어 획득 → ② `file_size`가 5MB 이하인지 다시 확인(DB를 직접 고친 행 방어, 초과 400) → ③ 원본 읽기(`load`, 최대 5MB) → ④ 헤더 크기 확인(업로드와 같은 4096·4096² 상한 재확인) → ⑤ 축소 디코딩 → ⑥ 축소·인코딩. 리더는 `setInput(iis, true, ignoreMetadata = true)`로 연다 — PNG 압축 텍스트 청크 등 메타데이터를 풀어 보관하지 않게(EXIF는 아래처럼 바이트에서 직접 읽고, GIF만 논리 화면 판정에 스트림·프레임 메타데이터가 필요해 GIF는 메타데이터를 읽는다 — GIF 메타데이터는 파일 크기 5MB 안에 묶인다). 계수는 **`f = max(1, ceil(긴 변 / 960))`** — 디코딩 결과의 긴 변이 항상 960 이하(ARGB 최대 약 3.5MiB, 16비트 PNG 래스터 최대 약 7MiB)이고 480 이상이라 축소 품질이 유지된다(1919 → 계수 2 → 960).
+- **JPEG 디코더 작업 메모리 상한**(v3, 리뷰 R2-1): 축소 디코딩은 반환 래스터만 줄인다. JDK의 libjpeg는 프로그레시브·다중 스캔 JPEG를 원본 해상도의 DCT 계수 버퍼(컴포넌트별, 계수당 2바이트, **네이티브 메모리**)에 모은 뒤 출력한다 — 4096² 4:4:4면 약 96MiB다. 이 저장소는 compose·Dockerfile에 메모리 상한도 JVM 옵션도 없어 네이티브 메모리가 호스트 메모리를 그대로 쓴다. 그래서 **디코딩 전에** EXIF를 읽는 같은 마커 순회에서 SOF(0xC0~0xCF 중 DHT·JPG·DAC 제외)의 크기·컴포넌트별 샘플링 계수(H, V — 각각 1..4가 아니면 400)를 읽어 **libjpeg와 같은 방식으로**(v4, 리뷰 R3-2 — 블록 수를 샘플링 계수 배수로 다시 올린다) 계수 버퍼 추정치 = Σ컴포넌트 `roundUp(ceil(ceil(W·H_c/H_max)/8), H_c) × roundUp(ceil(ceil(Hgt·V_c/V_max)/8), V_c) × 128`바이트(블록당 계수 64개 × 2바이트, 모두 `long`)를 계산하고 **48MiB(50,331,648바이트)를 넘으면 400**("이 이미지는 너무 커서 대표 이미지를 만들 수 없습니다. 더 작은 이미지를 고르세요.")이다. 프로그레시브 여부와 무관하게 **모든 JPEG에 적용**한다(다중 스캔 여부는 엔트로피 구간 전체를 훑어야 알 수 있어 보수적으로 단순화). 결과: 4:2:0 4096²(휴대폰 사진 형태, 정확히 48MiB)은 통과, 4:4:4 4096²(96MiB)은 거부, 4:4:4는 약 2896²(8.4M 화소)까지. 동시 2개 최악 네이티브 약 96MiB + 힙(입력 5MB·래스터 ≤ 약 7MiB·출력)이다. SOF가 없거나 읽을 수 없으면 400(디코딩 실패와 같은 문구). PNG·GIF는 행 단위로 디코딩해 축소 디코딩이 작업 메모리도 함께 줄이므로 이 검사가 없다.
+- **인터레이스 PNG는 축소 디코딩하지 않는다**(v5, 리뷰 R4-1): JDK PNG 리더는 축소 디코딩에서 출력에 쓰이지 않는 Adam7 패스를 행 필터 검사 없이 건너뛴다(경고 없음) — 건너뛴 패스가 손상된 PNG가 정상 썸네일이 되어 "손상 = 400" 계약에 공백이 생긴다. 비인터레이스 PNG는 필터가 앞 행에 의존해 모든 행을 디코딩하므로 이 경로가 없다. 그래서 `IHDR`의 인터레이스 방법이 1이면 **긴 변 ≤ 960은 `f = 1`로 전부 디코딩**(메모리 ≤ 약 3.5MiB)하고 **긴 변 > 960은 400**("이 이미지는 너무 커서…"와 같은 문구)이다. 모든 패스를 직접 검증하는 별도 PNG 검증기(압축 해제·패스 크기 계산)는 같은 계약에 코드가 훨씬 많아 기각했다 — 인터레이스 PNG는 드물다.
+- **JPEG 색 공간**(v4, 리뷰 R3-3 — "CMYK는 JDK 미지원"은 틀린 전제였다. JDK 21은 CMYK·YCCK를 디코딩한다): SOF 컴포넌트 수가 **1(회색) 또는 3**일 때만 허용하고 **4(CMYK·YCCK)는 정책 검사로 400**(디코딩 실패에 기대지 않는다). 브라우저마다 CMYK 표시가 다르고 썸네일 색이 원본과 어긋나기 쉬워 대표로 쓰지 않는다.
+- **PNG 청크 정리**(v4, 리뷰 R3-1): JDK PNG 리더는 **팔레트 PNG에는 `ignoreMetadata`를 적용하지 않고** `zTXt`·`iTXt`를 풀어 누적 상한 없이 보관한다(청크당 256KiB) — 작은 이미지도 디코딩하므로 1×1 팔레트 PNG에 압축 텍스트 청크를 많이 넣으면 수백 MiB가 된다. 그래서 ImageIO에 넘기기 전에 청크를 길이 경계 검사하며 순회해 **허용 목록 `IHDR`·`PLTE`·`tRNS`·`IDAT`·`IEND`만 남긴 바이트로 다시 조립**한다(CRC는 원본 청크 그대로 복사, 구조 위반·`IHDR`/`IEND` 없음은 400). 버리는 `gAMA`·`iCCP`·`sRGB` 등은 비팔레트 PNG에서는 원래도 `ignoreMetadata`로 무시되던 것이라 결과 차이가 팔레트 PNG의 색 관리 정보뿐이다(썸네일 용도로 수용). APNG `acTL`은 업로드에서 이미 거부됐다.
+- **디코딩 경고 = 실패**(v4, 리뷰 R3-4): JDK JPEG 리더는 데이터가 일찍 끝나도 경고를 내고 EOI를 보충해 일부가 빠진 픽셀을 정상처럼 돌려줄 수 있다. 리더에 `IIOReadWarningListener`를 붙여 **디코딩 중 경고가 하나라도 오면 400**(디코딩 실패와 같은 문구, 저장 전체 롤백)이다 — 형식 무관 적용. EXIF는 바이트에서 직접 읽고(깨지면 방향 1) 리더 메타데이터는 무시하므로 EXIF 문제는 경고로 오지 않는다. 대가: "불필요한 바이트" 같은 무해한 경고를 내는 일부 카메라 JPEG도 대표로 쓸 수 없다(다른 이미지를 고르게 안내 — 보수적으로 수용).
+- **축소 규칙**: 긴 변 480px(비율 유지). 원본 긴 변 ≤ 480이면 **썸네일을 저장하지 않고 행도 없다**(`?size=thumb`는 원본을 준다 — D5). **단 작은 원본도 전체 디코딩으로 검증한다**(v2, 리뷰 R1-2 — 크기에 따라 "디코딩 실패 400" 계약이 갈리지 않게. 480² 이하라 메모리 부담이 없다). 출력: JPEG 원본 → JPEG(품질 0.85, 알파 없음), PNG·GIF 원본 → PNG(투명도 보존). 메타데이터는 다시 인코딩되며 버려진다.
+- **GIF는 논리 화면 기준**(v2, 리뷰 R1-5): 단일 프레임 GIF도 프레임이 논리 화면보다 작고 오프셋이 있을 수 있다(업로드 검증은 프레임이 화면 안에만 있으면 허용 — `ImageFileValidator.requireGifScreenWithinLimits`). 브라우저는 논리 화면 크기로 그리므로, **투명한 논리 화면 캔버스에 프레임을 오프셋대로 합성한 결과**를 기준으로 크기 판정(작은 이미지 여부 포함)·축소한다. 축소 디코딩 계수는 논리 화면 긴 변으로 정하고 프레임 크기·오프셋을 같은 계수로 나눠 배치한다. 애니메이션은 업로드에서 거부됐으므로 첫 프레임만 본다.
+- **EXIF 방향**: JPEG는 APP1 `Exif` 블록의 IFD0 `Orientation`(0x0112)을 직접 읽어(최소 파서 — 바이트 순서·오프셋 경계 검사, 해석 실패는 방향 1로 간주) 회전·반전을 적용한 뒤 축소한다. 이유 — 브라우저는 원본에 방향을 적용하므로 적용하지 않으면 사진 썸네일이 원본과 다르게 보인다(정찰 10). 방향이 5~8(90°/270°)이면 긴 변 판정은 회전 후 크기로 한다.
+- **디코딩 실패**(초안 확정): 픽셀 손상·디코딩 경고·정책 위반(위 CMYK·계수 버퍼·PNG 구조) 등은 400 "이 이미지로 대표 이미지를 만들 수 없습니다. 다른 이미지를 고르세요." + 롤백. 원본 파일이 디스크에 없으면(`StorageFileNotFoundException`) 같은 400(그 이미지는 공개 화면에서도 404다).
+- 저장 위치: **새 예약 네임스페이스 `thumb`**(`LocalDiskFileStorage.RESERVED_NAMESPACES`에 추가). 원본 네임스페이스(루트·`banner`·`popup`)에 섞으면 수동 회수 ⑤·⑤-3·⑤-4의 보존 목록 셋을 모두 고쳐야 하지만, 전용 네임스페이스면 ⑤가 `thumb/`를 제외하고 새 ⑤-5 하나가 대조한다(D7).
+
+**P5-D5. 공개 경로 `GET/HEAD /content-images/{id}?size=thumb` (확정) — 알 수 없는 값은 404 (초안 미결정 → 추천)**
+
+- 같은 핸들러가 `size`를 `request.getParameterValues("size")`로 읽는다: 없음 → 원본(지금과 같음), **정확히 하나이고 `thumb`** → 썸네일, 그 밖(빈 값·대소문자 다름·두 개 이상·다른 값) → **404**. 400이 아니라 404인 이유 — 이 경로는 비숫자 id·없음·비공개를 모두 같은 404로 흡수하는 공개 경로이고, 값이 무엇이든 원본을 주지 않아 동작을 열어 두지 않는다. `size` 외 다른 쿼리 매개변수는 지금처럼 무시한다.
+- 판정: `findViewable`(원본과 **같은 공개 판정**) 통과 후 썸네일 행이 있으면 `thumb` 네임스페이스의 그 파일, **없으면 원본**(작은 원본·롤백 기간에 지정된 대표·대표가 아닌 이미지). 썸네일 파일이 디스크에 없으면 404(원본 파일 없음과 같은 규칙). `ContentImageMeta`에 썸네일 메타를 함께 실어 조회 1회(트랜잭션)·열기(트랜잭션 밖) 구조를 유지한다.
+- 응답 헤더는 원본과 같다(`Content-Type` = 썸네일 형식, `nosniff`·`no-store`, `Content-Length`). 캐시를 허용하지 않는 이유는 원본과 같다(공개 상태 재검증). 레이트리밋은 같은 `content-image` 버킷(정찰 2) — 갤러리 목록이 한 페이지에 썸네일을 최대 50장 부르므로 한도 적정성은 **PR 6에서 다시 본다**.
+- `SecurityConfig`·`PublicExposureInventoryTest`·레이트리밋 설정 무변경(매핑 추가 없음).
+
+**P5-D6. 수명주기·카운터 (카운터 포함 여부: 초안 미결정 → 추천)**
+
+- 이미지 삭제(`MediaImageRemover.deleteLocked`): 썸네일 행을 읽어 두고 → 카운터 반환(원본 + 썸네일 바이트) → 이미지 행 삭제(썸네일 행은 FK CASCADE) → **커밋 후** 원본·썸네일 파일 삭제. 썸네일 읽기는 이미지 행 `FOR UPDATE` 뒤라 동시 생성(이미지 `FOR SHARE` 필요)과 직렬화된다.
+- 썸네일이 더는 어떤 글의 대표가 아니어도 지우지 않는다(이미지 단위·작은 파일 — 이미지와 함께 사라진다). 게시글 삭제·대표 해제는 썸네일을 건드리지 않는다.
+- **카운터 (추천: 바이트만 포함, 개수는 제외)**: ① **바이트 포함** — 썸네일 행을 넣은 트랜잭션이 카운터를 `FOR UPDATE`로 잡고 바이트만 올린다(`reserveBytes`/`releaseBytes` 추가, 상한 초과 409 "이미지 저장 용량 상한…" — 대표 지정이 롤백된다). 카운터가 지키는 "전체 디스크 1GB" 약속을 유지하고, 개수(1만 개 = 업로드 개수 약속)는 의미가 바뀌지 않게 제외한다. 잠금 순서는 게시글 → 게시판 → 이미지 → 참조 → 썸네일 → **카운터(마지막)**로 기존 규칙(가드 → 소유자 → 이미지 → 참조 → 카운터) 안이다. ② 제외 — 단순하지만 썸네일 바이트가 상한 밖에서 늘어난다(이미지 1만 개 × PNG 480² 최악 약 0.9MB). ① 추천.
+- 수동 회수(`docs/deployment.md`): ②는 회수 대상 이미지의 썸네일 경로(`thumb/…`)도 출력, ③의 카운터 재계산 `total_bytes`에 `content_image_thumb.file_size` 합을 더함, ⑤는 `thumb/`를 제외 목록에 추가, **⑤-5 썸네일 파일 대조**(보존 = `content_image_thumb.storage_key`, 디스크 = `thumb/` 아래) 신설.
+- **카운터 SQL 전부**(v2, 리뷰 R1-6): 회수 ③만이 아니라 "미디어 라이브러리" 절의 **운영 확인 SQL**(카운터 = 원본 합)과 **복구 SQL**(원본 합으로 재계산)도 `total_bytes = 원본 합 + 썸네일 합`, `total_count = 원본 개수`로 바꾼다. 옛 SQL을 쓰면 정상 썸네일 바이트를 불일치로 보고 카운터를 실제보다 낮춰 용량 상한이 느슨해진다.
+
+**P5-D7. 롤백**
+
+- 이전 앱(PR 4b)은 `cover_image_id`·`content_image_thumb`를 모른다. 기동·동작 영향 없음(`validate`는 남는 컬럼·테이블을 문제 삼지 않는다).
+- 롤백 중: 대표 이미지가 관리 화면에 안 보이고 바뀌지 않는다. 이전 앱이 본문에서 대표 이미지를 빼면 불변식이 깨진 채 남는다(재배포 뒤 다음 본문 저장 때 자동 해제 — D3). 이전 앱의 이미지 삭제는 썸네일 행을 CASCADE로 지우지만 **썸네일 파일은 남고**(⑤-5가 회수) 카운터에서 썸네일 바이트를 빼지 않는다(카운터가 실제보다 커진다 — 재배포 뒤 카운터 복구 SQL로 바로잡는다). `post.cover_image_id`는 FK `SET NULL`로 비워진다.
+- **롤백 중에도 수동 회수는 V12 대응 절차(이 PR의 문서)로 한다**(v2, 리뷰 R1-6) — 이전 문서의 ⑤는 `thumb/`를 제외하지 않아 정상 썸네일 파일을 고아로 지운다.
+- **깨진 불변식과 교착**(v2, 리뷰 R1-1): 불변식이 깨진 글 P(대표 I, 참조 없음)에서 "P 수정이 본문에 I를 다시 넣음(P `FOR UPDATE` → I `FOR SHARE` 대기)"과 "미참조 I 삭제(I `FOR UPDATE` → FK `SET NULL`이 P 행 잠금 대기)"가 겹치면 순환이다. 정상 상태에서는 대표 ∈ 참조라 삭제가 참조 잠금 읽기에서 409로 먼저 끝나 `SET NULL`이 발동하지 않으므로 이 순환의 전제는 롤백 기간뿐이다. 발생하면 MariaDB가 즉시 감지해 한쪽을 롤백하고 Spring의 `PessimisticLockingFailureException` → 기존 전역 핸들러 **409 "동시 변경과 충돌했습니다. 다시 시도해주세요."**가 되며(데이터 손상 없음, 썸네일 파일은 확정 롤백이라 `deleteOnRollback`이 지운다), 재시도는 성공한다. 전제 자체를 없애기 위해 `docs/deployment.md`에 **재배포 직후 1회 실행하는 불변식 복구 SQL**(`UPDATE post p SET cover_image_id = NULL WHERE cover_image_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM content_image_ref r WHERE r.owner_type = 'POST' AND r.owner_id = p.id AND r.image_id = p.cover_image_id)`, 앱 기동 전)을 둔다. 롤백 상태 전용 교착 재현 시험은 두지 않는다(재현 조건이 이전 앱 실행이고 결과가 기존 409 경로다) — 복구 SQL은 업그레이드 시험이 검증한다.
+
+**P5-D8. 관리 화면 (`posts.html`)**
+
+- 편집 폼 본문 아래 "대표 이미지" 묶음: 현재 편집기 HTML에서 `img[src^="/content-images/"]`의 id를 등장 순서로 모아 작은 미리보기(원본 `/content-images/{id}` — 관리자 미리보기 권한으로 보인다) 라디오 목록 + "없음". 편집기 내용이 바뀔 때마다 목록을 다시 그리고, 고른 이미지가 본문에서 사라지면 "없음"으로 돌린다(서버 자동 해제와 같은 결과). 이미지가 없으면 묶음을 숨긴다.
+- 편집기 변경 알림이 필요하다 — `NoticeEditor.create` 옵션에 `onChange` 콜백 하나를 추가한다(Quill `text-change`). 그 밖의 편집기 API는 바꾸지 않는다.
+- 저장: 생성은 고른 경우만 `coverImageId`, 수정은 **사용자가 직접 고른 값이 연 시점의 값과 다를 때만** 보낸다(직접 "없음"을 고르면 `null`) — 낡은 화면이 다른 관리자가 바꾼 대표를 되돌리지 않게(고정과 같은 규칙). **본문에서 이미지를 지워 선택이 자동으로 "없음"이 된 것은 사용자 선택이 아니므로 키를 보내지 않는다**(v2, 리뷰 R1-3) — 서버 D3가 저장 시점의 DB 값으로 자동 해제 여부를 정한다(다른 관리자가 그 사이 대표를 본문에 남는 다른 이미지로 바꿨다면 그 값이 유지된다). 화면은 "사용자가 고름" 표지와 선택값을 따로 갖는다. 400·503은 기존 오류 표시 경로로 모달·입력 유지.
+- 보기 모드: "대표 이미지" 항목에 `/content-images/{id}?size=thumb` 미리보기(없으면 "없음"). 목록 열은 추가하지 않는다.
+- 사용자 입력은 없다(id는 서버 HTML에서 나온 정수만 — `Number`로 다시 검사해 `src`를 만든다).
+
+**P5-D9. 범위 밖 (PR 6으로)**
+
+- 공개 목록·상세의 대표 이미지 표시, 공개 DTO의 `coverImageId`, 대표 이미지가 없는 글의 자리표시 이미지, 썸네일 레이트리밋·캐시 재평가 — 전부 PR 6(게시판 유형)에서 렌더링과 함께 다룬다. PR 5만 머지된 상태에서 공개 화면은 바뀌지 않는다.
+- 미디어 라이브러리 화면의 썸네일 사용(관리 미리보기 `/admin/api/media/{id}/file`은 원본 그대로).
+- 기존 이미지의 일괄 썸네일 생성(백필) — 대표로 지정될 때만 만든다.
+
+### P5-3. 변경 파일
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V12__post_cover_image_and_thumbnail.sql`(신규) | `post.cover_image_id` + FK `SET NULL`, `content_image_thumb` + FK `CASCADE` |
+| `common/image/ImageThumbnailer.java`(신규) | 헤더 크기 → 축소 디코딩 → EXIF 방향 → 축소 → 인코딩(순수 함수, `Optional.empty()` = 원본이 작음, 실패 400) |
+| `common/storage/LocalDiskFileStorage.java` | 예약 네임스페이스에 `thumb` |
+| `common/exception/ServiceBusyException.java`(신규)·`common/api/GlobalApiExceptionHandler.java` | 503 `SERVICE_BUSY` + `Retry-After` |
+| `admin/contentimage/domain/ContentImageThumb.java`·`repository/ContentImageThumbRepository.java`(신규) | 엔티티 + `insertIgnore`(네이티브) |
+| `admin/contentimage/service/ContentImageThumbnailService.java`(신규) | 상한 세마포어·원본 읽기·생성·저장·행 기록·카운터 바이트 |
+| `admin/contentimage/domain/ContentImageUsage.java` | `reserveBytes`·`releaseBytes` |
+| `admin/contentimage/service/ContentImageService.java` | `replaceRefs`가 저장한 집합 반환 |
+| `admin/media/service/MediaImageRemover.java` | 썸네일 바이트 반환·커밋 후 썸네일 파일 삭제 |
+| `admin/board/domain/Post.java`·`dto/request/PostCreateRequest.java`·`PostUpdateRequest.java`·`dto/response/PostResponse.java`·`service/PostService.java` | D2·D3 |
+| `publicweb/contentimage/PublicContentImageController.java`·`PublicContentImageService.java`·`ContentImageMeta.java` | D5 |
+| `templates/admin/board/posts.html`·`static/js/admin/notice-editor.js`(`onChange`) | D8 |
+| 문서 | `admin/contentimage`·`admin/media`·`admin/board`·`publicweb/board` CLAUDE.md, 루트 CLAUDE.md 지침 표, `docs/deployment.md`(대표 이미지 절·수동 회수 ②③⑤⑤-5·롤백), `docs/migration-guide.md`(V12) |
+
+### P5-4. 시험 계획
+
+- `ImageThumbnailerTest`(단위): PNG·JPEG·GIF 축소 크기(긴 변 480, 비율), 480 이하 = empty, 투명 PNG·GIF → PNG 알파 보존, JPEG → JPEG, EXIF 방향 1·3·6·8(작은 비대칭 픽셀 패턴으로 회전 방향 확인)·깨진 EXIF(방향 1), 손상 픽셀(헤더 정상) = 400 — **481px 이상과 480px 이하 둘 다**(v2 R1-2), **엔트로피 데이터가 잘린 JPEG(작은·큰 크기 각각) = 400**(경고 경로, v4 R3-4), **정상 CMYK·YCCK JPEG = 정책 검사로 400**(디코딩 호출 없음, v4 R3-3), **압축 텍스트 청크가 많은 팔레트 PNG**(1×1 포함)·`tRNS` 투명 팔레트 PNG가 청크 정리 후 정상 디코딩·투명도 유지, 길이가 깨진 청크·`IHDR` 없는 PNG = 400(v4 R3-1), **인터레이스 PNG**(v5 R4-1) — 1000×1000 Adam7의 6번째 패스 필터 값 5 = 400(정책, 디코딩 호출 없음), 960×960 Adam7 같은 손상 = 400(전부 디코딩 실패), 960×960 정상 Adam7 = 썸네일 생성, 헤더 상한 초과 = 400, 축소 디코딩 계수(`ceil` — 4096 → 5, 1919 → 2, 961 → 2, 960 → 1, 480 → 1, v2 R1-4), 16비트 PNG·압축 텍스트 청크가 많은 PNG 디코딩 성공, **JPEG 계수 버퍼 상한**(v3 R2-1 — 5MB 이하 프로그레시브 4:4:4 4096² = 400 + 디코딩 호출 없음, 4:2:0 4096² 통과, 4:4:4 2896² 통과·2897² 거부 경계, **4:2:2 3073×4073 거부**(샘플링 계수 패딩 — v4 R3-2), 샘플링 계수 0·5 = 400, SOF 없는 JPEG 400, 추정식 단위 시험 — 경계 사례는 실제 큰 파일 대신 SOF만 담은 합성 바이트로 추정 함수를 시험), **GIF 논리 화면 1000×1000 + 프레임 100×100 오프셋 (400,400)** → 썸네일 480×480이고 프레임 위치의 픽셀만 불투명(v2 R1-5), 논리 화면은 크고 프레임은 작은 GIF가 "작은 이미지"로 생략되지 않음.
+- `PostCoverImageApiIntegrationTest`(`admin.board`, 실스택): 생성·수정 왕복, PATCH 3상태(키 없음 유지·`null` 해제·정수 지정), 엄격 파싱(`""`·`"12"`·`1.5`·`true`·`[]`·`{}`·0·음수 400 + 기존 대표 불변), 중복 키 400, 본문에 없는 이미지 400, 존재하지 않는 id 400, 본문에서 지우면 자동 해제·키를 주면 그 값 우선, 대표만 바꾸는 PATCH 유효(변경 필드 판정), 쓰기 중지 400, 본문 이미지를 끈 게시판에서 기존 이미지를 대표로 지정 가능, 라이브러리 이미지(루트)·`BANNER` 출처 이미지(`banner` 네임스페이스 원본) 대표 → 썸네일 생성, 손상 이미지 400 + 본문 미저장, 원본 파일 없음 400, 같은 이미지를 두 번째 글이 대표로 → 썸네일 재생성 없음(행·파일 1개), 카운터 바이트 증가·개수 불변, 카운터 상한 초과 409 + 롤백(파일 정리), 감사 `POST_UPDATE`.
+- 동시성(`PostCoverImageConcurrencyIntegrationTest`): 두 글이 같은 썸네일 없는 이미지를 동시에 대표 지정 → 둘 다 200, 썸네일 행·`thumb/` 파일 각 1개(진 쪽 파일 삭제), 카운터 바이트 1회분. 세마포어 상한 — 생성기를 막아 두는 시험용 훅으로 자리 2개를 점유한 뒤 세 번째 저장이 503 + `Retry-After` + 본문 미저장.
+- 삭제(`MediaLibraryApiIntegrationTest` 확장): 썸네일 있는 미참조 이미지 삭제 → 썸네일 행 CASCADE·두 파일 커밋 후 삭제·카운터 바이트 반환, 대표로 쓰는 이미지 삭제 409(기존 규칙), 배너 삭제로 사라지는 `BANNER` 출처 이미지의 썸네일도 정리.
+- 공개(`PublicContentImageThumbIntegrationTest`, `publicweb.contentimage`): 공개 글 이미지 `?size=thumb` GET·HEAD 200(썸네일 `Content-Type`·길이·`no-store`·`nosniff`), 썸네일 없는 이미지 → 원본, 비공개·예약·없는 이미지는 원본과 같은 404, `size=THUMB`·`size=`·`size=thumb&size=thumb`·`size=large` 404, 썸네일 파일 없음 404, READ 권한자 미리보기는 원본과 같은 규칙, 레이트리밋 버킷 공유(기존 컨벤션 시험 클래스에 1건).
+- 마이그레이션(`PostCoverImageUpgradeTest`, 루트 패키지): V11 DB의 게시글·이미지 → V12 후 `cover_image_id` NULL, 이미지 삭제 시 FK `SET NULL`·썸네일 CASCADE(직접 SQL), **배포 문서의 불변식 복구 SQL·카운터 복구 SQL을 그대로 실행**해 참조 없는 대표만 해제되고 카운터 = 원본 + 썸네일 바이트가 되는지(v2 R1-1·R1-6).
+- 화면 동시 수정(Playwright 또는 API 순서 재현, v2 R1-3): A가 대표 X로 연 화면에서 본문의 X를 지우는 사이 B가 대표를 Y로 바꾸면 A의 저장 후 대표는 Y — A의 PATCH 페이로드에 `coverImageId` 키가 없음을 확인.
+- 무변경 통과: `SecurityConfigTest`·`PublicExposureInventoryTest`·`SitePublicRateLimitConventionTest`(규칙 무변경), 기존 `replaceRefs` 호출 시험.
+- 화면: Playwright — 이미지 두 장 넣고 대표 선택 → 저장 → 보기 모드 썸네일, 본문에서 대표 이미지 삭제 시 선택이 "없음"으로, 대표만 바꾼 PATCH 페이로드.
+
+### P5-5. 리스크
+
+- **스키마 변경**: `post` 컬럼 + FK, 새 테이블. 롤백 호환(D7). 첫 실배포 직전 합치기에 흡수된다.
+- **CPU·메모리**: 생성은 관리자 저장에서만, 동시 2개, 원본 최대 5MB + 축소 디코딩(긴 변 ≤ 960 — ARGB 약 3.5MiB, 16비트 PNG 래스터 약 7MiB) + 출력, 메타데이터 무시(GIF 제외), JPEG 디코더 계수 버퍼(네이티브) 1개당 48MiB 이하 — 최악 합계 약 96MiB 네이티브 + 수십 MiB 힙. 공개 GET은 생성하지 않는다.
+- **대표로 쓸 수 없는 이미지가 생긴다**(v4·v5): CMYK·YCCK JPEG, 디코딩 경고를 내는 JPEG(무해한 경고 포함), 긴 변 960 초과 인터레이스 PNG, 아래 큰 4:4:4 JPEG — 모두 400 + 다른 이미지 안내. 원본 업로드·본문 표시는 그대로다.
+- **큰 4:4:4 JPEG는 대표로 쓸 수 없다**: 약 8.4M 화소를 넘는 4:4:4(크로마 축소 없음) JPEG는 400이다(휴대폰 사진은 대개 4:2:0이라 4096²까지 된다). 운영 중 불만이 생기면 상한을 올리기 전에 컨테이너 메모리 상한부터 정한다.
+- **깨진 불변식(롤백 뒤)**: 대표 ∉ 참조인 글이 남으면 그 글 수정과 그 이미지 삭제가 겹칠 때 교착 → 409 재시도(D7). 재배포 직후 복구 SQL로 전제를 없앤다.
+- **커넥션 점유**: 생성·자리 대기 동안 저장 트랜잭션이 커넥션과 게시글 행 잠금을 쥔다(최대 약 2초 + 생성 시간). 관리자 전용이라 수용(D4).
+- **썸네일 품질·방향**: EXIF 최소 파서는 IFD0 방향만 본다(다른 변형은 무시). CMYK JPEG는 대표로 쓸 수 없다(400 — 다른 이미지를 고르게 안내).
+- **수동 회수 문서 변경**: ⑤에서 `thumb/` 제외가 빠지면 정상 썸네일이 고아로 지워진다(⑤-5와 한 쌍 — 문서 시험은 없으므로 dev에서 실행 검증).
+
+### PR 5 개정 이력
+
+- P5-v1 (2026-10-28): 최초 작성. 초안 대비 바꾼 것 — 썸네일을 `content_image` 컬럼이 아니라 별도 테이블 + `INSERT IGNORE`(S→X 승격 교착 방지, D4), 전용 네임스페이스 `thumb`(회수 절차 단순화, D4·D6), 축소 디코딩·EXIF 방향(D4), 썸네일 없는 `?size=thumb`는 원본(D5), 공개 표시는 PR 6으로(D9).
+- P5-v2 변경 (리뷰 1라운드 — codex gpt-6.1-sol, needs-attention 6건 전부 수용, 1건 일부 기각): R1-1 롤백으로 깨진 불변식(대표 ∉ 참조)에서 게시글 수정과 이미지 삭제(FK `SET NULL`)가 순환할 수 있음 → 처리 경로 명시(교착 감지 → 기존 409 재시도, 확정 롤백이라 썸네일 파일 정리) + 재배포 직후 불변식 복구 SQL(D7). **기각**: 롤백 상태 전용 교착 재현 시험 — 재현 조건이 이전 앱 실행이고 결과가 기존 409 경로라 업그레이드 시험의 복구 SQL 검증으로 대체. R1-2 작은 이미지(≤480)도 전체 디코딩으로 검증하고 저장만 생략(D4). R1-3 화면은 사용자가 직접 고른 대표만 보내고 본문 삭제에 따른 자동 "없음"은 키를 생략(D8). R1-4 축소 계수 `ceil(긴 변/960)`(디코딩 긴 변 ≤ 960), 메타데이터 무시(GIF 제외), 세마포어 → `file_size` 재확인 → 읽기 순서(D4). **기각**: 최대 메모리 실측 시험 — JVM에서 신뢰성 있게 측정할 수 없어 계수·16비트 PNG·텍스트 청크 디코딩 시험으로 대체. R1-5 GIF는 논리 화면 캔버스에 프레임을 합성한 결과 기준(D4). R1-6 "미디어 라이브러리" 절의 카운터 확인·복구 SQL도 썸네일 포함으로 갱신, 롤백 중에도 V12 대응 회수 절차 사용(D6·D7).
+- P5-v3 변경 (리뷰 2라운드 — codex, needs-attention 1건 수용): R2-1 축소 디코딩은 libjpeg의 원본 해상도 DCT 계수 버퍼(네이티브, 4096² 4:4:4 약 96MiB)를 줄이지 못하고 저장소에 컨테이너 메모리 상한이 없음 → 디코딩 전 SOF 샘플링 계수로 계수 버퍼를 추정해 **48MiB 초과 JPEG는 400**, 모든 JPEG에 적용(다중 스캔 판정 단순화), 시험·리스크 추가(D4·P5-4·P5-5). 기각 없음.
+- P5-v4 변경 (리뷰 3라운드 — codex, needs-attention 4건 전부 수용): R3-1 JDK PNG 리더는 팔레트 PNG에 `ignoreMetadata`를 적용하지 않아 `zTXt`를 누적 상한 없이 푼다 → ImageIO 전 청크 허용 목록(`IHDR`·`PLTE`·`tRNS`·`IDAT`·`IEND`)으로 재조립. R3-2 계수 버퍼 추정에 libjpeg의 샘플링 계수 배수 패딩 반영(×128바이트, `long`, 계수 1..4 검증). R3-3 JDK 21은 CMYK·YCCK를 디코딩하므로 SOF 컴포넌트 수 1·3만 허용하는 명시 정책. R3-4 디코딩 경고(잘린 JPEG의 EOI 보충 등)를 `IIOReadWarningListener`로 잡아 400 — 무해한 경고 JPEG도 거부되는 대가 수용(D4·P5-4·P5-5). 기각 없음.
+- P5-v5 변경 (리뷰 4라운드 — codex, needs-attention 1건 수용·해법 변경): R4-1 축소 디코딩이 건너뛰는 Adam7 패스의 손상은 경고 없이 통과(재현 첨부) → 인터레이스 PNG는 긴 변 ≤ 960이면 `f = 1` 전부 디코딩, 초과는 400(D4·P5-4·P5-5). **기각(제안한 해법만)**: 모든 Adam7 패스의 행·필터·스트림 종료를 직접 검증하는 PNG 검증기 — 같은 계약을 정책 한 줄로 달성하며 압축 해제·패스 계산 코드가 새로 생기지 않는다.
+- 리뷰 5라운드 — codex, needs-attention 1건 **기각**: R5-1 PNG zlib 스트림 끝(Adler-32 4바이트)이 없어도 전부 디코딩·경고 없이 성공한다(재현 첨부) → `IDAT` 스트리밍 압축 해제로 `Inflater.finished()` 확인 제안. 기각 사유: 재현 파일은 픽셀이 전부 있고 체크섬만 없어 썸네일이 원본과 같다 — 픽셀이 실제로 모자라면 전부 디코딩 경로에서 행 읽기가 실패해 이미 400이다. 400 계약의 목적은 "만들 수 없거나 원본과 다른 썸네일을 막는 것"이지 파일 무결성 검사가 아니므로 압축 해제 코드를 추가하지 않는다. **5라운드 도달 — 남은 쟁점 없음으로 승인 단계로 넘김**.
+
+### 구현·검증 결과 — PR 5 (2026-10-29)
+
+**Context / 확정 사항**: 게시글에 대표 이미지(본문 참조 이미지 중 하나)를 지정하고 서버가 이미지 단위 썸네일을 만든다. 공개 `/content-images/{id}?size=thumb`는 원본과 같은 공개 판정을 거치고 썸네일이 없으면 원본을 준다(알 수 없는 `size`는 404). **공개 목록·상세 표시는 PR 6** — 이 PR만으로는 공개 화면이 바뀌지 않는다. 사용자 결정(P5-0): P5-v5 승인, 생성은 저장 트랜잭션 안, 카운터는 바이트만, 알 수 없는 `size`는 404. 스키마 V12, `SecurityConfig` 무변경.
+
+**구현 중 계획과 달라진 결정**(모두 구현 중 보고)
+- **V12의 FK 문법**: 계획 초안의 `ADD CONSTRAINT IF NOT EXISTS … FOREIGN KEY`는 MariaDB가 거부했다(Flyway가 `1064`로 실패 — 테스트 컨텍스트 기동에서 처음 잡혔다). MariaDB는 `FOREIGN KEY IF NOT EXISTS (…)` 순서다 — 같은 멱등성을 유지한 채 고쳤고 재실행 시험(`PostCoverImageUpgradeTest.rerunIsIdempotent`)이 고정한다.
+- **`PostUpdateRequest`의 "키 있음" 표현**: 빌더로 만든 요청은 `coverImageId`가 있을 때만 "키 있음"이고, 해제(명시 `null`)는 `clearCoverImage()`로만 만든다(빌더로는 표현할 수 없다). JSON 경로는 계획대로 세터 + `coverImageIdSet` 플래그다.
+- **시험용 훅**: 503 경로를 재현하려고 `ContentImageThumbnailService.generationSlots()`(세마포어)를 공개했다 — 운영 코드는 쓰지 않는다.
+- 썸네일 행 `INSERT IGNORE`는 **카운터 잠금보다 앞**이다(0행이면 카운터를 건드리지 않고 자기 파일만 지운다) — 계획의 "카운터는 마지막 잠금"과 같은 방향이다.
+
+**구현 파일**
+
+| 파일 | 변경 |
+|---|---|
+| `db/migration/V12__post_cover_image_and_thumbnail.sql`(신규) | `post.cover_image_id` + FK `SET NULL`, `content_image_thumb` + FK `CASCADE` |
+| `common/image/ImageThumbnailer.java`(신규) | 축소 디코딩·EXIF 방향·GIF 논리 화면·JPEG SOF 정책(컴포넌트 1·3·계수 버퍼 48MiB)·PNG 청크 정리·인터레이스 정책·경고=실패 |
+| `common/exception/ServiceBusyException.java`(신규)·`common/api/GlobalApiExceptionHandler.java` | 503 `SERVICE_BUSY` + `Retry-After` |
+| `common/storage/LocalDiskFileStorage.java` | 예약 네임스페이스에 `thumb` |
+| `admin/contentimage/domain/ContentImageThumb.java`·`repository/ContentImageThumbRepository.java`(신규) | 엔티티(읽기 전용) + `insertIgnore` 네이티브 |
+| `admin/contentimage/service/ContentImageThumbnailService.java`(신규) | 자리 2개·원본 읽기·생성·저장·`INSERT IGNORE`·카운터 바이트 |
+| `admin/contentimage/domain/ContentImageUsage.java`·`service/ContentImageService.java` | `reserveBytes`·`releaseBytes`, `replaceRefs`가 저장된 ID 집합 반환·`findReferencedImageIds` |
+| `admin/media/service/MediaImageRemover.java` | 썸네일 바이트 반환·커밋 후 썸네일 파일 삭제 |
+| `admin/board/domain/Post.java`·`dto/request/{CoverImageIdInput,PostCreateRequest,PostUpdateRequest}.java`·`dto/response/PostResponse.java`·`service/PostService.java` | D2·D3 |
+| `publicweb/contentimage/{PublicContentImageController,PublicContentImageService}.java` | `?size=thumb` |
+| `templates/admin/board/posts.html`·`static/js/admin/notice-editor.js` | 대표 이미지 선택·보기, `onChange`·`getImageIds` |
+| 시험(신규) | `ImageThumbnailerTest`(22)·`PostCoverImageApiIntegrationTest`(15)·`PublicContentImageThumbIntegrationTest`(5)·`PostCoverImageUpgradeTest`(3) |
+| 문서 | `admin/contentimage`·`admin/media`·`admin/board` `CLAUDE.md`, 루트 `CLAUDE.md`(지침 표·예약 네임스페이스), `docs/deployment.md`(대표 이미지 절·수동 회수 ②-2·③·⑤·⑤-5·카운터 SQL), `docs/migration-guide.md`(V12) |
+
+**검증 결과**
+- 신규 시험 45건 + 영향 범위(`admin.board`·`admin.contentimage`·`admin.media`·`admin.banner`·`admin.popup`·`publicweb.contentimage`·`publicweb.board`·`common`·`config`·`*ConventionTest`) 통과(4분 20초). **전체 `./gradlew test`는 `code-review-loop` 마무리에서 1회 돌린다**(공용 코드 `common/**` 변경 — 이 문서 작성 시점에는 미실행).
+- **변이 실험**: `requireNoWarning`(디코딩 경고=실패)을 무력화하면 `ImageThumbnailerTest.truncatedJpegRejected`가 실패한다(원복 확인) — 잘린 JPEG가 경고만 내고 통과하는 경로가 실제로 있음을 확인했다.
+- **실기(dev `bootRun` 8081 — 8080은 `cms-app-dev`가 점유해 다른 포트, Playwright)**: 실제 V12가 dev DB에 적용(0.178초). 게시판·1200×800 + 300×200 이미지·글을 만들고 대표 지정 → 보기 모드가 `/content-images/3?size=thumb`로 480×320 썸네일을 표시(원본 34KB → 썸네일 6.4KB). 수정 폼에 "없음 / 큰 이미지(선택됨) / 작은 이미지" 라디오. 작은 이미지를 고르고 저장하면 **페이로드가 정확히 `{"coverImageId":4}`**. 본문에서 대표를 지우면 선택지가 즉시 "없음"으로 갱신되고 **저장 페이로드에 `coverImageId` 키가 없으며** 서버가 `null`로 정리. 익명 curl: 공개 글이 참조하는 이미지는 `?size=thumb` GET·HEAD 200(`nosniff`·`no-store`·`image/png`), `size=THUMB`·빈 값·`large`·`thumb&thumb`는 404, 어떤 글도 참조하지 않는 이미지는 원본·썸네일 모두 404, 익명 PATCH는 401. 수명주기: 대표로 쓰는 이미지 삭제 409 → 본문에서 빼고 삭제 204 → 썸네일 행 0건·`data/attachments/thumb/` 파일 삭제·카운터 0/0. 검증 행(게시판 8·글 14·감사 10행)은 지워 원복했고 8081 앱을 종료했다(dev DB는 V12 상태로 남음). 스크린샷 `adversarial-review/plan/screenshots/pr5-0{1,2,3}-*.png`(커밋 제외).
+- **실행 검증하지 않은 것**: `docs/deployment.md` 수동 회수 블록(②-2·③·⑤·⑤-5)은 일회용 볼륨에서 실행하지 않았다 — 추가한 SQL의 문법만 dev DB에서 `SELECT`로 확인했다(앞선 절차들은 일회용 환경에서 실행 검증했다). 운영 회수 전 같은 방식으로 한 번 실행해 보는 것을 권한다.
+
+**이슈**
+- Docker Desktop이 꺼져 있어 DB 시험이 전부 `initializationError`였다(코드 문제 아님) — 기동 후 해결.
+- 한 번 만든 시험 헬퍼(`delete`에서 카운터 단언식)가 `baselineBytes - imageSize`로 읽기 어려워 식을 단순화했다(결과 동일).
+
+**후속**: PR 6(게시판 유형)에서 공개 목록·상세의 대표 이미지 표시, 대표 없는 글의 자리표시 이미지, **썸네일 레이트리밋 `content-image`(240/60초)가 갤러리 한 페이지(최대 50장)에 충분한지** 재평가. 수용한 한계: PNG zlib 끝 체크섬이 없어도 픽셀이 다 있으면 통과, 무해한 경고를 내는 JPEG도 대표 불가, 큰 4:4:4 JPEG(약 8.4M 화소 초과)·긴 변 960 초과 인터레이스 PNG도 대표 불가.
