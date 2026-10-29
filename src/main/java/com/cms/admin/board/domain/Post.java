@@ -83,6 +83,18 @@ public class Post {
     private Boolean pinned = false;
 
     /**
+     * 대표 이미지 — 이 글 본문이 참조하는 이미지 중 하나(PLAN-board-definition.md PR 5). 불변식 "대표 ∈ 참조"는 서비스가 저장 때 지키고, DB FK는
+     * {@code ON DELETE SET NULL}이라 롤백한 이전 앱이 불변식을 깬 경우에도 이미지 삭제를 막지 않는다. null = 대표 없음.
+     */
+    @Column(name = "cover_image_id")
+    private Long coverImageId;
+
+    /** 대표 이미지를 바꾼다(null = 해제). 참조 소속 검증은 호출자(서비스)가 이미 마쳤어야 한다. {@code updateDate}는 {@link #update}가 갱신한다. */
+    public void changeCoverImage(Long coverImageId) {
+        this.coverImageId = coverImageId;
+    }
+
+    /**
      * 부분 수정. 각 파라미터가 null이 아닐 때만 반영한다(null=기존값 유지). 공백 거부·전체 null 거부는 서비스 책임이다.
      *
      * @param updaterId 수정한 관리자 userId — updaterId에 기록

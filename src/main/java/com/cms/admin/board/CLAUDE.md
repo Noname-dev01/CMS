@@ -95,6 +95,17 @@
 - **화면**(`manage.html`): 목록 "주소" 열(10열), 모달 "주소(슬러그)" — 생성은 선택, 수정은 `slugChangeable`일 때만 편집(아니면 읽기 전용 + 301 안내), 바뀐 경우에만 `slug`를 보낸다.
 - 시험: `BoardSlugApiIntegrationTest`(생성·1회 변경·형식·중복·삭제 후 예약·공지·동시 지정 하나만 200), `BoardSlugTest`·`PathIdsTest`·`BoardLinkPathsTest`, 공개는 `PublicBoardSlugIntegrationTest`(`publicweb.board`), 마이그레이션은 `BoardSlugLinkUpgradeTest`(루트 패키지). 변이 실험: V10 사후 검사를 끄면 6건, 301 분기를 없애면 1건 실패.
 
+## 게시글 대표 이미지 (2026-10-29, V12, `PLAN-board-definition.md` PR 5 — 적대적 리뷰 5라운드 ship)
+
+- **대표 이미지 = 그 글 본문이 참조하는 이미지 중 하나**(`post.cover_image_id`, FK `ON DELETE SET NULL`): 공개 판정은 기존 `content_image_ref`가 그대로 하므로 새 공개 규칙이 없다. 불변식 "대표 ∈ 그 글의 저장 후 참조"는 **서비스가 저장 때** 지킨다(`PostService.applyCoverImage` — 참조 집합은 `replaceRefs`의 반환값, 본문이 안 바뀌는 수정은 `findReferencedImageIds`). 본문에 없는 이미지·존재하지 않는 이미지는 같은 400(`COVER_NOT_IN_BODY`). 썸네일 생성·실패 계약·메모리 방어는 `com.cms.admin.contentimage`의 `CLAUDE.md`.
+- **API `coverImageId` 3상태(PATCH)**: 키 없음 = 유지, `null` = 해제, 정수 = 지정(생성은 누락·`null` = 없음). **세터가 `Object`로 받아 `CoverImageIdInput.parse`가 엄격 파싱**한다 — 정수 1 이상과 `null`만, 문자열(`""`·`"12"`)·소수·불리언·배열·객체·0·음수·`long` 초과는 400. `Long` 필드로 바꾸지 않는다(Jackson이 `""`를 `null`(= 해제)로 읽어 화면 버그가 대표를 조용히 지운다 — 팝업 기간의 함정과 같다). 중복 키는 거부하는 플래그(`coverImageIdSet`)가 `publishPeriodSet`과 같은 이유로 `@JsonIgnore` + `@Getter/@Setter(NONE)`이다(JSON 속성이면 우회된다). `PostUpdateRequest.hasCoverImageId()`가 "키 있음"을 가르고, 빌더로 만든 요청은 값이 있을 때만 "있음"이라 **해제(명시 null)를 만드는 시험은 `clearCoverImage()`를 쓴다**. "변경할 필드 없음" 400 판정에 대표 키 존재가 포함된다(대표만 바꾸는 PATCH도 유효).
+- **자동 해제는 서버가 저장 시점의 DB 값으로 정한다**: 본문이 바뀌었고 요청에 키가 없는데 현재 대표가 새 참조에 없으면 `null`로 바꾼다. 키가 있으면 그 값이 우선. **화면은 사용자가 직접 고른 경우에만 키를 보낸다**(본문에서 대표를 지워 자동으로 "없음"이 된 것은 보내지 않는다) — 그래야 낡은 화면이 다른 관리자가 그 사이 바꾼 대표를 덮어쓰지 않는다(`PostCoverImageApiIntegrationTest.staleScreenDoesNotOverwriteOtherAdminsCover`, 실기 확인: 페이로드에 `coverImageId` 키가 없다).
+- **잠금·트랜잭션 변경 없음**: 대표 지정은 기존 `createPost`·`updatePost`(`READ_COMMITTED` 최상위) 안에서 일어나고 새 잠금이 없다 — 게시글 행 `FOR UPDATE`가 같은 글의 동시 저장을, 이미지 참조 잠금이 라이브러리 삭제를 막는다. 판정 순서: 쓰기 중지 → 예약 → 고정 → (참조 교체) → 대표 지정 → 썸네일. 쓰기 중지 게시판은 대표 변경도 400이다. 썸네일 400(디코딩 실패·CMYK·계수 버퍼 초과 등)·409(카운터 용량)·503(생성 자리 없음)은 **본문 저장까지 전부 롤백**한다(화면은 입력을 보존한다).
+- **응답**: `PostResponse.coverImageId`(상세·생성·수정 응답)만이다. 목록 DTO·공개 DTO에는 없다 — **공개 목록·상세 표시는 PR 6**(게시판 유형)에서 한다.
+- **롤백 후 깨진 불변식**: 이전 앱이 본문에서 대표를 빼면 "대표 ∉ 참조"가 남을 수 있고, 그 상태에서 그 글 수정과 그 이미지 삭제(FK `SET NULL`이 글 행 잠금을 기다림)가 겹치면 교착 → 전역 핸들러 **409 "다시 시도"**다. 재배포 직후 복구 SQL로 전제를 없앤다(`docs/deployment.md` "게시글 대표 이미지·썸네일").
+- **화면**(`posts.html`): 편집 폼 "대표 이미지" 묶음 — 편집기 본문의 이미지(`NoticeEditor.getImageIds()`, `onChange` 옵션이 본문 변경 때 선택지를 다시 그린다)를 미리보기 라디오 + "없음"으로 보인다(이미지가 없으면 숨김). 보기 모드는 `/content-images/{id}?size=thumb` 미리보기. 변경 감지는 `coverUserChanged ∧ 선택값 ≠ 연 시점 값`일 때만 `coverImageId`를 보낸다.
+- 시험: `PostCoverImageApiIntegrationTest`(지정·썸네일·카운터 바이트만·공유 이미지·동시 지정·검증 롤백·503·409·PATCH 3상태·엄격 파싱 9값·중복 키·자동 해제·낡은 화면·쓰기 중지·삭제 수명주기), `PostCoverImageUpgradeTest`.
+
 ## 시험
 
 `BoardPermissionIntegrationTest`(PR A: ADMIN 생성·수정·감사, MANAGER 403, 게시판별 부여·회수), **`PostApiIntegrationTest`**(게시글 생명주기·감사, 게시판 A만 가진 MANAGER의 B 전 API 403, READ 의존, IDOR 404, 첨부 왕복·상한·`attachmentYn`, 이미지 출처 400, 게시판 삭제, 페이지 게이트, 통합 검색), **`AbstractBoardDeleteRaceTest`**(`innodb_snapshot_isolation` OFF·ON 서브클래스 — 회수 PUT ↔ 게시판 삭제 래치: OFF=200·ON=409, 게시글 생성 ↔ 게시판 삭제: 삭제가 공유 잠금을 기다리다 409; 변이 실험으로 `FOR SHARE` 제거 시 실패 확인), `com.cms.publicweb.board`의 시험(공개 불변식·스트리밍·템플릿), `FileStorageTransactionSupportTest`·`AttachmentFilePolicyTest`·`ContentBodyPolicyTest`(공용 추출).

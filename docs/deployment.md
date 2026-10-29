@@ -442,6 +442,21 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
   ```
 - **롤백**: V11은 4a 앱이 이해하는 경로만 만든다 — **4a 앱으로는 롤백할 수 있다**(공지 상세 주소가 다시 열리고 치환된 링크는 게시판 주소로 계속 열린다). 4a 이전 앱으로는 4a 절과 같은 이유로 불가. 롤백 중 저장한 공지 상세 링크는 V11이 다시 돌지 않으므로 재배포 뒤 위 배포 후 점검 SQL로 찾는다.
 
+## 게시글 대표 이미지·썸네일 (2026-10-29, adversarial-review/plan/PLAN-board-definition.md PR 5)
+
+글마다 본문에 들어 있는 이미지 중 하나를 대표로 지정할 수 있고(`post.cover_image_id`), 서버가 이미지 단위 썸네일을 만든다(`content_image_thumb`, 파일은 스토리지 예약 네임스페이스 `thumb/`). 공개 `/content-images/{id}?size=thumb`는 원본과 같은 공개 판정을 거치며 썸네일이 없으면 원본을 준다(`SecurityConfig` 무변경). **공개 목록·상세 표시는 PR 6에서 한다 — 이 PR만 배포돼서는 공개 화면이 바뀌지 않는다.**
+
+- **스키마(V12)**: `post.cover_image_id`(NULL 허용, FK `ON DELETE SET NULL`) + `content_image_thumb`(PK = `image_id`, FK `ON DELETE CASCADE`). 모든 절이 `IF NOT EXISTS`다. 썸네일 파일은 `thumb/`에 있고 **카운터(`content_image_usage`)에는 바이트만 포함**한다(개수는 업로드한 이미지 수의 약속이라 제외).
+- **수동 회수**: 위 "수동 회수 절차"가 썸네일을 다룬다 — ②-2(회수 대상의 썸네일 경로)·③(카운터 재계산에 썸네일 바이트)·⑤(`thumb/` 제외)·⑤-5(썸네일 파일 대조). **⑤에 `thumb/` 제외가 빠지면 정상 썸네일 파일이 고아로 지워진다.** 카운터 확인·복구 SQL도 썸네일 바이트를 포함하도록 "미디어 라이브러리" 절에서 개정했다.
+- **롤백 주의**: V12가 적용된 DB에서 이전 앱으로 되돌려도 기동·동작에는 문제가 없다(새 컬럼은 NULL 허용이고 `validate`는 남는 컬럼·테이블을 문제 삼지 않는다). 롤백 중에는 ① 대표 이미지가 보이지도 바뀌지도 않고 ② 이전 앱이 본문에서 대표 이미지를 빼면 "대표 ∈ 본문 참조" 불변식이 깨진 채 남으며(이미지를 지우면 FK가 대표를 비운다) ③ 이전 앱의 이미지 삭제는 썸네일 **행**만 CASCADE로 지우고 **파일은 남기며** 카운터에서 썸네일 바이트를 빼지 않는다. **롤백 중에도 수동 회수는 이 문서의 개정판 절차로 한다** — 이전 문서의 ⑤는 `thumb/`를 제외하지 않는다.
+- **재배포 직후(앱 기동 전) 1회 — 불변식 복구 SQL**: 롤백 중 깨진 "대표 ∉ 본문 참조"를 풀어 둔다(남기면 그 글 수정과 그 이미지 삭제가 겹칠 때 교착 → 409 "다시 시도"가 날 수 있다). 업그레이드 시험 `PostCoverImageUpgradeTest`가 같은 SQL을 검증한다.
+  ```sql
+  UPDATE post p SET p.cover_image_id = NULL WHERE p.cover_image_id IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM content_image_ref r WHERE r.owner_type = 'POST' AND r.owner_id = p.id AND r.image_id = p.cover_image_id);
+  ```
+  이어서 카운터 확인 SQL로 어긋남을 보고, 어긋나면 위 복구 SQL(앱 정지 상태)로 바로잡은 뒤 ⑤-5로 남은 썸네일 파일을 회수한다.
+- **대표로 쓸 수 없는 이미지**: CMYK·YCCK JPEG, 디코딩 경고가 나는 JPEG(잘린 파일 등 — 무해한 경고도 거부), 긴 변 960px 초과 인터레이스 PNG, JPEG 디코더 계수 버퍼 추정 48MiB 초과(4:4:4는 약 8.4M 화소, 4:2:0은 4096²까지)는 대표 지정이 400이다(원본 업로드·본문 표시는 영향 없음). 썸네일 생성은 동시 2개로 제한되며 자리를 못 얻으면 503 + `Retry-After`(저장 전체 롤백)다. 컨테이너에 메모리 상한이 없으므로 JPEG 상한을 올리기 전에 상한부터 정한다.
+
 ## 게시글 최종 수정자 (2026-10-27, adversarial-review/plan/PLAN-board-definition.md PR 0)
 
 - **동작**: 게시글의 생성·수정·삭제와 첨부 업로드·삭제가 `post.updater_id`(V5, `varchar(100) NULL`)에 그 관리자의 userId를, `update_date`에 시각을 함께 남긴다. 관리 화면(게시글 목록 "최종 수정자" 열·상세)에만 보이고 공개 화면에는 나가지 않는다. V5 이전에 만들어져 이후 손대지 않은 글은 NULL(`-` 표시 — 수정자 모름)이다. **원본은 감사 로그**(`POST_UPDATE`·`POST_ATTACHMENT_*` 등)이고 이 값은 조회 편의용 사본이다.
@@ -556,25 +571,31 @@ WHERE i.scope_type <> 'LIBRARY'
 ORDER BY i.id;
 SQL
 IDS=$(cut -f1 reclaim-targets.tsv | paste -sd, -)   # 비어 있으면(조회 실패 포함) ③의 SQL이 실패해 ④까지 건너뛴다
+# ②-2 회수 대상 이미지의 썸네일 파일(2026-10-29, PLAN-board-definition.md PR 5 D6): 썸네일 행은 ③에서 이미지 행과 함께 CASCADE로 사라지므로
+#      **③ 전에** 경로(thumb/ 접두어)를 뽑아 둔다. 대표 이미지가 아닌 이미지는 썸네일이 없어 빈 목록일 수 있다. IDS가 비면 이 조회도 실패해 아래가 모두 중단된다.
+ready &&
+db > reclaim-thumb-keys.txt <<SQL
+SELECT CONCAT('thumb/', storage_key) FROM content_image_thumb WHERE image_id IN ($IDS);
+SQL
 
-# ③ 한 트랜잭션: 참조 → 이미지 행 삭제 → 카운터 재계산
-# ④ DB 커밋이 성공한 뒤에만 파일 삭제(②의 목록 — 경로 탈출 형태는 건너뜀). 롤백됐는데 파일을 지우면 행만 남는다
+# ③ 한 트랜잭션: 참조 → 이미지 행 삭제(썸네일 행은 CASCADE) → 카운터 재계산(**썸네일 바이트 포함, 개수는 원본만** — 대표 이미지 도입 후 개정)
+# ④ DB 커밋이 성공한 뒤에만 파일 삭제(②·②-2의 목록 — 경로 탈출 형태는 건너뜀). 롤백됐는데 파일을 지우면 행만 남는다
 ready &&
 db <<SQL &&
 START TRANSACTION;
 DELETE FROM content_image_ref WHERE image_id IN ($IDS);
 DELETE FROM content_image WHERE id IN ($IDS);
-UPDATE content_image_usage SET total_bytes = (SELECT COALESCE(SUM(file_size), 0) FROM content_image),
+UPDATE content_image_usage SET total_bytes = (SELECT COALESCE(SUM(file_size), 0) FROM content_image) + (SELECT COALESCE(SUM(file_size), 0) FROM content_image_thumb),
        total_count = (SELECT COUNT(*) FROM content_image) WHERE id = 1;
 COMMIT;
 SQL
-cut -f2 reclaim-targets.tsv > reclaim-keys.txt &&
+{ cut -f2 reclaim-targets.tsv; cat reclaim-thumb-keys.txt; } > reclaim-keys.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
   while IFS= read -r k; do case "$k" in ""|/*|*..*) echo "skip: $k";; *) rm -f -- "/data/$k";; esac; done < /work/reclaim-keys.txt' ||
 echo "③④ 중단: 가드 실패·대상 없음·DB 정리 실패 — 파일을 지우지 않았다"
 
 # ⑤ 행 없는 파일 정리: 업로드 중 강제 종료·롤백 시 삭제 실패로 남은 파일(카운터에 잡히지 않음).
-#    보존 대상 = **루트 영역(namespace='')** content_image + post_attachment의 storage_key, profile/·banner/·popup/ 네임스페이스는 제외(⑤-2·⑤-3·⑤-4가 따로 다룬다 — 제외하지 않으면 정상 배너·팝업 이미지가 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1·PLAN-popup.md R3-1).
+#    보존 대상 = **루트 영역(namespace='')** content_image + post_attachment의 storage_key, profile/·banner/·popup/·**thumb/** 네임스페이스는 제외(⑤-2·⑤-3·⑤-4·⑤-5가 따로 다룬다 — 제외하지 않으면 정상 배너·팝업 이미지·**대표 이미지 썸네일**이 고아로 분류돼 삭제된다, PLAN-public-home-banner.md R4-1·PLAN-popup.md R3-1·PLAN-board-definition.md PR 5 D6).
 #    banner/·popup/ 네임스페이스의 content_image 행은 보존 목록에 넣지 않는다 — 같은 키 문자열이 루트의 고아 파일을 우연히 보존하게 만들 수 있다(PLAN-media-library.md R4-1).
 #    공지 첨부는 post_attachment다(옛 notice_attachment 테이블은 V3가 지웠다).
 #    보존 목록 조회가 실패해 빈 목록이 되면 사용 중인 파일까지 오펀으로 분류된다 — 어느 단계든 실패하면
@@ -586,7 +607,7 @@ SELECT storage_key FROM content_image WHERE namespace = '' UNION SELECT storage_
 SQL
 sort -o keep-keys.txt keep-keys.txt &&
 docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
-  cd /data && find . -type f -not -path "./profile/*" -not -path "./banner/*" -not -path "./popup/*" -not -path "./.restore-staging/*" | sed "s|^\./||" | sort' > disk-keys.txt &&
+  cd /data && find . -type f -not -path "./profile/*" -not -path "./banner/*" -not -path "./popup/*" -not -path "./thumb/*" -not -path "./.restore-staging/*" | sed "s|^\./||" | sort' > disk-keys.txt &&
 comm -23 disk-keys.txt keep-keys.txt > orphan-files.txt ||
 echo "⑤ 중단: 보존 목록 또는 디스크 목록 수집 실패 — 아래 삭제를 실행하지 않는다"
 cat orphan-files.txt    # 먼저 눈으로 확인한다(파일이 없다는 오류가 나오면 위 단계가 실패한 것)
@@ -650,11 +671,30 @@ ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work al
   test -f /work/popup-orphans.txt || { echo "popup-orphans.txt 없음 — 삭제 중단"; exit 1; }
   while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/popup/$k";; esac; done < /work/popup-orphans.txt'
 
+# ⑤-5 썸네일 파일 대조(2026-10-29, PLAN-board-definition.md PR 5 D6): 대표 이미지 썸네일은 thumb/ 네임스페이스에 저장되어 위 ⑤가 제외하므로 여기서 따로 대조한다.
+#      보존 대상 = content_image_thumb의 storage_key(이미지 행이 있고 썸네일 행이 있으면 보존 — 대표 이미지가 아니게 된 이미지의 썸네일도 이미지와 함께 남는다),
+#      디스크 = thumb/ 아래 파일(접두어 제거). 차이만 고아 목록이 된다(생성 도중 강제 종료·동시 생성에서 진 쪽 파일의 삭제 실패·롤백 중 지운 이미지의 잔존분).
+#      앞 단계와 같은 ready 가드 + && 체인 — 조회가 실패하면 목록이 만들어지지 않고 아래 삭제는 아무것도 지우지 않는다.
+rm -f thumb-keep.txt thumb-disk.txt thumb-orphans.txt
+ready &&
+db > thumb-keep.txt <<'SQL' &&
+SELECT storage_key FROM content_image_thumb;
+SQL
+sort -o thumb-keep.txt thumb-keep.txt &&
+docker run --rm -v cms_notice_attachments_prod:/data alpine:3.20 sh -c '
+  if [ -d /data/thumb ]; then cd /data/thumb && find . -type f | sed "s|^\./||" | sort; fi' > thumb-disk.txt &&
+comm -23 thumb-disk.txt thumb-keep.txt > thumb-orphans.txt ||
+echo "⑤-5 중단: 보존 목록 또는 디스크 목록 수집 실패 — 아래 삭제를 실행하지 않는다"
+cat thumb-orphans.txt    # 먼저 눈으로 확인한다(파일이 없다는 오류가 나오면 위 단계가 실패한 것)
+ready && docker run --rm -v cms_notice_attachments_prod:/data -v "$PWD":/work alpine:3.20 sh -c '
+  test -f /work/thumb-orphans.txt || { echo "thumb-orphans.txt 없음 — 삭제 중단"; exit 1; }
+  while IFS= read -r k; do case "$k" in ""|/*|*..*) ;; *) rm -f -- "/data/thumb/$k";; esac; done < /work/thumb-orphans.txt'
+
 # ⑥ 앱 기동
 docker start cms-app-prod
 ```
 
-파일을 DB보다 나중에 지우므로 중간에 실패해도 남는 것은 "행 없는 파일"뿐이고, 다음 회수의 ⑤가 정리한다. ⑤는 공지 첨부·게시글 첨부의 잔존 파일(같은 원인)도 함께 회수하고, ⑤-2는 프로필 파일의 잔존분을 회수한다. 삭제된 공지는 API로 복원할 수 없으므로 그 이미지를 회수해도 사용자 기능 손실은 없다.
+파일을 DB보다 나중에 지우므로 중간에 실패해도 남는 것은 "행 없는 파일"뿐이고, 다음 회수의 ⑤가 정리한다. ⑤는 공지 첨부·게시글 첨부의 잔존 파일(같은 원인)도 함께 회수하고, ⑤-2는 프로필 파일의 잔존분을, ⑤-5는 대표 이미지 썸네일의 잔존분을 회수한다. **이 절차(②-2·③·⑤·⑤-5)는 V12 이후 버전용이다 — 롤백 중에도 이 절차를 쓴다**(이전 문서의 ⑤는 `thumb/`를 제외하지 않아 정상 썸네일 파일을 지운다). 삭제된 공지는 API로 복원할 수 없으므로 그 이미지를 회수해도 사용자 기능 손실은 없다.
 
 ## 미디어 라이브러리 (2026-10-12, adversarial-review/plan/PLAN-media-library.md)
 
@@ -663,11 +703,13 @@ docker start cms-app-prod
 - **삭제 규칙**: 사용 중인 이미지는 삭제할 수 없다(409, 메시지에 사용처 요약). 배너·팝업을 지우면 그 배너·팝업이 직접 올린(`BANNER`/`POPUP` 출처) 이미지는 다른 소유자가 없을 때 이미지 행·파일·카운터까지 함께 정리되고, 라이브러리에 올린(`LIBRARY` 출처) 이미지는 남는다.
 - **운영 확인 SQL**(읽기 전용):
   ```sql
-  -- 카운터가 원본과 일치하는지
-  SELECT u.total_bytes, u.total_count, COALESCE(SUM(i.file_size), 0) AS real_bytes, COUNT(i.id) AS real_count
-  FROM content_image_usage u LEFT JOIN content_image i ON 1 = 1 WHERE u.id = 1;
-  -- 어긋나면 앱이 정지된 상태에서 원본으로 재계산한다(쓰기 SQL)
-  -- UPDATE content_image_usage SET total_bytes = (SELECT COALESCE(SUM(file_size), 0) FROM content_image),
+  -- 카운터가 원본과 일치하는지(대표 이미지 도입 후 개정: 바이트 = 원본 + 썸네일, 개수 = 원본만)
+  SELECT u.total_bytes, u.total_count,
+         (SELECT COALESCE(SUM(file_size), 0) FROM content_image) + (SELECT COALESCE(SUM(file_size), 0) FROM content_image_thumb) AS real_bytes,
+         (SELECT COUNT(*) FROM content_image) AS real_count
+  FROM content_image_usage u WHERE u.id = 1;
+  -- 어긋나면 앱이 정지된 상태에서 원본으로 재계산한다(쓰기 SQL — 썸네일 바이트를 빼면 용량 상한이 느슨해진다)
+  -- UPDATE content_image_usage SET total_bytes = (SELECT COALESCE(SUM(file_size), 0) FROM content_image) + (SELECT COALESCE(SUM(file_size), 0) FROM content_image_thumb),
   --        total_count = (SELECT COUNT(*) FROM content_image) WHERE id = 1;
   -- 이미지형인데 참조가 없는 배너·팝업(공개에서 제외되고 관리 화면에 이미지가 비어 보인다)
   SELECT 'BANNER', b.id FROM banner b WHERE NOT EXISTS (SELECT 1 FROM content_image_ref r WHERE r.owner_type = 'BANNER' AND r.owner_id = b.id)

@@ -15,6 +15,8 @@
  * - options.pickLibraryImage(기본 없음): 함수를 주면 이미지 툴바 옆에 "라이브러리" 버튼이 생긴다(PLAN-media-library.md D10). 버튼을 누르면
  *   pickLibraryImage(function (item) { ... })를 부르고, 호출 쪽이 선택 모달을 열어 고른 이미지를 콜백에 넘기면 /content-images/{id}로 삽입한다.
  *   본문 src 계약·sanitizer 허용 목록·formats는 그대로다(라이브러리 이미지도 본문에서는 같은 경로다). allowImages가 false면 무시한다.
+ * - options.onChange(기본 없음): 사용자가 본문을 바꿀 때마다(프로그램의 setHtml 교체는 제외) 불린다. getImageIds()와 함께 게시글 화면의 대표 이미지
+ *   선택지를 갱신한다(PLAN-board-definition.md PR 5 D8).
  * - setImageUploadEnabled(enabled): 본문 이미지를 허용하지 않는 게시판(PLAN-board-definition.md PR 2)에서 새 이미지 입력만 끈다 — allowImages=false와 달리
  *   이미지 서식·붙여넣기 matcher는 유지해 이미 이미지가 든 글을 열어도 이미지가 지워지지 않는다.
  * - 로딩: clipboard.convert는 서식 없는 마지막 개행을 버려 끝 빈 문단이 재편집마다 줄어든다 — Quill 자신의 초기 로딩처럼 빈 문단을
@@ -59,6 +61,7 @@
     function create(container, options) {
         const onBusyChange = options.onBusyChange || function () {};
         const onError = options.onError || function () {};
+        const onChange = typeof options.onChange === "function" ? options.onChange : function () {};
         let uploadUrl = options.uploadUrl || null;
         const allowImages = options.allowImages !== false;
         const formats = allowImages ? FORMATS : FORMATS.filter(function (format) { return format !== "image"; });
@@ -142,6 +145,8 @@
             pending.forEach(function (item) {
                 item.index = delta.transformPosition(item.index);
             });
+            // 본문이 바뀌었음을 화면에 알린다(대표 이미지 선택지 갱신용 — setHtml의 silent 교체는 호출 쪽이 직접 갱신한다)
+            onChange();
         });
 
         function setBusy(delta) {
@@ -283,8 +288,24 @@
             });
         }
 
+        /** 본문에 들어 있는 본문 이미지 ID(등장 순서, 중복 제거). src는 서버 계약과 같은 /content-images/{id}만 센다. */
+        function getImageIds() {
+            const ids = [];
+            quill.getContents().ops.forEach(function (op) {
+                const src = op.insert && typeof op.insert === "object" ? op.insert.image : null;
+                if (typeof src === "string" && CONTENT_IMAGE_SRC.test(src)) {
+                    const id = Number(src.substring("/content-images/".length));
+                    if (Number.isSafeInteger(id) && ids.indexOf(id) < 0) {
+                        ids.push(id);
+                    }
+                }
+            });
+            return ids;
+        }
+
         return {
             setHtml: setHtml,
+            getImageIds: getImageIds,
             setUploadUrl: setUploadUrl,
             setImageUploadEnabled: setImageUploadEnabled,
             invalidate: invalidate,

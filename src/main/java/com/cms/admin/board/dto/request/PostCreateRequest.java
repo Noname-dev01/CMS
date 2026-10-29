@@ -43,6 +43,11 @@ public class PostCreateRequest {
     @Schema(description = "노출 기간(예약 게시). 없으면 기간 제한 없음. useYn과 기간을 둘 다 만족해야 공개된다")
     private PostPublishPeriodRequest publishPeriod;
 
+    @Setter(lombok.AccessLevel.NONE)
+    @Schema(description = "대표 이미지 ID — 이 글 본문에 들어 있는 이미지 중 하나. 누락·null = 대표 없음. 본문에 없는 이미지는 400, "
+            + "만들 수 없는 이미지(손상·CMYK 등)는 400", example = "12", nullable = true)
+    private Long coverImageId;
+
     /**
      * 세터 호출 여부 — 같은 키가 두 번 오면 뒤 객체가 앞 객체를 덮어써 잘못된 값이 기간 비움으로 바뀌므로 두 번째 호출을 거부한다.
      * JSON 속성이면 안 된다: getter가 보이면 Jackson이 비공개 필드를 mutator로 추론해 {"publishPeriodSet":false}로 플래그를 되돌려
@@ -54,17 +59,35 @@ public class PostCreateRequest {
     @Schema(hidden = true)
     private boolean publishPeriodSet;
 
+    /** {@link #publishPeriodSet}와 같은 이유(JSON 속성이면 안 됨)로 {@code coverImageId}의 중복 키를 거부하는 플래그. */
+    @JsonIgnore
+    @Getter(lombok.AccessLevel.NONE)
+    @Setter(lombok.AccessLevel.NONE)
+    @Schema(hidden = true)
+    private boolean coverImageIdSet;
+
     /** {@code DISABLED} 필수 — creator로 인식되면 같은 키가 중복될 때 마지막 값이 이겨 {@code publishPeriod} 세터의 중복 거부가 동작하지 않는다. */
     @JsonCreator(mode = JsonCreator.Mode.DISABLED)
     @Builder
     public PostCreateRequest(String title, String content, String contentFormat, Boolean useYn, Boolean pinned,
-                             PostPublishPeriodRequest publishPeriod) {
+                             PostPublishPeriodRequest publishPeriod, Long coverImageId) {
         this.title = title;
         this.content = content;
         this.contentFormat = contentFormat;
         this.useYn = useYn;
         this.pinned = pinned;
         this.publishPeriod = publishPeriod;
+        this.coverImageId = coverImageId;
+    }
+
+    /** {@code Object}로 받아 엄격 파싱한다 — {@link CoverImageIdInput}. 같은 키가 두 번 오면 거부. */
+    @JsonProperty("coverImageId")
+    public void setCoverImageId(Object coverImageId) {
+        if (coverImageIdSet) {
+            throw new IllegalArgumentException("coverImageId가 중복되었습니다.");
+        }
+        coverImageIdSet = true;
+        this.coverImageId = CoverImageIdInput.parse(coverImageId);
     }
 
     @JsonProperty("publishPeriod")

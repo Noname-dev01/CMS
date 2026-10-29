@@ -45,6 +45,22 @@ public class ContentImageUsage {
         totalCount += 1;
     }
 
+    /**
+     * 썸네일 바이트만 센다 — 개수(상한 1만 개)는 업로드한 이미지 수의 약속이라 올리지 않는다(PLAN-board-definition.md PR 5 D6).
+     * 호출자는 이 행을 비관적 락으로 잡은 상태여야 한다. 상한을 넘으면 409(대표 이미지 지정이 롤백된다).
+     */
+    public void reserveBytes(long bytes, long maxTotalBytes) {
+        if (totalBytes + bytes > maxTotalBytes) {
+            throw new ConflictException("이미지 저장 용량 상한에 도달했습니다. 관리자에게 문의해주세요.");
+        }
+        totalBytes += bytes;
+    }
+
+    /** 썸네일을 지울 때 바이트만 되돌린다(음수로 내려가지 않는다). 호출자는 이 행을 비관적 락으로 잡은 상태여야 한다. */
+    public void releaseBytes(long bytes) {
+        totalBytes = Math.max(0L, totalBytes - bytes);
+    }
+
     /** 이미지 행을 지울 때 카운터를 되돌린다. 호출자는 이 행을 비관적 락으로 잡은 상태여야 하며, 음수로 내려가지 않게 0에서 멈춘다. */
     public void release(long bytes) {
         totalBytes = Math.max(0L, totalBytes - bytes);

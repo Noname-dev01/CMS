@@ -43,6 +43,8 @@ public class PostResponse {
     private DisplayStatus status;
     @Schema(description = "공개 조회 누적 횟수(읽기 전용, 최선 노력 지표)")
     private long viewCount;
+    @Schema(description = "대표 이미지 ID — 본문이 참조하는 이미지 중 하나. null이면 대표 없음", nullable = true)
+    private Long coverImageId;
 
     /** @param now 앱 Clock 기준 현재 시각 — 노출 상태 계산용(서비스가 요청당 1회 산출해 전달) */
     public static PostResponse from(Post post, LocalDateTime now) {
@@ -61,6 +63,7 @@ public class PostResponse {
                 .publishEnd(post.getPublishEnd())
                 .status(DisplayPeriod.statusOf(Boolean.TRUE.equals(post.getUseYn()), post.getPublishStart(), post.getPublishEnd(), now))
                 .viewCount(post.getViewCount())
+                .coverImageId(post.getCoverImageId())
                 .build();
     }
 }

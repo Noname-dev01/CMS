@@ -5,6 +5,7 @@ import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.RateLimitedException;
 import com.cms.common.exception.ResourceNotFoundException;
+import com.cms.common.exception.ServiceBusyException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -311,6 +312,21 @@ public class GlobalApiExceptionHandler {
                 .header("Retry-After", String.valueOf(e.getRetryAfterSeconds()))
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiErrorResponse.of(request.getRequestURI(), "RATE_LIMITED", e.getMessage()));
+    }
+
+    /**
+     * 동시 실행 수를 제한한 작업(대표 이미지 썸네일 생성)이 자리를 얻지 못했다. 일시적이라 503 + {@code Retry-After}이며 트랜잭션은 롤백된다
+     * (PLAN-board-definition.md PR 5 D4). 메시지는 서비스가 만든 고정 문구다.
+     */
+    @ExceptionHandler(ServiceBusyException.class)
+    public ResponseEntity<ApiErrorResponse> handleServiceBusy(
+            ServiceBusyException e,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(ApiErrorResponse.of(request.getRequestURI(), "SERVICE_BUSY", e.getMessage()));
     }
 
     /**

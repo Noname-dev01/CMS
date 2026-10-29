@@ -28,9 +28,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 편집기 본문 이미지 업로드·참조 교체(PLAN-html-editor.md 쟁점 6·8·9·10, 미디어 라이브러리 PLAN-media-library.md).
@@ -138,6 +140,12 @@ public class ContentImageService {
         return ContentImageUploadResponse.from(saved);
     }
 
+    /** (ownerType, ownerId)가 지금 참조 중인 이미지 ID 집합 — 본문을 바꾸지 않는 수정에서 대표 이미지가 참조 중인지 판정하는 근거다. */
+    @Transactional(readOnly = true)
+    public Set<Long> findReferencedImageIds(String ownerType, Long ownerId) {
+        return new HashSet<>(refRepository.findImageIdsByOwner(ownerType, ownerId));
+    }
+
     /**
      * (ownerType, ownerId)의 참조를 본문의 이미지 ID 집합으로 교체한다. 존재하지 않는 이미지 ID는 참조에서 뺀다(깨진 이미지로
      * 남지만 무해). 호출자(콘텐츠 저장)의 트랜잭션·행 잠금 안에서 실행되어야 한다.
@@ -146,18 +154,20 @@ public class ContentImageService {
      * 삭제가 먼저 끝났으면 그 ID는 조회되지 않아 조용히 빠지고, 이 잠금이 먼저면 삭제는 대기했다가 새 참조를 보고 409가 된다.
      */
     @Transactional
-    public void replaceRefs(String ownerType, Long ownerId, String scopeType, Long scopeId, Collection<Long> imageIds) {
-        replaceRefs(ownerType, ownerId, scopeType, scopeId, imageIds, true);
+    public Set<Long> replaceRefs(String ownerType, Long ownerId, String scopeType, Long scopeId, Collection<Long> imageIds) {
+        return replaceRefs(ownerType, ownerId, scopeType, scopeId, imageIds, true);
     }
 
     /**
      * {@link #replaceRefs(String, Long, String, Long, Collection)} + 새 이미지 허용 여부. {@code allowNewImages=false}(본문 이미지를 허용하지 않는
      * 게시판)면 <b>실제로 존재하는</b> 이미지 중 이 콘텐츠가 지금 참조하지 않는 것이 하나라도 있을 때 삭제·쓰기 전에 400이다 — 이미 참조 중인
      * 이미지는 유지하고, 존재하지 않는 ID는 허용 게시판처럼 조용히 뺀다(깨진 ID가 든 기존 글도 고칠 수 있게. PLAN-board-definition.md PR 2 D2-4).
+     *
+     * @return 실제로 저장된(존재하는) 이미지 ID 집합 — 대표 이미지가 "그 글의 참조 중 하나"인지 판정하는 근거다(PR 5 D3)
      */
     @Transactional
-    public void replaceRefs(String ownerType, Long ownerId, String scopeType, Long scopeId, Collection<Long> imageIds,
-                            boolean allowNewImages) {
+    public Set<Long> replaceRefs(String ownerType, Long ownerId, String scopeType, Long scopeId, Collection<Long> imageIds,
+                                 boolean allowNewImages) {
         Set<Long> existing = new HashSet<>();
         if (!imageIds.isEmpty()) {
             Set<Long> alreadyReferenced = new HashSet<>(refRepository.findImageIdsByOwner(ownerType, ownerId));
@@ -181,11 +191,13 @@ public class ContentImageService {
             }
         }
         refRepository.deleteByOwner(ownerType, ownerId);
-        List<ContentImageRef> refs = imageIds.stream()
+        Set<Long> saved = imageIds.stream()
                 .filter(existing::contains)
-                .distinct()
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<ContentImageRef> refs = saved.stream()
                 .map(imageId -> new ContentImageRef(ownerType, ownerId, imageId))
                 .toList();
         refRepository.saveAll(refs);
+        return saved;
     }
 }

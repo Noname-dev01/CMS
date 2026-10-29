@@ -1,7 +1,10 @@
 package com.cms.publicweb.contentimage;
 
+import com.cms.admin.contentimage.domain.ContentImage;
+import com.cms.admin.contentimage.domain.ContentImageThumb;
 import com.cms.admin.contentimage.repository.ContentImageRefRepository;
 import com.cms.admin.contentimage.repository.ContentImageRepository;
+import com.cms.admin.contentimage.repository.ContentImageThumbRepository;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
@@ -36,12 +39,29 @@ public class PublicContentImageService {
 
     private final ContentImageRepository imageRepository;
     private final ContentImageRefRepository refRepository;
+    private final ContentImageThumbRepository thumbRepository;
     private final AdminPermissionEvaluator permissionEvaluator;
     private final FileStorage fileStorage;
     private final Clock clock;
 
     @Transactional(readOnly = true)
     public Optional<ContentImageMeta> findViewable(Long imageId, Authentication authentication) {
+        return viewableImage(imageId, authentication)
+                .map(image -> new ContentImageMeta(image.getStorageKey(), image.getNamespace(), image.getContentType()));
+    }
+
+    /**
+     * {@code ?size=thumb} — 원본과 <b>같은 공개 판정</b>을 통과한 이미지의 썸네일을 돌려준다(PLAN-board-definition.md PR 5 D5). 썸네일 행이 없으면
+     * (원본이 작거나 대표로 지정된 적이 없는 이미지) 원본을 그대로 준다. 판정과 행 조회가 한 트랜잭션이다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<ContentImageMeta> findViewableThumbnail(Long imageId, Authentication authentication) {
+        return viewableImage(imageId, authentication).map(image -> thumbRepository.findById(image.getId())
+                .map(thumb -> new ContentImageMeta(thumb.getStorageKey(), ContentImageThumb.NAMESPACE, thumb.getContentType()))
+                .orElseGet(() -> new ContentImageMeta(image.getStorageKey(), image.getNamespace(), image.getContentType())));
+    }
+
+    private Optional<ContentImage> viewableImage(Long imageId, Authentication authentication) {
         LocalDateTime now = LocalDateTime.now(clock);
         return imageRepository.findById(imageId)
                 // 값싼 판정부터 — 익명 요청은 앞의 두 DB 조회만 거치고 권한 판정은 DB를 보지 않고 거부한다
@@ -51,8 +71,7 @@ public class PublicContentImageService {
                             && permissionEvaluator.allowsBoard(authentication, image.getScopeId(), PermissionAction.READ))
                         // 라이브러리 계열 이미지의 저장 전 미리보기는 현재 MEDIA 읽기 권한으로(PLAN-media-library.md D3)
                         || (ContentImageService.isLibraryScope(image.getScopeType())
-                            && permissionEvaluator.allows(authentication, AdminFeature.MEDIA, PermissionAction.READ)))
-                .map(image -> new ContentImageMeta(image.getStorageKey(), image.getNamespace(), image.getContentType()));
+                            && permissionEvaluator.allows(authentication, AdminFeature.MEDIA, PermissionAction.READ)));
     }
 
     /** 트랜잭션 없음(의도). 파일이 없으면 empty(404), 그 외 실패는 전파(500). 반환 스트림은 호출자가 닫는다. */

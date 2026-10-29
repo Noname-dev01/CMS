@@ -1,5 +1,6 @@
 package com.cms.publicweb.contentimage;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -35,8 +36,8 @@ public class PublicContentImageController {
     private final PublicContentImageService publicContentImageService;
 
     @GetMapping("/{id}")
-    public void image(@PathVariable String id, HttpServletResponse response) throws IOException {
-        Optional<ContentImageDownload> download = openDownload(id, response);
+    public void image(@PathVariable String id, HttpServletRequest request, HttpServletResponse response) throws IOException {
+        Optional<ContentImageDownload> download = openDownload(id, request, response);
         if (download.isEmpty()) {
             return;
         }
@@ -61,8 +62,8 @@ public class PublicContentImageController {
 
     /** HEAD는 GET과 같은 경로로 404를 판정하고 본문은 읽지 않는다. */
     @RequestMapping(value = "/{id}", method = RequestMethod.HEAD)
-    public void imageHead(@PathVariable String id, HttpServletResponse response) throws IOException {
-        Optional<ContentImageDownload> download = openDownload(id, response);
+    public void imageHead(@PathVariable String id, HttpServletRequest request, HttpServletResponse response) throws IOException {
+        Optional<ContentImageDownload> download = openDownload(id, request, response);
         if (download.isEmpty()) {
             return;
         }
@@ -74,12 +75,14 @@ public class PublicContentImageController {
         }
     }
 
-    private Optional<ContentImageDownload> openDownload(String id, HttpServletResponse response) throws IOException {
+    private Optional<ContentImageDownload> openDownload(String id, HttpServletRequest request, HttpServletResponse response) throws IOException {
         Long imageId = parseId(id);
-        Optional<ContentImageDownload> download = imageId == null
+        Size size = parseSize(request);
+        Optional<ContentImageDownload> download = imageId == null || size == null
                 ? Optional.empty()
-                : publicContentImageService
-                        .findViewable(imageId, SecurityContextHolder.getContext().getAuthentication())
+                : (size == Size.THUMB
+                        ? publicContentImageService.findViewableThumbnail(imageId, SecurityContextHolder.getContext().getAuthentication())
+                        : publicContentImageService.findViewable(imageId, SecurityContextHolder.getContext().getAuthentication()))
                         .flatMap(publicContentImageService::open);
         if (download.isEmpty()) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
@@ -98,6 +101,21 @@ public class PublicContentImageController {
         if (!response.isCommitted()) {
             response.reset();
         }
+    }
+
+    private enum Size { ORIGINAL, THUMB }
+
+    /**
+     * {@code size} 쿼리 매개변수 해석(PLAN-board-definition.md PR 5 D5). 없음 → 원본, 정확히 하나이고 {@code thumb} → 썸네일, 그 밖(빈 값·대소문자 다름·
+     * 두 개 이상·다른 값)은 null → 호출자가 404. 이 경로는 잘못된 입력을 모두 같은 404로 흡수하고 값이 무엇이든 원본을 주지 않는다. 판정은 공개 판정보다
+     * 먼저 하지만 응답이 같은 404라 이미지의 존재 여부는 드러나지 않는다.
+     */
+    private Size parseSize(HttpServletRequest request) {
+        String[] values = request.getParameterValues("size");
+        if (values == null) {
+            return Size.ORIGINAL;
+        }
+        return values.length == 1 && "thumb".equals(values[0]) ? Size.THUMB : null;
     }
 
     private Long parseId(String raw) {

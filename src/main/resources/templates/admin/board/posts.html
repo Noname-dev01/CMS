@@ -58,6 +58,44 @@
         font-size: 1rem;
     }
 
+    /* 대표 이미지 선택지 — 본문에 들어 있는 이미지의 작은 미리보기 라디오 목록 */
+    .cover-choices {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .5rem;
+    }
+
+    .cover-choice {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-width: 5rem;
+        min-height: 5rem;
+        padding: .35rem;
+        border: 2px solid #d1d3e2;
+        border-radius: .35rem;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    .cover-choice.is-selected {
+        border-color: #4e73df;
+    }
+
+    .cover-choice img {
+        max-width: 7rem;
+        max-height: 5rem;
+        object-fit: contain;
+    }
+
+    .cover-view img {
+        max-width: 12rem;
+        max-height: 8rem;
+        object-fit: contain;
+        border: 1px solid #d1d3e2;
+    }
+
     .attachment-section {
         margin-top: 1.5rem;
         padding-top: 1rem;
@@ -296,6 +334,10 @@
                         <div class="value" id="viewUpdater"></div>
                     </div>
                     <div class="detail-item">
+                        <span class="label">대표 이미지</span>
+                        <div class="value" id="viewCover"></div>
+                    </div>
+                    <div class="detail-item">
                         <span class="label">본문</span>
                         <div class="value post-content-view" id="viewContent"></div>
                     </div>
@@ -311,6 +353,11 @@
                         <div class="post-editor"><div id="formContentEditor"></div></div>
                         <small id="editorBusy" class="form-text text-muted d-none">이미지를 올리는 중입니다. 끝난 뒤 저장할 수 있습니다.</small>
                         <small id="imagePolicyNote" class="form-text text-muted d-none">이 게시판은 새 본문 이미지를 허용하지 않습니다. 이미 들어 있는 이미지는 유지됩니다.</small>
+                    </div>
+                    <div id="coverGroup" class="form-group d-none">
+                        <label class="form-label">대표 이미지</label>
+                        <small class="form-text text-muted mb-2">본문에 들어 있는 이미지 중 하나를 대표로 지정합니다. 큰 이미지는 저장할 때 썸네일이 만들어지며, 손상된 이미지나 CMYK 등은 대표로 쓸 수 없습니다.</small>
+                        <div id="coverChoices" class="cover-choices" role="radiogroup" aria-label="대표 이미지"></div>
                     </div>
                     <div class="form-group">
                         <div class="custom-control custom-switch">
@@ -479,8 +526,18 @@
     // 진행 중인 저장 요청의 identity 토큰(없으면 null) — 이미지 업로드가 끝났을 때 저장 버튼을 다시 켜도 되는지 판단한다.
     // 불리언이 아니라 토큰인 이유: 저장 중 다른 게시글로 전환하면 이전 요청의 finally가 해제를 건너뛰므로, 그 요청의 것일 때만 지운다.
     let saveInFlightToken = null;
+    // 대표 이미지(PLAN-board-definition.md PR 5 D8). coverSelected = 화면에서 지금 선택된 이미지(없음 = null), coverUserChanged = 사용자가 직접 고른
+    // 적이 있는지. 본문에서 대표 이미지를 지워 선택이 자동으로 "없음"이 된 것은 사용자 선택이 아니므로 키를 보내지 않는다 — 서버가 저장 시점의
+    // DB 값으로 자동 해제를 정하므로 다른 관리자가 그 사이 바꾼 대표를 낡은 화면이 덮어쓰지 않는다.
+    const coverGroup = document.getElementById("coverGroup");
+    const coverChoices = document.getElementById("coverChoices");
+    const viewCover = document.getElementById("viewCover");
+    let coverSelected = null;
+    let coverUserChanged = false;
+    let coverRenderedKey = null;
     // 편집기는 페이지에 하나만 만든다 — 게시판을 고를 때마다 setUploadUrl로 업로드 대상(출처)만 바꾼다(PLAN-board.md 쟁점 9·R3-4).
     const editor = NoticeEditor.create(document.getElementById("formContentEditor"), {
+        onChange: function () { renderCoverChoices(); },
         pickLibraryImage: CAN_PICK_LIBRARY ? function (insert) {
             window.MediaPicker.open({ title: "본문에 넣을 이미지 선택", onPick: insert });
         } : null,
@@ -862,13 +919,100 @@
         viewCreateDate.textContent = formatDate(data.createDate);
         viewUpdateDate.textContent = formatDate(data.updateDate);
         viewUpdater.textContent = data.updaterId || "-";
+        renderViewCover(data.coverImageId);
         viewContent.innerHTML = data.content || "";
+    }
+
+    // 보기 모드의 대표 이미지 — id는 서버 응답의 정수라 Number로 다시 검사해 src를 만든다(사용자 입력 문자열은 쓰지 않는다).
+    function renderViewCover(coverImageId) {
+        viewCover.replaceChildren();
+        const id = Number(coverImageId);
+        if (!coverImageId || !Number.isSafeInteger(id) || id < 1) {
+            viewCover.textContent = "없음";
+            return;
+        }
+        const wrapper = document.createElement("div");
+        wrapper.className = "cover-view";
+        const image = document.createElement("img");
+        image.src = "/content-images/" + id + "?size=thumb";
+        image.alt = "대표 이미지";
+        wrapper.appendChild(image);
+        viewCover.appendChild(wrapper);
+    }
+
+    // 본문에 들어 있는 이미지(편집기 기준)로 대표 이미지 선택지를 다시 그린다. 이미지 목록이 바뀐 때만 DOM을 만든다.
+    function renderCoverChoices() {
+        const ids = editor.getImageIds();
+        if (ids.length === 0) {
+            coverSelected = null;
+            coverGroup.classList.add("d-none");
+            coverChoices.replaceChildren();
+            coverRenderedKey = "";
+            return;
+        }
+        // 선택한 이미지가 본문에서 사라지면 선택은 "없음"이 된다(서버의 자동 해제와 같은 결과). coverUserChanged는 그대로 둔다 —
+        // 사용자가 직접 고른 값이 사라졌다면 "없음"이 그의 마지막 의사다.
+        if (coverSelected !== null && ids.indexOf(coverSelected) < 0) {
+            coverSelected = null;
+        }
+        const key = ids.join(",") + "|" + coverSelected;
+        if (key === coverRenderedKey) {
+            return;
+        }
+        coverRenderedKey = key;
+        coverGroup.classList.remove("d-none");
+        coverChoices.replaceChildren();
+        coverChoices.appendChild(buildCoverChoice(null, "없음"));
+        ids.forEach(function (id) {
+            coverChoices.appendChild(buildCoverChoice(id, null));
+        });
+    }
+
+    function buildCoverChoice(id, noneLabel) {
+        const label = document.createElement("label");
+        label.className = "cover-choice" + (coverSelected === id ? " is-selected" : "");
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "coverImage";
+        radio.value = id === null ? "" : String(id);
+        radio.checked = coverSelected === id;
+        label.appendChild(radio);
+        if (id === null) {
+            const text = document.createElement("span");
+            text.textContent = noneLabel;
+            label.appendChild(text);
+        } else {
+            const image = document.createElement("img");
+            image.src = "/content-images/" + id;
+            image.alt = "본문 이미지 " + id;
+            image.loading = "lazy";
+            label.appendChild(image);
+        }
+        return label;
+    }
+
+    coverChoices.addEventListener("change", function (event) {
+        if (!event.target || event.target.name !== "coverImage") {
+            return;
+        }
+        coverSelected = event.target.value === "" ? null : Number(event.target.value);
+        coverUserChanged = true;
+        coverRenderedKey = null;
+        renderCoverChoices();
+    });
+
+    function resetCover(data) {
+        coverSelected = data && data.coverImageId ? Number(data.coverImageId) : null;
+        coverUserChanged = false;
+        coverRenderedKey = null;
+        renderCoverChoices();
     }
 
     // 제목은 .value 대입, 본문은 편집기 내용 교체(삽입 아님 — 업로드 무효화·undo 이력 초기화 포함).
     function fillForm(data) {
         formTitle.value = data ? (data.title || "") : "";
         editor.setHtml(data ? (data.content || "") : "");
+        resetCover(data);
         formUseYn.checked = data ? !!data.useYn : true;
         writeDateTime(formStartDate, formStartHour, formStartMinute, data ? data.publishStart : null);
         writeDateTime(formEndDate, formEndHour, formEndMinute, data ? data.publishEnd : null);
@@ -1147,6 +1291,10 @@
         if (formPinned.checked) {
             payload.pinned = true;
         }
+        // 대표 이미지는 선택했을 때만 보낸다(누락 = 대표 없음)
+        if (coverSelected !== null) {
+            payload.coverImageId = coverSelected;
+        }
         // 기간을 하나도 고르지 않았으면 publishPeriod 자체를 보내지 않는다(기간 제한 없음).
         // 예약 게시를 끈 게시판은 기간 입력이 숨겨져 있으므로 보내지 않는다.
         const period = periodAllowed() ? readPeriodFromForm() : { start: null, end: null };
@@ -1184,6 +1332,12 @@
         // 값이 바뀐 경우에만 보낸다 — 낡은 화면이 다른 관리자가 바꾼 고정 상태를 되돌리지 않게
         if (formPinned.checked !== !!currentDetail.pinned) {
             payload.pinned = formPinned.checked;
+        }
+        // 대표 이미지는 사용자가 직접 고른 값이 연 시점의 값과 다를 때만 보낸다(직접 "없음"이면 null). 본문에서 지워져 자동으로 "없음"이 된 경우는
+        // 보내지 않는다 — 서버가 저장 시점의 DB 값으로 자동 해제 여부를 정한다.
+        const originalCover = currentDetail.coverImageId ? Number(currentDetail.coverImageId) : null;
+        if (coverUserChanged && coverSelected !== originalCover) {
+            payload.coverImageId = coverSelected;
         }
         // 기간은 시작·종료 중 하나라도 달라졌을 때만 보낸다 — 서버가 통째로 교체하므로 둘 다 현재 폼 값으로 보낸다(null = 그쪽 열림).
         // 변경이 없으면 보내지 않아, 다른 관리자가 이미 바꾼 기간을 낡은 화면이 되돌리는 일을 줄인다.
