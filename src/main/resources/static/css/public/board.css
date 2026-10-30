@@ -340,12 +340,13 @@ body {
     object-fit: cover;
 }
 
-/* 대표 이미지가 없는 글의 자리표시 — 이미지 요청 없이 단색 칸만 보인다 */
+/* 대표 이미지가 없거나 썸네일을 불러오지 못한 칸의 자리표시 — 단색 바탕 가운데 사진 아이콘.
+   아이콘은 CSS 안의 SVG(data URI)라 이미지 요청이 생기지 않는다(썸네일이 이미지 한도로 실패한 순간에도 그대로 보인다) */
 .board-thumb-empty {
     display: block;
     width: 100%;
     height: 100%;
-    background: linear-gradient(135deg, #e4e9ee, #d3dae1);
+    background: #e9edf1 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'/%3E%3C/svg%3E") center / 2.75rem auto no-repeat;
 }
 
 .board-gallery {
