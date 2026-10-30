@@ -150,6 +150,7 @@ class BoardTypePublicIntegrationTest extends MariaDbContainerSupport {
         assertThat(count(page, "board-list-item")).isEqualTo(1);
         assertThat(page).doesNotContain("board-gallery").doesNotContain("board-webzine").doesNotContain("board-thumb")
                 .doesNotContain("content-images").doesNotContain("<img");
+        assertThat(page).as("썸네일이 없는 목록형에는 대체 스크립트를 싣지 않는다").doesNotContain("board-thumb-fallback.js").doesNotContain("<script");
     }
 
     @Test
@@ -183,6 +184,7 @@ class BoardTypePublicIntegrationTest extends MariaDbContainerSupport {
         assertThat(page).contains("loading=\"lazy\"").contains("alt=\"\"");
         assertThat(count(page, "board-thumb-empty")).as("대표 없는 글은 요청 없는 자리표시").isEqualTo(1);
         assertThat(page).doesNotContain("board-webzine-excerpt");
+        assertThat(count(page, "<script src=\"/js/public/board-thumb-fallback.js\"></script>")).as("썸네일 실패 대체 스크립트 1개").isEqualTo(1);
 
         assertThat(mockMvc.perform(get("/content-images/{id}", image).param("size", "thumb").with(fromTestIp()))
                 .andReturn().getResponse().getStatus()).as("목록이 가리키는 썸네일은 공개 판정을 통과한다").isEqualTo(200);
@@ -209,6 +211,7 @@ class BoardTypePublicIntegrationTest extends MariaDbContainerSupport {
         assertThat(count(page, "board-webzine-excerpt")).as("텍스트가 없는 글은 요약 줄이 없다").isEqualTo(3);
         assertThat(count(page, "/content-images/" + image + "?size=thumb")).isEqualTo(1);
         assertThat(count(page, "board-thumb-empty")).isEqualTo(3);
+        assertThat(count(page, "<script src=\"/js/public/board-thumb-fallback.js\"></script>")).as("썸네일 실패 대체 스크립트 1개").isEqualTo(1);
     }
 
     @Test

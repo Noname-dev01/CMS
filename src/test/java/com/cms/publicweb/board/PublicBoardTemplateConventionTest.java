@@ -6,7 +6,10 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -27,7 +30,7 @@ class PublicBoardTemplateConventionTest {
         for (String path : TEMPLATES) {
             String content = readResource(path);
             boolean detail = path.endsWith("detail.html");
-            String rest = detail ? content.replaceFirst(java.util.regex.Pattern.quote(ALLOWED_UTEXT), "") : content;
+            String rest = detail ? content.replaceFirst(Pattern.quote(ALLOWED_UTEXT), "") : content;
             if (detail) {
                 assertTrue(content.contains(ALLOWED_UTEXT), "detail.html 본문 출력이 바뀌었습니다 — 허용 목록을 함께 검토하세요.");
             }
@@ -41,6 +44,27 @@ class PublicBoardTemplateConventionTest {
     void templates_doNotReferenceStorageKey() throws IOException {
         for (String path : TEMPLATES) {
             assertFalse(readResource(path).contains("storageKey"), path + "에 storageKey가 있습니다 — 서버 내부 경로가 새어나갈 수 있습니다.");
+        }
+    }
+
+    @Test
+    @DisplayName("공개 게시판 템플릿의 스크립트는 list.html의 외부 파일 board-thumb-fallback.js 하나뿐이고 인라인 스크립트·인라인 이벤트 속성이 없다")
+    void scriptsAreExternalFallbackOnly() throws IOException {
+        Pattern scriptTag = Pattern.compile("<script\\b([^>]*)>(.*?)</script>", Pattern.DOTALL);
+        // on으로 시작하는 HTML 속성(onerror·onload 등)과 Thymeleaf 판(th:onerror 등) — 인라인 JS가 템플릿에 섞이지 않게 한다
+        Pattern inlineHandler = Pattern.compile("\\s(?:th:)?on[a-z]+\\s*=", Pattern.CASE_INSENSITIVE);
+        for (String path : TEMPLATES) {
+            String content = readResource(path);
+            Matcher script = scriptTag.matcher(content);
+            int count = 0;
+            while (script.find()) {
+                count++;
+                assertTrue(path.endsWith("list.html"), path + "에 스크립트가 있습니다 — 공개 게시판 스크립트는 list.html의 대체 스크립트 하나뿐입니다.");
+                assertTrue(script.group(1).contains("th:src=\"@{/js/public/board-thumb-fallback.js}\""), "외부 스크립트는 board-thumb-fallback.js 하나여야 합니다.");
+                assertEquals("", script.group(2).strip(), path + "에 인라인 스크립트 본문이 있습니다.");
+            }
+            assertEquals(path.endsWith("list.html") ? 1 : 0, count, path + "의 스크립트 개수가 다릅니다.");
+            assertFalse(inlineHandler.matcher(content).find(), path + "에 인라인 이벤트 속성(on…=)이 있습니다 — 외부 스크립트로 옮기세요.");
         }
     }
 
