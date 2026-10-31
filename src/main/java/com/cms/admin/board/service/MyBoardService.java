@@ -45,7 +45,7 @@ public class MyBoardService {
                         board.getPinMaxCount(),
                         Math.min(board.getAttachMaxCount(), AttachmentFilePolicy.MAX_COUNT_PER_OWNER),
                         Math.min(board.getAttachMaxSizeMb(), AttachmentFilePolicy.MAX_FILE_SIZE_MB),
-                        extensions, board.getBodyImageYn(), board.getPublishPeriodYn(),
+                        extensions, board.getBodyImageYn(), board.getPublishPeriodYn(), board.type(),
                         Arrays.stream(PermissionAction.values()).filter(actions::contains).toList()));
             }
         }

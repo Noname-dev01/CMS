@@ -353,6 +353,7 @@
                         <div class="post-editor"><div id="formContentEditor"></div></div>
                         <small id="editorBusy" class="form-text text-muted d-none">이미지를 올리는 중입니다. 끝난 뒤 저장할 수 있습니다.</small>
                         <small id="imagePolicyNote" class="form-text text-muted d-none">이 게시판은 새 본문 이미지를 허용하지 않습니다. 이미 들어 있는 이미지는 유지됩니다.</small>
+                        <small id="coverTypeNote" class="form-text text-muted d-none"></small>
                     </div>
                     <div id="coverGroup" class="form-group d-none">
                         <label class="form-label">대표 이미지</label>
@@ -516,6 +517,7 @@
     const formEndMinute = document.getElementById("formEndMinute");
     const editorBusy = document.getElementById("editorBusy");
     const imagePolicyNote = document.getElementById("imagePolicyNote");
+    const coverTypeNote = document.getElementById("coverTypeNote");
     const periodFields = document.getElementById("periodFields");
     const periodLocked = document.getElementById("periodLocked");
     const periodLockedText = document.getElementById("periodLockedText");
@@ -1039,7 +1041,23 @@
         const imagesAllowed = !modalBoard || modalBoard.bodyImageYn !== false;
         editor.setImageUploadEnabled(imagesAllowed);
         imagePolicyNote.classList.toggle("d-none", imagesAllowed);
+        renderCoverTypeNote(imagesAllowed);
         renderPeriodPolicy(data);
+    }
+
+    // 갤러리·웹진 게시판은 공개 일반 목록에 대표 이미지를 쓴다 — 본문에 이미지가 없어 대표 묶음이 숨어 있을 때도 보이도록 그 묶음 밖에 둔다.
+    // 상단 고정 영역은 유형과 무관하게 이미지 없는 한 줄이라 "일반 목록"으로 한정한다. 이미지를 끈 게시판에는 "넣은 뒤 고르세요"를 빼고
+    // 바로 위 imagePolicyNote가 기존 이미지만 쓸 수 있다는 사실을 알린다. 유형은 내 게시판 응답의 해석값이라 알 수 없는 저장값은 LIST로 와서 안내가 없다.
+    const COVER_TYPE_NOTES = {
+        GALLERY: "이 게시판은 갤러리형입니다. 공개 일반 목록에 글마다 대표 이미지가 격자로 보이고, 대표를 고르지 않은 글은 빈 자리표시로 보입니다.",
+        WEBZINE: "이 게시판은 웹진형입니다. 공개 일반 목록에 대표 이미지가 보이고(본문에 글이 있으면 요약도 함께), 대표를 고르지 않은 글은 빈 자리표시로 보입니다."
+    };
+
+    function renderCoverTypeNote(imagesAllowed) {
+        const text = modalBoard && Object.prototype.hasOwnProperty.call(COVER_TYPE_NOTES, modalBoard.boardType)
+            ? COVER_TYPE_NOTES[modalBoard.boardType] : null;
+        coverTypeNote.textContent = text ? text + (imagesAllowed ? " 본문에 이미지를 넣은 뒤 아래 '대표 이미지'에서 고르세요." : "") : "";
+        coverTypeNote.classList.toggle("d-none", !text);
     }
 
     function periodAllowed() {
