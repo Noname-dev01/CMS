@@ -1,5 +1,6 @@
 package com.cms.admin.board.dto.response;
 
+import com.cms.admin.board.domain.BoardType;
 import com.cms.admin.permission.PermissionAction;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
@@ -31,5 +32,7 @@ public class MyBoardResponse {
     private final Boolean bodyImageYn;
     @Schema(description = "예약 게시 허용 — false면 화면이 노출 기간 입력을 숨긴다(서버 판정이 최종)")
     private final Boolean publishPeriodYn;
+    @Schema(description = "공개 목록 모양(해석값 — 알 수 없는 저장값은 LIST) — 화면이 갤러리·웹진 게시판에 대표 이미지 안내를 보인다")
+    private final BoardType boardType;
     private final List<PermissionAction> actions;
 }

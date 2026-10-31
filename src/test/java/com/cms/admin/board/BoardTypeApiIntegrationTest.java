@@ -258,6 +258,51 @@ class BoardTypeApiIntegrationTest extends MariaDbContainerSupport {
         assertThat(found).isTrue();
     }
 
+    private JsonNode myBoard(RequestPostProcessor who, long boardId) throws Exception {
+        MvcResult result = mockMvc.perform(get("/admin/api/members/me/boards").with(who)).andReturn();
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        for (JsonNode node : body(result)) {
+            if (node.get("boardId").asLong() == boardId) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    @Test
+    @DisplayName("내 게시판 목록: READ만 가진 MANAGER도 세 유형을 받고, 게시판 정의 API는 여전히 403이다 (PLAN-board-type-editor-note D1·D2)")
+    void myBoardsExposeTypeToReadOnlyManager() throws Exception {
+        long gallery = createBoard("\"boardType\":\"GALLERY\"");
+        long webzine = createBoard("\"boardType\":\"WEBZINE\"");
+        long list = createBoard(null);
+        for (long boardId : List.of(gallery, webzine, list)) {
+            jdbc.update("INSERT INTO member_board_permission (member_id, board_id, action) VALUES (?, ?, 'READ')", manager.getId(), boardId);
+        }
+        cache.invalidate();
+        RequestPostProcessor asManager = TestMembers.asMember(manager);
+
+        assertThat(myBoard(asManager, gallery).get("boardType").asText()).isEqualTo("GALLERY");
+        assertThat(myBoard(asManager, webzine).get("boardType").asText()).isEqualTo("WEBZINE");
+        assertThat(myBoard(asManager, list).get("boardType").asText()).isEqualTo("LIST");
+        assertThat(myBoard(asManager, gallery).get("actions").toString()).isEqualTo("[\"READ\"]");
+        assertThat(myBoard(asAdmin(), webzine).get("boardType").asText()).isEqualTo("WEBZINE");
+
+        assertThat(mockMvc.perform(get("/admin/api/boards/{id}", gallery).with(asManager)).andReturn().getResponse().getStatus())
+                .as("게시판 정의 API 권한은 그대로").isEqualTo(403);
+    }
+
+    @Test
+    @DisplayName("내 게시판 목록: 알 수 없는 저장값은 LIST로 보이고 원본은 응답에 없다")
+    void myBoardsUnknownStoredValueReadsAsList() throws Exception {
+        long id = insertBoardWithRawType("FUTURE");
+
+        JsonNode node = myBoard(asAdmin(), id);
+
+        assertThat(node).isNotNull();
+        assertThat(node.get("boardType").asText()).isEqualTo("LIST");
+        assertThat(node.toString()).doesNotContain("FUTURE");
+    }
+
     @Test
     @DisplayName("알 수 없는 저장값은 유형을 언급하지 않은 수정(이름·다른 표시 설정)에서 원본 그대로 보존되고, 명시했을 때만 바뀐다 (리뷰 R1-1)")
     void unknownStoredValueSurvivesUnrelatedEdits() throws Exception {
