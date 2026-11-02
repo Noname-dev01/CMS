@@ -136,4 +136,16 @@ public class Post {
         this.deleted = true;
         touch(updaterId, now);
     }
+
+    /**
+     * 삭제된 글을 되살린다(PLAN-post-trash.md D3). <b>항상 비노출·고정 해제</b>로 돌려놓는다 — 복원이 곧바로 공개로 이어지지 않게 하고,
+     * 고정 개수 상한 판정(게시판 배타 잠금)이 복원에 끼어들지 않게 한다. 제목·본문·노출 기간·대표 이미지·조회수·작성자·작성일은 그대로다.
+     * {@code updateDate}·{@code updaterId}는 항상 같은 쓰기에서 함께 바뀐다.
+     */
+    public void restore(String updaterId, LocalDateTime now) {
+        this.deleted = false;
+        this.useYn = false;
+        this.pinned = false;
+        touch(updaterId, now);
+    }
 }

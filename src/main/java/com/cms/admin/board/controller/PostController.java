@@ -3,6 +3,7 @@ package com.cms.admin.board.controller;
 import com.cms.admin.board.dto.request.PostCreateRequest;
 import com.cms.admin.board.dto.request.PostSearchRequest;
 import com.cms.admin.board.dto.request.PostUpdateRequest;
+import com.cms.admin.board.dto.response.DeletedPostPageResponse;
 import com.cms.admin.board.dto.response.PostPageResponse;
 import com.cms.admin.board.dto.response.PostResponse;
 import com.cms.admin.board.service.PostService;
@@ -55,6 +56,20 @@ public class PostController {
         return ResponseEntity.ok(postService.getPosts(boardId, request, pageable));
     }
 
+    @Operation(summary = "휴지통 목록(삭제된 게시글)",
+            description = "그 게시판의 삭제된 게시글을 삭제 시각 내림차순으로. 권한은 조회가 아니라 삭제(DELETE) — 일부러 지운 글의 제목을 조회 권한자에게 보이지 않는다. 페이지 크기는 100으로 제한된다")
+    @ApiResponse(responseCode = "200", description = "조회 성공")
+    @ApiResponse(responseCode = "403", description = "그 게시판의 삭제 권한 없음")
+    @ApiResponse(responseCode = "404", description = "게시판 없음(삭제 포함)")
+    @GetMapping("/trash")
+    @RequireBoardPermission(action = PermissionAction.DELETE)
+    public ResponseEntity<DeletedPostPageResponse> getDeletedPosts(
+            @PathVariable Long boardId,
+            @ParameterObject @PageableDefault(size = 20) Pageable pageable
+    ) {
+        return ResponseEntity.ok(postService.getDeletedPosts(boardId, pageable));
+    }
+
     @Operation(summary = "게시글 단건 조회")
     @ApiResponse(responseCode = "200", description = "조회 성공")
     @ApiResponse(responseCode = "403", description = "그 게시판의 조회 권한 없음")
@@ -94,6 +109,17 @@ public class PostController {
             @Valid @RequestBody PostUpdateRequest request
     ) {
         return ResponseEntity.ok(postService.updatePost(boardId, postId, request));
+    }
+
+    @Operation(summary = "삭제된 게시글 복원", description = "항상 비노출·상단 고정 해제 상태로 되살린다(공개는 복원 뒤 노출을 켜서). 권한은 삭제(DELETE). 쓰기 중지 게시판은 400")
+    @ApiResponse(responseCode = "200", description = "복원 성공")
+    @ApiResponse(responseCode = "400", description = "쓰기가 중지된 게시판")
+    @ApiResponse(responseCode = "403", description = "그 게시판의 삭제 권한 없음")
+    @ApiResponse(responseCode = "404", description = "게시판 없음(삭제 포함) 또는 삭제된 게시글 없음(살아 있는 글·다른 게시판 소속·이미 복원된 글 포함)")
+    @PostMapping("/{postId}/restoration")
+    @RequireBoardPermission(action = PermissionAction.DELETE)
+    public ResponseEntity<PostResponse> restorePost(@PathVariable Long boardId, @PathVariable Long postId) {
+        return ResponseEntity.ok(postService.restorePost(boardId, postId));
     }
 
     @Operation(summary = "게시글 삭제(소프트)", description = "첨부파일이 남아 있으면 409 — 첨부를 먼저 삭제해야 한다")

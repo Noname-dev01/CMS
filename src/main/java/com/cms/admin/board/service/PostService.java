@@ -6,6 +6,8 @@ import com.cms.admin.board.dto.request.PostCreateRequest;
 import com.cms.admin.board.dto.request.PostPublishPeriodRequest;
 import com.cms.admin.board.dto.request.PostSearchRequest;
 import com.cms.admin.board.dto.request.PostUpdateRequest;
+import com.cms.admin.board.dto.response.DeletedPostPageResponse;
+import com.cms.admin.board.dto.response.DeletedPostSummaryResponse;
 import com.cms.admin.board.dto.response.PostPageResponse;
 import com.cms.admin.board.dto.response.PostResponse;
 import com.cms.admin.board.dto.response.PostSummaryResponse;
@@ -57,6 +59,7 @@ public class PostService {
 
     static final String BOARD_NOT_FOUND = "게시판을 찾을 수 없습니다.";
     static final String POST_NOT_FOUND = "게시글을 찾을 수 없습니다.";
+    static final String DELETED_POST_NOT_FOUND = "삭제된 게시글을 찾을 수 없습니다.";
     static final String COVER_NOT_IN_BODY = "대표 이미지는 본문에 들어 있는 이미지 중에서 골라야 합니다.";
 
     private final PostRepository postRepository;
@@ -191,6 +194,47 @@ public class PostService {
         target.softDelete(updaterId, now);
 
         return PostResponse.from(target, now);
+    }
+
+    /**
+     * 삭제된 글 복원(PLAN-post-trash.md D3·D4). 항상 비노출·고정 해제로 되살린다({@link Post#restore}).
+     *
+     * <p><b>첫 DB 문장은 게시글 잠금 읽기여야 한다</b> — 앞에 일관 읽기를 두면 {@code innodb_snapshot_isolation=ON}에서 동시 복원의 늦은 쪽이
+     * 404가 아니라 오류 1020(→409)을 받는다. 현재 사용자는 보안 컨텍스트에서 읽는 값이라 DB 문장이 아니다. 그다음 게시판 행 {@code FOR SHARE}
+     * (게시글 X → 게시판 S, 수정과 같은 방향) — 삭제된 게시판이면 404(게시판 복원 API가 없다)이고, 게시판 삭제와 쓰기 중지 전환과 직렬화된다.
+     * 쓰기 중지 게시판은 400(복원도 게시판에 글을 되돌리는 쓰기다). 고정 개수 판정이 없어 게시판 배타 잠금·{@code READ_COMMITTED}가 필요 없다.
+     */
+    @Transactional
+    @AdminActionLogged(actionType = AdminActionTypes.POST_RESTORE, targetType = "POST", targetIdExpression = "id")
+    public PostResponse restorePost(Long boardId, Long postId) {
+        String updaterId = requireCurrentAdminUserId();
+        Post target = postRepository.findByIdAndBoardIdAndDeletedTrueForUpdate(postId, boardId)
+                .orElseThrow(() -> new ResourceNotFoundException(DELETED_POST_NOT_FOUND));
+        Board board = lockBoard(boardId, false);
+        requireWritable(board);
+
+        LocalDateTime now = LocalDateTime.now(clock);
+        target.restore(updaterId, now);
+
+        return PostResponse.from(target, now);
+    }
+
+    /** 휴지통 목록 — 삭제된 게시판이면 404. 정렬은 삭제 시각 내림차순 고정이고 페이지 크기는 관리 목록과 같은 상한으로 줄인다. */
+    @Transactional(readOnly = true)
+    public DeletedPostPageResponse getDeletedPosts(Long boardId, Pageable pageable) {
+        requireBoard(boardId);
+        Pageable effectivePageable = PageRequest.of(pageable.getPageNumber(), Math.min(pageable.getPageSize(), MAX_PAGE_SIZE));
+
+        Page<Post> page = postRepository.searchDeleted(boardId, effectivePageable);
+
+        return DeletedPostPageResponse.builder()
+                .content(page.getContent().stream().map(DeletedPostSummaryResponse::from).toList())
+                .page(page.getNumber())
+                .size(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .last(page.isLast())
+                .build();
     }
 
     @Transactional(readOnly = true)

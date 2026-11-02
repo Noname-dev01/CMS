@@ -49,6 +49,31 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
     }
 
     @Override
+    public Page<Post> searchDeleted(Long boardId, Pageable pageable) {
+        QPost post = QPost.post;
+
+        BooleanBuilder condition = new BooleanBuilder()
+                .and(post.boardId.eq(boardId))
+                .and(post.deleted.isTrue());
+
+        List<Post> content = queryFactory
+                .selectFrom(post)
+                .where(condition)
+                .orderBy(post.updateDate.desc(), post.id.desc())
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
+
+        Long total = queryFactory
+                .select(post.count())
+                .from(post)
+                .where(condition)
+                .fetchOne();
+
+        return new PageImpl<>(content, pageable, total == null ? 0 : total);
+    }
+
+    @Override
     public Page<Post> searchPublished(Long boardId, String keyword, LocalDateTime now, Pageable pageable) {
         QPost post = QPost.post;
 

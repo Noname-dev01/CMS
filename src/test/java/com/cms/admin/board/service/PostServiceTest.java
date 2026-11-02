@@ -425,6 +425,78 @@ class PostServiceTest {
         assertFalse(target.getDeleted());
     }
 
+    // ===================== restorePost (PLAN-post-trash.md) =====================
+
+    private Post deletedPost() {
+        Post post = existingPost();
+        post.softDelete("deleter01", LocalDateTime.of(2026, 9, 1, 0, 0));
+        post.update(null, null, true, true, "deleter01", LocalDateTime.of(2026, 9, 1, 0, 0));   // 삭제 전 노출·고정 상태를 흉내
+        return post;
+    }
+
+    @Test
+    @DisplayName("복원 성공 — 삭제된 글 잠금 조회 뒤 게시판 공유 잠금을 읽고, 비노출·고정 해제로 되살리며 복원자·주입된 Clock 시각을 남긴다")
+    void restorePost_success_hiddenUnpinnedAndStamped() {
+        Post target = deletedPost();
+        boardAlive();
+        given(postRepository.findByIdAndBoardIdAndDeletedTrueForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+
+        PostResponse response = postService.restorePost(BOARD_ID, 1L);
+
+        assertFalse(target.getDeleted());
+        assertFalse(target.getUseYn(), "항상 비노출로 복원");
+        assertFalse(target.getPinned(), "고정은 해제");
+        assertEquals(EDITOR_ID, target.getUpdaterId());
+        assertEquals(FIXED_NOW, target.getUpdateDate());
+        assertEquals(1L, response.getId());
+        // 잠금 순서 — 게시글 X 다음 게시판 S(수정과 같은 방향), 일반 읽기 조회는 쓰지 않는다
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(postRepository, boardRepository);
+        order.verify(postRepository).findByIdAndBoardIdAndDeletedTrueForUpdate(1L, BOARD_ID);
+        order.verify(boardRepository).findByIdAndDeletedFalseForShare(BOARD_ID);
+        verify(boardRepository, never()).findByIdAndDeletedFalse(anyLong());
+    }
+
+    @Test
+    @DisplayName("복원: 현재 관리자를 알 수 없으면 403이고 게시글 잠금 조회 전에 끝난다")
+    void restorePost_noCurrentAdmin_accessDeniedBeforeLock() {
+        given(adminSecurityService.getCurrentAdminUserId()).willReturn(null);
+
+        assertThrows(AccessDeniedException.class, () -> postService.restorePost(BOARD_ID, 1L));
+        verify(postRepository, never()).findByIdAndBoardIdAndDeletedTrueForUpdate(anyLong(), anyLong());
+    }
+
+    @Test
+    @DisplayName("복원: 삭제된 글이 없으면(살아 있는 글·다른 게시판·이미 복원) 404이고 게시판 잠금은 잡지 않는다")
+    void restorePost_notFound() {
+        given(postRepository.findByIdAndBoardIdAndDeletedTrueForUpdate(99L, BOARD_ID)).willReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> postService.restorePost(BOARD_ID, 99L));
+        verify(boardRepository, never()).findByIdAndDeletedFalseForShare(anyLong());
+    }
+
+    @Test
+    @DisplayName("복원: 삭제된 게시판이면 404, 글은 삭제된 채로 남는다")
+    void restorePost_deletedBoard_notFound() {
+        Post target = deletedPost();
+        given(postRepository.findByIdAndBoardIdAndDeletedTrueForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.empty());
+
+        assertThrows(ResourceNotFoundException.class, () -> postService.restorePost(BOARD_ID, 1L));
+        assertTrue(target.getDeleted());
+    }
+
+    @Test
+    @DisplayName("복원: 쓰기 중지 게시판은 — 공유 잠금이 돌려준 행의 값으로 판정해 — 400이고 글은 삭제된 채로 남는다")
+    void restorePost_writeStopped_badRequestUsingLockedRow() {
+        Post target = deletedPost();
+        Board stopped = Board.builder().id(BOARD_ID).name("보관").publicYn(true).attachmentYn(true).deleted(false).writableYn(false).build();
+        given(postRepository.findByIdAndBoardIdAndDeletedTrueForUpdate(1L, BOARD_ID)).willReturn(Optional.of(target));
+        given(boardRepository.findByIdAndDeletedFalseForShare(BOARD_ID)).willReturn(Optional.of(stopped));
+
+        assertThrows(InvalidRequestException.class, () -> postService.restorePost(BOARD_ID, 1L));
+        assertTrue(target.getDeleted());
+    }
+
     // ===================== getPost =====================
 
     @Test

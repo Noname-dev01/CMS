@@ -181,7 +181,14 @@ class SitePublicRateLimitConventionTest extends MariaDbContainerSupport {
                         .andReturn().getResponse().getStatus()).as(role + " 로그인 요청").isEqualTo(404);
             }
         }
-        assertThat(mockMvc.perform(get("/content-images/99999999").with(fromIp(ip))).andReturn().getResponse().getStatus())
-                .as("로그인 요청 뒤에도 익명 한도는 그대로 소진 상태").isEqualTo(429);
+        // 로그인 요청 40건이 도는 동안 토큰이 초당 4개씩 다시 차오르므로(240/60초) "다음 1건이 429"가 아니라 연속 요청 중 429가 나오는지로 본다 —
+        // 로그인 요청이 익명 버킷을 되돌리거나 비웠다면 이 연속 요청이 모두 통과한다. 면제가 버킷을 소비하지 않음은 RateLimitFilterTest가 결정적으로 고정한다.
+        int stillLimited = 0;
+        for (int i = 0; i < 30; i++) {
+            if (mockMvc.perform(get("/content-images/99999999").with(fromIp(ip))).andReturn().getResponse().getStatus() == 429) {
+                stillLimited++;
+            }
+        }
+        assertThat(stillLimited).as("로그인 요청 뒤에도 익명 한도는 그대로 소진 상태").isGreaterThan(0);
     }
 }

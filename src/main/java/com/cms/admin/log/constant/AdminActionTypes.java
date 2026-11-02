@@ -45,6 +45,8 @@ public final class AdminActionTypes {
     public static final String POST_CREATE = "POST_CREATE";
     public static final String POST_UPDATE = "POST_UPDATE";
     public static final String POST_DELETE = "POST_DELETE";
+    /** 삭제된 게시글 복원 — targetType = POST, targetId = 게시글 ID(PLAN-post-trash.md D5). 복원된 글은 항상 비노출·고정 해제 상태다 */
+    public static final String POST_RESTORE = "POST_RESTORE";
     /** 게시글 첨부 업로드·삭제 — targetType = POST_ATTACHMENT, targetId = 첨부 ID */
     public static final String POST_ATTACHMENT_UPLOAD = "POST_ATTACHMENT_UPLOAD";
     public static final String POST_ATTACHMENT_DELETE = "POST_ATTACHMENT_DELETE";
@@ -94,7 +96,7 @@ public final class AdminActionTypes {
             ACCOUNT_AUTO_LOCK, NOTICE_CREATE, NOTICE_UPDATE, NOTICE_DELETE,
             NOTICE_ATTACHMENT_UPLOAD, NOTICE_ATTACHMENT_DELETE, PERMISSION_UPDATE, MESSAGE_SEND, CONTENT_IMAGE_UPLOAD,
             BOARD_CREATE, BOARD_UPDATE, BOARD_DELETE,
-            POST_CREATE, POST_UPDATE, POST_DELETE, POST_ATTACHMENT_UPLOAD, POST_ATTACHMENT_DELETE,
+            POST_CREATE, POST_UPDATE, POST_DELETE, POST_RESTORE, POST_ATTACHMENT_UPLOAD, POST_ATTACHMENT_DELETE,
             BANNER_CREATE, BANNER_UPDATE, BANNER_DELETE, BANNER_ORDER,
             SESSION_EXPIRE,
             SITE_PAGE_CREATE, SITE_PAGE_UPDATE, SITE_PAGE_DELETE,
