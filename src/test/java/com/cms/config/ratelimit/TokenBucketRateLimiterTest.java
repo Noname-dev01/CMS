@@ -48,6 +48,18 @@ class TokenBucketRateLimiterTest {
     }
 
     @Test
+    @DisplayName("면제 설정(exempt-authenticated)은 기본 false이고, 켜면 규칙으로 그대로 옮겨진다")
+    void exemptAuthenticated_defaultsFalseAndIsCarriedToRule() {
+        RateLimitProperties.RuleConfig plain = ruleConfig("plain", CAPACITY, REFILL_PERIOD);
+        RateLimitProperties.RuleConfig exempt = ruleConfig("exempt", CAPACITY, REFILL_PERIOD);
+        exempt.setExemptAuthenticated(true);
+        TokenBucketRateLimiter limiter = new TokenBucketRateLimiter(properties(100, plain, exempt), new FakeTicker());
+
+        assertThat(rule(limiter, "plain").exemptAuthenticated()).isFalse();
+        assertThat(rule(limiter, "exempt").exemptAuthenticated()).isTrue();
+    }
+
+    @Test
     @DisplayName("신규 버킷은 시간 전진 없이 정확히 capacity회 허용, 그다음은 거절 (초기 tokens=capacity 회귀 방지)")
     void newBucket_allowsExactlyCapacity_thenRejects() {
         FakeTicker ticker = new FakeTicker();

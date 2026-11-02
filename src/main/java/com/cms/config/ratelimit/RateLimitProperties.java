@@ -77,6 +77,17 @@ public class RateLimitProperties {
         @Max(86_400)
         private long refillPeriodSeconds;
 
+        /** true면 로그인한(익명이 아닌) 요청은 이 규칙의 버킷을 쓰지 않고 통과한다. 기본 false. */
+        private boolean exemptAuthenticated;
+
+        public boolean isExemptAuthenticated() {
+            return exemptAuthenticated;
+        }
+
+        public void setExemptAuthenticated(boolean exemptAuthenticated) {
+            this.exemptAuthenticated = exemptAuthenticated;
+        }
+
         public String getId() {
             return id;
         }

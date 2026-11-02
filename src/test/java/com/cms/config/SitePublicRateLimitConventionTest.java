@@ -155,4 +155,33 @@ class SitePublicRateLimitConventionTest extends MariaDbContainerSupport {
         }
         assertThat(firstLimited).as("서로 다른 키 130회 안에 한도(120)에 걸린다").isBetween(100, 125);
     }
+
+    @Test
+    @DisplayName("실제 설정에서 로그인 면제는 content-image 규칙 하나뿐이다 (PLAN-content-image-rate-limit.md D3)")
+    void onlyContentImageRuleExemptsAuthenticated() {
+        List<String> exempt = limiter.rules().stream().filter(RateLimitRule::exemptAuthenticated).map(RateLimitRule::id).toList();
+        assertThat(exempt).containsExactly("content-image");
+    }
+
+    @Test
+    @DisplayName("content-image 한도를 소진한 IP도 로그인(ADMIN·MANAGER) 요청은 429가 아니고 익명은 429다")
+    void contentImageBucket_exhaustedForAnonymousButNotForLoggedIn() throws Exception {
+        String ip = "10.98.2.1";
+        int anonymousLimited = 0;
+        for (int i = 0; i < 300; i++) {
+            if (mockMvc.perform(get("/content-images/99999999").with(fromIp(ip))).andReturn().getResponse().getStatus() == 429) {
+                anonymousLimited++;
+            }
+        }
+        assertThat(anonymousLimited).as("익명은 240/60초 한도에 걸린다").isGreaterThan(0);
+        for (String role : List.of("ADMIN", "MANAGER")) {
+            for (int i = 0; i < 20; i++) {
+                assertThat(mockMvc.perform(get("/content-images/99999999").with(fromIp(ip))
+                                .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user("rl-" + role).roles(role)))
+                        .andReturn().getResponse().getStatus()).as(role + " 로그인 요청").isEqualTo(404);
+            }
+        }
+        assertThat(mockMvc.perform(get("/content-images/99999999").with(fromIp(ip))).andReturn().getResponse().getStatus())
+                .as("로그인 요청 뒤에도 익명 한도는 그대로 소진 상태").isEqualTo(429);
+    }
 }

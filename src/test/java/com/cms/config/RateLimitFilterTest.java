@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 import java.time.Clock;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -57,7 +58,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "cms.rate-limit.rules[1].pattern=/main/notices/rl-test/**",
         "cms.rate-limit.rules[1].methods=GET,HEAD",
         "cms.rate-limit.rules[1].capacity=100",
-        "cms.rate-limit.rules[1].refill-period-seconds=60"
+        "cms.rate-limit.rules[1].refill-period-seconds=60",
+        "cms.rate-limit.rules[2].id=exempt",
+        "cms.rate-limit.rules[2].pattern=/content-images/rl-exempt",
+        "cms.rate-limit.rules[2].methods=GET,HEAD",
+        "cms.rate-limit.rules[2].capacity=2",
+        "cms.rate-limit.rules[2].refill-period-seconds=60",
+        "cms.rate-limit.rules[2].exempt-authenticated=true"
 })
 class RateLimitFilterTest {
 
@@ -111,6 +118,33 @@ class RateLimitFilterTest {
     }
 
     @Test
+    @DisplayName("면제 규칙: 익명은 capacity 뒤 429, 같은 IP의 로그인 요청은 capacity를 넘겨도 통과하고 버킷을 소비하지 않는다")
+    void exemptRule_authenticatedBypassesAndDoesNotConsume() throws Exception {
+        RequestPostProcessor ip = from("10.10.10.5");
+        for (int i = 0; i < 10; i++) {
+            mockMvc.perform(get("/content-images/rl-exempt").with(ip).with(user("admin").roles("ADMIN")))
+                    .andExpect(status().isOk());
+        }
+        // 로그인 요청 10건이 버킷을 쓰지 않았으므로 익명은 capacity(2)만큼 그대로 통과한다
+        mockMvc.perform(get("/content-images/rl-exempt").with(ip)).andExpect(status().isOk());
+        mockMvc.perform(get("/content-images/rl-exempt").with(ip)).andExpect(status().isOk());
+        mockMvc.perform(get("/content-images/rl-exempt").with(ip)).andExpect(status().isTooManyRequests());
+        // 익명이 소진된 뒤에도 로그인 요청은 통과, HEAD도 같다
+        mockMvc.perform(get("/content-images/rl-exempt").with(ip).with(user("m").roles("MANAGER"))).andExpect(status().isOk());
+        mockMvc.perform(head("/content-images/rl-exempt").with(ip).with(user("m").roles("MANAGER"))).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("면제가 없는 규칙(narrow)은 로그인 요청에도 한도가 적용된다")
+    void nonExemptRule_stillLimitsAuthenticated() throws Exception {
+        RequestPostProcessor ip = from("10.10.10.6");
+        RequestPostProcessor admin = user("admin").roles("ADMIN");
+        mockMvc.perform(get("/main/notices/rl-test/limited").with(ip).with(admin)).andExpect(status().isOk());
+        mockMvc.perform(get("/main/notices/rl-test/limited").with(ip).with(admin)).andExpect(status().isOk());
+        mockMvc.perform(get("/main/notices/rl-test/limited").with(ip).with(admin)).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
     @DisplayName("좁은 규칙(narrow, capacity=2)이 넓은 규칙(wide, capacity=100)보다 먼저 매칭돼 더 엄격한 한도가 적용된다")
     void narrowRuleTakesPrecedence() throws Exception {
         RequestPostProcessor ip = from("10.10.10.1");
@@ -159,6 +193,11 @@ class RateLimitFilterTestStubController {
 
     @GetMapping("/main/notices/rl-test/unlimited")
     String unlimited() {
+        return "ok";
+    }
+
+    @GetMapping("/content-images/rl-exempt")
+    String exempt() {
         return "ok";
     }
 
