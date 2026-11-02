@@ -228,3 +228,41 @@ body {
     font-size: 0.85rem;
     cursor: pointer;
 }
+
+/* ===== 새 글 대표 이미지 썸네일(PLAN-home-cover-og-image.md D2) =====
+   바깥 칸이 단색 바탕 + 사진 아이콘(CSS 안의 SVG data URI라 이미지 요청이 없다)이고, 안쪽 span의 배경(인라인 style의 썸네일 URL)이 그 위를 덮는다.
+   이미지가 실패하면 안쪽 배경이 비어 자리표시가 남는다 — 메인은 스크립트가 없어 이 방식만 쓴다. <img>는 Chromium이 alt=""여도 깨진 아이콘을 그려 쓰지 않는다. */
+.home-post-thumb {
+    flex: none;
+    align-self: center;
+    position: relative;
+    overflow: hidden;
+    width: 4.5rem;
+    aspect-ratio: 4 / 3;
+    border-radius: 6px;
+    background: #e9edf1 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'/%3E%3C/svg%3E") center / 1.6rem auto no-repeat;
+}
+
+/* 썸네일이 있는 줄은 글자도 세로 가운데로 맞춘다(없는 줄은 기존 baseline 정렬 그대로) */
+.home-post-item a:has(.home-post-thumb) {
+    align-items: center;
+    /* 좁은 카드(300px대)에서는 썸네일·게시판명·날짜가 제목 자리를 다 먹는다(실측: 320px 화면에서 제목 39px, 긴 게시판명이면 0px + 날짜가 행 밖으로 넘침).
+       줄바꿈을 허용해 제목이 최소 8rem을 확보하거나 다음 줄로 내려가게 하고, 게시판명은 이 줄에서만 줄어들 수 있게 한다. */
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
+}
+
+.home-post-item a:has(.home-post-thumb) .home-post-board {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.home-post-item a:has(.home-post-thumb) .home-post-title {
+    flex: 1 1 8rem;
+}
+
+.home-post-thumb-img {
+    position: absolute;
+    inset: 0;
+    background: center / cover no-repeat;
+}

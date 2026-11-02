@@ -68,6 +68,16 @@ class PublicBoardTemplateConventionTest {
         }
     }
 
+    @Test
+    @DisplayName("상세의 og:image 메타는 th:content로 서버가 만든 절대 URL(ogImageUrl)만 싣고, 값이 없으면 그려지지 않는다(th:if)")
+    void detailOgImageMeta_usesEscapedServerUrlOnly() throws IOException {
+        String content = readResource("templates/public/board/detail.html");
+
+        assertTrue(content.contains("<meta th:if=\"${ogImageUrl != null}\" property=\"og:image\" th:content=\"${ogImageUrl}\">"),
+                "og:image 메타 형태가 바뀌었습니다 — 허용 목록을 함께 검토하세요.");
+        assertEquals(1, content.split("og:image", -1).length - 1, "og:image 메타는 한 곳이어야 합니다.");
+    }
+
     private String readResource(String path) throws IOException {
         try (InputStream in = getClass().getClassLoader().getResourceAsStream(path)) {
             if (in == null) {

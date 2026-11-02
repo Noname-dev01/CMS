@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.LocalDateTime;
@@ -51,6 +52,9 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
 
     private Long boardId;
     private Long otherBoardId;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     @BeforeEach
     void createBoards() {
@@ -282,6 +286,25 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(rows).extracting(PublishedPostRow::id).containsExactly(tieSecond.getId(), tieFirst.getId(), older.getId());
         assertThat(rows).extracting(PublishedPostRow::boardName).containsOnly("시험 게시판");
         assertThat(postRepository.findLatestPublished(boardId, 2L, false, NOW, 2)).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("findLatestPublished: 대표 이미지 id를 함께 읽는다(없으면 null) — 공개 메인 새 글 썸네일용")
+    void findLatestPublished_carriesCoverImageId() {
+        LocalDateTime base = LocalDateTime.now().withNano(0);
+        // cover_image_id는 content_image FK라 실제 행이 필요하다
+        jdbc.update("INSERT INTO content_image (storage_key, content_type, file_size, uploader_id, scope_type, scope_id, namespace, create_date)"
+                + " VALUES ('cover-test-key', 'image/png', 1, 'u', 'BOARD', ?, '', NOW(6))", boardId);
+        long imageId = jdbc.queryForObject("SELECT id FROM content_image WHERE storage_key = 'cover-test-key'", Long.class);
+        Post withCover = savePostAt("with-cover", base);
+        withCover.changeCoverImage(imageId);
+        Post withoutCover = savePostAt("without-cover", base.minusDays(1));
+        postRepository.saveAndFlush(withCover);
+
+        var rows = postRepository.findLatestPublished(boardId, 2L, false, NOW, 10);
+
+        assertThat(rows).extracting(PublishedPostRow::id, PublishedPostRow::coverImageId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(withCover.getId(), imageId), org.assertj.core.groups.Tuple.tuple(withoutCover.getId(), null));
     }
 
     @Test

@@ -35,6 +35,9 @@ public class PublicPostDetail {
     /** 조회수 표시를 켠 게시판일 때만 값이 있다(서비스가 거른다). 이번 조회는 집계 전 값이라 포함하지 않는다. */
     private Long viewCount;
 
+    /** 대표 이미지(없으면 null) — 상세 화면은 본문에 이미 있어 따로 보이지 않고 {@code og:image} 메타에만 쓴다. */
+    private Long coverImageId;
+
     @Builder.Default
     private List<PublicPostAttachment> attachments = List.of();
 
@@ -50,6 +53,7 @@ public class PublicPostDetail {
                 .updateDate(post.getUpdateDate())
                 .authorLabel(board.getAuthorLabel())
                 .viewCount(Boolean.TRUE.equals(board.getShowViewCount()) ? post.getViewCount() : null)
+                .coverImageId(post.getCoverImageId())
                 .attachments(attachments.stream().map(PublicPostAttachment::from).toList())
                 .build();
     }
