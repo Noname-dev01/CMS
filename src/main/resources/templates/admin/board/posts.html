@@ -264,6 +264,46 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!--/* 휴지통(PLAN-post-trash.md D6) — 그 게시판의 삭제(DELETE) 권한이 있을 때만 보인다(서버 403이 최종). 열 때마다 새로 조회한다. */-->
+                        <div class="card shadow mb-0 mt-4 admin-panel d-none" id="trashPanel">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6>휴지통</h6>
+                                    <p>삭제한 게시글을 되살립니다. 복원한 글은 비노출·상단 고정 해제 상태이니 공개하려면 복원 뒤 노출을 켜세요.</p>
+                                </div>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="btnToggleTrash">휴지통 보기</button>
+                            </div>
+                            <div class="card-body d-none" id="trashBody">
+                                <div id="trashAlert" class="alert alert-danger d-none" role="alert"></div>
+                                <div id="trashSuccess" class="alert alert-success d-none" role="status"></div>
+                                <div class="summary-bar">
+                                    <div class="summary-text" id="trashSummary">삭제된 게시글 0건</div>
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-hover mb-0">
+                                        <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>제목</th>
+                                            <th>작성자</th>
+                                            <th>작성일</th>
+                                            <th>삭제일</th>
+                                            <th>삭제자</th>
+                                            <th class="text-center">복원</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody id="trashTableBody"></tbody>
+                                    </table>
+                                </div>
+                                <div id="trashEmpty" class="empty-state d-none mt-3">삭제된 게시글이 없습니다.</div>
+                                <div class="pagination-bar">
+                                    <nav aria-label="휴지통 페이지 목록">
+                                        <ul class="pagination mb-0" id="trashPagination"></ul>
+                                    </nav>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1468,6 +1508,10 @@
             }
 
             loadPosts(pageState.page);
+            // 휴지통이 열려 있으면 방금 삭제한 글이 거기 나타나도록 함께 다시 읽는다(닫혀 있으면 열 때 새로 조회한다)
+            if (trashOpen && board === currentBoard) {
+                loadTrash(trashPage);
+            }
             if (requestToken === currentDetailController) {
                 $(modalEl).modal("hide");
             }
@@ -1588,10 +1632,198 @@
         }
     });
 
+    // ===== 휴지통(PLAN-post-trash.md D6) =====
+    // 삭제(DELETE) 권한이 있는 게시판에서만 보인다(서버 403이 최종). 열 때마다 새로 조회하므로 삭제 뒤 별도 무효화 상태가 필요 없다.
+    // 게시판을 바꾸면 닫고, 늦게 도착한 응답은 요청 컨트롤러·게시판 비교로 버린다(목록과 같은 방식).
+    const trashPanel = document.getElementById("trashPanel");
+    const trashBody = document.getElementById("trashBody");
+    const btnToggleTrash = document.getElementById("btnToggleTrash");
+    const trashAlert = document.getElementById("trashAlert");
+    const trashSuccess = document.getElementById("trashSuccess");
+    const trashSummary = document.getElementById("trashSummary");
+    const trashTableBody = document.getElementById("trashTableBody");
+    const trashEmpty = document.getElementById("trashEmpty");
+    const trashPagination = document.getElementById("trashPagination");
+    const TRASH_PAGE_SIZE = 10;
+    let trashOpen = false;
+    let trashPage = 0;
+    let trashController = null;
+    let trashRestoring = false;     // 복원 요청 진행 중 — 같은 글을 두 번 보내지 않는다
+
+    function showTrashError(message) {
+        trashSuccess.classList.add("d-none");
+        trashAlert.textContent = message;
+        trashAlert.classList.remove("d-none");
+    }
+
+    function showTrashSuccess(message) {
+        trashAlert.classList.add("d-none");
+        trashSuccess.textContent = message;
+        trashSuccess.classList.remove("d-none");
+    }
+
+    function hideTrashAlerts() {
+        trashAlert.classList.add("d-none");
+        trashAlert.textContent = "";
+        trashSuccess.classList.add("d-none");
+        trashSuccess.textContent = "";
+    }
+
+    function resetTrash() {
+        if (trashController) {
+            trashController.abort();
+            trashController = null;
+        }
+        trashOpen = false;
+        trashPage = 0;
+        trashBody.classList.add("d-none");
+        btnToggleTrash.textContent = "휴지통 보기";
+        trashTableBody.innerHTML = "";
+        trashPagination.innerHTML = "";
+        trashEmpty.classList.add("d-none");
+        hideTrashAlerts();
+        trashPanel.classList.toggle("d-none", !can("DELETE"));
+    }
+
+    function renderTrash(data) {
+        const items = data.content || [];
+        const currentPage = data.totalPages === 0 ? 0 : data.page + 1;
+        trashSummary.textContent = "삭제된 게시글 " + data.totalElements + "건 · " + currentPage + " / " + Math.max(data.totalPages, 1) + " 페이지";
+        trashEmpty.classList.toggle("d-none", items.length > 0);
+        // title·authorId·deletedBy는 사용자 입력·계정 값이라 escapeHtml을 거친다. 삭제자 null은 V5 이전에 삭제된 글(모름) — 감사 로그가 원본이다.
+        trashTableBody.innerHTML = items.map(item => {
+            return "<tr>" +
+                "<td>" + escapeHtml(item.id) + "</td>" +
+                "<td>" + escapeHtml(item.title) + "</td>" +
+                "<td>" + escapeHtml(item.authorId || "-") + "</td>" +
+                "<td>" + escapeHtml(formatDate(item.createDate)) + "</td>" +
+                "<td>" + escapeHtml(formatDate(item.deletedAt)) + "</td>" +
+                "<td>" + escapeHtml(item.deletedBy || "-") + "</td>" +
+                "<td class=\"text-center\"><button type=\"button\" class=\"btn btn-outline-primary btn-sm js-restore\" data-id=\"" +
+                escapeHtml(item.id) + "\" data-title=\"" + escapeHtml(item.title) + "\">복원</button></td>" +
+                "</tr>";
+        }).join("");
+
+        trashPagination.innerHTML = "";
+        if (data.totalPages && data.totalPages > 1) {
+            const fragment = [];
+            const startPage = Math.max(0, data.page - 2);
+            const endPage = Math.min(data.totalPages - 1, startPage + 4);
+            fragment.push("<li class=\"page-item " + (data.page === 0 ? "disabled" : "") + "\"><button type=\"button\" class=\"page-link\" data-trash-page=\"" + Math.max(data.page - 1, 0) + "\">이전</button></li>");
+            for (let i = startPage; i <= endPage; i += 1) {
+                fragment.push("<li class=\"page-item " + (i === data.page ? "active" : "") + "\"><button type=\"button\" class=\"page-link\" data-trash-page=\"" + i + "\">" + (i + 1) + "</button></li>");
+            }
+            fragment.push("<li class=\"page-item " + (data.last ? "disabled" : "") + "\"><button type=\"button\" class=\"page-link\" data-trash-page=\"" + Math.min(data.page + 1, data.totalPages - 1) + "\">다음</button></li>");
+            trashPagination.innerHTML = fragment.join("");
+        }
+    }
+
+    async function loadTrash(page) {
+        if (!currentBoard || !can("DELETE")) {
+            return;
+        }
+        const board = currentBoard;
+        if (trashController) {
+            trashController.abort();
+        }
+        const controller = new AbortController();
+        trashController = controller;
+        trashTableBody.innerHTML = "<tr><td colspan=\"7\" class=\"text-center text-muted py-4\">조회 중입니다.</td></tr>";
+        trashEmpty.classList.add("d-none");
+
+        try {
+            const response = await fetch(postsUrl(board) + "/trash?page=" + page + "&size=" + TRASH_PAGE_SIZE, { signal: controller.signal });
+            if (!response.ok) {
+                throw new Error(await extractErrorMessage(response, "휴지통 조회에 실패했습니다."));
+            }
+            const data = await response.json();
+            if (controller !== trashController || board !== currentBoard) {
+                return;     // 본문을 읽는 사이 더 새로운 조회·게시판 전환이 있었다
+            }
+            // 복원으로 현재 페이지가 비었으면 마지막 유효 페이지로 다시 읽는다(빈 페이지 표시 방지)
+            if (data.totalPages > 0 && data.page >= data.totalPages) {
+                await loadTrash(data.totalPages - 1);
+                return;
+            }
+            trashPage = data.page;
+            renderTrash(data);
+        } catch (error) {
+            if ((error && error.name === "AbortError") || controller !== trashController || board !== currentBoard) {
+                return;
+            }
+            trashTableBody.innerHTML = "<tr><td colspan=\"7\" class=\"text-center text-danger py-4\">조회에 실패했습니다.</td></tr>";
+            trashPagination.innerHTML = "";
+            showTrashError(getRequestErrorMessage(error, "휴지통 조회 중 오류가 발생했습니다."));
+        }
+    }
+
+    btnToggleTrash.addEventListener("click", function () {
+        if (trashOpen) {
+            resetTrash();
+            return;
+        }
+        trashOpen = true;
+        trashBody.classList.remove("d-none");
+        btnToggleTrash.textContent = "휴지통 닫기";
+        hideTrashAlerts();
+        loadTrash(0);
+    });
+
+    trashPagination.addEventListener("click", function (event) {
+        const button = event.target.closest("[data-trash-page]");
+        if (button && !button.closest(".disabled")) {
+            loadTrash(Number(button.getAttribute("data-trash-page")));
+        }
+    });
+
+    trashTableBody.addEventListener("click", async function (event) {
+        const button = event.target.closest(".js-restore");
+        if (!button || trashRestoring || !currentBoard) {
+            return;
+        }
+        const postId = button.getAttribute("data-id");
+        const title = button.getAttribute("data-title") || "";
+        if (!confirm("「" + title + "」 글을 복원하시겠습니까?\n비노출·상단 고정 해제 상태로 복원되며, 공개하려면 복원 뒤 노출을 켜야 합니다.")) {
+            return;
+        }
+        const board = currentBoard;
+        trashRestoring = true;
+        button.disabled = true;
+        hideTrashAlerts();
+        try {
+            const response = await fetch(postsUrl(board) + "/" + encodeURIComponent(postId) + "/restoration", {
+                method: "POST",
+                headers: getCsrfHeaders()
+            });
+            if (board !== currentBoard) {
+                return;     // 요청 사이 게시판을 바꿨다 — 서버에는 반영됐을 수 있지만 지금 화면의 상태를 건드리지 않는다
+            }
+            if (!response.ok) {
+                const message = await extractErrorMessage(response, "게시글 복원에 실패했습니다.");
+                showTrashError(message);
+                if (response.status === 404) {
+                    loadTrash(trashPage);       // 이미 복원됐거나 사라진 글 — 최신 목록으로 맞춘다
+                }
+                return;
+            }
+            showTrashSuccess("「" + title + "」 글을 비노출 상태로 복원했습니다. 공개하려면 목록에서 노출을 켜세요.");
+            loadTrash(trashPage);
+            loadPosts(pageState.page);
+        } catch (error) {
+            if (board === currentBoard) {
+                showTrashError(getRequestErrorMessage(error, "게시글 복원 중 오류가 발생했습니다."));
+            }
+        } finally {
+            trashRestoring = false;
+            button.disabled = false;
+        }
+    });
+
     // 게시판을 고르면 목록·버튼·편집기 업로드 대상을 그 게시판으로 맞춘다.
     function selectBoard(board) {
         currentBoard = board;
         pageState.page = 0;
+        resetTrash();
         searchForm.reset();
         btnNewPost.classList.toggle("d-none", !can("CREATE"));
         document.getElementById("boardWriteStoppedNote").classList.toggle("d-none", board.writableYn !== false);
