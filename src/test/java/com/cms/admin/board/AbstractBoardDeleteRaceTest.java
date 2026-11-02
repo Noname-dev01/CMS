@@ -1,5 +1,6 @@
 package com.cms.admin.board;
 
+import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostRepository;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.Role;
@@ -86,12 +87,16 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
         static volatile CountDownLatch revokeRelease;
         static volatile CountDownLatch postSaved;
         static volatile CountDownLatch postRelease;
+        static volatile CountDownLatch restoreBoardLocked;
+        static volatile CountDownLatch restoreRelease;
 
         static void reset() {
             revokeReached = null;
             revokeRelease = null;
             postSaved = null;
             postRelease = null;
+            restoreBoardLocked = null;
+            restoreRelease = null;
         }
 
         private static void awaitOrFail(CountDownLatch latch) throws InterruptedException {
@@ -118,6 +123,16 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
             }
             return result;
         }
+
+        /** 복원이 게시판 행 공유 잠금을 얻은 시점(게시글 행 잠금도 보유, 아직 커밋 전)에 멈춘다 — 그 사이 시험이 게시판 삭제를 시도한다. */
+        static Object aroundBoard(MethodInvocation invocation) throws Throwable {
+            Object result = invocation.proceed();
+            if ("findByIdAndDeletedFalseForShare".equals(invocation.getMethod().getName()) && restoreBoardLocked != null) {
+                restoreBoardLocked.countDown();
+                awaitOrFail(restoreRelease);
+            }
+            return result;
+        }
     }
 
     @TestConfiguration
@@ -135,6 +150,11 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
                     if (bean instanceof PostRepository) {
                         ProxyFactory factory = new ProxyFactory(bean);
                         factory.addAdvice((MethodInterceptor) Probe::aroundPost);
+                        return factory.getProxy();
+                    }
+                    if (bean instanceof BoardRepository) {
+                        ProxyFactory factory = new ProxyFactory(bean);
+                        factory.addAdvice((MethodInterceptor) Probe::aroundBoard);
                         return factory.getProxy();
                     }
                     return bean;
@@ -287,5 +307,141 @@ abstract class AbstractBoardDeleteRaceTest extends MariaDbContainerSupport {
         assertThat(jdbc.queryForObject("SELECT deleted FROM board WHERE id = ?", Boolean.class, boardId)).isFalse();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM post WHERE board_id = ? AND deleted = 0", Long.class, boardId)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_board_permission WHERE board_id = ?", Long.class, boardId)).isEqualTo(2);
+    }
+
+    // ===================== 휴지통 복원(PLAN-post-trash.md D4) =====================
+
+    /** 글을 만들고 삭제해 휴지통에 둔다. */
+    private long createDeletedPost(long boardId) throws Exception {
+        MvcResult created = mockMvc.perform(post("/admin/api/boards/{b}/posts", boardId).with(TestMembers.asMember(admin)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("title", "복원경합", "content", "<p>x</p>", "contentFormat", "HTML")))).andReturn();
+        assertThat(created.getResponse().getStatus()).isEqualTo(201);
+        long postId = objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asLong();
+        assertThat(mockMvc.perform(delete("/admin/api/boards/{b}/posts/{p}", boardId, postId).with(TestMembers.asMember(admin)).with(csrf()))
+                .andReturn().getResponse().getStatus()).isEqualTo(204);
+        return postId;
+    }
+
+    private Future<Integer> submitRestore(ExecutorService executor, long boardId, long postId) {
+        return executor.submit(() -> mockMvc.perform(post("/admin/api/boards/{b}/posts/{p}/restoration", boardId, postId)
+                .with(TestMembers.asMember(admin)).with(csrf())).andReturn().getResponse().getStatus());
+    }
+
+    private Connection openTransaction() throws Exception {
+        Connection connection = dataSource.getConnection();
+        connection.setAutoCommit(false);
+        return connection;
+    }
+
+    private void execute(Connection connection, String sql, Object... args) throws Exception {
+        try (var statement = connection.prepareStatement(sql)) {
+            for (int i = 0; i < args.length; i++) {
+                statement.setObject(i + 1, args[i]);
+            }
+            statement.executeUpdate();
+        }
+    }
+
+    @Test
+    @DisplayName("[휴지통 ①] 복원이 게시판 공유 잠금을 쥔 동안 게시판 삭제는 기다리고, 복원이 커밋되면 삭제는 409 — 살아 있는 글이 있는 게시판은 지워지지 않는다")
+    void boardDeleteWaitsForRestoreAndThenConflicts() throws Exception {
+        long boardId = createBoard();
+        long postId = createDeletedPost(boardId);
+
+        Probe.restoreBoardLocked = new CountDownLatch(1);
+        Probe.restoreRelease = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Integer> restore = submitRestore(executor, boardId, postId);
+            assertThat(Probe.restoreBoardLocked.await(20, TimeUnit.SECONDS)).as("복원이 게시판 공유 잠금을 얻음(커밋 전)").isTrue();
+
+            Future<Integer> deleteBoard = executor.submit(() -> mockMvc.perform(
+                    delete("/admin/api/boards/{id}?version=1", boardId).with(TestMembers.asMember(admin)).with(csrf()))
+                    .andReturn().getResponse().getStatus());
+            assertThat(awaitSomeoneWaiting()).as("삭제가 복원의 게시판 공유 잠금을 기다린다").isTrue();
+            assertThat(deleteBoard.isDone()).isFalse();
+
+            Probe.restoreRelease.countDown();
+            assertThat(restore.get(30, TimeUnit.SECONDS)).isEqualTo(200);
+            assertThat(deleteBoard.get(30, TimeUnit.SECONDS)).as("커밋된 복원 글이 보이므로 409").isEqualTo(409);
+        } finally {
+            Probe.restoreRelease.countDown();
+            executor.shutdownNow();
+        }
+
+        assertThat(jdbc.queryForObject("SELECT deleted FROM board WHERE id = ?", Boolean.class, boardId)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT deleted FROM post WHERE id = ?", Boolean.class, postId)).isFalse();
+    }
+
+    @Test
+    @DisplayName("[휴지통 ②] 게시판 삭제가 먼저 행을 쥐고 있으면 복원은 기다렸다가 삭제 커밋 뒤 404(409 아님)이고 글은 삭제된 채로 남는다")
+    void restoreWaitsForBoardDeleteAndThenNotFound() throws Exception {
+        long boardId = createBoard();
+        long postId = createDeletedPost(boardId);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (Connection holder = openTransaction()) {
+            execute(holder, "UPDATE board SET deleted = 1 WHERE id = ?", boardId);   // 게시판 삭제가 커밋 전에 행을 쥔 상태
+
+            Future<Integer> restore = submitRestore(executor, boardId, postId);
+            assertThat(awaitSomeoneWaiting()).as("복원이 게시판 행 잠금을 기다린다").isTrue();
+            assertThat(restore.isDone()).isFalse();
+
+            holder.commit();
+            assertThat(restore.get(30, TimeUnit.SECONDS)).as("삭제된 게시판 — OFF·ON 모두 404").isEqualTo(404);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(jdbc.queryForObject("SELECT deleted FROM post WHERE id = ?", Boolean.class, postId)).as("복원되지 않는다").isTrue();
+    }
+
+    @Test
+    @DisplayName("[휴지통 ③] 같은 글을 이미 복원 중인(커밋 전) 쪽이 있으면 늦은 복원은 기다렸다가 404(409 아님) — 첫 DB 문장이 잠금 읽기라 ON에서도 1020이 나지 않는다")
+    void concurrentRestoreOfSamePostLateOneIsNotFound() throws Exception {
+        long boardId = createBoard();
+        long postId = createDeletedPost(boardId);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (Connection firstRestorer = openTransaction()) {
+            execute(firstRestorer, "UPDATE post SET deleted = 0, use_yn = 0, pinned = 0 WHERE id = ?", postId);   // 먼저 온 복원이 행을 쥔 상태
+
+            Future<Integer> late = submitRestore(executor, boardId, postId);
+            assertThat(awaitSomeoneWaiting()).as("늦은 복원이 글 행 잠금을 기다린다").isTrue();
+            assertThat(late.isDone()).isFalse();
+
+            firstRestorer.commit();
+            assertThat(late.get(30, TimeUnit.SECONDS)).as("이미 복원된 글 — OFF·ON 모두 404").isEqualTo(404);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(jdbc.queryForObject("SELECT deleted FROM post WHERE id = ?", Boolean.class, postId)).isFalse();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM admin_action_log WHERE id > ? AND action_type = 'POST_RESTORE' AND action_result = 'SUCCESS'",
+                Long.class, auditBaseline)).as("늦은 복원은 성공 감사를 남기지 않는다").isZero();
+    }
+
+    @Test
+    @DisplayName("[휴지통 ④] 쓰기 중지 전환이 먼저 행을 쥐고 있으면 복원은 기다렸다가 전환 커밋 뒤 400(409 아님)이고 글은 삭제된 채로 남는다")
+    void restoreWaitsForWriteStopAndThenBadRequest() throws Exception {
+        long boardId = createBoard();
+        long postId = createDeletedPost(boardId);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (Connection holder = openTransaction()) {
+            execute(holder, "UPDATE board SET writable_yn = 0 WHERE id = ?", boardId);   // 쓰기 중지 전환이 커밋 전에 행을 쥔 상태
+
+            Future<Integer> restore = submitRestore(executor, boardId, postId);
+            assertThat(awaitSomeoneWaiting()).as("복원이 게시판 행 잠금을 기다린다").isTrue();
+            assertThat(restore.isDone()).isFalse();
+
+            holder.commit();
+            assertThat(restore.get(30, TimeUnit.SECONDS)).as("쓰기 중지 — OFF·ON 모두 400").isEqualTo(400);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(jdbc.queryForObject("SELECT deleted FROM post WHERE id = ?", Boolean.class, postId)).isTrue();
     }
 }

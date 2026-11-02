@@ -15,6 +15,12 @@ public interface PostRepositoryCustom {
     Page<Post> searchPosts(Long boardId, PostSearchRequest request, Pageable pageable);
 
     /**
+     * 휴지통 — 한 게시판의 <b>삭제된</b> 게시글을 삭제 시각(= 마지막 수정 시각, 삭제 뒤에는 행을 다시 쓰지 않는다) 내림차순 + id 내림차순으로.
+     * {@code pageable}의 정렬은 무시한다(정렬 화이트리스트가 없는 고정 순서). 게시판 소속 조건이 항상 붙는다.
+     */
+    Page<Post> searchDeleted(Long boardId, Pageable pageable);
+
+    /**
      * 공개 목록 — 한 게시판의 노출·미삭제 게시글. {@code keyword}가 null이면 전체, 아니면 제목 부분 일치.
      * SELECT와 COUNT가 같은 조건 객체를 쓴다(COUNT에서 공개 조건이 빠지면 비공개 일치 글의 존재가 총건수로 드러난다).
      * 게시판의 공개 여부는 호출자({@code PublicBoardService})가 먼저 확인한다. 공개 조건에는 노출 기간 {@code [publishStart, publishEnd)}가 포함되며

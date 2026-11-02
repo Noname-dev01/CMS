@@ -46,4 +46,13 @@ public interface PostRepository extends JpaRepository<Post, Long>, PostRepositor
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Post p where p.id = :id and p.boardId = :boardId and p.deleted = false")
     Optional<Post> findByIdAndBoardIdAndDeletedFalseForUpdate(@Param("id") Long id, @Param("boardId") Long boardId);
+
+    /**
+     * 복원 전용 — <b>삭제된</b> 글만 비관적 락으로 잡는다(PLAN-post-trash.md D4). 살아 있는 글·다른 게시판 글·없는 id는 모두 empty라 같은 404다.
+     * 복원 트랜잭션의 <b>첫 DB 문장</b>이어야 한다 — 앞에 일관 읽기가 있으면 {@code innodb_snapshot_isolation=ON}에서 동시 복원의 늦은 쪽이
+     * 404가 아니라 오류 1020(→409)을 받는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Post p where p.id = :id and p.boardId = :boardId and p.deleted = true")
+    Optional<Post> findByIdAndBoardIdAndDeletedTrueForUpdate(@Param("id") Long id, @Param("boardId") Long boardId);
 }
