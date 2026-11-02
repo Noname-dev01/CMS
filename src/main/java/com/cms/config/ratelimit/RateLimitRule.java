@@ -19,6 +19,7 @@ public record RateLimitRule(
         PathPatternRequestMatcher matcher,
         Set<HttpMethod> methods,
         int capacity,
-        Duration refillPeriod
+        Duration refillPeriod,
+        boolean exemptAuthenticated
 ) {
 }

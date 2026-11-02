@@ -141,11 +141,14 @@ cms:
         capacity: 120
         refill-period-seconds: 60
       # 편집기 본문 이미지 공개 다운로드 — 공지 1건에 이미지가 여러 장이라 공지 페이지보다 넉넉하게(PLAN-html-editor.md).
+      # 로그인 세션은 이 규칙에서 면제한다(exempt-authenticated, 2026-11-02 승인 — PLAN-content-image-rate-limit.md U1): 관리 편집기의 이미지는 Quill 안이라
+      # 스크립트로 자리표시로 바꿀 수 없어, 같은 IP 방문자가 버킷을 비우면 깨졌다. 익명 한도(240/60초)는 그대로다(U2). 다른 규칙은 면제가 없다.
       - id: content-image
         pattern: /content-images/*
         methods: [GET, HEAD]
         capacity: 240
         refill-period-seconds: 60
+        exempt-authenticated: true
       # 공개 메인(/)과 배너 이미지 — 메인 1회에 이미지가 최대 10장이라 이미지 한도는 메인의 두 배(메인 로드 24회분). 두 규칙은 경로가 겹치지 않는다.
       # 공유 IP(사내망 등)에서 한도를 넘으면 이미지가 429로 깨질 수 있음을 수용한다. PLAN-public-home-banner.md 쟁점 11
       - id: public-home

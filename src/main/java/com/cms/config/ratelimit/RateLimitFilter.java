@@ -9,6 +9,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -55,6 +58,13 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
+        // 로그인 세션 면제 규칙(content-image): 관리 화면 이미지가 같은 IP 익명 방문자의 버킷 소진으로 깨지지 않게 한다.
+        // 면제는 이 규칙의 버킷을 쓰지 않는다는 뜻이며 다음 규칙으로 넘어가지 않는다. 익명 한도는 그대로다.
+        if (matched.exemptAuthenticated() && isAuthenticatedUser()) {
+            chain.doFilter(request, response);
+            return;
+        }
+
         RateLimitDecision decision = limiter.tryConsume(request.getRemoteAddr(), matched);
         if (decision.allowed()) {
             chain.doFilter(request, response);
@@ -62,6 +72,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
 
         reject(request, response, decision);
+    }
+
+    private static boolean isAuthenticatedUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken);
     }
 
     private RateLimitRule findMatchingRule(HttpServletRequest request) {

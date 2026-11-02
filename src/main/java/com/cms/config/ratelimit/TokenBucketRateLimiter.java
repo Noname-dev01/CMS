@@ -72,7 +72,8 @@ public class TokenBucketRateLimiter {
                 PathPatternRequestMatcher.withDefaults().matcher(config.getPattern()),
                 methods,
                 config.getCapacity(),
-                java.time.Duration.ofSeconds(config.getRefillPeriodSeconds()));
+                java.time.Duration.ofSeconds(config.getRefillPeriodSeconds()),
+                config.isExemptAuthenticated());
     }
 
     /** 선언 순서 그대로의 규칙 목록. 필터가 첫 매칭 규칙 하나만 적용하는 데 쓴다(쟁점 8). */

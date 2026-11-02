@@ -485,3 +485,23 @@ body {
         width: 100%;
     }
 }
+
+/* 상세 본문 이미지가 한도(429)·삭제 등으로 실패했을 때의 대체 상자(board-content-image-fallback.js). 본문 이미지는 내용의 일부라 문구로 알린다. */
+.board-content-image-failed {
+    display: inline-block;
+    max-width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px dashed #94a3b8;
+    border-radius: 4px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    white-space: normal;
+}
+
+.board-content-image-alt {
+    display: block;
+    margin-top: 0.25rem;
+    color: #334155;
+}

@@ -176,4 +176,42 @@ class BoardThumbFallbackBrowserTest extends BrowserTestSupport {
         assertThat(cardState(page, "TFB-아래-실패")).as("늦게 실패한 칸은 자리표시로").isEqualTo("placeholder");
         assertThat(cardState(page, "TFB-아래-정상")).isEqualTo("loaded");
     }
+
+    @Test
+    @DisplayName("상세 본문의 실패한 이미지는 안내 상자로 바뀌고 alt는 글자 그대로 보존된다 — 정상 이미지는 그대로, 깨진 이미지가 남지 않는다")
+    void detailBodyImageFailureBecomesNotice() throws Exception {
+        long board = galleryBoard();
+        long good = imageWithFile(board);
+        long brokenNoAlt = imageWithoutFile(board);
+        long brokenAlt = imageWithoutFile(board);
+        long brokenHtmlAlt = imageWithoutFile(board);
+        String content = "<p>본문</p>"
+                + "<p><img src=\"/content-images/" + good + "\" alt=\"정상\"></p>"
+                + "<p><img src=\"/content-images/" + brokenNoAlt + "\"></p>"
+                + "<p><img src=\"/content-images/" + brokenAlt + "\" alt=\"접수 마감: 11월 30일\"></p>"
+                + "<p><img src=\"/content-images/" + brokenHtmlAlt + "\" alt=\"&lt;b&gt;굵게&lt;/b&gt;\"></p>";
+        jdbc.update("INSERT INTO post (board_id, title, content, use_yn, deleted, author_id, create_date, update_date)"
+                + " VALUES (?, 'TFB-상세', ?, 1, 0, 'tfb-admin', NOW(6), NOW(6))", board, content);
+        long postId = jdbc.queryForObject("SELECT MAX(id) FROM post WHERE board_id = ?", Long.class, board);
+        for (long id : new long[] {good, brokenNoAlt, brokenAlt, brokenHtmlAlt}) {
+            jdbc.update("INSERT INTO content_image_ref (owner_type, owner_id, image_id) VALUES ('POST', ?, ?)", postId, id);
+        }
+
+        context = newContext();
+        Page page = context.newPage();
+        page.navigate("http://localhost:" + port + "/main/boards/board-" + board + "/posts/" + postId);
+        page.waitForFunction("() => document.querySelectorAll('.board-content-image-failed').length === 3"
+                + " && [...document.querySelectorAll('.board-detail-content img')].every(i => i.complete && i.naturalWidth > 0)");
+
+        assertThat((Number) page.evaluate("() => document.querySelectorAll('.board-detail-content img').length")).as("정상 이미지 1장만 남는다").isEqualTo(1);
+        assertThat((Number) page.evaluate("() => [...document.querySelectorAll('img')].filter(i => i.complete && i.naturalWidth === 0).length")).isEqualTo(0);
+        assertThat((String) page.evaluate("() => [...document.querySelectorAll('.board-content-image-failed')].map(e => e.firstChild.textContent).join('|')"))
+                .isEqualTo("이미지를 불러오지 못했습니다|이미지를 불러오지 못했습니다|이미지를 불러오지 못했습니다");
+        assertThat((String) page.evaluate("() => [...document.querySelectorAll('.board-content-image-alt')].map(e => e.textContent).join('|')"))
+                .as("alt는 글자 그대로(HTML로 해석되지 않음), alt 없는 상자에는 alt 노드가 없다").isEqualTo("접수 마감: 11월 30일|<b>굵게</b>");
+        assertThat((Number) page.evaluate("() => document.querySelectorAll('.board-content-image-failed b').length")).isEqualTo(0);
+        // role="img"는 자식 텍스트(안내 문구·alt)를 접근성 이름으로 쓰지 않아 스크린리더에 전달되지 않는다 — 상자는 역할 없는 일반 텍스트여야 한다
+        assertThat((Number) page.evaluate("() => document.querySelectorAll('.board-content-image-failed[role], .board-content-image-failed [role]').length"))
+                .as("실패 안내 상자에 role 속성이 없다").isEqualTo(0);
+    }
 }

@@ -6,6 +6,8 @@
     <title th:text="${post.title}">게시글</title>
     <link rel="stylesheet" th:href="@{/css/public/board.css}">
     <link rel="stylesheet" th:href="@{/css/public/site-menu.css}">
+    <!--/* 본문 이미지 실패 시 안내 상자로 바꾸는 외부 스크립트. defer 없이 <head>에 두어 이미지 요청보다 먼저 리스너가 붙게 한다 */-->
+    <script th:src="@{/js/public/board-content-image-fallback.js}"></script>
 </head>
 <body>
 <th:block th:replace="~{public/fragments/site-menu :: siteMenu}"></th:block>
