@@ -48,7 +48,7 @@ class PublicBoardTemplateConventionTest {
     }
 
     @Test
-    @DisplayName("공개 게시판 템플릿의 스크립트는 list.html의 외부 파일 board-thumb-fallback.js 하나뿐이고 인라인 스크립트·인라인 이벤트 속성이 없다")
+    @DisplayName("공개 게시판 템플릿의 스크립트는 템플릿마다 외부 파일 하나뿐이고(list=board-thumb-fallback.js, detail=board-content-image-fallback.js) 인라인 스크립트·인라인 이벤트 속성이 없다")
     void scriptsAreExternalFallbackOnly() throws IOException {
         Pattern scriptTag = Pattern.compile("<script\\b([^>]*)>(.*?)</script>", Pattern.DOTALL);
         // on으로 시작하는 HTML 속성(onerror·onload 등)과 Thymeleaf 판(th:onerror 등) — 인라인 JS가 템플릿에 섞이지 않게 한다
@@ -59,11 +59,11 @@ class PublicBoardTemplateConventionTest {
             int count = 0;
             while (script.find()) {
                 count++;
-                assertTrue(path.endsWith("list.html"), path + "에 스크립트가 있습니다 — 공개 게시판 스크립트는 list.html의 대체 스크립트 하나뿐입니다.");
-                assertTrue(script.group(1).contains("th:src=\"@{/js/public/board-thumb-fallback.js}\""), "외부 스크립트는 board-thumb-fallback.js 하나여야 합니다.");
+                String expected = path.endsWith("list.html") ? "board-thumb-fallback.js" : "board-content-image-fallback.js";
+                assertTrue(script.group(1).contains("th:src=\"@{/js/public/" + expected + "}\""), path + "의 외부 스크립트는 " + expected + " 하나여야 합니다.");
                 assertEquals("", script.group(2).strip(), path + "에 인라인 스크립트 본문이 있습니다.");
             }
-            assertEquals(path.endsWith("list.html") ? 1 : 0, count, path + "의 스크립트 개수가 다릅니다.");
+            assertEquals(1, count, path + "의 스크립트 개수가 다릅니다.");
             assertFalse(inlineHandler.matcher(content).find(), path + "에 인라인 이벤트 속성(on…=)이 있습니다 — 외부 스크립트로 옮기세요.");
         }
     }
