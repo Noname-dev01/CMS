@@ -34,7 +34,9 @@ body {
 
 .home-sections {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    /* 열 최소 폭은 300px이되 컨테이너보다 넓어지지 않게 한다 — 300px 고정이면 340px 아래 화면(컨테이너 패딩 합 48px)에서 카드가 뷰포트를 넘쳐
+       가로 스크롤이 생겼다(이슈 #194). 넓은 화면의 열 배치(두 열 기준 약 650px 이상)는 그대로다. */
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
     gap: 1.5rem;
 }
 
@@ -72,10 +74,13 @@ body {
     border-bottom: none;
 }
 
+/* 좁은 카드(300px대)에서는 게시판명(최대 10rem)·날짜·썸네일이 제목 자리를 다 먹는다 — 줄바꿈을 허용해 제목이 최소 8rem을 확보하거나 다음 줄로
+   내려가게 하고, 게시판명은 줄어들 수 있게 한다(실측: 320px 화면에서 긴 게시판명이면 제목 0px, 이슈 #194). 넓은 화면에서는 한 줄에 다 들어가 모양이 같다. */
 .home-post-item a {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.75rem;
+    gap: 0.25rem 0.75rem;
     padding: 0.9rem 1.5rem;
     color: #2c3e50;
     text-decoration: none;
@@ -86,7 +91,8 @@ body {
 }
 
 .home-post-board {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     max-width: 10rem;      /* 긴 게시판 이름이 제목·날짜 자리를 밀어내지 않게 한다 */
     overflow: hidden;
     text-overflow: ellipsis;
@@ -96,7 +102,7 @@ body {
 }
 
 .home-post-title {
-    flex: 1;
+    flex: 1 1 8rem;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -243,22 +249,9 @@ body {
     background: #e9edf1 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3Ccircle cx='9' cy='9' r='2'/%3E%3Cpath d='m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21'/%3E%3C/svg%3E") center / 1.6rem auto no-repeat;
 }
 
-/* 썸네일이 있는 줄은 글자도 세로 가운데로 맞춘다(없는 줄은 기존 baseline 정렬 그대로) */
+/* 썸네일이 있는 줄은 글자도 세로 가운데로 맞춘다(없는 줄은 기존 baseline 정렬 그대로). 좁은 화면의 줄바꿈 규칙은 위 .home-post-item a가 모든 줄에 건다 */
 .home-post-item a:has(.home-post-thumb) {
     align-items: center;
-    /* 좁은 카드(300px대)에서는 썸네일·게시판명·날짜가 제목 자리를 다 먹는다(실측: 320px 화면에서 제목 39px, 긴 게시판명이면 0px + 날짜가 행 밖으로 넘침).
-       줄바꿈을 허용해 제목이 최소 8rem을 확보하거나 다음 줄로 내려가게 하고, 게시판명은 이 줄에서만 줄어들 수 있게 한다. */
-    flex-wrap: wrap;
-    row-gap: 0.25rem;
-}
-
-.home-post-item a:has(.home-post-thumb) .home-post-board {
-    flex: 0 1 auto;
-    min-width: 0;
-}
-
-.home-post-item a:has(.home-post-thumb) .home-post-title {
-    flex: 1 1 8rem;
 }
 
 .home-post-thumb-img {
