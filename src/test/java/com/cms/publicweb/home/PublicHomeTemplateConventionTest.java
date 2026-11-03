@@ -6,8 +6,10 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
@@ -38,6 +40,21 @@ class PublicHomeTemplateConventionTest {
         assertFalse(content.contains("src=\"${"), "이미지 src는 th:src 링크 표현식(@{...})만 써야 합니다.");
         assertFalse(content.contains("th:src=\"${"), "이미지 src에 임의 문자열 표현식을 쓰면 안 됩니다.");
         assertFalse(content.contains("th:alt=\"${banner.title}\" th:utext"), "제목을 비이스케이프로 쓰면 안 됩니다.");
+    }
+
+    @Test
+    @DisplayName("메인의 인라인 스타일은 새 글 썸네일의 대표 이미지 id(Long) 한 곳뿐이다 — 사용자 문자열이 style에 들어가지 않는다")
+    void inlineStyle_isOnlyTheCoverThumbBackground() throws IOException {
+        String content = read();
+        String allowed = "th:style=\"'background-image:url(' + @{/content-images/{imageId}(imageId=${post.coverImageId}, size='thumb')} + ')'\"";
+
+        assertTrue(content.contains(allowed), "썸네일 배경 표현식이 바뀌었습니다 — 허용 목록을 함께 검토하세요.");
+        assertFalse(content.replace(allowed, "").contains("th:style"), "허용되지 않은 th:style이 있습니다.");
+        // 파서 수준 주석(<!--/* … */-->)은 응답에 나가지 않으므로 뺀 뒤 본다
+        String rendered = Pattern.compile("<!--/\\*.*?\\*/-->", Pattern.DOTALL).matcher(content).replaceAll("");
+        assertFalse(Pattern.compile("\\sstyle\\s*=").matcher(rendered).find(), "정적 style 속성이 있습니다.");
+        assertFalse(rendered.contains("th:src=\"@{/content-images"),
+                "썸네일을 <img>로 그리면 Chromium이 실패 시 깨진 아이콘을 그립니다 — 배경 방식을 유지해야 합니다.");
     }
 
     private String read() throws IOException {

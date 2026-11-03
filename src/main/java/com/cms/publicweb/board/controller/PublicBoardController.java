@@ -9,6 +9,7 @@ import com.cms.publicweb.board.dto.PublicPostAttachmentRef;
 import com.cms.publicweb.board.dto.PublicPostDetail;
 import com.cms.publicweb.board.dto.PublicPostSummary;
 import com.cms.publicweb.board.service.PublicBoardService;
+import com.cms.publicweb.board.service.PublicOgImage;
 import com.cms.admin.board.service.ContentCounterService;
 import com.cms.common.web.PathIds;
 import jakarta.servlet.http.HttpServletRequest;
@@ -62,6 +63,7 @@ public class PublicBoardController {
 
     private final PublicBoardService publicBoardService;
     private final ContentCounterService contentCounterService;
+    private final PublicOgImage publicOgImage;
 
     /** {@code keyword}는 문자열 그대로 서비스에 넘긴다 — 정규화(공백 제거·길이 상한)는 서비스 책임이다. */
     @GetMapping("/{boardSlug}")
@@ -263,6 +265,8 @@ public class PublicBoardController {
 
     private String renderDetail(PublicPostDetail post, Model model) {
         model.addAttribute("post", post);
+        // 공유 미리보기용 — 상세가 공개 판정을 통과한 글에서만 이 메서드에 온다. 대표가 없으면 null이라 템플릿이 메타를 그리지 않는다
+        model.addAttribute("ogImageUrl", publicOgImage.urlFor(post.getCoverImageId()));
         return "public/board/detail";
     }
 

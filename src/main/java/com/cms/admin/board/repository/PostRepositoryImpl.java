@@ -159,7 +159,7 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
 
         return queryFactory
                 .select(Projections.constructor(PublishedPostRow.class,
-                        post.id, post.boardId, board.slug, board.name, post.title, post.createDate))
+                        post.id, post.boardId, board.slug, board.name, post.title, post.createDate, post.coverImageId))
                 .from(post)
                 .join(board).on(board.id.eq(post.boardId))
                 .where(condition)

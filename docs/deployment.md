@@ -29,7 +29,7 @@
 | `MYSQL_USER` / `MYSQL_PASSWORD` | 필수 | app의 `DB_USER`/`DB_PASS`가 이 값을 직접 참조한다(별도 키 없음 — 값 drift 방지) |
 | `MAIL_USER` / `MAIL_PASS` | 필수 | 비밀번호 재설정 메일 발송용 |
 | `MAIL_SMTP_CONNECTION_TIMEOUT_MS`·`_READ_TIMEOUT_MS`·`_WRITE_TIMEOUT_MS` | **선택** | 아래 "SMTP timeout" 참조. 기본값 10000/30000/30000(ms) |
-| `APP_BASE_URL` | 필수 | 비밀번호 재설정 메일 링크 생성에 사용. 실제 접속 가능한 URL이어야 한다 |
+| `APP_BASE_URL` | 필수 | 비밀번호 재설정 메일 링크 생성과 **공개 게시글 상세의 `og:image` 절대 URL**에 쓴다. 실제 접속 가능한 공개 주소(스킴+호스트)여야 한다 — 다르면 공유 미리보기 이미지가 틀린 호스트를 가리킨다(아래 "공개 메인 썸네일·og:image") |
 | `ADMIN_BOOTSTRAP_USER_ID`·`_PASSWORD`·`_EMAIL` | **선택** | 아래 "초기 관리자 계정" 참조 |
 | `CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES`·`CMS_CONTENT_IMAGE_MAX_COUNT` | **선택** | 편집기 본문 이미지 전체 상한(DB 등록 이미지 기준). 기본 1GB·10,000개. 아래 "편집기 본문 이미지" 참조 |
 | `CMS_INQUIRY_TURNSTILE_ENABLED`·`_SITE_KEY`·`_SECRET_KEY` | **선택** | 공개 문의 폼의 Cloudflare Turnstile 캡차. 기본 `false` = 문의 기능 닫힘(503). 아래 "문의 폼" 참조 |
@@ -465,6 +465,14 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 - **롤백**: V13이 적용된 DB에서 이전 앱으로 되돌려도 기동·동작에는 문제가 없다 — **실제 이전 앱(V12 코드)으로 확인했다**(2026-10-29). 기동 로그에 Flyway 경고 `Schema ... has a version (13) that is newer than the latest available migration (12) !`가 한 줄 나오는데 **정상**이다(오류 아님, 마이그레이션은 실행되지 않는다). 롤백 중에는 모든 게시판이 목록형으로 보이고 관리 화면에서 유형을 바꿀 수 없다. 이전 앱이 게시판을 만들면 `LIST`가 되고, 이전 앱이 게시판을 수정해도 저장된 유형은 그대로다. 재배포하면 저장된 유형이 다시 보인다 — 정리할 데이터는 없다.
 - **알 수 없는 저장값**: DB에 `LIST`·`GALLERY`·`WEBZINE`이 아닌 값이 있으면(수동 수정·다음 버전으로 배포했다 롤백) 공개·관리 화면 모두 목록형으로 보이고 오류는 나지 않는다. 관리 화면에서 **유형을 바꾸지 않고** 저장하면 원본 값이 그대로 남는다(유형을 명시해 저장할 때만 바뀐다). 점검: `SELECT id, name, board_type FROM board WHERE board_type NOT IN ('LIST','GALLERY','WEBZINE');`
 - **썸네일 429**: 갤러리형 목록 크기를 50으로 두고 쉬지 않고 넘기면(평균 12.5초보다 빠르게) 이미지 한도(`content-image` 240/60초)를 넘어 일부 칸의 썸네일이 안 보일 수 있다(실측: 한도가 찬 상태에서 연속 요청 250건까지 성공하고 251번째부터 429 + `Retry-After: 1`, 실제 브라우저로 50칸 갤러리를 끝까지 스크롤하며 회차당 약 1초로 넘기면 7회차부터 43~46장이 실패했다). 실패한 칸은 깨진 이미지 아이콘이 아니라 대표 없는 글과 같은 자리표시(회색 바탕 + 사진 아이콘)로 바뀐다(`/js/public/board-thumb-fallback.js`, 2026-10-29 후속 — 404·500도 같다). 목록 HTML은 별도 한도(`public-board`)라 정상이고 15초쯤 뒤 새로고침하면 회복된다(수용한 한계). 운영에서 이 증상 제보가 잦으면 목록 크기를 줄이거나(30 이하) `application.yml`의 `content-image` 규칙 한도를 올린다 — 본문 원본 이미지도 같은 버킷을 쓴다.
+
+## 공개 메인 썸네일·og:image (2026-11-03, adversarial-review/plan/PLAN-home-cover-og-image.md)
+
+대표 이미지(`post.cover_image_id`)를 ① 공개 메인 "새 글" 섹션의 썸네일 ② 공개 상세 `<head>`의 `og:image` 메타로 쓴다. **스키마·`SecurityConfig`·URL 인가 규칙·의존성 변경 없음**이라 롤백해도 정리할 데이터가 없다(이전 앱은 썸네일·메타를 그리지 않을 뿐이다).
+
+- **`og:image`의 호스트는 `APP_BASE_URL`이다**: 요청의 Host 헤더는 프록시 뒤에서 내부 호스트이거나 위조될 수 있어 쓰지 않는다. 값은 `{APP_BASE_URL}/content-images/{id}?size=thumb`이고 끝의 `/`는 정리한다. **운영 배포 전에 `APP_BASE_URL`이 실제 공개 주소인지 확인한다** — 개발 기본값(`http://localhost:8080`)이 prod 메타에 남으면 공유 미리보기가 깨진다(prod 프로파일은 이 변수가 없으면 기동 실패).
+- **실제 공유 크롤러 확인은 도메인 확정 후 수동 항목이다**: Facebook·Kakao·Slack 등이 이 이미지를 실제로 고르는지는 공개 도메인이 있어야 확인할 수 있다. 이번 검증은 메타 존재·절대 URL·그 URL 경로의 익명 200 `image/*`까지다. 썸네일은 긴 변 최대 480px라 일부 SNS 권장 크기(1200×630)보다 작다(수용 — 원본을 쓰면 전송량·한도 부담이 커진다).
+- **이미지 요청 한도**: 메인 한 번이 쓰는 썸네일 요청은 많아야 5건(새 글 섹션 크기, 공지 섹션은 안 씀)이고 `content-image` 규칙(익명 240/60초)의 버킷을 쓴다. 같은 IP의 방문자가 많으면 이 버킷이 비어 그 IP의 상세 본문 이미지·크롤러 요청도 429가 될 수 있음을 수용한다(한도 수치는 2026-11-02에 유지로 결정). 메인 썸네일은 실패해도 자리표시 칸이 남는다.
 
 ## 게시글 휴지통 (2026-11-02, adversarial-review/plan/PLAN-post-trash.md)
 

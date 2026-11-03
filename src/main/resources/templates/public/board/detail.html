@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title th:text="${post.title}">게시글</title>
+    <!--/* 공유 미리보기 이미지 — 대표 이미지가 있는 공개 글만. 값은 app.base-url 기반 절대 URL이고 th:content가 속성을 이스케이프한다. */-->
+    <meta th:if="${ogImageUrl != null}" property="og:image" th:content="${ogImageUrl}">
     <link rel="stylesheet" th:href="@{/css/public/board.css}">
     <link rel="stylesheet" th:href="@{/css/public/site-menu.css}">
     <!--/* 본문 이미지 실패 시 안내 상자로 바꾸는 외부 스크립트. defer 없이 <head>에 두어 이미지 요청보다 먼저 리스너가 붙게 한다 */-->
