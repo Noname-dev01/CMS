@@ -2,7 +2,7 @@
 # 이미지 대신 JDK 이미지 + ./gradlew를 쓴다(PLAN-prod-profile.md 결정 9) — gradle:8.7-jdk17의
 # 시스템 Gradle 8.7은 저장소가 실제로 쓰는 버전과 달라 로컬·CI와 다른 빌드 도구로
 # 배포 이미지가 만들어지는 불일치가 있었다.
-FROM eclipse-temurin:21-jdk@sha256:3e3c176ffed168beb42c607be9bc1639b466cf00261a0fb04425562c9d0c5c2b AS builder
+FROM eclipse-temurin:21-jdk@sha256:ebfbb18d11ff163ee83b21258acf12248af48d22a0fdfdc68fa1a1516c05976a AS builder
 WORKDIR /workspace
 COPY gradlew gradlew.bat ./
 COPY gradle gradle
