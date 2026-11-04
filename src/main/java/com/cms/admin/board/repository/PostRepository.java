@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface PostRepository extends JpaRepository<Post, Long>, PostRepositoryCustom {
@@ -29,6 +31,16 @@ public interface PostRepository extends JpaRepository<Post, Long>, PostRepositor
               and (p.publishEnd is null or p.publishEnd > :now)
             """)
     Optional<Post> findPublishedById(@Param("id") Long id, @Param("boardId") Long boardId, @Param("now") LocalDateTime now);
+
+    /**
+     * 게시글 본문의 앞 {@code length} <b>코드 포인트</b>(MariaDB {@code SUBSTRING}) — 웹진형 공개 목록의 요약 입력. 본문 컬럼이 {@code @Lob}이라 HQL
+     * {@code substring}은 거부되어 네이티브로 읽는다(PLAN-public-list-projection.md D2).
+     *
+     * <p><b>공개 조건이 없다.</b> {@code ids}는 공개 판정을 통과한 목록 결과만 넘기고, 목록 조회와 같은 스냅샷({@code REPEATABLE_READ}) 안에서만 부른다 —
+     * 호출자는 {@code PublicBoardService.getPublishedPosts} 하나뿐이다. {@code ids}가 비어 있으면 부르지 않는다({@code IN ()}).
+     */
+    @Query(value = "SELECT id AS id, SUBSTRING(content, 1, :length) AS head FROM post WHERE id IN (:ids)", nativeQuery = true)
+    List<PostContentHead> findContentHeads(@Param("ids") Collection<Long> ids, @Param("length") int length);
 
     /**
      * 상단 고정 개수 — 그 게시판의 미삭제 {@code pinned} 글 수(노출 여부·기간 무관: 공개 상태는 시각에 따라 바뀌어 그것으로 세면 예약 글이

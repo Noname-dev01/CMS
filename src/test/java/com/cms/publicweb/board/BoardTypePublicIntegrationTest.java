@@ -215,6 +215,18 @@ class BoardTypePublicIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("파싱 상한을 넘는 긴 본문도 웹진 요약이 앞부분으로 만들어진다 — 앞쪽 이모지가 쪼개지지 않고 꼬리는 읽지 않는다")
+    void webzineExcerptFromLongBody() throws Exception {
+        long board = insertBoard("WEBZINE", 0);
+        String emoji = "😀";
+        insertPost(board, "웹진-긴본문", "<p>머리글 " + emoji + "</p><p>" + "나".repeat(25_000) + "</p><p>꼬리문구</p>", LocalDateTime.now(), false, true, null);
+
+        String page = boardList(board);
+
+        assertThat(page).contains("머리글 " + emoji + " " + "나".repeat(114) + "…").doesNotContain("꼬리문구");
+    }
+
+    @Test
     @DisplayName("고정 영역은 모든 유형에서 목록형 한 줄이다 — 고정 글의 썸네일은 일반 목록의 한 번뿐이고 요약은 계산하지 않는다")
     void pinnedAreaStaysOneLinePerType() throws Exception {
         for (String type : List.of("GALLERY", "WEBZINE")) {

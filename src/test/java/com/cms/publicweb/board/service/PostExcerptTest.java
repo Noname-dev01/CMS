@@ -11,6 +11,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PostExcerptTest {
 
     @Test
+    @DisplayName("코드 포인트 앞부분만 넣어도 전체 본문과 요약이 같다 — 파싱 상한을 다시 적용하므로(PLAN-public-list-projection.md D3)")
+    void codePointHeadGivesSameExcerpt() {
+        String emoji = "😀";
+        int limit = PostExcerpt.PARSE_LIMIT;
+        java.util.List<String> bodies = java.util.List.of(
+                "<p>짧은 글</p>",
+                "가".repeat(limit),
+                "가".repeat(limit + 1) + "꼬리",
+                "a".repeat(limit - 1) + emoji + "꼬리",
+                "a".repeat(limit) + emoji + "꼬리",
+                emoji.repeat(limit + 5_000),
+                "<p>" + emoji.repeat(100) + "</p><p>" + "가".repeat(limit) + "</p><p>꼬리</p>",
+                "<p><img src=\"/content-images/1\"></p>".repeat(1_000) + "<p>꼬리</p>",
+                "<p>" + "가".repeat(limit - 10) + "<strong>경계에서 잘리는 태그</strong></p>");
+
+        for (String body : bodies) {
+            String head = body.codePointCount(0, body.length()) <= limit ? body : body.substring(0, body.offsetByCodePoints(0, limit));
+            assertThat(PostExcerpt.of(head)).as("본문 길이 %d", body.length()).isEqualTo(PostExcerpt.of(body));
+        }
+    }
+
+    @Test
     @DisplayName("본문이 null·빈 문자열이면 null이다")
     void nullAndEmpty() {
         assertThat(PostExcerpt.of(null)).isNull();

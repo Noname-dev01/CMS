@@ -5,6 +5,7 @@ import com.cms.admin.board.domain.QBoard;
 import com.cms.admin.board.domain.QPost;
 import com.cms.admin.board.dto.request.PostSearchRequest;
 import com.querydsl.core.BooleanBuilder;
+import com.querydsl.core.types.ConstructorExpression;
 import com.querydsl.core.types.OrderSpecifier;
 import com.querydsl.core.types.Projections;
 import com.querydsl.core.types.dsl.BooleanExpression;
@@ -74,7 +75,7 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
     }
 
     @Override
-    public Page<Post> searchPublished(Long boardId, String keyword, LocalDateTime now, Pageable pageable) {
+    public Page<PublishedPostListRow> searchPublished(Long boardId, String keyword, LocalDateTime now, Pageable pageable) {
         QPost post = QPost.post;
 
         BooleanBuilder condition = new BooleanBuilder()
@@ -84,15 +85,32 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
         if (keyword != null) {
             condition.and(post.title.contains(keyword));
         }
-        return page(condition, pageable);
+
+        List<PublishedPostListRow> content = queryFactory
+                .select(publishedListRow(post))
+                .from(post)
+                .where(condition)
+                .orderBy(toOrderSpecifiers(pageable.getSort()))
+                .offset(pageable.getOffset())
+                .limit(pageable.getPageSize())
+                .fetch();
+
+        Long total = queryFactory
+                .select(post.count())
+                .from(post)
+                .where(condition)
+                .fetchOne();
+
+        return new PageImpl<>(content, pageable, total == null ? 0 : total);
     }
 
     @Override
-    public List<Post> findPinnedPublished(Long boardId, LocalDateTime now, int limit) {
+    public List<PublishedPostListRow> findPinnedPublished(Long boardId, LocalDateTime now, int limit) {
         QPost post = QPost.post;
 
         return queryFactory
-                .selectFrom(post)
+                .select(publishedListRow(post))
+                .from(post)
                 .where(post.boardId.eq(boardId)
                         .and(post.deleted.isFalse())
                         .and(post.pinned.isTrue())
@@ -177,6 +195,12 @@ public class PostRepositoryImpl implements PostRepositoryCustom {
         return post.useYn.isTrue()
                 .and(post.publishStart.isNull().or(post.publishStart.loe(now)))
                 .and(post.publishEnd.isNull().or(post.publishEnd.gt(now)));
+    }
+
+    /** 공개 목록의 선택 컬럼 — 본문을 넣지 않는다(PLAN-public-list-projection.md D1). */
+    private ConstructorExpression<PublishedPostListRow> publishedListRow(QPost post) {
+        return Projections.constructor(PublishedPostListRow.class,
+                post.id, post.title, post.createDate, post.viewCount, post.coverImageId, post.publishStart);
     }
 
     private Page<Post> page(BooleanBuilder condition, Pageable pageable) {

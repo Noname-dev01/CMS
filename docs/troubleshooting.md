@@ -1401,3 +1401,25 @@ FAQ 관리 화면(`templates/admin/faq/manage.html`)이 열린 뒤 ▲▼ 버튼
 #### 교훈
 
 - 웹 계층 설정 빈에 서비스 의존을 직접 걸지 않는다 — 슬라이스 시험이 요구하는 빈이 늘면 관계없는 시험까지 깨진다.
+
+### `@Lob` 필드에 HQL `substring`을 쓰면 시작부터 거부된다 — `mapped to 'CLOB'` (2026-11-04, PLAN-public-list-projection.md 구현 전 spike)
+
+#### 오류 메시지
+
+```text
+java.lang.IllegalArgumentException: org.hibernate.query.sqm.produce.function.FunctionArgumentException:
+Parameter 1 of function 'substring()' has type 'STRING', but argument is of type 'java.lang.String' mapped to 'CLOB'
+```
+
+#### 원인
+
+- `Post.content`는 `@Lob` + `MEDIUMTEXT`다. Java 타입이 `String`이어도 Hibernate에는 CLOB으로 매핑되고, 표준 함수 `substring`의 인자 검사가 이를 거부한다. QueryDSL의 `content.substring(...)`과 `Expressions.stringTemplate("substring({0}, 1, {1})", ...)`이 같은 오류를 낸다.
+
+#### 해결 방법
+
+- 네이티브 쿼리로 읽는다: `SELECT id AS id, SUBSTRING(content, 1, :length) AS head FROM post WHERE id IN (:ids)`(`PostRepository.findContentHeads`). `function('mid', content, 1, n)`도 `String`을 돌려주는 것을 확인했지만 Hibernate에 등록되지 않은 함수 이름에 기대므로 쓰지 않았다.
+- MariaDB `SUBSTRING`은 **코드 포인트** 단위다. UTF-16 유닛 상한으로 자를 때는 결과가 상한보다 길 수 있다(이모지 25,000개를 20,000으로 자르면 40,000 유닛).
+
+#### 교훈
+
+- `@Lob` 필드를 쿼리 함수에 넘기는 설계는 구현 전에 실제 DB로 확인한다. 컴파일은 통과하고 실행 시점에 실패한다.

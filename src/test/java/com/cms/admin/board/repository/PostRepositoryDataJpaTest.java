@@ -169,6 +169,53 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(postRepository.findPublishedById(published.getId(), boardId, NOW)).isPresent();
     }
 
+    // ===================== 공개 목록 프로젝션·본문 앞부분 (PLAN-public-list-projection.md D1·D3) =====================
+
+    @Test
+    @DisplayName("공개 목록 행은 조회수·대표·노출 시작을 그대로 싣는다 — 고정 영역도 같은 행이다")
+    void publishedListRow_mapsFields() {
+        LocalDateTime created = LocalDateTime.of(2026, 10, 1, 9, 30);
+        LocalDateTime start = LocalDateTime.of(2026, 10, 1, 10, 0);
+        Post saved = postRepository.save(Post.builder()
+                .boardId(boardId).title("행-매핑").content("<p>본문</p>").useYn(true).deleted(false).pinned(true)
+                .authorId("admin01").createDate(created).updateDate(created).publishStart(start).build());
+        postRepository.flush();
+        jdbc.update("UPDATE post SET view_count = 42 WHERE id = ?", saved.getId());
+
+        PublishedPostListRow expected = new PublishedPostListRow(saved.getId(), "행-매핑", created, 42L, null, start);
+
+        assertThat(postRepository.searchPublished(boardId, "행-매핑", NOW, PUBLIC_PAGE).getContent()).containsExactly(expected);
+        assertThat(postRepository.findPinnedPublished(boardId, NOW, 5)).containsExactly(expected);
+    }
+
+    @Test
+    @DisplayName("findContentHeads는 코드 포인트 단위로 앞부분을 돌려준다 — 보충 문자가 있으면 UTF-16 유닛으로는 길이보다 길다")
+    void contentHeads_countCodePoints() {
+        String emoji = "😀";
+        LocalDateTime t = LocalDateTime.of(2026, 10, 1, 0, 0);
+        java.util.List<Long> ids = java.util.stream.Stream.of("a".repeat(19_999) + emoji + "꼬리", emoji.repeat(25_000), "가".repeat(30_000), "짧음")
+                .map(body -> postRepository.save(Post.builder().boardId(boardId).title("앞부분").content(body).useYn(true).deleted(false)
+                        .authorId("admin01").createDate(t).updateDate(t).build()).getId())
+                .toList();
+        postRepository.flush();
+
+        assertThat(postRepository.findContentHeads(ids, 20_000)).extracting(PostContentHead::getHead).containsExactlyInAnyOrder(
+                "a".repeat(19_999) + emoji, emoji.repeat(20_000), "가".repeat(20_000), "짧음");
+    }
+
+    @Test
+    @DisplayName("findContentHeads는 요청한 id만 돌려주고 없는 id는 무시한다")
+    void contentHeads_onlyRequestedIds() {
+        Post wanted = savePost("앞부분-요청", true, false);
+        savePost("앞부분-제외", true, false);
+        postRepository.flush();
+
+        java.util.List<PostContentHead> rows = postRepository.findContentHeads(java.util.List.of(wanted.getId(), Long.MAX_VALUE), 10);
+
+        assertThat(rows).extracting(PostContentHead::getId).containsExactly(wanted.getId());
+        assertThat(rows).extracting(PostContentHead::getHead).containsExactly("본문");
+    }
+
     // ===================== searchPublished (공개 목록·제목 검색 — PLAN-public-notice-search.md 쟁점 2·3·7) =====================
 
     @Test
@@ -182,11 +229,11 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(marker + "-deleted", true, true);
         savePost(otherBoardId, marker + "-other", true, false);
 
-        Page<Post> result = postRepository.searchPublished(boardId, null, NOW, PageRequest.of(0, 50, PUBLIC_PAGE.getSort()));
+        Page<PublishedPostListRow> result = postRepository.searchPublished(boardId, null, NOW, PageRequest.of(0, 50, PUBLIC_PAGE.getSort()));
 
-        assertThat(result.getContent()).extracting(Post::getTitle)
+        assertThat(result.getContent()).extracting(PublishedPostListRow::title)
                 .noneMatch(title -> title.endsWith("-hidden") || title.endsWith("-deleted") || title.endsWith("-other"));
-        java.util.List<Long> ids = result.getContent().stream().map(Post::getId).toList();
+        java.util.List<Long> ids = result.getContent().stream().map(PublishedPostListRow::id).toList();
         assertThat(ids.indexOf(first.getId())).isGreaterThan(ids.indexOf(second.getId()));
     }
 
@@ -202,13 +249,13 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(otherBoardId, marker + "-타게시판", true, false);
         savePost("불일치" + System.nanoTime(), true, false);
 
-        Page<Post> result = postRepository.searchPublished(boardId, marker, NOW, PUBLIC_PAGE);
+        Page<PublishedPostListRow> result = postRepository.searchPublished(boardId, marker, NOW, PUBLIC_PAGE);
 
         assertThat(result.getTotalElements()).isEqualTo(11);
         assertThat(result.getTotalPages()).isEqualTo(2);
         assertThat(result.hasNext()).isTrue();
         assertThat(result.getContent()).hasSize(10)
-                .extracting(Post::getTitle)
+                .extracting(PublishedPostListRow::title)
                 .allMatch(title -> title.startsWith(marker + "-공개"));
     }
 
@@ -219,7 +266,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePost(marker + "-비노출", false, false);
         savePost(marker + "-삭제", true, true);
 
-        Page<Post> result = postRepository.searchPublished(boardId, marker, NOW, PUBLIC_PAGE);
+        Page<PublishedPostListRow> result = postRepository.searchPublished(boardId, marker, NOW, PUBLIC_PAGE);
 
         assertThat(result.getContent()).isEmpty();
         assertThat(result.getTotalElements()).isZero();
@@ -237,11 +284,11 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         Post bang = savePost(marker + "-e!f", true, false);
 
         assertThat(postRepository.searchPublished(boardId, marker + "-a%b", NOW, PUBLIC_PAGE).getContent())
-                .extracting(Post::getId).containsExactly(percent.getId());
+                .extracting(PublishedPostListRow::id).containsExactly(percent.getId());
         assertThat(postRepository.searchPublished(boardId, marker + "-c_d", NOW, PUBLIC_PAGE).getContent())
-                .extracting(Post::getId).containsExactly(underscore.getId());
+                .extracting(PublishedPostListRow::id).containsExactly(underscore.getId());
         assertThat(postRepository.searchPublished(boardId, marker + "-e!f", NOW, PUBLIC_PAGE).getContent())
-                .extracting(Post::getId).containsExactly(bang.getId());
+                .extracting(PublishedPostListRow::id).containsExactly(bang.getId());
         assertThat(postRepository.searchPublished(boardId, marker + "-%", NOW, PUBLIC_PAGE).getContent()).isEmpty();
     }
 
@@ -252,7 +299,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         Post upper = savePost(marker + "-NOTICE", true, false);
 
         assertThat(postRepository.searchPublished(boardId, marker + "-notice", NOW, PUBLIC_PAGE).getContent())
-                .extracting(Post::getId).containsExactly(upper.getId());
+                .extracting(PublishedPostListRow::id).containsExactly(upper.getId());
     }
 
     @Test
@@ -265,7 +312,7 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         Post tieSecond = savePostAt(marker + "-tie2", base);
 
         assertThat(postRepository.searchPublished(boardId, marker, NOW, PUBLIC_PAGE).getContent())
-                .extracting(Post::getId)
+                .extracting(PublishedPostListRow::id)
                 .containsExactly(tieSecond.getId(), tieFirst.getId(), older.getId());
     }
 
@@ -429,8 +476,8 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
 
         assertThat(postRepository.findPublishedById(post.getId(), boardId, now).isPresent()).as("상세 " + ctx).isEqualTo(expected);
 
-        Page<Post> list = postRepository.searchPublished(boardId, marker, now, PUBLIC_PAGE);
-        assertThat(list.getContent().stream().map(Post::getId).toList().contains(post.getId())).as("목록 " + ctx).isEqualTo(expected);
+        Page<PublishedPostListRow> list = postRepository.searchPublished(boardId, marker, now, PUBLIC_PAGE);
+        assertThat(list.getContent().stream().map(PublishedPostListRow::id).toList().contains(post.getId())).as("목록 " + ctx).isEqualTo(expected);
         assertThat(list.getTotalElements()).as("COUNT " + ctx).isEqualTo(expected ? 1L : 0L);
 
         assertThat(postRepository.findLatestPublished(boardId, 2L, false, now, 100).stream().anyMatch(r -> r.id().equals(post.getId())))
@@ -482,10 +529,10 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePostWithPeriod(marker + "-예약", true, now.plusDays(1), null);
         savePostWithPeriod(marker + "-만료", true, null, now.minusDays(1));
 
-        Page<Post> result = postRepository.searchPublished(boardId, marker, now, PUBLIC_PAGE);
+        Page<PublishedPostListRow> result = postRepository.searchPublished(boardId, marker, now, PUBLIC_PAGE);
 
         assertThat(result.getTotalElements()).isEqualTo(1);
-        assertThat(result.getContent()).extracting(Post::getTitle).containsExactly(marker + "-노출");
+        assertThat(result.getContent()).extracting(PublishedPostListRow::title).containsExactly(marker + "-노출");
     }
 
     @Test
@@ -528,9 +575,9 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         savePinned(otherBoardId, marker + "-other", true, false, t, null, null);
         savePostWithPeriod(marker + "-notPinned", true, null, null);
 
-        assertThat(postRepository.findPinnedPublished(boardId, now, 5)).extracting(Post::getId)
+        assertThat(postRepository.findPinnedPublished(boardId, now, 5)).extracting(PublishedPostListRow::id)
                 .containsExactly(sameB.getId(), sameA.getId(), older.getId());
-        assertThat(postRepository.findPinnedPublished(boardId, now, 2)).extracting(Post::getId)
+        assertThat(postRepository.findPinnedPublished(boardId, now, 2)).extracting(PublishedPostListRow::id)
                 .as("limit").containsExactly(sameB.getId(), sameA.getId());
     }
 
@@ -541,8 +588,8 @@ class PostRepositoryDataJpaTest extends MariaDbContainerSupport {
         Post post = savePinned(boardId, marker, true, false, LocalDateTime.of(2026, 10, 1, 0, 0), P_START, P_END);
 
         assertThat(postRepository.findPinnedPublished(boardId, P_START.minusNanos(1_000), 5)).isEmpty();
-        assertThat(postRepository.findPinnedPublished(boardId, P_START, 5)).extracting(Post::getId).containsExactly(post.getId());
-        assertThat(postRepository.findPinnedPublished(boardId, P_END.minusNanos(1_000), 5)).extracting(Post::getId).containsExactly(post.getId());
+        assertThat(postRepository.findPinnedPublished(boardId, P_START, 5)).extracting(PublishedPostListRow::id).containsExactly(post.getId());
+        assertThat(postRepository.findPinnedPublished(boardId, P_END.minusNanos(1_000), 5)).extracting(PublishedPostListRow::id).containsExactly(post.getId());
         assertThat(postRepository.findPinnedPublished(boardId, P_END, 5)).isEmpty();
     }
 
