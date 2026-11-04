@@ -1,6 +1,6 @@
 package com.cms.publicweb.board.dto;
 
-import com.cms.admin.board.domain.Post;
+import com.cms.admin.board.repository.PublishedPostListRow;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -38,14 +38,14 @@ public class PublicPostSummary {
     /** 본문 요약(웹진형만). null = 계산하지 않았거나 텍스트가 없음. 평문이라 템플릿이 {@code th:text}로만 출력한다. */
     private String excerpt;
 
-    public static PublicPostSummary from(Post post, boolean showViewCount, boolean newBadge, String excerpt) {
+    public static PublicPostSummary from(PublishedPostListRow row, boolean showViewCount, boolean newBadge, String excerpt) {
         return PublicPostSummary.builder()
-                .id(post.getId())
-                .title(post.getTitle())
-                .createDate(post.getCreateDate())
-                .viewCount(showViewCount ? post.getViewCount() : null)
+                .id(row.id())
+                .title(row.title())
+                .createDate(row.createDate())
+                .viewCount(showViewCount ? row.viewCount() : null)
                 .newBadge(newBadge)
-                .coverImageId(post.getCoverImageId())
+                .coverImageId(row.coverImageId())
                 .excerpt(excerpt)
                 .build();
     }

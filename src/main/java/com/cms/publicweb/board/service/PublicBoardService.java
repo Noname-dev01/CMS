@@ -6,7 +6,9 @@ import com.cms.admin.board.domain.BoardType;
 import com.cms.admin.board.domain.Post;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
+import com.cms.admin.board.repository.PostContentHead;
 import com.cms.admin.board.repository.PostRepository;
+import com.cms.admin.board.repository.PublishedPostListRow;
 import com.cms.common.storage.FileStorage;
 import com.cms.publicweb.support.PublicSite;
 import com.cms.common.storage.StorageFileNotFoundException;
@@ -23,13 +25,17 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 공개(비로그인) 게시판 조회 전용 Service. 관리 서비스와 별도 클래스로 두는 이유는 공지와 같다 — 공개 불변식이 선택적 필터가 아니라 이 클래스가
@@ -99,8 +105,11 @@ public class PublicBoardService {
     /**
      * 공개 목록. 공개 게시판이 아니면 empty. {@code rawKeyword}가 비어 있으면(공백만 포함) 전체 목록, 있으면 제목 검색이며 앞뒤 공백을 제거한다.
      * {@link #MAX_KEYWORD_LENGTH}를 넘으면 DB를 조회하지 않고 빈 페이지를 돌려준다(이상 입력 흡수).
+     *
+     * <p>{@code REPEATABLE_READ}를 명시한다 — 웹진형은 목록과 본문 앞부분을 두 쿼리로 읽고 앞부분 조회에는 공개 조건이 없어, 그 사이 비공개로 바뀐 글의 새 본문이
+     * 요약으로 나가지 않으려면 두 쿼리가 같은 스냅샷을 봐야 한다(PLAN-public-list-projection.md D2). 호출자는 컨트롤러뿐이라 최상위 트랜잭션이다.
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Optional<PublicBoardListResult> getPublishedPosts(Long siteId, Long boardId, int page, String rawKeyword) {
         LocalDateTime now = LocalDateTime.now(clock);
         return boardRepository.findPublicById(boardId, PublicSite.requireId(siteId)).map(board -> {
@@ -112,27 +121,41 @@ public class PublicBoardService {
             boolean showViewCount = Boolean.TRUE.equals(board.getShowViewCount());
             int badgeDays = board.getNewBadgeDays();
             // 조회수·배지는 게시판 설정에 따라 서비스가 DTO를 만들 때 거른다(템플릿이 아니라 여기서)
-            Function<Post, PublicPostSummary> toPinnedSummary = post -> PublicPostSummary.from(post, showViewCount,
-                    NewBadge.isNew(post.getCreateDate(), post.getPublishStart(), badgeDays, now), null);
+            BiFunction<PublishedPostListRow, String, PublicPostSummary> toSummary = (row, excerpt) -> PublicPostSummary.from(row, showViewCount,
+                    NewBadge.isNew(row.createDate(), row.publishStart(), badgeDays, now), excerpt);
             // 요약은 웹진형의 일반 목록에서만 계산한다(고정 영역은 모든 유형에서 목록형 한 줄이라 요약을 쓰지 않는다)
             boolean webzine = board.type() == BoardType.WEBZINE;
-            Function<Post, PublicPostSummary> toSummary = post -> PublicPostSummary.from(post, showViewCount,
-                    NewBadge.isNew(post.getCreateDate(), post.getPublishStart(), badgeDays, now),
-                    webzine ? PostExcerpt.of(post.getContent()) : null);
+            Function<Page<PublishedPostListRow>, Page<PublicPostSummary>> toPage = rows -> {
+                Map<Long, String> heads = webzine ? contentHeads(rows.getContent()) : Map.of();
+                return rows.map(row -> toSummary.apply(row, PostExcerpt.of(heads.get(row.id()))));
+            };
 
             if (keyword.isEmpty()) {
                 // 고정 영역은 검색하지 않은 1페이지에서만, 게시판 고정 상한이 0보다 클 때만 조회한다(그 밖에는 쿼리 없이 빈 목록)
                 List<PublicPostSummary> pinned = normalizedPage == 0 && board.getPinMaxCount() > 0
                         ? postRepository.findPinnedPublished(board.getId(), now, Math.min(board.getPinMaxCount(), Board.MAX_PIN_COUNT))
-                                .stream().map(toPinnedSummary).toList()
+                                .stream().map(row -> toSummary.apply(row, null)).toList()
                         : List.of();
-                return result(board, pinned, postRepository.searchPublished(board.getId(), null, now, pageable).map(toSummary), null);
+                return result(board, pinned, toPage.apply(postRepository.searchPublished(board.getId(), null, now, pageable)), null);
             }
             if (keyword.length() > MAX_KEYWORD_LENGTH) {
                 return result(board, List.of(), Page.empty(pageable), keyword);
             }
-            return result(board, List.of(), postRepository.searchPublished(board.getId(), keyword, now, pageable).map(toSummary), keyword);
+            return result(board, List.of(), toPage.apply(postRepository.searchPublished(board.getId(), keyword, now, pageable)), keyword);
         });
+    }
+
+    /**
+     * 목록 결과의 본문 앞부분(id → 앞부분). 코드 포인트 {@link PostExcerpt#PARSE_LIMIT}개는 UTF-16 유닛 그만큼 이상이라, {@link PostExcerpt}가 그 위에서 다시
+     * 잘라 전체 본문을 넣었을 때와 같은 요약이 나온다(PLAN-public-list-projection.md D3).
+     */
+    private Map<Long, String> contentHeads(List<PublishedPostListRow> rows) {
+        if (rows.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = rows.stream().map(PublishedPostListRow::id).toList();
+        return postRepository.findContentHeads(ids, PostExcerpt.PARSE_LIMIT).stream()
+                .collect(Collectors.toMap(PostContentHead::getId, PostContentHead::getHead));
     }
 
     @Transactional(readOnly = true)

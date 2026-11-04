@@ -25,14 +25,15 @@ public interface PostRepositoryCustom {
      * SELECT와 COUNT가 같은 조건 객체를 쓴다(COUNT에서 공개 조건이 빠지면 비공개 일치 글의 존재가 총건수로 드러난다).
      * 게시판의 공개 여부는 호출자({@code PublicBoardService})가 먼저 확인한다. 공개 조건에는 노출 기간 {@code [publishStart, publishEnd)}가 포함되며
      * 판정 시각 {@code now}는 호출자가 주입된 {@code Clock}으로 요청당 1회 산출해 넘긴다(PLAN-post-publish-period.md 쟁점 2·3).
+     * 본문은 선택하지 않는다(PLAN-public-list-projection.md D1).
      */
-    Page<Post> searchPublished(Long boardId, String keyword, LocalDateTime now, Pageable pageable);
+    Page<PublishedPostListRow> searchPublished(Long boardId, String keyword, LocalDateTime now, Pageable pageable);
 
     /**
      * 공개 목록 상단 고정 영역 — 한 게시판의 고정·노출·미삭제 게시글을 최신순(+id 보조)으로 {@code limit}건. 공개 조건은 {@link #searchPublished}와
-     * 같은 조건 객체를 쓴다(고정은 표시 순서일 뿐 공개 판정이 아니다). 게시판의 공개 여부와 {@code limit}(게시판 고정 상한)은 호출자가 정한다.
+     * 같은 조건 객체를 쓴다(고정은 표시 순서일 뿐 공개 판정이 아니다). 게시판의 공개 여부와 {@code limit}(게시판 고정 상한)은 호출자가 정한다. 본문은 선택하지 않는다.
      */
-    List<Post> findPinnedPublished(Long boardId, LocalDateTime now, int limit);
+    List<PublishedPostListRow> findPinnedPublished(Long boardId, LocalDateTime now, int limit);
 
     /**
      * 통합 검색 — 삭제되지 않은 게시판의 삭제되지 않은 게시글을 제목으로 검색한다(노출 여부 무관 — 관리 화면용). {@code boardIds}가 null이면 모든

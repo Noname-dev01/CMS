@@ -7,7 +7,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import com.cms.admin.board.domain.PostAttachment;
 import com.cms.admin.board.repository.BoardRepository;
 import com.cms.admin.board.repository.PostAttachmentRepository;
+import com.cms.admin.board.repository.PostContentHead;
 import com.cms.admin.board.repository.PostRepository;
+import com.cms.admin.board.repository.PublishedPostListRow;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.StorageFileNotFoundException;
 import com.cms.common.storage.StoredFileStream;
@@ -45,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.clearInvocations;
@@ -95,6 +98,10 @@ class PublicBoardServiceTest {
                 .authorId("admin01").createDate(now).updateDate(now).build();
     }
 
+    private PublishedPostListRow row(Long id) {
+        return new PublishedPostListRow(id, "글 " + id, NOW, 0L, null, null);
+    }
+
     private PostAttachment attachment(Long id, Long postId) {
         return PostAttachment.builder()
                 .id(id).postId(postId).originalFilename("file" + id + ".pdf")
@@ -105,6 +112,81 @@ class PublicBoardServiceTest {
 
     private void publicBoardExists() {
         given(boardRepository.findPublicById(BOARD_ID, SITE_ID)).willReturn(Optional.of(board()));
+    }
+
+    // ===================== 본문 앞부분 조회 조건 (PLAN-public-list-projection.md D2·D4) =====================
+
+    private Board boardOfType(String type, int pinMax) {
+        return Board.builder().id(BOARD_ID).name("게시판").publicYn(true).attachmentYn(true).deleted(false)
+                .boardType(type).pinMaxCount(pinMax).build();
+    }
+
+    private static PostContentHead head(Long id, String head) {
+        return new PostContentHead() {
+            @Override
+            public Long getId() {
+                return id;
+            }
+
+            @Override
+            public String getHead() {
+                return head;
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("목록형·갤러리형은 본문 앞부분을 읽지 않고 요약이 없다")
+    void list_nonWebzineNeverReadsHeads() {
+        for (String type : List.of("LIST", "GALLERY")) {
+            publicBoardExists(boardOfType(type, 0));
+            given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of(row(1L))));
+
+            assertNull(service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow().page().getContent().get(0).getExcerpt());
+        }
+        verify(postRepository, never()).findContentHeads(any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("웹진형은 현재 페이지 id와 파싱 상한으로 앞부분을 읽어 요약을 만들고, 앞부분이 없는 id는 요약이 null이다")
+    void list_webzineReadsHeadsOfCurrentPage() {
+        publicBoardExists(boardOfType("WEBZINE", 0));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of(row(1L), row(2L))));
+        given(postRepository.findContentHeads(List.of(1L, 2L), PostExcerpt.PARSE_LIMIT)).willReturn(List.of(head(1L, "<p>첫 글 요약</p>")));
+
+        List<PublicPostSummary> posts = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow().page().getContent();
+
+        assertEquals("첫 글 요약", posts.get(0).getExcerpt());
+        assertNull(posts.get(1).getExcerpt());
+    }
+
+    @Test
+    @DisplayName("웹진형 빈 페이지는 앞부분을 읽지 않는다(IN () 방지), 검색 결과는 같은 처리를 탄다")
+    void list_webzineEmptyPageSkipsHeadsAndSearchReadsThem() {
+        publicBoardExists(boardOfType("WEBZINE", 0));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of()));
+
+        service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null);
+        verify(postRepository, never()).findContentHeads(any(), anyInt());
+
+        given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), eq(NOW), any())).willReturn(new PageImpl<>(List.of(row(3L))));
+        given(postRepository.findContentHeads(List.of(3L), PostExcerpt.PARSE_LIMIT)).willReturn(List.of(head(3L, "<p>검색 요약</p>")));
+
+        assertEquals("검색 요약", service.getPublishedPosts(SITE_ID, BOARD_ID, 0, "점검").orElseThrow().page().getContent().get(0).getExcerpt());
+    }
+
+    @Test
+    @DisplayName("웹진형 고정 영역은 앞부분을 읽지 않는다 — 일반 목록 id만 넘긴다")
+    void list_webzinePinnedAreaHasNoExcerpt() {
+        publicBoardExists(boardOfType("WEBZINE", 3));
+        given(postRepository.findPinnedPublished(BOARD_ID, NOW, 3)).willReturn(List.of(row(9L)));
+        given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of(row(1L))));
+        given(postRepository.findContentHeads(List.of(1L), PostExcerpt.PARSE_LIMIT)).willReturn(List.of(head(1L, "<p>일반 글</p>")));
+
+        PublicBoardListResult result = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow();
+
+        assertNull(result.pinned().get(0).getExcerpt());
+        assertEquals("일반 글", result.page().getContent().get(0).getExcerpt());
     }
 
     // ===================== 목록 =====================
@@ -123,7 +205,7 @@ class PublicBoardServiceTest {
     @DisplayName("목록은 공개 게시글 조회 결과를 요약 DTO로 반환한다(저장소 필터에 위임)")
     void list_returnsPublishedSummaries() {
         publicBoardExists();
-        given(postRepository.searchPublished(eq(BOARD_ID), eq(null), eq(NOW), any())).willReturn(new PageImpl<>(List.of(post(1L))));
+        given(postRepository.searchPublished(eq(BOARD_ID), eq(null), eq(NOW), any())).willReturn(new PageImpl<>(List.of(row(1L))));
 
         PublicBoardListResult result = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, null).orElseThrow();
 
@@ -217,8 +299,7 @@ class PublicBoardServiceTest {
     @Test
     @DisplayName("조회수 표시를 끈 게시판은 DTO에 조회수가 없고, 켠 게시판만 값을 싣는다")
     void list_viewCountFilteredByService() {
-        Post viewed = post(1L);
-        ReflectionTestUtils.setField(viewed, "viewCount", 42L);
+        PublishedPostListRow viewed = new PublishedPostListRow(1L, "글 1", NOW, 42L, null, null);
         given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of(viewed)));
 
         publicBoardExists();   // 기본: 조회수 표시 끔
@@ -232,12 +313,9 @@ class PublicBoardServiceTest {
     @Test
     @DisplayName("새 글 배지: 기간 안의 글만 true, 기간 0이면 모두 false, create_date가 NULL인 글도 예외 없이 처리")
     void list_newBadge() {
-        Post recent = post(1L);
-        ReflectionTestUtils.setField(recent, "createDate", NOW.minusDays(1));
-        Post old = post(2L);
-        ReflectionTestUtils.setField(old, "createDate", NOW.minusDays(5));
-        Post noDate = post(3L);
-        ReflectionTestUtils.setField(noDate, "createDate", null);
+        PublishedPostListRow recent = new PublishedPostListRow(1L, "글 1", NOW.minusDays(1), 0L, null, null);
+        PublishedPostListRow old = new PublishedPostListRow(2L, "글 2", NOW.minusDays(5), 0L, null, null);
+        PublishedPostListRow noDate = new PublishedPostListRow(3L, "글 3", null, 0L, null, null);
         given(postRepository.searchPublished(any(), any(), any(), any())).willReturn(new PageImpl<>(List.of(recent, old, noDate)));
 
         publicBoardExists(Board.builder().id(BOARD_ID).name("공지사항").publicYn(true).attachmentYn(true).deleted(false)
@@ -289,7 +367,7 @@ class PublicBoardServiceTest {
     @DisplayName("키워드는 앞뒤 공백을 제거해 검색으로 전달하고, 정규화한 값을 결과에 담는다")
     void list_keyword_strippedAndSearched() {
         publicBoardExists();
-        given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), eq(NOW), any())).willReturn(new PageImpl<>(List.of(post(1L))));
+        given(postRepository.searchPublished(eq(BOARD_ID), eq("점검"), eq(NOW), any())).willReturn(new PageImpl<>(List.of(row(1L))));
 
         PublicBoardListResult result = service.getPublishedPosts(SITE_ID, BOARD_ID, 0, "  점검\t").orElseThrow();
 
