@@ -16,6 +16,12 @@ RUN ./gradlew clean bootJar --no-daemon
 FROM eclipse-temurin:21-jre-noble@sha256:cd35bb33859641c5374415826a5951845104093eaa401cbe9d3d9023444f1c13
 WORKDIR /app
 
+# CVE-2026-109518: 공식 이미지(2026-11-05 기준 apt 2.8.3)에 아직 수정판(2.8.4ubuntu0.1)이 없어 이 두 패키지만 상향한다.
+# 베이스 이미지에 수정판이 들어오면 이 RUN을 지운다 — 이 단계는 digest로 고정되지 않아 빌드 시점의 저장소 버전을 받는다.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade --no-install-recommends apt libapt-pkg6.0t64 \
+    && rm -rf /var/lib/apt/lists/*
+
 # 첨부파일 저장 디렉터리를 appuser 전환 전에 만들고 소유권을 넘긴다 — 안 하면 named volume
 # 마운트 지점이 root 소유로 남아 appuser가 쓰기 실패한다(PLAN-notice-attachment.md 쟁점 10).
 # Docker는 named volume이 처음 마운트될 때 이미지 쪽 대상 디렉터리의 내용·소유권을 그대로
