@@ -22,6 +22,8 @@ class NotificationMessagesTest {
                 .isEqualTo("관리자가 내 계정 상태를 '잠금'으로 변경했습니다.");
         assertThat(NotificationMessages.statusChangedByAdmin(MemberStatus.DISABLED))
                 .isEqualTo("관리자가 내 계정 상태를 '비활성'으로 변경했습니다.");
+        assertThat(NotificationMessages.statusChangedByAdmin(MemberStatus.PASSWORD_EXPIRED))
+                .isEqualTo("관리자가 내 계정 상태를 '비밀번호 변경 필요'로 변경했습니다.");
         assertThat(NotificationMessages.statusChangedByAdmin(MemberStatus.ACTIVE))
                 .isEqualTo("관리자가 내 계정을 다시 활성화했습니다.");
     }
@@ -64,13 +66,6 @@ class NotificationMessagesTest {
 
         assertThat(message).hasSize(NotificationMessages.MAX_LENGTH).endsWith("…")
                 .startsWith("권한이 변경되었습니다(추가 40·회수 1): -공지사항 삭제, +게시판 #1 조회");
-    }
-
-    @Test
-    @DisplayName("E3는 '3일 후'가 아니라 절대 만료 시각을 담는다")
-    void passwordExpiring_hasAbsoluteDate() {
-        assertThat(NotificationMessages.passwordExpiring(LocalDateTime.of(2026, 10, 8, 16, 0)))
-                .isEqualTo("비밀번호가 2026-10-08 16:00에 만료됩니다. 내 설정에서 비밀번호를 변경해주세요.");
     }
 
     @Test

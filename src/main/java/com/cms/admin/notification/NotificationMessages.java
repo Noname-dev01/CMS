@@ -58,11 +58,6 @@ public final class NotificationMessages {
         return fit("권한이 변경되었습니다(추가 " + added.size() + "·회수 " + removed.size() + "): " + detail);
     }
 
-    /** E3 — 비밀번호 만료 임박. "3일 후" 대신 절대 만료 시각을 넣어 나중에 읽어도 오해가 없게 한다. */
-    public static String passwordExpiring(LocalDateTime expiresAt) {
-        return fit("비밀번호가 " + expiresAt.format(MINUTE) + "에 만료됩니다. 내 설정에서 비밀번호를 변경해주세요.");
-    }
-
     /** 새 문의 접수 — 상수 문장이다(문의 내용·방문자 이름·이메일을 담지 않는다). */
     public static String inquiryReceived() {
         return "새 문의가 접수되었습니다. 문의함에서 확인해주세요.";
@@ -86,7 +81,7 @@ public final class NotificationMessages {
             case ACTIVE -> "활성";
             case LOCKED -> "잠금";
             case DISABLED -> "비활성";
-            case PASSWORD_EXPIRED -> "비밀번호 만료";
+            case PASSWORD_EXPIRED -> "비밀번호 변경 필요";
             case DELETED -> "삭제";
         };
     }

@@ -13,7 +13,6 @@
 |---|---|---|---|
 | `ACCOUNT_STATUS` (E1) | 관리자가 내 계정 상태를 바꿈(잠금·비활성·활성 복구), 로그인 연속 실패 자동 잠금 | 대상 본인 | `AdminMemberService.updateAdminMember`, `AdminAccountAutoLockEvent` |
 | `PERMISSION` (E2) | 역할 변경, 개별 권한 부여·회수 | 대상 본인 | `AdminMemberService.updateAdminMember`, `MemberPermissionService.replace` |
-| `PASSWORD_EXPIRY` (E3) | 비밀번호 만료 7일 이내 | 본인 | 로그인 성공 처리(`VisitLoggingAuthenticationSuccessHandler`) |
 | `ADMIN_ACCOUNT_LOCKED` (E4) | **다른** 관리자 계정의 자동 잠금 | 다른 **ACTIVE ADMIN 전원**(잠긴 본인 제외) | `AdminAccountAutoLockEvent` |
 | `INQUIRY_RECEIVED` (E5, 2026-10-12) | 공개 폼으로 새 문의 접수 | **ACTIVE ADMIN 전원 + `INQUIRY`/`READ` 허용 행이 있는 ACTIVE MANAGER**(`utf8mb4_nopad_bin` 정확 일치). **이미 미읽음 문의 알림이 있는 회원은 건너뛴다**(회원당 미읽음 최대 1건) | `InquiryNotifier` → `NotificationRecorder.recordInquiryReceived()` — **E1~E4와 달리 이벤트·`AFTER_COMMIT` 리스너를 쓰지 않는다**(아래) |
 
@@ -24,8 +23,8 @@
 - **E1·E2(관리자 수정·권한 저장)**: 원 트랜잭션은 `NotificationRequestedEvent`를 **발행만** 한다. `NotificationEventListener`가 `AFTER_COMMIT`에서 `NotificationRecorder.record()`(`REQUIRES_NEW`)로 저장한다 — 롤백되면 알림이 생기지 않고, 알림 저장이 실패해도(예외는 삼키고 ERROR 로그) 원 변경은 이미 커밋돼 있다. 감사 로그와 같은 계약이다.
 - **E1·E4(자동 잠금)**: `AdminAccountAutoLockEvent`를 같은 리스너가 구독한다. 한 `REQUIRES_NEW` 트랜잭션에서 잠긴 본인 E1 1건 + 다른 ACTIVE ADMIN E4를 **다중 행 `INSERT … VALUES` 한 문장**으로 저장한다. **수신자 ID는 잠금 없는 일반 SELECT**(`MemberRepository.findActiveAdminIdsExcluding`)로 읽는다 — `INSERT … SELECT … FROM member`는 REPEATABLE READ에서 원본 읽기가 공유 잠금을 걸어 수신자가 아닌 회원의 변경까지 지연시킨다(`findActiveAdminIdsForUpdate`와 혼동 금지). 남는 한계: `notification.member_id` FK 검사가 수신자 ADMIN 행에 공유 잠금을 걸어, 그 행을 다른 트랜잭션이 수정 중이면 저장이 대기할 수 있다(타임아웃·예외 삼킴).
 - **이벤트의 아이디·시각은 정규 값이다**: `AdminAccountAutoLockEvent.userId`는 로그인 요청의 `username` **원문**(대소문자·후행 공백 변형, 길이 무제한)이라 알림 메시지에 쓰지 않는다. 이벤트에 추가된 `canonicalUserId`(DB의 `member.userId`, ≤50자)와 `lockedAt`(잠금 전이 시각)을 쓴다 — 요청 원문을 쓰면 `message`(255자) 상한을 깨 E1·E4 저장 전체가 실패할 수 있다.
-- **E3(비밀번호 임박)**: `expiresAt = passwordChangedAt + 90일`이 `(now, now+7일]`이면 생성(기존 만료 쿼리와 같은 시·분·초 기준 — 날짜 차이로 계산하지 않는다). 판정 기준은 로그인 재확인이 읽은 fresh 스냅샷(`MemberSnapshot.passwordChangedAt`)이고, 저장은 **"회원의 현재 `password_changed_at`이 스냅샷과 같을 때만"** 조건부 `INSERT … SELECT … ON DUPLICATE KEY UPDATE id = notification.id`다(**`id = id`는 `member.id`·`notification.id`가 모호해 오류**). `dedupe_key = "PASSWORD_EXPIRY:" + passwordChangedAt`로 **비밀번호 주기당 1건**이다. 반환값(행 수)에 의존하지 않는다 — 중복 시 값이 드라이버 설정에 달라진다.
-- **로그인 경로는 `REQUIRES_NEW`를 쓰지 않는다**(요청당 커넥션 2개 금지 — `LoginFailureService.unlockIfLockExpired` 주석의 풀 고갈 규칙). 성공 핸들러는 트랜잭션 밖이라 `recordPasswordExpiryIfNear`와 `purgeOldReadNotifications`는 **서로 다른 `@Transactional`(REQUIRED) 메서드**로 각각 자기 트랜잭션을 열고, 핸들러가 각각 try/catch로 감싸 한쪽 실패가 다른 쪽과 로그인을 막지 않는다. **정리(D7·D8)**: 읽은 지 90일이 지난 본인 알림만 삭제(미읽음은 지우지 않음). 스케줄러가 없어 로그인하지 않는 회원의 오래된 알림은 남는다.
+- **E3(비밀번호 만료 임박)는 2026-11-05에 제거됐다**(시간 기반 만료 폐지, V14가 행을 지웠다). `dedupe_key` 컬럼과 유니크는 스키마 변경 없이 남아 있고 지금은 쓰는 곳이 없다. **이전 앱으로 롤백한 기간에 생긴 `PASSWORD_EXPIRY` 행은 재배포 전에 지운다**(`docs/deployment.md` "비밀번호 만료 폐지").
+- **로그인 경로는 `REQUIRES_NEW`를 쓰지 않는다**(요청당 커넥션 2개 금지 — `LoginFailureService.unlockIfLockExpired` 주석의 풀 고갈 규칙). 성공 핸들러는 트랜잭션 밖이라 `purgeOldReadNotifications`(REQUIRED)가 자기 트랜잭션을 열고, 핸들러가 try/catch로 감싸 실패가 로그인을 막지 않는다. **정리(D7·D8)**: 읽은 지 90일이 지난 본인 알림만 삭제(미읽음은 지우지 않음). 스케줄러가 없어 로그인하지 않는 회원의 오래된 알림은 남는다.
 
 - **`INQUIRY_RECEIVED`(새 문의, 무인증 공개 경로에서 발생)**: 문장은 **상수**이고 문의 내용·방문자 정보를 담지 않는다. 컨트롤러가 접수 트랜잭션(`InquiryService.submit`)이 **끝난 뒤** 트랜잭션 없는 `InquiryNotifier.notifyReceived()`를 부르고, 이 클래스가 `recordInquiryReceived()`(`READ_COMMITTED`, REQUIRED — 호출자에 트랜잭션이 없어 새 트랜잭션 하나)를 호출한다. `AFTER_COMMIT` 리스너의 `REQUIRES_NEW`는 제출 트랜잭션의 커넥션을 쥔 채 두 번째 커넥션을 요구해 풀 크기만큼의 동시 제출이 풀 획득 대기로 응답을 막기 때문이다(로그인 경로의 "요청당 커넥션 2개 금지"와 같은 규칙, `PublicInquirySmallPoolIntegrationTest`). 수신자 INSERT 한 문장은 `SET STATEMENT max_statement_time=3, innodb_lock_wait_timeout=1 FOR INSERT …`로 감싸 FK 검사의 락 대기가 접수 응답을 오래 붙잡지 못하게 한다 — `innodb_lock_wait_timeout`은 락마다 새로 계산돼 합산 상한이 아니라서 문장 전체 상한이 필요하다(대략의 상한이지 엄밀한 벽시계 상한은 아니다). 초과·실패는 `InquiryNotifier`가 삼킨다. **D11(열람 시점 권한)을 이 종류에는 확장하지 않았다** — 권한을 회수당한 MANAGER에게 기존 문의 알림이 남을 수 있고 노출되는 것은 "문의가 왔다"는 사실뿐이다(링크는 403). 상세는 `com.cms.admin.inquiry`의 `CLAUDE.md`. **새 알림 종류의 롤백 주의**: `Notification.type`이 `@Enumerated(STRING)`이라 그 종류를 모르는 이전 앱이 행을 읽으면 알림 목록 조회가 실패한다 — 새 종류를 도입한 버전을 되돌릴 때는 그 종류의 행을 먼저 지운다(`docs/deployment.md` "문의 폼").
 
@@ -63,10 +62,10 @@
 
 ## 시험
 
- `NotificationRepositoryDataJpaTest`(커서·D11·원자적 읽음·정리·E3 조건부 INSERT), `NotificationServiceTest`·`NotificationControllerTest`, `NotificationApiIntegrationTest`(IDOR·D11 강등/재승격·동시 읽음·커서), `NotificationGenerationIntegrationTest`(E1·E2·E4·롤백·저장 실패 격리·리스너 순서), `NotificationLoginIntegrationTest`(E3 경계·스냅샷 불일치·동시 중복·정리), `NotificationMessagesTest`. 회원을 직접 지우는 기존 시험은 FK CASCADE로 별도 수정이 필요 없다.
+ `NotificationRepositoryDataJpaTest`(커서·D11·원자적 읽음·정리), `NotificationServiceTest`·`NotificationControllerTest`, `NotificationApiIntegrationTest`(IDOR·D11 강등/재승격·동시 읽음·커서), `NotificationGenerationIntegrationTest`(E1·E2·E4·롤백·저장 실패 격리·리스너 순서), `NotificationLoginIntegrationTest`(정리·비밀번호 알림 없음), `NotificationMessagesTest`. 회원을 직접 지우는 기존 시험은 FK CASCADE로 별도 수정이 필요 없다.
 
 ## 남은 한계
 
-- E3·정리는 **로그인 시점에만** 동작한다(스케줄러 없음) — 로그인하지 않는 동안에는 알림이 생기지 않고 오래된 읽은 알림은 남는다.
+- 정리는 **로그인 시점에만** 동작한다(스케줄러 없음) — 로그인하지 않는 동안 오래된 읽은 알림은 남는다.
 - 알림 저장은 최선 노력이라 DB 장애·풀 포화 시 유실될 수 있다(원 업무는 유지).
 - E4는 자동 잠금 횟수 × ACTIVE ADMIN 수만큼 생성된다(별도 묶음·억제 없음 — 관리자가 `ACTIVE`로 복구하면 30분 전에도 다시 잠길 수 있다).

@@ -5,7 +5,6 @@ import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.config.auth.AdminSecurityService;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.LoginFailureService;
-import com.cms.config.auth.PasswordExpiryService;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import com.cms.config.ratelimit.RateLimitFilterConfig;
 import com.cms.support.TestStubController;
@@ -94,8 +93,7 @@ class RateLimitResponseTest {
         public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler(
                 LoginFailureService loginFailureService) {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
-            PasswordExpiryService mockExpiry = Mockito.mock(PasswordExpiryService.class);
-            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService, mockExpiry,
+            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService,
                     org.mockito.Mockito.mock(com.cms.admin.notification.service.NotificationRecorder.class),
                     Clock.systemDefaultZone());
         }

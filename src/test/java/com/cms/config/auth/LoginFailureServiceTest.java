@@ -199,7 +199,7 @@ class LoginFailureServiceTest extends MariaDbContainerSupport {
 
         Optional<MemberSnapshot> snapshot = loginFailureService.resetFailuresAndCheckActive(member.getUserId());
 
-        assertThat(snapshot).hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "encoded", FIXED_NOW));
+        assertThat(snapshot).hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "encoded"));
         assertThat(reload(member.getId()).getFailedLoginCount()).isZero();
     }
 

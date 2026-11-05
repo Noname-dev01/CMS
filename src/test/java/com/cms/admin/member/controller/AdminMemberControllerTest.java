@@ -580,17 +580,14 @@ class AdminMemberControllerTest {
     }
 
     @Test
-    @DisplayName("status=PASSWORD_EXPIRED 요청도 400 — 시스템 전이 상태는 수동 지정 불가")
+    @DisplayName("status=PASSWORD_EXPIRED 요청은 검증을 통과한다 — 관리자의 비밀번호 변경 강제")
     @WithMockUser(roles = "ADMIN")
-    void updateAdminMember_statusPasswordExpired_returns400() throws Exception {
+    void updateAdminMember_statusPasswordExpired_passesValidation() throws Exception {
         mockMvc.perform(patch("/admin/api/members/2")
                         .with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\":\"PASSWORD_EXPIRED\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
-
-        verifyNoInteractions(adminMemberService);
+                .andExpect(status().isOk());
     }
 
     @Test

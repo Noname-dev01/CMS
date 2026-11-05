@@ -858,6 +858,46 @@ class AdminMemberServiceTest {
     }
 
     @Test
+    @DisplayName("변경 강제(PASSWORD_EXPIRED) 지정은 세션을 만료하고 E1 알림을 낸다")
+    void updateAdminMember_forcePasswordChange_revokesSessions() {
+        Member target = targetManager(2L, MemberStatus.ACTIVE);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().status(MemberStatus.PASSWORD_EXPIRED).build());
+
+        assertEquals(MemberStatus.PASSWORD_EXPIRED, target.getStatus());
+        verify(eventPublisher).publishEvent(new AdminSessionRevokeEvent(2L));
+        verify(eventPublisher).publishEvent(any(com.cms.admin.notification.event.NotificationRequestedEvent.class));
+    }
+
+    @Test
+    @DisplayName("변경 강제 동일값 재저장도 세션 만료 이벤트를 발행한다 — 첫 폐기 실패의 복구 경로")
+    void updateAdminMember_idempotentForcePasswordChange_publishesRevokeEvent() {
+        Member target = targetManager(2L, MemberStatus.PASSWORD_EXPIRED);
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+
+        adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().status(MemberStatus.PASSWORD_EXPIRED).build());
+
+        verify(eventPublisher).publishEvent(new AdminSessionRevokeEvent(2L));
+    }
+
+    @Test
+    @DisplayName("마지막 활성 ADMIN에게는 변경을 강제할 수 없다 — 409")
+    void updateAdminMember_forcePasswordChangeOnLastActiveAdmin_conflict() {
+        Member target = Member.builder().id(2L).userId("last").pwd("encoded").userName("n").email("last@test.com")
+                .userType(Role.ROLE_ADMIN).status(MemberStatus.ACTIVE).build();
+        given(memberRepository.findByIdForUpdate(2L)).willReturn(Optional.of(target));
+        given(memberRepository.findActiveAdminIdsForUpdate()).willReturn(java.util.List.of(2L));
+
+        assertThrows(com.cms.common.exception.ConflictException.class, () -> adminMemberService.updateAdminMember(1L, 2L,
+                AdminMemberUpdateRequest.builder().status(MemberStatus.PASSWORD_EXPIRED).build()));
+
+        assertEquals(MemberStatus.ACTIVE, target.getStatus());
+    }
+
+    @Test
     @DisplayName("status=ACTIVE 동일값 재저장은 이벤트를 발행하지 않는다 — 활성 관리자 강제 로그아웃 남용 차단")
     void updateAdminMember_sameActiveStatus_noEvent() {
         Member target = targetManager(2L, MemberStatus.ACTIVE);

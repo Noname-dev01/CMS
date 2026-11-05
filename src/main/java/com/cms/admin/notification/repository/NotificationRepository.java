@@ -46,21 +46,4 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     @Modifying
     @Query("delete from Notification n where n.memberId = :memberId and n.readAt is not null and n.readAt < :cutoff")
     int deleteReadBefore(@Param("memberId") Long memberId, @Param("cutoff") LocalDateTime cutoff);
-
-    /**
-     * E3(비밀번호 만료 임박) 조건부 중복 방지 저장. 회원의 현재 {@code password_changed_at}이 재확인 스냅샷과 같을 때만 1행을 넣고,
-     * 같은 {@code (member_id, dedupe_key)}가 이미 있으면 예외 없이 무시한다.
-     * {@code ON DUPLICATE KEY UPDATE id = notification.id}는 {@code member.id}와의 모호성을 피하려고 대상 테이블로 한정한 것이다(v4 R-14).
-     * 반환값은 호출자가 의존하지 않는다 — 중복(no-op 갱신)일 때의 값은 드라이버의 found-rows·affected-rows 설정에 따라 달라질 수 있어
-     * 생성 여부는 행 수로 확인한다(시험이 최초 생성·중복 무시·스냅샷 불일치를 행 수로 고정한다).
-     */
-    @Modifying(clearAutomatically = true)
-    @Query(value = "INSERT INTO notification (member_id, type, message, link_url, dedupe_key, create_date) "
-            + "SELECT m.id, :type, :message, :linkUrl, :dedupeKey, :now FROM member m "
-            + "WHERE m.id = :memberId AND m.password_changed_at = :passwordChangedAt "
-            + "ON DUPLICATE KEY UPDATE id = notification.id", nativeQuery = true)
-    int insertPasswordExpiryIfCurrent(@Param("memberId") Long memberId, @Param("type") String type,
-                                      @Param("message") String message, @Param("linkUrl") String linkUrl,
-                                      @Param("dedupeKey") String dedupeKey, @Param("now") LocalDateTime now,
-                                      @Param("passwordChangedAt") LocalDateTime passwordChangedAt);
 }
