@@ -50,11 +50,11 @@ public class AdminMemberUpdateRequest {
     private Role userType;
 
     @AllowedStatuses(
-            allowed = {MemberStatus.ACTIVE, MemberStatus.LOCKED, MemberStatus.DISABLED},
-            message = "지정 가능한 status는 ACTIVE, LOCKED, DISABLED만 허용됩니다."
+            allowed = {MemberStatus.ACTIVE, MemberStatus.LOCKED, MemberStatus.DISABLED, MemberStatus.PASSWORD_EXPIRED},
+            message = "지정 가능한 status는 ACTIVE, LOCKED, DISABLED, PASSWORD_EXPIRED만 허용됩니다."
     )
-    @Schema(description = "계정 상태. null이면 기존값 유지. DELETED·PASSWORD_EXPIRED는 지정 불가",
-            example = "LOCKED", allowableValues = {"ACTIVE", "LOCKED", "DISABLED"})
+    @Schema(description = "계정 상태. null이면 기존값 유지. PASSWORD_EXPIRED는 비밀번호 변경 강제(재설정 메일로 복구). DELETED는 지정 불가",
+            example = "LOCKED", allowableValues = {"ACTIVE", "LOCKED", "DISABLED", "PASSWORD_EXPIRED"})
     private MemberStatus status;
 
     /** 전부 null인 무의미 요청 거부 — 위반 시 400 VALIDATION_ERROR */

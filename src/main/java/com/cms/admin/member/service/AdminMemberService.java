@@ -294,10 +294,11 @@ public class AdminMemberService {
         }
 
         // 세션 만료 트리거: ① status 실변경(→ACTIVE 복귀 포함) ② userType 실변경(승격·강등)
-        // ③ 요청 status가 LOCKED/DISABLED면 동일값이어도 만료(멱등 재잠금 — 만료 실패 시 운영 복구 경로).
+        // ③ 요청 status가 LOCKED/DISABLED/PASSWORD_EXPIRED면 동일값이어도 만료(멱등 재잠금 — 만료 실패 시 운영 복구 경로).
         // 같은 값 재저장(ACTIVE·동일 role)이나 이름·이메일만 변경 시에는 발행하지 않는다(강제 로그아웃 남용 차단).
         boolean idempotentRelock = request.getStatus() == MemberStatus.LOCKED
-                || request.getStatus() == MemberStatus.DISABLED;
+                || request.getStatus() == MemberStatus.DISABLED
+                || request.getStatus() == MemberStatus.PASSWORD_EXPIRED;
         if (statusChanged || roleChanged || idempotentRelock) {
             eventPublisher.publishEvent(new AdminSessionRevokeEvent(target.getId()));
         }

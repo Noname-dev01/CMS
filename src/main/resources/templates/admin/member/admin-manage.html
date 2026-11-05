@@ -62,7 +62,7 @@
                                             <option value="ACTIVE">활성</option>
                                             <option value="LOCKED">잠김</option>
                                             <option value="DISABLED">비활성</option>
-                                            <option value="PASSWORD_EXPIRED">비밀번호 만료</option>
+                                            <option value="PASSWORD_EXPIRED">비밀번호 변경 필요</option>
                                         </select>
                                     </div>
                                 </div>
@@ -173,6 +173,7 @@
                             <option value="ACTIVE">활성</option>
                             <option value="LOCKED">잠김</option>
                             <option value="DISABLED">비활성</option>
+                            <option value="PASSWORD_EXPIRED">비밀번호 변경 필요</option>
                         </select>
                     </div>
                     <div class="alert alert-warning mb-0" role="alert">
@@ -341,7 +342,7 @@
         if (value === "ACTIVE") return "활성";
         if (value === "LOCKED") return "잠김";
         if (value === "DISABLED") return "비활성";
-        if (value === "PASSWORD_EXPIRED") return "비밀번호 만료";
+        if (value === "PASSWORD_EXPIRED") return "비밀번호 변경 필요";
         if (value === "DELETED") return "삭제";
         return value || "-";
     }
@@ -509,7 +510,7 @@
         editUserName.value = currentDetail.userName || "";
         editEmail.value = currentDetail.email || "";
         editUserType.value = currentDetail.userType;
-        // 현재 상태가 선택지에 없으면(PASSWORD_EXPIRED 등) 표시용 옵션을 임시 추가해
+        // 현재 상태가 선택지에 없으면(DELETED 등) 표시용 옵션을 임시 추가해
         // 의도치 않은 상태 변경 전송을 방지한다 (변경분만 전송하므로 그대로 두면 미전송)
         ensureStatusOption(currentDetail.status);
         editStatus.value = currentDetail.status;
