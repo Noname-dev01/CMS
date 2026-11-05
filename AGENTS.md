@@ -2,7 +2,7 @@
 
 ## 프로젝트 구조 및 모듈 구성
 
-애플리케이션 코드는 `src/main/java/com/cms`에 있습니다. 기능은 `admin/` 아래의 `member`, `menu`, `log`로 구분하며, 공통 API 코드는 `common/`, 인프라 설정은 `config/`에 둡니다. Thymeleaf 뷰는 `src/main/resources/templates`, 정적 자산은 `src/main/resources/static`에 있습니다. 테스트는 `src/test/java` 아래에서 운영 코드의 패키지 구조를 따릅니다. `build/`, `out/`, `.gradle/`, `src/main/generated/`는 생성된 결과물로 취급합니다.
+애플리케이션 코드는 `src/main/java/com/cms`에 있습니다. 관리자 기능은 `admin/` 아래 기능별 패키지로, 공개 화면은 `publicweb/`로 구분하며, 공통 코드는 `common/`, 인프라 설정은 `config/`에 둡니다. Thymeleaf 뷰는 `src/main/resources/templates`, 정적 자산은 `src/main/resources/static`에 있습니다. 테스트는 `src/test/java` 아래에서 운영 코드의 패키지 구조를 따릅니다. `build/`, `out/`, `.gradle/`, `src/main/generated/`는 생성된 결과물로 취급합니다.
 
 ## 빌드, 테스트 및 개발 명령어
 

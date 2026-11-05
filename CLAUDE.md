@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `com.cms.admin.site` | **사이트 설정(2026-10-14,`PLAN-site-menu.md` PR ①②③④⑤ 구현 — 사이트 설정 메뉴 전 단계 완료, 공개 메뉴 렌더링 포함)** — **기본 공개 사이트(`site.default_yn`, `/` 302 대상·정확히 1개·비활성화/삭제 불가·변경은 `PATCH defaultSite=true` + 모든 site 행 id 오름차순 `FOR UPDATE`)** — `site` 테이블(시드 관리자 `id=1`·기본 공개 `main` `id=2`)·**공개 사이트 생성·수정·비활성화·삭제(ADMIN 전용, `AdminFeature`·`SecurityConfig` 변경 없음, 시드 삭제·비활성화 불가, 메뉴가 있으면 삭제 불가)**·사이트 키 형식·**예약어(`SiteKey.RESERVED` — 새 최상위 경로를 추가하면 함께 갱신, 컨벤션 시험이 강제)**·**링크 정책(`SiteLinkPolicy` — 관리자=내부만, 공개=외부 허용 설정, 비공개 경로 금지, 별칭 호스트는 수용한 한계)**·**잠금 규약(사이트 행 `FOR UPDATE` 단일 문 + `READ_COMMITTED`, 쓰기 서비스는 최상위 진입점, 다른 사이트 행 비잠금)**·저장된 URL 불변식(정책 강화 409)·**사이트별 콘텐츠(PR ③ —배너·팝업·FAQ 카테고리·정적 페이지의 `site_id` NULL=공통, `ContentSiteScope`(사이트 행 `FOR SHARE`), 수정에 `siteScope`·버전 필수, 공개 필터는 쿼리에 고정)**·삭제 가드 확장 규칙·**사이트별 게시판·공지(PR ④, 2026-10-14 —`board.site_id`, 공지 게시판 키 `NOTICE`(공통)/`NOTICE:{siteId}`(전용)·전용이 공통 대체, 소프트 삭제가 소속·키 해제)**·**공개 메뉴 렌더링(PR ⑤, 2026-10-14 — `/{siteKey}/…` 모든 정상 공개 화면에 사이트 메뉴, 지연 홀더 `siteMenu`·출력 시 `SiteLinkPolicy.permits` 재검증·상시 펼침 CSS, `com.cms.publicweb.menu`)**·사이트 설정 화면 `/admin/site/manage`(2026-10-16) |
 | `com.cms.admin.menu` | **사이트별 편집(2026-10-13) — `menu.site_id`·`siteId` 필수 API·사이드바는 관리자 사이트만·"편집할 사이트" 셀렉트의 전환 상태 전이**·**메뉴 구조 편집 화면은 `/admin/menu/manage`(ADMIN 전용, 302 아닌 실제 화면) — 사이드바 "사이트 관리" 그룹의 하위 메뉴(2026-10-16)**·사이드바 3단 제약·권한 판정기 기반 노출 계산(`MenuVisibility`)·노출 안내(`exposure`)·메뉴 시드 조건 |
 | `com.cms.admin.message` | 상단바 쪽지(1:1)·쪽지함 페이지 — 입력 파이프라인·`REQUIRES_NEW`+`READ_COMMITTED` 발송(상태 행 잠금·삭제와 무관한 발송 이력)·각자 보관함 삭제(네이티브 조건부 DELETE)·모든 API의 현재 자격 가드·수신자 검색 노출·`safeErrorMessage` 로그 비유출 범위 |
-| `com.cms.admin.notification` | 상단바 알림(E1~E4)의 최선 노력 생성 계약·리스너 실행 순서(메서드 `@Order`, AFTER_COMMIT이 AFTER_COMPLETION보다 먼저)·`beforeId` 커서·D11(열람 시점 ADMIN) |
+| `com.cms.admin.notification` | 상단바 알림의 최선 노력 생성 계약·리스너 실행 순서(메서드 `@Order`, AFTER_COMMIT이 AFTER_COMPLETION보다 먼저)·`beforeId` 커서·D11(열람 시점 ADMIN) |
 | `com.cms.admin.session` | 세션 관리(접속 중 관리자 조회·수동 강제 만료, **영구 ADMIN 전용**) — 원문 세션 ID 대신 **해시 핸들**·현재 세션 보호(409, 요청 진입 시점 ID 기준)·best-effort 만료·감사 `SESSION_EXPIRE`의 한계(실패 행에 대상 없음)·입력 검증을 컨트롤러가 직접(전역 핸들러에 필수 파라미터 누락 처리 없음)·`SecurityConfig` 변경 없음 |
 | `com.cms.admin.media` | **미디어 라이브러리**(2026-10-12) — **다섯 번째 기능 단위 위임(`DELEGABLE`) 기능 `MEDIA`**(READ·CREATE·DELETE)·새 테이블 없이 **`content_image`가 라이브러리 원본**(`namespace` 빈 문자열 = 루트, `UNIQUE(namespace, storage_key)`, 출처 `LIBRARY`·`BANNER`·`POPUP`·`BOARD`)·배너·팝업 ↔ 이미지 연결은 `content_image_ref` 한 곳(소유자 테이블에 `image_id` 없음, 옛 `banner.storage_key` 등은 NULL 허용·미사용)·**출처별 가시성**(게시판 본문 이미지는 ADMIN만, 라이브러리 계열만 고르기 가능, 고르기도 저장 시점에 현재 `MEDIA` 읽기 판정)·**잠금 순서 가드 → 소유자 → 이미지 → 참조 → 카운터 + 이미지를 지우는 최상위 진입점은 `READ_COMMITTED`**(참조 인덱스 갭 락 순환 방지)·`replaceRefs`의 이미지 `FOR SHARE`·공통 등록/제거 컴포넌트는 감사·자체 트랜잭션 없음·사용 중 삭제 409+사용처 요약·카운터는 배너·팝업까지 하나·수동 회수 ②·⑤·⑤-3·⑤-4 개정 |
 | `com.cms.admin.permission` | MANAGER 위임 권한 카탈로그·판정기·캐시(**회원별 허용 행**), 권한관리 API·화면(`PUT` 교체·409·변형 행 가드), 역할 변경 시 개별 권한 삭제, 인가 선언 컨벤션, 롤백·재배포 주의 |
@@ -108,7 +108,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 - 비밀번호는 항상 `PasswordEncoder`로 인코딩하며 평문 저장 금지.
 - **인가 정책(URL 권한, 로그인 정책)은 사전 협의 없이 변경하지 않는다.** 변경이 필요하면 먼저 제안한다.
 - **기본 거부**(2026-09-29 승인, 감사 M-08): `SecurityConfig`의 마지막 규칙은 `anyRequest().denyAll()`이다. 신규 엔드포인트는 접근 규칙을 명시적으로 추가하지 않으면 차단된다(비인증 302, 인증 403). 컨테이너 ERROR 디스패치·정적 리소스 예외와 정적 예약 접두사 규약은 `com.cms.config`의 `CLAUDE.md` 참조.
-- **무인증 공개 엔드포인트 레이트리밋** (`cms.rate-limit.*`, `com.cms.config.ratelimit`, 2026-08-12 도입): `/notices/**`(GET·HEAD)·비밀번호 재설정 API 2종(POST)에 토큰 버킷 기반 최소 방어를 적용한다. "N회/기간"은 버스트 상한 N + 평균 N/기간을 뜻하며(엄격한 슬라이딩 상한 아님), 정확한 유량 계약을 보장하는 게이트웨이가 아니다. 저장소는 Caffeine(`maximumSize` + 버킷별 `Expiry`)이며, **fail-open을 운영 위험으로 명시 수용**한다 — 캐시가 포화되는 극단적 상황(대량 IP 회전 공격 등)에서는 개별 IP의 정확한 누적치 보장이 흐트러질 수 있다(메모리 상한·무제한 신규 키 수용·IP별 완벽한 정확성을 동시에 요구하려면 Redis 같은 외부 원자적 저장소가 필요하나 이번 범위·인프라 제약을 벗어나 기각). 필터는 `CsrfFilter` **다음**에 위치한다 — CSRF 검증 실패 요청이 quota를 소비하면 외부 사이트가 피해자 브라우저로 토큰 없는 form POST를 반복시켜 피해자 IP의 quota를 고갈시키는 교차 사이트 공격이 가능해지기 때문이다. 키는 `request.getRemoteAddr()` 고정(`X-Forwarded-For` 등은 위조 가능해 미사용). 상세 설계·리뷰 이력은 `adversarial-review/plan/PLAN-public-endpoint-rate-limit.md` 참조. **예외 1건(2026-11-02 승인, `PLAN-content-image-rate-limit.md`)**: 규칙 설정 `exempt-authenticated: true`인 규칙은 로그인한(익명이 아닌) 요청이 버킷을 쓰지 않고 통과한다 — 현재 `content-image`(`/content-images/*`) 하나뿐이고(`SitePublicRateLimitConventionTest`가 고정), 관리 편집기(Quill) 이미지는 스크립트로 자리표시를 만들 수 없어 같은 IP 익명 방문자가 버킷을 비우면 깨지던 문제의 해법이다. 익명 한도(240/60초)·URL 인가 규칙은 불변이고 면제는 다음 규칙 평가로 넘어가지 않는다. 공개 상세 본문 이미지는 외부 스크립트 `board-content-image-fallback.js`가 실패 시 안내 상자로 바꾼다.
+- **무인증 공개 엔드포인트 레이트리밋** (`cms.rate-limit.*`, `com.cms.config.ratelimit`, 2026-08-12 도입): `/{siteKey}/notices/**`(GET·HEAD)·비밀번호 재설정 API 2종(POST)에 토큰 버킷 기반 최소 방어를 적용한다. "N회/기간"은 버스트 상한 N + 평균 N/기간을 뜻하며(엄격한 슬라이딩 상한 아님), 정확한 유량 계약을 보장하는 게이트웨이가 아니다. 저장소는 Caffeine(`maximumSize` + 버킷별 `Expiry`)이며, **fail-open을 운영 위험으로 명시 수용**한다 — 캐시가 포화되는 극단적 상황(대량 IP 회전 공격 등)에서는 개별 IP의 정확한 누적치 보장이 흐트러질 수 있다(메모리 상한·무제한 신규 키 수용·IP별 완벽한 정확성을 동시에 요구하려면 Redis 같은 외부 원자적 저장소가 필요하나 이번 범위·인프라 제약을 벗어나 기각). 필터는 `CsrfFilter` **다음**에 위치한다 — CSRF 검증 실패 요청이 quota를 소비하면 외부 사이트가 피해자 브라우저로 토큰 없는 form POST를 반복시켜 피해자 IP의 quota를 고갈시키는 교차 사이트 공격이 가능해지기 때문이다. 키는 `request.getRemoteAddr()` 고정(`X-Forwarded-For` 등은 위조 가능해 미사용). 상세 설계·리뷰 이력은 `adversarial-review/plan/PLAN-public-endpoint-rate-limit.md` 참조. **예외 1건(2026-11-02 승인, `PLAN-content-image-rate-limit.md`)**: 규칙 설정 `exempt-authenticated: true`인 규칙은 로그인한(익명이 아닌) 요청이 버킷을 쓰지 않고 통과한다 — 현재 `content-image`(`/content-images/*`) 하나뿐이고(`SitePublicRateLimitConventionTest`가 고정), 관리 편집기(Quill) 이미지는 스크립트로 자리표시를 만들 수 없어 같은 IP 익명 방문자가 버킷을 비우면 깨지던 문제의 해법이다. 익명 한도(240/60초)·URL 인가 규칙은 불변이고 면제는 다음 규칙 평가로 넘어가지 않는다. 공개 상세 본문 이미지는 외부 스크립트 `board-content-image-fallback.js`가 실패 시 안내 상자로 바꾼다.
 
 ## 핵심 도메인 모델
 
@@ -116,7 +116,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 
 **Member**(관리자 계정, 비밀번호 재설정·로그인 실패 잠금·유출 비밀번호 차단·변경 강제·프로필 이미지 포함), **Menu**, **공지**(2026-10-09부터 공지 게시판의 게시글 — 첨부파일·공개 공지 페이지·공개 첨부파일 다운로드 포함; 옛 `Notice` 엔티티는 제거되고 `notice`·`notice_attachment` 테이블은 V3에서 제거), **AdminActionLog** 상세는 각각 `com.cms.admin.member`·`com.cms.admin.menu`·`com.cms.admin.board`(공개 측은 `com.cms.publicweb.notice`·`com.cms.publicweb.board`)·`com.cms.admin.log`의 `CLAUDE.md` 참조(해당 패키지 작업 시 자동 로드).
 
-**VisitLog / 대시보드**: ADMIN·MANAGER 로그인 성공 1회 = 방문 1건 (`VisitLoggingAuthenticationSuccessHandler`가 기록 — 저장·집계 모두 KST `Clock` 단일 시간원, 2026-07-18 통일). 대시보드는 통계 카드 4종 + 최근 7일 방문자 라인 차트(`DashboardService.getDailyVisitorCounts()` — 방문 없는 날 0 채움, 집계 실패 시 빈 리스트 폴백으로 500 없이 오류 문구 표시, 페이지 모델 주입 방식이라 REST API 없음). 카드·차트는 개별 조회라 순간 불일치 허용(의도된 eventual consistency). SB Admin 2 데모 위젯은 2026-07-18 전부 제거됨
+**VisitLog / 대시보드**: ADMIN·MANAGER 로그인 성공 1회 = 방문 1건 (`VisitLoggingAuthenticationSuccessHandler`가 기록 — 저장·집계 모두 KST `Clock` 단일 시간원, 2026-07-18 통일). 대시보드는 통계 카드 4종 + 최근 7일 방문자 라인 차트(`DashboardService.getDailyVisitorCounts()` — 방문 없는 날 0 채움, 집계 실패 시 빈 리스트 폴백으로 500 없이 오류 문구 표시, 페이지 모델 주입 방식이라 REST API 없음). 카드·차트는 개별 조회라 순간 불일치 허용(의도된 eventual consistency).
 
 ## API 문서
 
@@ -134,11 +134,11 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 
 ## MCP 도구 활용 지침
 
-context7(라이브러리 공식 문서 조회)·sequential-thinking(복잡한 작업 사전 설계)·playwright(브라우저 UI 검증) 사용 시점·절차는 `library-docs-lookup` 스킬 참조(관련 작업 시 자동 판단·호출).
+context7(라이브러리 공식 문서 조회)·playwright(브라우저 UI 검증) 사용 시점·절차는 `library-docs-lookup` 스킬 참조(관련 작업 시 자동 판단·호출).
 
 ## 작업 방식 (Claude Code에게)
 
-1. 변경 범위가 크면 코드 작성 전에 **계획을 먼저 제시**하고 확인을 받는다. (복잡한 작업은 sequential-thinking 활용)
+1. 변경 범위가 크면 코드 작성 전에 **계획을 먼저 제시**하고 확인을 받는다.
 2. 한 번에 하나의 기능/관심사만 변경한다. 무관한 리팩터링을 섞지 않는다.
 3. **요청받지 않은 기능·추상화·설정 옵션을 미리 만들지 않는다. 문제를 해결하는 최소한의 코드로 구현한다.** (과도하게 복잡해 보이면 더 단순한 방법을 먼저 제시한다)
 4. **검증 범위는 단계별로 다르다**(2026-10-22 — 전체 실행 약 6분, PR CI가 전체를 다시 돌린다). 실패하면 원인을 설명한다.

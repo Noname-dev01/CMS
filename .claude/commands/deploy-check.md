@@ -1,5 +1,5 @@
 ---
-description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 관점에서 전수 점검하고 ship/no-ship 리포트만 작성한다 (파일 수정 없음). 현재 운영 환경 미구축 상태이므로 prod 전용 점검 항목은 "해당 없음"으로 처리 — 릴리스 후보 점검이나 전면 보안 점검이 필요할 때 실행.
+description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 관점에서 전수 점검하고 ship/no-ship 리포트만 작성한다 (파일 수정 없음). prod 프로파일·compose까지 점검하고, 실제 인터넷 배포(호스트·도메인·TLS)만 "해당 없음"으로 처리 — 릴리스 후보 점검이나 전면 보안 점검이 필요할 때 실행.
 ---
 
 프로젝트 전체를 릴리스 후보 관점으로 전수 점검해줘.
@@ -10,11 +10,8 @@ description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 
 - 파일은 절대 수정하지 말고 리포트만 작성한다.
 
 전제 (이 프로젝트의 현재 상태 — 점검 시 이 사실과 달라졌는지부터 확인해):
-- 운영 환경 미구축. 존재하는 설정은 `application.yml` + `application-dev.yml`,
-  `docker-compose.dev.yml`, `.env.dev`, `Dockerfile`, `Makefile`(dev 타깃만)이 전부다.
-- prod 프로파일·prod compose·SSL·운영 DB는 **존재하지 않는다**. 이들에 대한 점검은
-  "해당 없음"으로 처리하고, 존재한다고 가정한 지적을 만들어내지 마.
-  단, prod 관련 파일이 새로 생겼다면 그 시점부터 점검 대상에 포함해.
+- 실제 인터넷 배포(호스트·도메인·TLS)는 아직 없다. 이 항목은 "해당 없음"으로 처리해.
+- `application-prod.yml`, `docker-compose.prod.yml`, `Makefile`의 prod 타깃은 점검 대상이다.
 
 중요 원칙:
 - 추측하지 말고 실제 파일을 열어서 확인해.
@@ -53,12 +50,12 @@ description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 
 - 세션 강제 만료(`AdminSessionRevokeEvent` → AFTER_COMMIT): best-effort 계약이 문서·코드에서 일관되는지
 - `ACTIVE` 상태만 로그인 가능(`CustomUserDetailsService`), 비밀번호 인코딩(BCrypt)
 - 최후 활성 ADMIN 제거 방지 가드
-- actuator 노출 범위 (health/info 공개가 의도 범위인지)
+- actuator 노출 범위 (health만 공개가 의도 범위)
 - CORS 설정 존재 시 범위
 
 ## 3. API 계약 점검
 
-- 엔드포인트 경로·HTTP method가 CLAUDE.md RESTful 규칙과 일치하는지
+- 엔드포인트 경로·HTTP method가 `api-conventions` 스킬의 규칙과 일치하는지
 - 요청 DTO Bean Validation, 실패 시 400 VALIDATION_ERROR 응답
 - 409 DUPLICATE_RESOURCE (유니크 제약 위반 매핑) 동작
 - 상태 코드 일관성 (400/401/403/404/409/500)
@@ -73,7 +70,6 @@ description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 
 - Service 트랜잭션 경계, 조회 전용 `readOnly` 적용
 - N+1 가능성 (사이드바 메뉴 조회, 목록 API)
 - 소프트 삭제(메뉴 비활성화) 정책 일관성
-- 프로필 이미지 Base64 LONGTEXT 저장 — 응답 크기·성능 리스크
 
 ## 5. 화면 / Thymeleaf 점검
 
@@ -87,24 +83,23 @@ description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 
 
 - 인증/인가/CSRF 테스트 존재 여부
 - Security Filter Chain 포함 통합 테스트 여부
-- CI(`.github/workflows/ci.yml`)가 실제로 전체 테스트를 실행하는지 (MariaDB service container 포함)
+- CI(`.github/workflows/ci.yml`)가 실제로 전체 테스트를 실행하는지 (Testcontainers 포함)
 - 테스트 성공 기준이 지나치게 느슨하지 않은지
 - Playwright/E2E로만 검증 가능한 항목 목록
 
 ## 7. 설정 / 빌드 점검
 
-- `build.gradle` 의존성·버전 (Boot 3.5.x, QueryDSL, Flyway)
-- `application.yml` / `application-dev.yml` / `.env.dev` 정합성 (포트 3307, 프로파일 기본값 dev)
+- `build.gradle` 의존성·버전 (Spring Boot, QueryDSL, Flyway)
+- `application.yml` / `application-dev.yml` / `application-prod.yml` 정합성 (dev 포트 3307, 프로파일 기본값 없음)
 - `Dockerfile`, `docker-compose.dev.yml`, `Makefile` 타깃이 실제로 동작하는 구성인지
 - 환경변수 의존성 목록과 누락 시 동작
-- 메일(SMTP) 설정 — 미구현 기능이 기동을 막지 않는지
+- 메일(SMTP) 설정 — 누락이 기동·재설정 흐름에 미치는 영향
 - 로그 설정, 타임존
 
 ## 8. 운영 준비 공백 (no-ship 아님 — 운영 구축 전 필수 과제로만 분류)
 
 운영 환경을 만들기 전에 반드시 해결해야 할 항목을 별도 목록으로 정리해:
-- prod 프로파일·시크릿 주입 전략 부재
-- 미구현 기능(메일 발송, 비밀번호 재설정 토큰 사용, LOCKED/PASSWORD_EXPIRED 전이) 중 보안 관련 항목
+- 실제 인터넷 배포의 전제 조건(호스트·도메인·TLS)
 - 그 외 운영 전제 조건 (백업, 로그 수집 등 발견되는 것)
 
 # 출력
