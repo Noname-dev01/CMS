@@ -15,3 +15,7 @@
 ## 시험
 
 `PublicNoticeRedirectIntegrationTest`(302 GET·HEAD·쿼리 원문·슬러그 변경·공지 게시판 없음/비공개 404·하위 경로 404), `PublicBoardSiteScopeIntegrationTest`(사이트별 해석·전용 삭제 후 복귀), `SitePublicRateLimitConventionTest`(302가 한도에 세어짐 — 시험은 기본으로 레이트리밋이 꺼져 있어 켠 이 클래스에 둔다), `PublicSiteRoutingServerTest`(하위 경로 404 화면), `NoticeLinkUpgradeTest`(V11). 옛 공지 시험 중 실제 DB의 TOCTOU·IDOR·파일 없음은 `publicweb.board.service.PublicBoardAttachmentIntegrationTest`로 옮겼다.
+
+## 루트 지도에서 옮긴 요약
+
+**공개 `/{siteKey}/notices` 흡수(2026-10-28 PR 4b)** — 목록만 남아 해석된 공지 게시판(전용 → 공통)의 `/boards/{슬러그}`로 **302**(쿼리 원문 유지, 없거나 비공개면 404)·상세·첨부 하위 경로는 핸들러 없는 404(`SecurityConfig` 하위 `permitAll`은 404 유지용으로 남김)·공지 전용 템플릿·컨트롤러·`notice.css` 제거, 공용 500 뷰는 `public/error`·`Optional.map`에 null 람다 함정·숫자 공지 링크는 V11 치환 + 저장 거부

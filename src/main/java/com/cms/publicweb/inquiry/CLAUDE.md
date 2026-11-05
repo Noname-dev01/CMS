@@ -44,3 +44,7 @@
 ## 시험
 
 `PublicInquiryIntegrationTest`(접수 왕복·400 입력 보존·캡차 비호출·토큰 형식·소프트 상한 503·로그 비유출·알림 실패 격리·병합), `PublicInquiryRateLimitIntegrationTest`(429), `PublicInquiryClosedIntegrationTest`(`enabled=false`), `PublicInquirySmallPoolIntegrationTest`(요청당 커넥션 1개), `TurnstileCaptchaVerifierTest`, `InquiryTurnstileConfigValidatorTest`(배선 포함), `PublicInquiryTemplateConventionTest`, `SecurityConfigTest`의 공개 `/inquiry` 절.
+
+## 루트 지도에서 옮긴 요약
+
+공개 `/inquiry`(**정확 경로 1개 GET·HEAD·POST 무인증, 2026-10-12 승인 — 두 번째 무인증 POST**, CSRF 활성) — 순서 고정: 닫힘·상한 → 입력 정책 → 캡차 토큰 형식 → **Cloudflare Turnstile 서버 검증(JDK HttpClient, 호출 전체 5초 상한·fail-closed·트랜잭션 밖)** → 접수 → 알림 → PRG 303·**`enabled` 기본 false = 기능 닫힘(503), prod는 공개 테스트 키 기동 실패, compose·env 가드 배선**·`PublicWebExceptionAdvice`를 거치지 않고 컨트롤러가 직접 처리(원인 체인 로그 복제 방지, 예외 클래스명만 로그)·400/503/500은 입력 보존, 429·CSRF 403은 보존 안 됨·레이트리밋 `inquiry-submit`(10/3600초)·`publicweb` 쓰기 매핑은 `POST /inquiry` 하나로 고정(컨벤션 시험)·외부 스크립트는 Turnstile 하나
