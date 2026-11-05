@@ -1,7 +1,7 @@
 # PLAN — 비밀번호 90일 만료 폐지 + 유출 비밀번호 차단
 
 > 출처: `/suggestRoadmap`에서 고른 "비밀번호 이력 재사용 금지"(로드맵 "이번 선정에서 탈락한 후보")를 논의하던 중, 사용자가 방향 전환을 결정했다(2026-11-05).
-> 상태: **PR 1(유출 차단) 구현·검증 완료(2026-11-05, 브랜치 `feat/password-breach-check`, 미커밋), PR 2 미착수** — 적대적 리뷰 3라운드 ship(v3), 사용자 승인 후 구현. 결과는 문서 끝.
+> 상태: **PR 1(#203) 머지 완료(2026-11-05), PR 2 구현·검증 완료(브랜치 `feat/retire-password-expiry`, 미커밋)**. 결과는 문서 끝.
 
 ## 개정 이력
 
@@ -245,3 +245,38 @@ DELETE FROM notification WHERE type = 'PASSWORD_EXPIRY';
 ### 후속
 
 PR 2(시간 기반 만료 폐지 + 관리자 변경 강제)를 이 PR 머지 뒤에 착수한다. 로드맵 반영은 `/updateRoadmap`.
+
+## 구현·검증 결과 — PR 2(시간 기반 만료 폐지 + 변경 강제)
+
+### 핵심 확정 사항
+
+계획 v3 그대로다. `PASSWORD_EXPIRED` 코드 값은 유지하고 화면 라벨만 "비밀번호 변경 필요"로 바꿨다. `dedupe_key` 컬럼·유니크는 DDL을 만들지 않으려고 남겼다(지금은 쓰는 곳 없음).
+
+### 구현 파일
+
+- 제거: `PasswordExpiryService`와 그 시험 2개, `MemberRepository.expirePasswordIfOutdated`, E3(`recordPasswordExpiryIfNear`·`insertPasswordExpiryIfCurrent`·`passwordExpiring`·`NotificationType.PASSWORD_EXPIRY`), `MemberSnapshot.passwordChangedAt`, `loadUserByUsername`의 `noRollbackFor`.
+- 수정: `CustomUserDetailsService`, `VisitLoggingAuthenticationSuccessHandler`(`verifyFreshMemberState`는 `boolean`), `LoginFailureService`, `AdminMemberUpdateRequest`, `AdminMemberService`(`idempotentRelock`), `NotificationMessages`, 화면 3개(`admin-manage`·`admin-my-info`·`permission/manage`).
+- 새 파일: `V14__retire_password_expiry.sql`, `PasswordExpiryRetirementUpgradeTest`, `ForcedPasswordChangeIntegrationTest`.
+- 문서: `docs/deployment.md`, `docs/migration-guide.md`, README, 루트·`member`·`notification` `CLAUDE.md`, `.env.example`.
+
+### 검증 결과
+
+- **전체 `./gradlew cleanTest test`**: 3,040건, 실패 0, 건너뜀 12(이번 변경과의 관련은 확인하지 않음). 시험 수는 만료 전용 시험을 지워 PR 1 때보다 줄었다.
+- **변이 실험 3건, 모두 시험 실패 후 원복**: `idempotentRelock`의 `PASSWORD_EXPIRED` 제거, 요청 검증의 지정 허용 제거, V14의 알림 삭제 제거.
+- **실기(bootRun 8081 + dev DB + 실제 HIBP, 2026-11-05)**:
+  - V14 업그레이드: V13 상태의 dev DB에 `PASSWORD_EXPIRED` 계정·E3 알림·E1 알림을 넣고 기동 → V14 적용, 계정 `ACTIVE`, E3만 삭제, 알림 목록 조회 200.
+  - 비밀번호 변경일이 10개월 전인 계정 로그인 성공, 비밀번호 알림 없음.
+  - 관리 화면(Playwright): 수정 폼에 "비밀번호 변경 필요" 선택지 → 저장 → 목록·상세 라벨 표시, 감사 `ADMIN_UPDATE` SUCCESS, E1 문구 "관리자가 내 계정 상태를 '비밀번호 변경 필요'로 변경했습니다."
+  - 살아 있던 대상 세션 401, 올바른 비밀번호 로그인 거부(`failed_login_count` 0).
+  - 재설정 화면: 유출 값 거부 → 다른 값 성공 → `ACTIVE`·토큰 소비, 옛 비밀번호 실패·새 비밀번호 성공.
+  - 시험 계정과 그 감사·방문 행은 삭제했다.
+- **실기로 확인하지 않은 것(시험으로만 확인)**: 강제 변경을 같은 비밀번호로 끝내는 거부(시험 계정 비밀번호가 15자 미만이라 형식 검증에 먼저 걸림 — `ForcedPasswordChangeIntegrationTest`), 마지막 활성 ADMIN 409(`AdminMemberServiceTest`), 동일값 재저장의 재폐기(`AdminMemberServiceTest`), MANAGER 403·본인 지정 거부(`ForcedPasswordChangeIntegrationTest`).
+
+### 이슈
+
+- 문서 갱신 스크립트 실수로 `docs/migration-guide.md`의 V13 행이 자리표시 문자열로 바뀌었다. 커밋 전에 발견해 `git restore`로 복구했고 다른 파일에 번지지 않았음을 확인했다.
+- dev DB가 V14까지 올라갔다. V14가 없는 옛 브랜치로 돌아가 띄우면 Flyway 검증이 실패할 수 있다(이 PR이 머지되면 해당 없음).
+
+### 후속
+
+로드맵 반영은 머지 후 `/updateRoadmap`. "비밀번호 이력 재사용 금지" 탈락 후보는 이 작업으로 대체된 것으로 기록한다. 실제 운영 전 prod 컨테이너 경로의 HIBP 접근 확인은 PR 1의 후속으로 남아 있다.
