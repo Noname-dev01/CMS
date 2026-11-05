@@ -321,7 +321,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 ### 스캔 실패 시 절차
 
-새 CVE가 공개돼 `prod-smoke`가 빨개지면 (1) 수정 버전으로 상향, (2) 불가하면 `.trivyignore.yaml`에 CVE ID·`paths`·사유·책임자·`expired_at`을 적어 예외 처리한다. 예외 없이 우회하려면 필수 체크 설정을 임시 해제하는 방법뿐이며, 그 사실을 PR에 기록한다. Spring Boot BOM이 관리하는 라이브러리는 `build.gradle`의 `ext['tomcat.version']`·`ext['jackson-bom.version']`(Jackson 3)·`ext['jackson-2-bom.version']`(Jackson 2, SpringDoc 경유) 오버라이드로 올리며(Boot가 이 버전 이상을 관리하게 되면 제거), 현재 값과 사유는 해당 파일 주석에 있다.
+새 CVE가 공개돼 `prod-smoke`가 빨개지면 (1) 수정 버전으로 상향, (2) 불가하면 `.trivyignore.yaml`에 CVE ID·`paths`·사유·책임자·`expired_at`을 적어 예외 처리한다. 예외 없이 우회하려면 필수 체크 설정을 임시 해제하는 방법뿐이며, 그 사실을 PR에 기록한다. Spring Boot BOM이 관리하는 라이브러리는 `build.gradle`의 `ext['tomcat.version']`·`ext['jackson-bom.version']`(Jackson 3)·`ext['jackson-2-bom.version']`(Jackson 2, SpringDoc 경유) 오버라이드로 올리며(Boot가 이 버전 이상을 관리하게 되면 제거), 현재 값과 사유는 해당 파일 주석에 있다. 베이스 이미지의 OS 패키지에 수정판이 있는데 공식 이미지가 아직 재빌드되지 않았으면 `Dockerfile` 런타임 단계에서 그 패키지만 상향할 수 있다(현재 `apt`·`libapt-pkg6.0t64`, CVE-2026-109518 — 이 단계는 digest로 고정되지 않으므로 Dependabot digest PR을 받을 때 공식 이미지의 버전을 확인해 지운다).
 
 
 ## 쪽지 서버 로그 비유출의 JDBC·세션 설정 전제 (쪽지, adversarial-review/plan/PLAN-admin-message.md R4-1·R5-1)
