@@ -33,6 +33,7 @@
 | `ADMIN_BOOTSTRAP_USER_ID`·`_PASSWORD`·`_EMAIL` | **선택** | 아래 "초기 관리자 계정" 참조 |
 | `CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES`·`CMS_CONTENT_IMAGE_MAX_COUNT` | **선택** | 편집기 본문 이미지 전체 상한(DB 등록 이미지 기준). 기본 1GB·10,000개. 아래 "편집기 본문 이미지" 참조 |
 | `CMS_INQUIRY_TURNSTILE_ENABLED`·`_SITE_KEY`·`_SECRET_KEY` | **선택** | 공개 문의 폼의 Cloudflare Turnstile 캡차. 기본 `false` = 문의 기능 닫힘(503). 아래 "문의 폼" 참조 |
+| `CMS_PASSWORD_BREACH_CHECK_ENABLED` | **선택** | 유출 비밀번호 검사. 비우면 켜짐. 아래 "유출 비밀번호 검사" 참조 |
 
 ## SMTP timeout (감사 M-02, remediation-plan.md PR 5)
 
@@ -512,6 +513,16 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 - **파일 저장 없음**: FAQ는 DB 행뿐이고 이미지(답변에 이미지 불가)·첨부가 없어 파일 볼륨·수동 회수 절차에 영향이 없다. 백업·복구는 DB 덤프에 그대로 포함된다.
 - **가드 행(`faq_lock`)**: V2가 시드하는 id=1 행이 없으면 FAQ·카테고리 쓰기가 모두 서버 오류가 된다. DB를 수동으로 복구·정리할 때 이 행을 지우지 않는다(지웠다면 `INSERT INTO faq_lock (id, version) VALUES (1, 0);`). `version`은 구조(등록·삭제·카테고리 이동·순서)가 바뀔 때만 올라가므로 **SQL로 FAQ 순서나 소속을 직접 바꿀 때는 `UPDATE faq_lock SET version = version + 1;`도 함께 실행**해야 순서 초안을 만든 열린 관리 화면이 낡았음을 알 수 있다(안 올려도 데이터는 안전하고, 낡은 화면이 409 없이 순서를 덮을 수 있을 뿐이다).
 - **상한**: 카테고리 30개·FAQ 200개(초과 시 관리 API 409). 공개 페이지가 노출 중인 FAQ 전체를 한 번에 내려주므로 총량을 묶은 값이다(답변 하나는 정리 후 30KB 이하, 최악 ≈ 6MB).
+
+## 유출 비밀번호 검사 (2026-11-05, adversarial-review/plan/PLAN-password-expiry-retirement-breach-check.md)
+
+- **무엇을 하나**: 관리자 계정 생성·내 비밀번호 변경·비밀번호 재설정·부트스트랩 때 새 비밀번호를 Have I Been Pwned(HIBP) Pwned Passwords 목록과 비교한다. 로그인 때는 검사하지 않는다.
+- **나가는 값**: 비밀번호 SHA-1의 앞 5자(`GET https://api.pwnedpasswords.com/range/{앞 5자}`)와 연결의 출발지인 서버 IP다. 비밀번호 원문·전체 해시·계정·방문자 IP는 나가지 않는다. 원본 IP를 숨겨야 하는 구성이면 고정 출구(프록시·NAT)를 거치게 한다.
+- **망 요구**: 앱 컨테이너가 `api.pwnedpasswords.com:443`으로 나갈 수 있어야 한다. **막혀 있어도 기동·변경은 정상이고 검사만 조용히 통과된다(fail-open)** — 호출할 수 없으면 `HibpBreachedPasswordChecker`가 `WARN`을 남긴다. 배포 후 비밀번호를 한 번 바꾸고 그 WARN이 없는지 확인한다.
+- **호출 시간**: 연결 2초, 전체 3초 상한. 트랜잭션·회원 행 잠금 밖에서 호출한다.
+- **끄기**: `CMS_PASSWORD_BREACH_CHECK_ENABLED=false`(망이 격리된 설치용). 꺼져 있으면 기동 때 WARN이 남는다.
+- **부트스트랩**: `ADMIN_BOOTSTRAP_PASSWORD`가 유출된 값이어도 기동을 막지 않고 WARN만 남긴다(기동을 외부 판정에 묶지 않는다). **WARN이 보이면 첫 로그인 후 바로 비밀번호를 바꾼다.**
+- **한계**: 설정한 뒤에 유출된 비밀번호와, 검사 도입 전에 만든 비밀번호는 잡지 못한다.
 
 ## 문의 폼 (2026-10-12, adversarial-review/plan/PLAN-inquiry.md)
 

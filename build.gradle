@@ -119,6 +119,8 @@ tasks.named('test') {
     // 이 환경변수가 적용되지 않아 기본값(application.yml의 enabled: true)으로 동작하는 차이가
     // 있다 — docs/troubleshooting.md 참조.
     environment 'CMS_RATE_LIMIT_ENABLED', 'false'
+    // 시험이 비밀번호를 정할 때 외부(HIBP)로 나가지 않게 한다. 검사기 자체는 로컬 서버로, 판정 흐름은 가짜 구현으로 시험한다.
+    environment 'CMS_PASSWORD_BREACH_CHECK_ENABLED', 'false'
     // MariaDbContainerSupport는 static 필드로 컨테이너를 시작하는 진짜 싱글턴이다 —
     // "테스트 JVM(워커)당 컨테이너 1개"라는 계약이 성립하려면 프로세스가 여러 개
     // 뜨거나 하나의 프로세스가 순차적으로 재기동되지 않아야 한다. maxParallelForks는

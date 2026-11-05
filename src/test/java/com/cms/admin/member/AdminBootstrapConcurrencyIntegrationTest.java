@@ -60,7 +60,7 @@ class AdminBootstrapConcurrencyIntegrationTest extends MariaDbContainerSupport {
     @DisplayName("같은 자격증명으로 두 번 호출하면 두 번째는 유니크 제약 위반을 겪고 재조회로 정상 흡수된다")
     void secondCallWithSameCredentials_reconcilesWithoutDuplicating() {
         AdminBootstrapLoader loader = new AdminBootstrapLoader(
-                memberRepository, passwordEncoder, clock, transactionTemplate, validator, environment);
+                memberRepository, passwordEncoder, clock, transactionTemplate, validator, environment, password -> false);
         AdminBootstrapCredentials credentials =
                 new AdminBootstrapCredentials(TEST_USER_ID, "bootpass1!", "boot-concurrency@example.com");
 

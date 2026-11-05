@@ -60,6 +60,9 @@ class PasswordResetServiceTest {
     PasswordEncoder passwordEncoder;
 
     @Mock
+    com.cms.admin.member.password.BreachedPasswordChecker breachedPasswordChecker;
+
+    @Mock
     JavaMailSender mailSender;
 
     @Mock
@@ -77,6 +80,7 @@ class PasswordResetServiceTest {
         passwordResetService = new PasswordResetService(
                 memberRepository,
                 passwordEncoder,
+                breachedPasswordChecker,
                 mailSender,
                 eventPublisher,
                 new TransactionTemplate(transactionManager),
@@ -268,7 +272,7 @@ class PasswordResetServiceTest {
     void requestReset_mailSendIsDeferredToExecutor() {
         List<Runnable> deferred = new ArrayList<>();
         PasswordResetService service = new PasswordResetService(
-                memberRepository, passwordEncoder, mailSender, eventPublisher,
+                memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
                 new TransactionTemplate(transactionManager), Clock.fixed(FIXED_INSTANT, ZONE),
                 deferred::add, BASE_URL);
 
@@ -290,7 +294,7 @@ class PasswordResetServiceTest {
     @DisplayName("executor 제출 실패도 조용히 삼키고 토큰을 조건부 클리어한다 (응답 균일성)")
     void requestReset_executorRejection_stillSilentAndClearsToken() {
         PasswordResetService service = new PasswordResetService(
-                memberRepository, passwordEncoder, mailSender, eventPublisher,
+                memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
                 new TransactionTemplate(transactionManager), Clock.fixed(FIXED_INSTANT, ZONE),
                 task -> { throw new TaskRejectedException("pool saturated"); }, BASE_URL);
 
@@ -446,7 +450,7 @@ class PasswordResetServiceTest {
         );
         for (String url : invalid) {
             assertThrows(IllegalStateException.class, () -> new PasswordResetService(
-                            memberRepository, passwordEncoder, mailSender, eventPublisher,
+                            memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
                             new TransactionTemplate(transactionManager), Clock.fixed(FIXED_INSTANT, ZONE),
                             new SyncTaskExecutor(), url),
                     "기동 실패해야 하는 base-url: " + url);
@@ -457,7 +461,7 @@ class PasswordResetServiceTest {
     @DisplayName("base-url 후행 슬래시는 제거되어 //admin 링크가 생기지 않는다")
     void requestReset_baseUrlTrailingSlash_normalized() {
         PasswordResetService service = new PasswordResetService(
-                memberRepository, passwordEncoder, mailSender, eventPublisher,
+                memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
                 new TransactionTemplate(transactionManager), Clock.fixed(FIXED_INSTANT, ZONE),
                 new SyncTaskExecutor(), "http://localhost:8080/");
 

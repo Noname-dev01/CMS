@@ -113,7 +113,7 @@ class AdminBootstrapStartupIntegrationTest extends MariaDbContainerSupport {
 
     private AdminBootstrapLoader newLoader(MockEnvironment environment) {
         return new AdminBootstrapLoader(memberRepository, passwordEncoder, clock, transactionTemplate,
-                validator, environment);
+                validator, environment, password -> false);
     }
 
     private MockEnvironment envWithCredentials(String userId, String password, String email) {

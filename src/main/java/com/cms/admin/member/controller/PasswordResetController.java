@@ -45,7 +45,7 @@ public class PasswordResetController {
             description = "메일 링크의 토큰으로 새 비밀번호를 설정한다. 토큰은 일회용이며 30분 후 만료된다. "
                     + "무효/만료/사용됨은 구분 없이 동일한 400으로 응답한다.")
     @ApiResponse(responseCode = "204", description = "재설정 성공 (기존 세션은 만료 처리)")
-    @ApiResponse(responseCode = "400", description = "토큰 무효/만료 또는 비밀번호 검증 실패")
+    @ApiResponse(responseCode = "400", description = "토큰 무효/만료, 비밀번호 검증 실패, 또는 새 비밀번호 거부(PASSWORD_REJECTED — 유출·현재 값과 같음, 토큰은 유지)")
     @PostMapping("password-resets")
     public ResponseEntity<Void> resetPassword(@Valid @RequestBody PasswordResetConfirmRequest request) {
         passwordResetService.resetPassword(

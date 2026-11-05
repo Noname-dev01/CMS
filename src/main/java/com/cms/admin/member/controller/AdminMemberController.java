@@ -42,7 +42,7 @@ public class AdminMemberController {
 
     @Operation(summary = "관리자 계정 생성", description = "생성 가능한 userType: ROLE_ADMIN, ROLE_MANAGER")
     @ApiResponse(responseCode = "201", description = "관리자 계정 생성 성공")
-    @ApiResponse(responseCode = "400", description = "요청값 검증 실패")
+    @ApiResponse(responseCode = "400", description = "요청값 검증 실패 또는 유출된 비밀번호(PASSWORD_REJECTED)")
     @ApiResponse(responseCode = "403", description = "권한 없음")
     @PostMapping("members")
     @PreAuthorize("hasRole('ADMIN')")
@@ -168,7 +168,7 @@ public class AdminMemberController {
 
     @Operation(summary = "내 비밀번호 변경")
     @ApiResponse(responseCode = "200", description = "비밀번호 변경 성공")
-    @ApiResponse(responseCode = "400", description = "현재 비밀번호 불일치 또는 새 비밀번호 확인 불일치")
+    @ApiResponse(responseCode = "400", description = "현재 비밀번호 불일치, 새 비밀번호 확인 불일치, 또는 새 비밀번호 거부(PASSWORD_REJECTED — 유출·현재 값과 같음)")
     @ApiResponse(responseCode = "403", description = "권한 없음")
     @PatchMapping("members/me/password")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")

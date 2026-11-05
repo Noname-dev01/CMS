@@ -3,6 +3,7 @@ package com.cms.admin.member;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
+import com.cms.admin.member.password.BreachedPasswordChecker;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.service.EmailNormalizer;
 import jakarta.validation.ConstraintViolation;
@@ -81,6 +82,7 @@ public class AdminBootstrapLoader implements CommandLineRunner {
     private final TransactionTemplate transactionTemplate;
     private final Validator validator;
     private final Environment environment;
+    private final BreachedPasswordChecker breachedPasswordChecker;
 
     @Override
     public void run(String... args) {
@@ -115,6 +117,12 @@ public class AdminBootstrapLoader implements CommandLineRunner {
                     .map(v -> v.getPropertyPath().toString())
                     .collect(Collectors.joining(", "));
             throw new IllegalStateException("부트스트랩 관리자 자격증명이 유효하지 않습니다(필드: " + fields + ")");
+        }
+
+        // 기동을 외부 판정에 묶지 않는다 — 러너가 health 응답보다 늦게 실패하면 배포 스크립트가 성공으로 보고한 뒤 컨테이너가 재시작한다
+        // (PLAN-password-expiry-retirement-breach-check.md D5). 운영자가 정한 값이므로 경고만 남기고 첫 로그인 후 변경을 안내한다.
+        if (breachedPasswordChecker.isBreached(credentials.getPassword())) {
+            log.warn("ADMIN_BOOTSTRAP_PASSWORD가 유출된 적이 있는 비밀번호입니다. 첫 로그인 후 바로 변경하세요.");
         }
 
         createOrReconcile(credentials);

@@ -101,6 +101,10 @@ cms:
       enabled: ${CMS_INQUIRY_TURNSTILE_ENABLED:false}
       site-key: ${CMS_INQUIRY_TURNSTILE_SITE_KEY:}
       secret-key: ${CMS_INQUIRY_TURNSTILE_SECRET_KEY:}
+  # 비밀번호를 정할 때 유출 목록과 비교한다(HIBP range API, PLAN-password-expiry-retirement-breach-check.md). 판정 불가는 통과 + WARN(fail-open).
+  # false는 망이 격리된 설치와 시험용이다.
+  password-breach-check:
+    enabled: ${CMS_PASSWORD_BREACH_CHECK_ENABLED:true}
   rate-limit:
     # 무인증 공개 엔드포인트(/notices/**, 비밀번호 재설정 API)의 최소 방어 —
     # 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단"하는 목적이다.
