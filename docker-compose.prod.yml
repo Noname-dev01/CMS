@@ -56,6 +56,8 @@ services:
       CMS_INQUIRY_TURNSTILE_ENABLED: ${CMS_INQUIRY_TURNSTILE_ENABLED:-false}
       CMS_INQUIRY_TURNSTILE_SITE_KEY: ${CMS_INQUIRY_TURNSTILE_SITE_KEY-}
       CMS_INQUIRY_TURNSTILE_SECRET_KEY: ${CMS_INQUIRY_TURNSTILE_SECRET_KEY-}
+      # 유출 비밀번호 검사 — 기본 켜짐. 앱 컨테이너가 api.pwnedpasswords.com에 HTTPS로 나갈 수 있어야 하고, 막혀 있으면 WARN만 남기고 통과시킨다.
+      CMS_PASSWORD_BREACH_CHECK_ENABLED: ${CMS_PASSWORD_BREACH_CHECK_ENABLED:-true}
       # 부트스트랩 3변수는 선택 입력이다 — ROLE_ADMIN + ACTIVE/LOCKED/PASSWORD_EXPIRED 중
       # 하나인 계정이 이미 있는 정상 운영 환경에서는(D-01 대안 A, 잠금·만료 중이어도 포함)
       # 이 값들이 없어도 기동돼야 하므로 Compose가 무조건 요구하지 않는다(결정 4·7).

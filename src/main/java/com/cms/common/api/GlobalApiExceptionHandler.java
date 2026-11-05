@@ -3,6 +3,7 @@ package com.cms.common.api;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.PasswordRejectedException;
 import com.cms.common.exception.RateLimitedException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.common.exception.ServiceBusyException;
@@ -172,6 +173,17 @@ public class GlobalApiExceptionHandler {
             HttpServletRequest request
     ) {
         return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "INVALID_REQUEST", e.getMessage());
+    }
+
+    /**
+     * 새 비밀번호 거부 — 재설정 화면이 코드로 무효 토큰과 구분한다.
+     */
+    @ExceptionHandler(PasswordRejectedException.class)
+    public ResponseEntity<ApiErrorResponse> handlePasswordRejected(
+            PasswordRejectedException e,
+            HttpServletRequest request
+    ) {
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "PASSWORD_REJECTED", e.getMessage());
     }
 
 
