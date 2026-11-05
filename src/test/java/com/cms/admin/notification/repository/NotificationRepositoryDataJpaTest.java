@@ -83,7 +83,7 @@ class NotificationRepositoryDataJpaTest extends MariaDbContainerSupport {
     void findPage_cursor_noDuplicatesOrGaps() {
         Notification n1 = save(owner, NotificationType.ACCOUNT_STATUS, null);
         Notification n2 = save(owner, NotificationType.PERMISSION, null);
-        Notification n3 = save(owner, NotificationType.PASSWORD_EXPIRY, null);
+        Notification n3 = save(owner, NotificationType.ADMIN_ACCOUNT_LOCKED, null);
         save(other, NotificationType.ACCOUNT_STATUS, null);
 
         List<Notification> first = notificationRepository.findPage(owner.getId(), null, true, 2);
@@ -178,7 +178,7 @@ class NotificationRepositoryDataJpaTest extends MariaDbContainerSupport {
     void deleteReadBefore_onlyOldReadOfOwner() {
         Notification old = save(owner, NotificationType.ACCOUNT_STATUS, NOW.minusDays(91));
         Notification recent = save(owner, NotificationType.PERMISSION, NOW.minusDays(89));
-        Notification unread = save(owner, NotificationType.PASSWORD_EXPIRY, null);
+        Notification unread = save(owner, NotificationType.PERMISSION, null);
         Notification othersOld = save(other, NotificationType.ACCOUNT_STATUS, NOW.minusDays(200));
 
         int deleted = notificationRepository.deleteReadBefore(owner.getId(), NOW.minusDays(90));
@@ -189,31 +189,6 @@ class NotificationRepositoryDataJpaTest extends MariaDbContainerSupport {
         assertThat(notificationRepository.findById(recent.getId())).isPresent();
         assertThat(notificationRepository.findById(unread.getId())).isPresent();
         assertThat(notificationRepository.findById(othersOld.getId())).isPresent();
-    }
-
-    @Test
-    @DisplayName("E3 조건부 INSERT: 스냅샷이 현재 password_changed_at과 같을 때만 1건 생성하고, 같은 주기 재시도는 예외 없이 무시하며, 불일치면 생성하지 않는다")
-    void insertPasswordExpiryIfCurrent_conditionalAndIdempotent() {
-        LocalDateTime changedAt = owner.getPasswordChangedAt();
-        String key = "PASSWORD_EXPIRY:" + changedAt;
-
-        // 최초 생성
-        notificationRepository.insertPasswordExpiryIfCurrent(owner.getId(), "PASSWORD_EXPIRY", "곧 만료됩니다",
-                "/admin/member/settings", key, NOW, changedAt);
-        em.clear();
-        assertThat(notificationRepository.findPage(owner.getId(), null, true, 10)).hasSize(1);
-
-        // 같은 주기 재시도 — ON DUPLICATE KEY가 member.id와 모호하지 않게 notification.id로 한정돼 예외 없이 무시된다
-        notificationRepository.insertPasswordExpiryIfCurrent(owner.getId(), "PASSWORD_EXPIRY", "곧 만료됩니다",
-                "/admin/member/settings", key, NOW.plusHours(1), changedAt);
-        em.clear();
-        assertThat(notificationRepository.findPage(owner.getId(), null, true, 10)).hasSize(1);
-
-        // 재확인 직후 비밀번호가 바뀐 경우(스냅샷 불일치) — 이전 주기의 알림은 만들지 않는다
-        notificationRepository.insertPasswordExpiryIfCurrent(other.getId(), "PASSWORD_EXPIRY", "곧 만료됩니다",
-                "/admin/member/settings", "PASSWORD_EXPIRY:stale", NOW, other.getPasswordChangedAt().minusDays(30));
-        em.clear();
-        assertThat(notificationRepository.findPage(other.getId(), null, true, 10)).isEmpty();
     }
 
     @Test

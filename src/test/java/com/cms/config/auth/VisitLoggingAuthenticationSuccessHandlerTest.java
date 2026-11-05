@@ -42,7 +42,6 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
 
     private VisitLogRepository visitLogRepository;
     private LoginFailureService loginFailureService;
-    private PasswordExpiryService passwordExpiryService;
     private com.cms.admin.notification.service.NotificationRecorder notificationRecorder;
     private VisitLoggingAuthenticationSuccessHandler handler;
 
@@ -50,10 +49,9 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void setUp() {
         visitLogRepository = mock(VisitLogRepository.class);
         loginFailureService = mock(LoginFailureService.class);
-        passwordExpiryService = mock(PasswordExpiryService.class);
         notificationRecorder = mock(com.cms.admin.notification.service.NotificationRecorder.class);
         handler = new VisitLoggingAuthenticationSuccessHandler(visitLogRepository, loginFailureService,
-                passwordExpiryService, notificationRecorder, FIXED_KST_CLOCK);
+                notificationRecorder, FIXED_KST_CLOCK);
         // super 클래스의 리다이렉트를 방지하기 위해 DispatcherServlet 없이 동작하도록 설정
         handler.setDefaultTargetUrl("/admin");
         handler.setAlwaysUseDefaultTargetUrl(true);
@@ -77,7 +75,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
         given(auth.getPrincipal()).willReturn(new CustomUserDetails(memberOf(principalRole)));
 
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, principalRole, AUTH_HASH, java.time.LocalDateTime.of(2026, 7, 1, 0, 0))));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, principalRole, AUTH_HASH)));
         return auth;
     }
 
@@ -130,14 +128,13 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     }
 
     @Test
-    @DisplayName("관리자 로그인 성공 시 재확인 스냅샷의 passwordChangedAt으로 E3 판정과 읽은 알림 정리가 각각 호출된다")
-    void onAuthSuccess_admin_recordsLoginNotificationsWithFreshSnapshot() throws Exception {
+    @DisplayName("관리자 로그인 성공 시 읽은 알림 정리가 호출된다")
+    void onAuthSuccess_admin_purgesOldReadNotifications() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(visitLogRepository.save(any())).willReturn(mock(VisitLog.class));
 
         handler.onAuthenticationSuccess(requestWithIp("127.0.0.1"), new MockHttpServletResponse(), auth);
 
-        verify(notificationRecorder).recordPasswordExpiryIfNear(1L, java.time.LocalDateTime.of(2026, 7, 1, 0, 0));
         verify(notificationRecorder).purgeOldReadNotifications(1L);
     }
 
@@ -146,7 +143,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_rejected_noNotificationWork() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH, java.time.LocalDateTime.of(2026, 7, 1, 0, 0))));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH)));
 
         handler.onAuthenticationSuccess(requestWithIp("127.0.0.1"), new MockHttpServletResponse(), auth);
 
@@ -164,18 +161,17 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     }
 
     @Test
-    @DisplayName("알림 생성·정리가 예외를 던져도 로그인은 성공하고 한쪽 실패가 다른 쪽을 막지 않는다")
+    @DisplayName("읽은 알림 정리가 예외를 던져도 로그인은 성공한다")
     void onAuthSuccess_notificationFailure_doesNotBlockLogin() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(visitLogRepository.save(any())).willReturn(mock(VisitLog.class));
-        org.mockito.Mockito.doThrow(new IllegalStateException("E3 실패 주입")).when(notificationRecorder)
-                .recordPasswordExpiryIfNear(any(), any());
+        org.mockito.Mockito.doThrow(new IllegalStateException("정리 실패 주입")).when(notificationRecorder)
+                .purgeOldReadNotifications(any());
         MockHttpServletResponse res = new MockHttpServletResponse();
 
         handler.onAuthenticationSuccess(requestWithIp("127.0.0.1"), res, auth);
 
         assertThat(res.getRedirectedUrl()).isEqualTo("/admin");     // 로그인 성공(거부 리다이렉트가 아님)
-        verify(notificationRecorder).purgeOldReadNotifications(1L);  // E3가 실패해도 정리는 시도된다
     }
 
     @Test
@@ -313,7 +309,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_freshStatusLocked_rejected() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH, java.time.LocalDateTime.of(2026, 7, 1, 0, 0))));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH)));
 
         assertRejected(auth);
     }
@@ -323,7 +319,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_roleDemotedDuringAuth_rejected() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, java.time.LocalDateTime.of(2026, 7, 1, 0, 0))));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH)));
 
         assertRejected(auth);
     }
@@ -333,7 +329,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_passwordChangedDuringAuth_rejected() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "{bcrypt}new-hash", java.time.LocalDateTime.of(2026, 7, 1, 0, 0))));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "{bcrypt}new-hash")));
 
         assertRejected(auth);
     }

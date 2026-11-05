@@ -104,7 +104,7 @@ class NotificationApiIntegrationTest extends MariaDbContainerSupport {
     void list_and_count_areOwnOnly() throws Exception {
         save(alice, NotificationType.ACCOUNT_STATUS, "앨리스 1");
         save(alice, NotificationType.PERMISSION, "앨리스 2");
-        save(bob, NotificationType.PASSWORD_EXPIRY, "밥 1");
+        save(bob, NotificationType.PERMISSION, "밥 1");
 
         mockMvc.perform(get(BASE).with(asRole(bob, Role.ROLE_MANAGER)))
                 .andExpect(status().isOk())

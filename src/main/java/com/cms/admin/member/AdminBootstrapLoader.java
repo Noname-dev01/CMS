@@ -32,15 +32,14 @@ import java.util.stream.Collectors;
  * 2026-09-23 사용자 승인 — adversarial-review/remediation-plan.md PR 2 참조)를 따른다.
  *
  * <p>트리거는 "{@link #ELIGIBLE_STATUSES} 중 하나인 ROLE_ADMIN 존재 여부"다 — 단순
- * ACTIVE만 보면 이미 만료된 자동 잠금(LOCKED)이나 비밀번호 만료(PASSWORD_EXPIRED)
+ * ACTIVE만 보면 이미 만료된 자동 잠금(LOCKED)이나 비밀번호 변경 강제(PASSWORD_EXPIRED)
  * 상태의 기존 관리자를 "관리자 없음"으로 오판해, 일시적으로 로그인 불가한 것뿐인 정상
  * 설치의 재기동 자체를 막는다(관리자 로그인 차단과 공개 앱 가용성을 분리하는 것이 D-01의
  * 핵심 근거). 적격 상태의 ADMIN이 있으면 환경변수 검사 자체를 하지 않는다(가용성 유지 —
  * 정상 운영 환경에서 부트스트랩 변수를 지워도 계속 기동돼야 한다). 이 부트스트랩은
  * 기존 계정의 상태·비밀번호 해시·{@code lockedAt}·{@code passwordChangedAt}·재설정
- * 토큰 등 어떤 필드도 변경하지 않는다 — 잠금 해제·만료 복귀는 기존 로그인/재설정 요청
- * 경로({@code LoginFailureService}·{@code PasswordExpiryService}·{@code Member#changePassword})가
- * 그대로 담당한다.
+ * 토큰 등 어떤 필드도 변경하지 않는다 — 잠금 해제·변경 강제 복귀는 기존 로그인/재설정 요청
+ * 경로({@code LoginFailureService}·{@code Member#changePassword})가 그대로 담당한다.
  *
  * <p>이 존재 질의와 신규 ADMIN INSERT는 원자적인 한 동작이 아니다 — 보장하는 것은
  * "질의 실행 시점에 적격 ADMIN이 있었는가"이며, 기동 완료 시점까지 전역적으로 신규 ADMIN이

@@ -89,7 +89,7 @@ public class Member {
     @Column(name = "locked_at")
     private LocalDateTime lockedAt;
 
-    /** 비밀번호 최종 변경 시각. 90일 도달 시 PASSWORD_EXPIRED 전이 기준 — null 불허(fail-open 차단) */
+    /** 비밀번호 최종 변경 시각. 시간 기반 만료는 폐지됐고 기록과 이전 앱 롤백을 위해 유지한다 */
     @Column(name = "password_changed_at", nullable = false)
     private LocalDateTime passwordChangedAt;
 
@@ -181,8 +181,7 @@ public class Member {
      * 비밀번호 변경. 이미 인코딩된 비밀번호를 전달해야 한다.
      * 발급돼 있던 재설정 토큰도 함께 무효화한다 — 어떤 경로로든 비밀번호가 바뀌면
      * 메일함에 남은 재설정 링크가 계속 유효해서는 안 된다.
-     * 만료 상태 해소도 이 관문이 담당한다 — 만료 전이는 세션을 폐기하지 않으므로
-     * 살아있는 세션의 변경 경로에서도 PASSWORD_EXPIRED가 잔존하면 안 된다.
+     * 관리자가 강제한 변경 상태(PASSWORD_EXPIRED)의 해소도 이 관문이 담당한다.
      *
      * @param now 앱 Clock 기준 현재 시각 — passwordChangedAt·updateDate에 동일 값 기록
      */
@@ -195,7 +194,7 @@ public class Member {
         // 영구 잠금(lockedAt null)으로 변질되지 않아야 한다.
         this.failedLoginCount = 0;
         this.passwordChangedAt = now;
-        // LOCKED·DISABLED는 건드리지 않는다 — 만료 해소는 비밀번호 변경의 정의적 결과지만
+        // LOCKED·DISABLED는 건드리지 않는다 — 변경 강제 해소는 비밀번호 변경의 정의적 결과지만
         // 잠금·비활성은 별도 관리 경로의 소관이다.
         if (this.status == MemberStatus.PASSWORD_EXPIRED) {
             this.status = MemberStatus.ACTIVE;

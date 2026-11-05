@@ -5,7 +5,6 @@ import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.config.auth.LoginFailureService;
-import com.cms.config.auth.PasswordExpiryService;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
 import jakarta.validation.Validator;
@@ -64,9 +63,6 @@ class AdminBootstrapStartupIntegrationTest extends MariaDbContainerSupport {
     Validator validator;
     @Autowired
     LoginFailureService loginFailureService;
-    @Autowired
-    PasswordExpiryService passwordExpiryService;
-
     private final List<String> createdUserIds = new ArrayList<>();
 
     /**
@@ -387,13 +383,13 @@ class AdminBootstrapStartupIntegrationTest extends MariaDbContainerSupport {
         }
     }
 
-    // ── 자동 잠금 만료 + 비밀번호 만료 동시 발생(v5 추가) ──
+    // ── 자동 잠금 만료 + 오래된 비밀번호(v5 추가, 시간 기반 만료 폐지 후) ──
 
     @Test
     @DisplayName("자동 잠금이 만료되고 비밀번호도 만료된 계정은 bootstrap 직후 LOCKED를 유지하고, 로그인 시도 시(잠금 해제 다음 만료 판정) PASSWORD_EXPIRED로 전이해 거절된다")
-    void autoLockExpiredAndPasswordExpired_bootstrapPreservesLocked_thenLoginRejectsAsExpired() {
+    void autoLockExpiredWithOldPassword_bootstrapPreservesLocked_thenUnlocksToActive() {
         LocalDateTime lockedAt = LocalDateTime.now(clock).minusMinutes(31); // 30분 초과(자동 해제 대상)
-        LocalDateTime passwordChangedAt = LocalDateTime.now(clock).minusDays(91); // 90일 초과(만료 대상)
+        LocalDateTime passwordChangedAt = LocalDateTime.now(clock).minusDays(91); // 오래된 비밀번호 — 시간 기반 만료가 없어 상태에 영향 없음
         seedMember("startup-lock-expiry-both", "startup-lock-expiry-both@example.com",
                 Role.ROLE_ADMIN, MemberStatus.LOCKED, lockedAt, passwordChangedAt);
 
@@ -405,12 +401,11 @@ class AdminBootstrapStartupIntegrationTest extends MariaDbContainerSupport {
         assertThat(afterBootstrap.getStatus()).isEqualTo(MemberStatus.LOCKED);
         assertThat(afterBootstrap.getLockedAt()).isEqualToIgnoringNanos(lockedAt);
 
-        // 로그인 시도를 흉내낸다: CustomUserDetailsService와 동일 순서(잠금 해제 → 만료 판정)로 호출한다.
+        // 로그인 시도를 흉내낸다: CustomUserDetailsService의 잠금 해제를 호출한다.
         loginFailureService.unlockIfLockExpired("startup-lock-expiry-both");
-        passwordExpiryService.expireIfPasswordOutdated("startup-lock-expiry-both");
 
         Member afterLoginAttempt = memberRepository.findByUserId("startup-lock-expiry-both").orElseThrow();
-        assertThat(afterLoginAttempt.getStatus()).isEqualTo(MemberStatus.PASSWORD_EXPIRED); // ACTIVE로 로그인 성공하지 않음
+        assertThat(afterLoginAttempt.getStatus()).isEqualTo(MemberStatus.ACTIVE);
         assertThat(afterLoginAttempt.getLockedAt()).isNull(); // 잠금은 해제됨
     }
 }
