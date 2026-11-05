@@ -28,3 +28,7 @@
 ## 시험
 
 `AdminSessionServiceTest`(실제 `SessionRegistryImpl` 단위 — 핸들·활성만 나열·정렬 고정·핸들 만료·제외 세션)·`AdminSessionManageServiceTest`(현재 세션 409·404·라벨·KST 변환)·`AdminSessionControllerTest`(슬라이스 — 유효 CSRF의 MANAGER 403·CSRF 누락 403·서비스 미호출·입력 검증 400·상태 매핑)·`AdminSessionManagementIntegrationTest`(실제 로그인·SecurityConfig·MariaDB·감사 AOP — 강제 만료 후 대상의 API 401·페이지 리다이렉트, 현재 세션 보호, 본인의 다른 세션 만료, 회원 단위, 감사 SUCCESS/FAIL, 감사 저장 실패에도 만료 유지)·`AdminFeatureTest`. **통합 시험은 `MockMvc`·`MockHttpSession` 기반이라 실제 서블릿 컨테이너의 세션 파괴·ID 변경 이벤트는 검증하지 못한다** — 로그아웃한 세션이 목록에서 사라지는 것은 dev 실기로 확인했다. 컨텍스트가 캐시되면 다른 시험이 남긴 세션이 레지스트리에 있으므로 목록 단언은 자기 회원 행만 본다.
+
+## 세션 등록·강제 만료 (루트에서 옮김)
+
+- **세션 등록·강제 만료**: `sessionManagement(maximumSessions(-1))` + `SessionRegistry` + `HttpSessionEventPublisher` 활성 (동시 로그인 제한 없음 — 세션 추적만). 타 관리자 수정으로 상태·권한이 실변경되면(멱등 재잠금 LOCKED/DISABLED 동일값 포함) `AdminSessionRevokeEvent`가 발행되고 커밋 후 `AdminSessionRevokeListener`(AFTER_COMMIT)가 대상자 세션을 만료 처리한다. 만료된 세션의 다음 요청은 `AdminSessionExpiredStrategy`가 API는 JSON 401, 페이지는 `/admin/login` 리다이렉트로 응답. **계약은 best-effort** — 즉시 접근 차단 수단이 아니며, 극단적 커밋 경합 시 기존 세션이 세션 타임아웃(기본 30분) 또는 재잠금까지 유효할 수 있다. **수동 강제 만료**(2026-10-10): ADMIN이 `/admin/session/manage`(API `/admin/api/sessions`)에서 접속 중인 세션을 조회·만료한다 — 같은 `AdminSessionService`·같은 만료 계약을 쓰고, 원문 세션 ID(= `JSESSIONID` 쿠키 값)는 응답·URL·감사에 내보내지 않으며 해시 핸들로 지목하고, 지금 쓰는 세션은 만료할 수 없다. 영구 ADMIN 전용이고 `SecurityConfig`는 바뀌지 않았다. 상세는 `com.cms.admin.session`의 `CLAUDE.md`.

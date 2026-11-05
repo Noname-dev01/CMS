@@ -1,10 +1,8 @@
 # CLAUDE.md — com.cms.publicweb.faq
 
-> **경로 표기 주의(2026-10-13, PR ②)**: 이 문서의 `/notices`·`/boards`·`/pages`·`/faq`·`/inquiry`·`/`(공개 메인) 표기는 이전 경로다 — 공개 경로는 이제 `/{siteKey}/…` 아래(예: `/main/notices/1`)이고 `/`는 기본 공개 사이트로 302한다. 사이트 해석·404 계약·링크 접두어(`${sitePrefix}`)·시험은 `support/CLAUDE.md` 참조. 이미지(`/banners/{id}/image`·`/popups/{id}/image`·`/content-images/{id}`)는 사이트 무관 경로 그대로다.
+이 디렉터리(공개 FAQ 페이지 `/{siteKey}/faq`) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조. 관리 측·설계 결정은 `com.cms.admin.faq`의 `CLAUDE.md`와 `adversarial-review/plan/PLAN-faq.md`.
 
-이 디렉터리(공개 FAQ 페이지 `/faq`) 작업 시에만 로드된다. 공통 규칙은 프로젝트 루트 `CLAUDE.md` 참조. 관리 측·설계 결정은 `com.cms.admin.faq`의 `CLAUDE.md`와 `adversarial-review/plan/PLAN-faq.md`.
-
-- **인가(2026-10-12 승인)**: `SecurityConfig`가 `/faq` **정확 경로 1개**의 GET·HEAD만 무인증 공개하고 `/faq`·`/faq/**`의 그 외 메서드·하위 경로는 `denyAll`이다. 하위 경로는 라우트가 없고 MVC에 닿기 전에 거부된다 — 비인증은 로그인 302, 인증(관리자)은 403이며 **404가 아니다**(`PublicFaqIntegrationTest.methodsAndSubPaths`). 레이트리밋 규칙 `public-faq`(120/60초, `PublicFaqRateLimitIntegrationTest`). `@AdminPage` 미부착(공개 요청마다 사이드바 메뉴 조회가 나가지 않게).
+- **인가(2026-10-12 승인)**: `SecurityConfig`가 `/{siteKey}/faq` **정확 경로 1개**의 GET·HEAD만 무인증 공개하고 `/{siteKey}/faq`·`/{siteKey}/faq/**`의 그 외 메서드·하위 경로는 `denyAll`이다. 하위 경로는 라우트가 없고 MVC에 닿기 전에 거부된다 — 비인증은 로그인 302, 인증(관리자)은 403이며 **404가 아니다**(`PublicFaqIntegrationTest.methodsAndSubPaths`). 레이트리밋 규칙 `public-faq`(120/60초, `PublicFaqRateLimitIntegrationTest`). `@AdminPage` 미부착(공개 요청마다 사이드바 메뉴 조회가 나가지 않게).
 - **공개 불변식은 쿼리에 고정**: `FaqRepository.findPublicRows`가 `카테고리.use_yn ∧ FAQ.use_yn`와 `(카테고리 ord, id, FAQ ord, id)` 정렬을 담는다 — 관리 서비스와 별도 클래스(`PublicFaqService`)라 필터를 빠뜨릴 수 없다. 카테고리를 숨기면 그 안의 FAQ가 모두 숨는다.
 - **답변은 출력 시 한 번 더 정리하고 "보이는 내용이 없으면" 건너뛴다**: `ContentBodyPolicy.sanitizeForFaqOutput`의 `SanitizedHtml.blank()`로 판정한다 — 문자열 `isBlank`는 sanitizer가 `<p></p>`를 `<p><br></p>`로 채우므로 빈 답변을 못 잡는다(팝업 `PublicPopup.from`의 `body.isBlank()` 선례의 한계). **카테고리 제거는 건너뛴 뒤**에 한다(보이는 FAQ가 없는 카테고리는 그리지 않고, 마지막 FAQ가 빈 답변이어도 카테고리가 사라진다). DB를 직접 고쳐 들어온 `script`·`onerror`·`javascript:`·`img`도 렌더하지 않는다.
 - **템플릿 규약**(`PublicFaqTemplateConventionTest`): `th:utext`는 답변(`${item.answerHtml}`) **한 곳뿐**, 이름·질문은 `th:text`, 인라인 스크립트·이벤트 핸들러 속성·`[(…)]` 없음, 스크립트는 외부 파일 `th:src` 한 개(`/js/public/faq.js`). 검색 입력은 서버가 `hidden`으로 내보내 스크립트가 실행된 뒤에만 보인다(점진적 향상 — 스크립트를 끄면 모든 질문이 `<details>` 아코디언으로 그대로 열고 닫힌다, `FaqPublicFilterBrowserTest.withoutJavaScript_everythingStaysVisible`). 서버는 검색 파라미터를 받지 않는다(`?q=`는 무시).
