@@ -79,6 +79,14 @@ class AdminMemberServiceTest {
     @Mock
     FileStorage fileStorage;
 
+    @Mock
+    com.cms.admin.member.password.BreachedPasswordChecker breachedPasswordChecker;
+
+    /** 실제 TransactionTemplate + mock 트랜잭션 매니저 — 콜백이 그대로 실행된다. */
+    @Spy
+    org.springframework.transaction.support.TransactionTemplate transactionTemplate =
+            new org.springframework.transaction.support.TransactionTemplate(org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
+
     /** 서비스와 같은 KST 고정 시계 — LocalDateTime.now() 직접 호출 금지 계약 유지 */
     @Spy
     Clock clock = Clock.fixed(Instant.parse("2026-07-17T03:00:00Z"), ZoneId.of("Asia/Seoul"));
@@ -438,6 +446,7 @@ class AdminMemberServiceTest {
 
         given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.matches("Admin1234!", member.getPwd())).willReturn(true);
+        given(passwordEncoder.matches("NewAdmin1234!", member.getPwd())).willReturn(false);
         given(passwordEncoder.encode("NewAdmin1234!")).willReturn("encodedNewPassword");
 
         AdminMemberResponse response = adminMemberService.changeMyPassword(1L, request);
@@ -473,12 +482,58 @@ class AdminMemberServiceTest {
 
         given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
         given(passwordEncoder.matches("Admin1234!", member.getPwd())).willReturn(true);
+        given(passwordEncoder.matches("NewAdmin1234!", member.getPwd())).willReturn(false);
         given(passwordEncoder.encode("NewAdmin1234!")).willReturn("encodedNewPassword");
 
         adminMemberService.changeMyPassword(1L, request);
 
         assertNull(member.getResetToken());
         assertNull(member.getResetTokenExpiryAt());
+    }
+
+    @Test
+    @DisplayName("유출 판정은 행 잠금 전에 받고, 거부는 현재 비밀번호 확인 뒤에 한다")
+    void changeMyPassword_breachedCheckedBeforeLock_rejectedAfterCurrentPassword() {
+        Member member = adminMember();
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("Admin1234!")
+                .newPassword("NewAdmin1234!")
+                .confirmPassword("NewAdmin1234!")
+                .build();
+
+        given(breachedPasswordChecker.isBreached("NewAdmin1234!")).willReturn(true);
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.matches("Admin1234!", member.getPwd())).willReturn(true);
+
+        assertThrows(com.cms.common.exception.PasswordRejectedException.class,
+                () -> adminMemberService.changeMyPassword(1L, request));
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(breachedPasswordChecker, memberRepository, passwordEncoder);
+        inOrder.verify(breachedPasswordChecker).isBreached("NewAdmin1234!");
+        inOrder.verify(memberRepository).findByIdForUpdate(1L);
+        inOrder.verify(passwordEncoder).matches("Admin1234!", member.getPwd());
+        verify(passwordEncoder, never()).encode(any());
+        verify(eventPublisher, never()).publishEvent(any(AdminSessionRevokeEvent.class));
+    }
+
+    @Test
+    @DisplayName("새 비밀번호가 현재 값과 같으면 PasswordRejectedException — 세션을 폐기하지 않는다")
+    void changeMyPassword_sameAsCurrent_rejected() {
+        Member member = adminMember();
+        AdminMyPasswordChangeRequest request = AdminMyPasswordChangeRequest.builder()
+                .currentPassword("SamePassword1234!")
+                .newPassword("SamePassword1234!")
+                .confirmPassword("SamePassword1234!")
+                .build();
+
+        given(memberRepository.findByIdForUpdate(1L)).willReturn(Optional.of(member));
+        given(passwordEncoder.matches("SamePassword1234!", member.getPwd())).willReturn(true);
+
+        assertThrows(com.cms.common.exception.PasswordRejectedException.class,
+                () -> adminMemberService.changeMyPassword(1L, request));
+
+        verify(passwordEncoder, never()).encode(any());
+        verify(eventPublisher, never()).publishEvent(any(AdminSessionRevokeEvent.class));
     }
 
     @Test

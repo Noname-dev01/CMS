@@ -3,8 +3,10 @@ package com.cms.admin.member.service;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
+import com.cms.admin.member.password.BreachedPasswordChecker;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.PasswordRejectedException;
 import com.cms.config.auth.AdminSessionRevokeEvent;
 import com.cms.config.auth.LoginFailureService;
 import lombok.extern.slf4j.Slf4j;
@@ -16,7 +18,6 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
@@ -49,6 +50,7 @@ public class PasswordResetService {
 
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final BreachedPasswordChecker breachedPasswordChecker;
     private final JavaMailSender mailSender;
     private final ApplicationEventPublisher eventPublisher;
     private final TransactionTemplate transactionTemplate;
@@ -64,6 +66,7 @@ public class PasswordResetService {
      */
     public PasswordResetService(MemberRepository memberRepository,
                                 PasswordEncoder passwordEncoder,
+                                BreachedPasswordChecker breachedPasswordChecker,
                                 JavaMailSender mailSender,
                                 ApplicationEventPublisher eventPublisher,
                                 TransactionTemplate transactionTemplate,
@@ -72,6 +75,7 @@ public class PasswordResetService {
                                 @Value("${app.base-url}") String baseUrl) {
         this.memberRepository = memberRepository;
         this.passwordEncoder = passwordEncoder;
+        this.breachedPasswordChecker = breachedPasswordChecker;
         this.mailSender = mailSender;
         this.eventPublisher = eventPublisher;
         this.transactionTemplate = transactionTemplate;
@@ -216,8 +220,10 @@ public class PasswordResetService {
 
     /**
      * 토큰으로 비밀번호를 재설정한다. 무효/만료/사용됨/상태 거부를 구분해 노출하지 않는다(동일 400).
+     *
+     * <p>유출 판정은 외부 호출이라 잠금·트랜잭션 밖에서 받아 두고, 거부는 토큰·만료·자격 재검증을 통과한 뒤에 한다 — 무효 토큰에는 비밀번호와 무관하게 기존 응답이
+     * 나간다. 없는 토큰으로는 외부 호출이 일어나지 않는다(PLAN-password-expiry-retirement-breach-check.md D4). 거부 시 쓰기가 없어 토큰은 살아 있다.
      */
-    @Transactional
     public void resetPassword(String token, String newPassword, String confirmPassword) {
         if (!newPassword.equals(confirmPassword)) {
             throw new InvalidRequestException("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.");
@@ -237,6 +243,13 @@ public class PasswordResetService {
         }
         Long memberId = ids.get(0);
 
+        boolean breached = breachedPasswordChecker.isBreached(newPassword);
+
+        transactionTemplate.executeWithoutResult(status ->
+                applyReset(memberId, hashedToken, newPassword, breached));
+    }
+
+    private void applyReset(Long memberId, String hashedToken, String newPassword, boolean breached) {
         Member member;
         try {
             // 행 잠금 — 이 시점이 최초 엔티티 로드라 DB 최신 값이 보장된다
@@ -263,6 +276,14 @@ public class PasswordResetService {
         // 토큰 발급 후 잠긴(미만료·수동)/삭제된/강등된 계정 차단
         if (!isEligible(member)) {
             throw new InvalidRequestException(INVALID_TOKEN_MESSAGE);
+        }
+
+        if (breached) {
+            throw PasswordRejectedException.breached();
+        }
+        // 강제 변경을 알려진 비밀번호로 끝낼 수 없게 한다(HIBP 장애와 무관하게 동작 — D5).
+        if (passwordEncoder.matches(newPassword, member.getPwd())) {
+            throw PasswordRejectedException.sameAsCurrent();
         }
 
         // reset 토큰 클리어·passwordChangedAt 갱신·PASSWORD_EXPIRED → ACTIVE 복귀 포함 (도메인 단일 관문)

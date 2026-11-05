@@ -316,6 +316,7 @@ class PasswordResetMailTimeoutIntegrationTest {
         return new PasswordResetService(
                 memberRepository,
                 passwordEncoder,
+                password -> false,
                 sender,
                 eventPublisher,
                 new TransactionTemplate(transactionManager),

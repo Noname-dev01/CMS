@@ -39,7 +39,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
-@ExtendWith(MockitoExtension.class)
+@ExtendWith({MockitoExtension.class, org.springframework.boot.test.system.OutputCaptureExtension.class})
 @MockitoSettings(strictness = Strictness.LENIENT)
 class AdminBootstrapLoaderTest {
 
@@ -55,6 +55,8 @@ class AdminBootstrapLoaderTest {
     TransactionTemplate transactionTemplate;
     @Mock
     Environment environment;
+    @Mock
+    com.cms.admin.member.password.BreachedPasswordChecker breachedPasswordChecker;
 
     private final Clock clock = Clock.fixed(
             LocalDateTime.of(2026, 7, 29, 0, 0).atZone(ZoneId.systemDefault()).toInstant(),
@@ -67,7 +69,7 @@ class AdminBootstrapLoaderTest {
     @BeforeEach
     void setUp() {
         loader = new AdminBootstrapLoader(memberRepository, passwordEncoder, clock, transactionTemplate,
-                validator, environment);
+                validator, environment, breachedPasswordChecker);
 
         // TransactionTemplate 목이 실제로 콜백을 실행하도록 스텁 (트랜잭션 경계 자체는 목이므로
         // 여기서는 "콜백이 호출된다"만 재현한다 — 실제 rollback-only 동작은
@@ -104,6 +106,22 @@ class AdminBootstrapLoaderTest {
         assertThat(saved.getPwd()).isEqualTo("{bcrypt}encoded");
         assertThat(saved.getUserType()).isEqualTo(Role.ROLE_ADMIN);
         assertThat(saved.getStatus()).isEqualTo(MemberStatus.ACTIVE);
+    }
+
+    @Test
+    @DisplayName("부트스트랩 비밀번호가 유출이어도 기동을 막지 않고 계정을 만든다 — 경고에 비밀번호가 없다")
+    void breachedBootstrapPassword_warnsAndCreatesAdmin(org.springframework.boot.test.system.CapturedOutput output) {
+        given(memberRepository.existsByUserTypeAndStatusIn(Role.ROLE_ADMIN, ELIGIBLE_STATUSES)).willReturn(false);
+        given(environment.getProperty("ADMIN_BOOTSTRAP_USER_ID")).willReturn("bootadmin");
+        given(environment.getProperty("ADMIN_BOOTSTRAP_PASSWORD")).willReturn("BootPass1234567!");
+        given(environment.getProperty("ADMIN_BOOTSTRAP_EMAIL")).willReturn("boot@example.com");
+        given(passwordEncoder.encode("BootPass1234567!")).willReturn("{bcrypt}encoded");
+        given(breachedPasswordChecker.isBreached("BootPass1234567!")).willReturn(true);
+
+        loader.run();
+
+        verify(memberRepository).saveAndFlush(any(Member.class));
+        assertThat(output).contains("ADMIN_BOOTSTRAP_PASSWORD가 유출된 적이 있는 비밀번호입니다").doesNotContain("BootPass1234567!");
     }
 
     @Test

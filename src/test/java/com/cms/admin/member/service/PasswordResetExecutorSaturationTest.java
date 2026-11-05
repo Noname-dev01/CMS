@@ -112,7 +112,7 @@ class PasswordResetExecutorSaturationTest {
     }
 
     private PasswordResetService service(Clock clock) {
-        return new PasswordResetService(memberRepository, passwordEncoder, mailSender, eventPublisher,
+        return new PasswordResetService(memberRepository, passwordEncoder, password -> false, mailSender, eventPublisher,
                 new TransactionTemplate(transactionManager), clock, executor, BASE_URL);
     }
 

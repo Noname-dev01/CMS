@@ -16,6 +16,7 @@ import com.cms.admin.member.dto.response.AdminMemberPageResponse;
 import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.dto.response.ProfileImageContent;
+import com.cms.admin.member.password.BreachedPasswordChecker;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.notification.NotificationMessages;
 import com.cms.admin.notification.domain.NotificationType;
@@ -26,6 +27,7 @@ import com.cms.admin.permission.PermissionChangedEvent;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.PasswordRejectedException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.FileStorageTransactionSupport;
@@ -38,6 +40,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
@@ -72,48 +75,61 @@ public class AdminMemberService {
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
     private final FileStorage fileStorage;
+    private final BreachedPasswordChecker breachedPasswordChecker;
+    private final TransactionTemplate transactionTemplate;
 
-    @Transactional
+    /**
+     * 유출 판정은 외부 호출이라 트랜잭션 밖에서 받아 두고, 거부는 기존 검증을 통과한 뒤에 한다(기존 오류의 우선순위 유지 —
+     * PLAN-password-expiry-retirement-breach-check.md D4). 그래서 {@code @Transactional} 대신 내부 {@link TransactionTemplate}을 쓴다.
+     */
     @AdminActionLogged(actionType = AdminActionTypes.ADMIN_CREATE, targetType = "MEMBER", targetIdExpression = "id")
     public AdminSignupResponse createAdmin(AdminSignupRequest req) {
-        if (memberRepository.existsByUserId(req.getUserId())){
-            throw new DuplicateResourceException("이미 사용 중인 아이디입니다.");
-        }
+        boolean breached = breachedPasswordChecker.isBreached(req.getPwd());
 
-        String normalizedEmail = EmailNormalizer.normalize(req.getEmail());
+        return transactionTemplate.execute(status -> {
+            if (memberRepository.existsByUserId(req.getUserId())){
+                throw new DuplicateResourceException("이미 사용 중인 아이디입니다.");
+            }
 
-        if (normalizedEmail != null && !normalizedEmail.isBlank()
-                && memberRepository.existsByEmail(normalizedEmail)) {
-            throw new DuplicateResourceException("이미 사용 중인 이메일입니다.");
-        }
+            String normalizedEmail = EmailNormalizer.normalize(req.getEmail());
 
-        // 앱 KST Clock 단일 시간원 — 한 행의 createDate·passwordChangedAt이 다른 시간원을 갖지 않게 통일
-        LocalDateTime now = LocalDateTime.now(clock);
+            if (normalizedEmail != null && !normalizedEmail.isBlank()
+                    && memberRepository.existsByEmail(normalizedEmail)) {
+                throw new DuplicateResourceException("이미 사용 중인 이메일입니다.");
+            }
 
-        Member saved = memberRepository.save(
-                Member.builder()
-                        .userId(req.getUserId())
-                        .pwd(passwordEncoder.encode(req.getPwd()))
-                        .userName(req.getUserName())
-                        .email(normalizedEmail)
-                        .userType(req.getUserType()) // MANAGER or ADMIN
-                        .status(MemberStatus.ACTIVE)
-                        .createDate(now)
-                        .updateDate(now)
-                        .passwordChangedAt(now)
-                        .resetToken(null)
-                        .build()
-        );
+            if (breached) {
+                throw PasswordRejectedException.breached();
+            }
 
-        return AdminSignupResponse.builder()
-                .id(saved.getId())
-                .userId(saved.getUserId())
-                .userName(saved.getUserName())
-                .email(saved.getEmail())
-                .userType(saved.getUserType())
-                .status(saved.getStatus())
-                .createDate(saved.getCreateDate())
-                .build();
+            // 앱 KST Clock 단일 시간원 — 한 행의 createDate·passwordChangedAt이 다른 시간원을 갖지 않게 통일
+            LocalDateTime now = LocalDateTime.now(clock);
+
+            Member saved = memberRepository.save(
+                    Member.builder()
+                            .userId(req.getUserId())
+                            .pwd(passwordEncoder.encode(req.getPwd()))
+                            .userName(req.getUserName())
+                            .email(normalizedEmail)
+                            .userType(req.getUserType()) // MANAGER or ADMIN
+                            .status(MemberStatus.ACTIVE)
+                            .createDate(now)
+                            .updateDate(now)
+                            .passwordChangedAt(now)
+                            .resetToken(null)
+                            .build()
+            );
+
+            return AdminSignupResponse.builder()
+                    .id(saved.getId())
+                    .userId(saved.getUserId())
+                    .userName(saved.getUserName())
+                    .email(saved.getEmail())
+                    .userType(saved.getUserType())
+                    .status(saved.getStatus())
+                    .createDate(saved.getCreateDate())
+                    .build();
+        });
     }
 
     @Transactional(readOnly = true)
@@ -351,29 +367,41 @@ public class AdminMemberService {
         }
     }
 
-    @Transactional
+    /**
+     * 유출 판정은 외부 호출이라 잠금·트랜잭션 밖에서 받아 두고, 거부는 현재 비밀번호 확인 뒤에 한다(D4) — 현재 비밀번호가 틀리면 응답은 기존 오류다.
+     */
     @AdminActionLogged(actionType = AdminActionTypes.PASSWORD_CHANGE, targetType = "MEMBER", targetIdExpression = "id")
     public AdminMemberResponse changeMyPassword(Long adminId, AdminMyPasswordChangeRequest request) {
         if (!request.getNewPassword().equals(request.getConfirmPassword())) {
             throw new InvalidRequestException("새 비밀번호와 비밀번호 확인이 일치하지 않습니다.");
         }
 
-        // 행 잠금 조회 — 자동 잠금(벌크 UPDATE)과 직렬화해, 잠금 전이와 비밀번호 변경의
-        // 더티체킹이 서로의 필드를 되쓰는 경합을 차단한다.
-        Member member = memberRepository.findByIdForUpdate(adminId)
-                .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
+        boolean breached = breachedPasswordChecker.isBreached(request.getNewPassword());
 
-        if (!passwordEncoder.matches(request.getCurrentPassword(), member.getPwd())) {
-            throw new InvalidRequestException("현재 비밀번호가 올바르지 않습니다.");
-        }
+        return transactionTemplate.execute(status -> {
+            // 행 잠금 조회 — 자동 잠금(벌크 UPDATE)과 직렬화해, 잠금 전이와 비밀번호 변경의
+            // 더티체킹이 서로의 필드를 되쓰는 경합을 차단한다.
+            Member member = memberRepository.findByIdForUpdate(adminId)
+                    .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
 
-        member.changePassword(passwordEncoder.encode(request.getNewPassword()), LocalDateTime.now(clock));
+            if (!passwordEncoder.matches(request.getCurrentPassword(), member.getPwd())) {
+                throw new InvalidRequestException("현재 비밀번호가 올바르지 않습니다.");
+            }
+            if (breached) {
+                throw PasswordRejectedException.breached();
+            }
+            if (passwordEncoder.matches(request.getNewPassword(), member.getPwd())) {
+                throw PasswordRejectedException.sameAsCurrent();
+            }
 
-        // 커밋 후 대상 계정의 모든 세션 만료(본인 포함 — 재로그인 필요).
-        // 변경 직전 이전 비밀번호로 인증을 통과한 세션이 살아남는 경합을 닫는다.
-        eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));
+            member.changePassword(passwordEncoder.encode(request.getNewPassword()), LocalDateTime.now(clock));
 
-        return toResponse(member, ProfileImageVisibility.HIDDEN);
+            // 커밋 후 대상 계정의 모든 세션 만료(본인 포함 — 재로그인 필요).
+            // 변경 직전 이전 비밀번호로 인증을 통과한 세션이 살아남는 경합을 닫는다.
+            eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));
+
+            return toResponse(member, ProfileImageVisibility.HIDDEN);
+        });
     }
 
     @Transactional
