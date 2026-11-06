@@ -297,6 +297,16 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 - **fail-open 잔여 위험**: 캐시가 포화되는 극단적 상황(대량 IP 회전 공격 등)에서는 개별 IP의 정확한 누적치 보장이 흐트러질 수 있다 — 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단하는 최소 방어"가 목표이기 때문이다. 완전한 정확성이 필요하면 Redis 등 외부 원자적 저장소가 필요하나 이번 범위를 벗어난다.
 - nginx 리버스 프록시 도입 시 `server.forward-headers-strategy=native`를 설정하면 레이트리밋의 IP 추출(`request.getRemoteAddr()`) 코드는 변경 없이 실 클라이언트 IP를 기준으로 동작한다 — 단, nginx가 클라이언트 제공 `X-Forwarded-For`를 그대로 통과시키지 않고 자신이 관측한 실제 peer IP로 재작성해야 하고, 애플리케이션 포트(8080)에 외부에서 직접 접근할 수 없어야 한다(아래 "배포 대상(ingress)" 참조).
 
+## 공개 파일 전송 동시 상한
+
+`cms.public-transfer.*`(전 프로파일 공통값, `application.yml`)이 공개 첨부·본문 이미지·배너·팝업의 GET 전송을 전체 100개, IP당 20개로 제한한다. 느린 수신자가 Tomcat 스레드를 모두 차지해 관리자 화면까지 멈추는 것을 막으려는 것이다. 상세는 `adversarial-review/plan/PLAN-public-transfer-limit.md`.
+
+- **응답**: IP별 초과는 429, 전체 초과는 503이고 둘 다 `Retry-After: 5`다. 로그인 세션·HEAD·공개 페이지는 영향받지 않는다.
+- **관측**: 거절이 있으면 `PublicTransferLimiter`가 분당 최대 1회 WARN으로 거절 건수와 사용 수를 남긴다. 503이 이어지면 IP 분산 공격이거나 정상 트래픽이 상한을 넘은 것이다.
+- **값을 바꿀 때**: `application.yml`을 수정한다. `max-total`은 `server.tomcat.threads.max`(기본 200)의 절반 이하, `max-per-ip`는 `max-total` 이하여야 하며 어기면 기동이 실패한다.
+- **리버스 프록시 도입 시 반드시 확인**: `forward-headers-strategy`를 맞추지 않으면 모든 요청이 프록시 IP 하나로 보여 공개 파일 전체가 사실상 동시 20개로 제한된다. 프록시가 HTTP/2를 받으면 브라우저당 연결 6개 가정이 깨져 갤러리 썸네일이 동시에 몰릴 수 있으니 실제 경로에서 재확인한다(`docs/verification/deployment-edge.md`).
+- **한계**: 전송 한 건의 총 시간 제한은 없다. 여러 IP의 느린 클라이언트가 자리를 오래 쥐면 공개 파일은 503이 이어지지만 나머지 서비스는 유지된다. 차단은 프록시·WAF 몫이다. 인스턴스마다 따로 센다.
+
 ## 배포 대상(ingress) (감사 M-05, remediation-plan.md PR 6)
 
 **실제 ingress(리버스 프록시·TLS 종료 위치·호스팅)가 아직 정해지지 않았다** — 이 문서·`docker-compose.prod.yml`은 `127.0.0.1:8080` 루프백 바인딩까지만 다루며, 그대로 인터넷에 노출하면 안 된다. ingress topology가 확정되지 않은 상태에서 특정 제품(nginx 등) 설정을 미리 만들지 않는다 — 대신 실제 외부 공개 전에 통과해야 할 체크리스트만 `docs/verification/deployment-edge.md`에 문서화해뒀다.

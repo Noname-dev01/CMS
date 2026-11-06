@@ -26,6 +26,17 @@
 - 시험: `PublicSiteMenuIntegrationTest`(트리 규칙·재검증·사이트 경계·메인/FAQ/문의 렌더링·즉시 반영·이스케이프·실패 격리·비활성 사이트 404)·`PublicSiteMenuTest`(지연·1회·격리)·`PublicSiteMenuTemplateConventionTest`·`SiteLinkPolicyTest`(`permits` ↔ `validate` 동치). 실기: Tab만으로 3단 링크 순회·Enter 이동, 터치 에뮬(`hover: none`, 1280px) 탭 이동, 360px 가로 스크롤 없음.
 - 알려진 한계: 메뉴 영역은 각 화면 본문 컨테이너와 정렬을 맞추지 않는다(좌측 정렬, 화면별 CSS가 달라 공통 너비를 두지 않음) — 공통 레이아웃 도입 때 재검토. 현재 위치 강조·아이콘·설명 표시는 없다.
 
+## 공개 파일 전송 동시 상한 (2026-11-07, `PLAN-public-transfer-limit.md`)
+
+- **막는 피해**: 응답을 천천히 읽는 클라이언트가 Tomcat 스레드(기본 200)를 모두 차지해 관리자 화면과 `/actuator/health`까지 멈추는 것이다. 레이트리밋은 진입 빈도만 줄여 이를 막지 못한다.
+- **구성**: 본문을 보내는 GET 핸들러 4개(`PublicBoardController.attachment`·`PublicContentImageController.image`·`PublicBannerImageController.image`·`PublicPopupImageController.image`)에 `@PublicFileTransfer`를 달고, `PublicTransferInterceptor`가 `PublicTransferLimiter`로 슬롯을 잡는다. HEAD는 본문을 읽지 않아 제외, 로그인 세션은 슬롯을 쓰지 않는다(관리 편집기 이미지가 익명 포화로 깨지지 않게).
+- **상한**: `cms.public-transfer.max-total`(100)·`max-per-ip`(20). `max-per-ip <= max-total`과 `max-total * 2 <= server.tomcat.threads.max`를 어기면 `PublicTransferConfig`가 기동을 막는다. IP 키는 `getRemoteAddr()` 고정이다.
+- **응답**: 판정 순서는 레이트리밋 429 → IP별 429 → 전체 503이고, 동시 상한 거절에는 `Retry-After: 5`가 붙는다. 슬롯 판정이 공개 판정보다 먼저라 포화 시 파일 유무와 무관하게 같은 응답이다(존재 여부 비노출). 거절은 분당 최대 1회 WARN(건수·사용 수만, IP 없음).
+- **슬롯 반환은 요청 속성의 토큰으로만 한다** — `afterCompletion`은 `preHandle`이 `true`를 반환한 모든 요청(HEAD·표지 없는 요청·로그인 면제 포함)에 불리므로 호출 자체를 획득의 증거로 쓰면 남의 슬롯을 반환해 상한이 무력화된다. 인터셉터는 `PublicSiteInterceptor` **뒤**에 등록한다(없는 사이트는 슬롯을 쓰지 않는다).
+- **새 전송 경로를 만들면** 표지를 달고 `PublicTransferConventionTest`의 승인 목록을 고친다 — 표지 핸들러 집합, 공개 코드의 `getOutputStream(`·`PublicImageStreamer.stream(` 파일별 횟수, `FileStorage` 사용 클래스를 함께 맞춘다.
+- **한계**: 전송 한 건의 총 시간 제한은 없어 느린 클라이언트가 슬롯을 오래 쥘 수 있다(이때 공개 파일은 503이고 나머지 서비스는 산다). 핸들러 반환 뒤 Tomcat이 마지막 출력 버퍼를 비우는 동안은 슬롯 없이 스레드를 쓴다. 단일 인스턴스 전제. 프록시 도입 시 재확인 사항은 `docs/deployment.md`.
+- 시험: `PublicTransferLimiterTest`·`PublicTransferConfigTest`·`PublicTransferLimitIntegrationTest`(적용 범위·면제·`X-Forwarded-For`)·`PublicTransferLimitServerTest`(실제 Tomcat — 슬롯 반환·화면·거절 순서, 작은 상한으로 전용 컨텍스트)·`PublicTransferConventionTest`.
+
 ## 기존 항목
 
 - `PublicWebExceptionAdvice`: `com.cms.publicweb` 한정 HTML 500(공용 `public/error` 뷰 — PR 4b에서 `public/notice/error`를 옮겼다). 렌더링 단계 예외는 이 advice가 못 잡는 기존 한계가 있다. 사이트 해석 전에 던져진 예외에서도 렌더링될 수 있어 모델 속성(`sitePrefix`)에 의존하지 않는다.

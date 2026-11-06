@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `com.cms.admin.media` | 미디어 라이브러리 — 위임 기능 `MEDIA`, `content_image` 원본, 출처별 가시성, 잠금 순서, 사용 중 삭제 409 |
 | `com.cms.admin.permission` | MANAGER 위임 권한 카탈로그·판정기·캐시(**회원별 허용 행**), 권한관리 API·화면(`PUT` 교체·409·변형 행 가드), 역할 변경 시 개별 권한 삭제, 인가 선언 컨벤션, 롤백·재배포 주의 |
 | `com.cms.config` | `SecurityConfig` 경로별 접근 제어 표(승인 이력 포함) |
-| `com.cms.publicweb.support` | 공개 경로 `/{siteKey}/…` — `@SiteScopedPublic`, `PublicSiteInterceptor`, `sitePrefix`, 공개 인벤토리 시험 |
+| `com.cms.publicweb.support` | 공개 경로 `/{siteKey}/…` — `@SiteScopedPublic`, `PublicSiteInterceptor`, `sitePrefix`, 공개 인벤토리 시험, 공개 파일 전송 동시 상한 `@PublicFileTransfer` |
 | `com.cms.publicweb.home` | 공개 메인 — 배너·공지·새 글, fail-soft, 스크립트 금지와 팝업 조각 예외, 레이트리밋 |
 | `com.cms.publicweb.page` | 공개 정적 페이지 — 현재 버전·개정 목록, 동일 404, 출력 시 이미지 불허 |
 | `com.cms.admin.faq` | FAQ 관리 — 위임 기능 `FAQ`, 가드 행 `faq_lock`·구조 `version`, 순서 반영 `PUT /order`, 상한, DnD 초안 |
