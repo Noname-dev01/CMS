@@ -199,7 +199,7 @@ synchronized void release(String ip)   // 0이 되면 키 제거
 - 전체 `./gradlew cleanTest test`: 3,084건 실패 0, 건너뜀 12(이번 변경과의 관련은 확인하지 않았다).
 - 코드 리뷰: 기본 리뷰 1라운드, 동시성 초점 리뷰 1라운드 모두 지적 0건.
 
-**변이 실험 7건 — 모두 시험이 실패함을 확인**
+**변이 실험 11건 — 모두 시험이 실패함을 확인**(뒤의 4건은 PR을 만든 뒤에 돌렸다. 기동 검증은 컴파일 실패만 보고 넘어갔고 503 분기는 코드를 먼저 고쳐 동작 실패를 보지 못했기 때문이다)
 
 | 변이 | 잡은 시험 |
 |---|---|
@@ -210,6 +210,10 @@ synchronized void release(String ip)   // 0이 되면 키 제거
 | IP별·전체 우선순위 뒤집기 | `ipLimitTakesPrecedenceOverTotalLimit`, `bothLimitsAnswerTooManyRequests` |
 | 표지 없는 전송 핸들러 추가 | `bodyWritesMatchApprovedCounts` |
 | 한 경로 표지 제거 | `markedHandlersAreApprovedGets`, 해당 경로 포화 시험 |
+| IP별 상한 > 전체 상한 검증 제거 | `perIpOverTotalFails` |
+| 스레드 절반 검증 제거 | `PublicTransferConfigTest` 3건 |
+| 절반 경계 완화(`* 2` 제거) | `PublicTransferConfigTest` 3건 |
+| 503 분기 제거 | `serviceUnavailable_dedicatedViewWithoutInternalMessage` |
 
 **실기(`bootRun` + dev DB + 실제 느린 수신자 + Playwright, 기본 설정 100·20)**
 
