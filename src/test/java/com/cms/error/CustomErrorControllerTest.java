@@ -108,9 +108,9 @@ class CustomErrorControllerTest {
     // ==================== 그 밖의 상태: 안전한 폴백 ====================
 
     @Test
-    @DisplayName("전용 템플릿이 없는 상태(400·401·405·500·503)는 폴백 error 뷰이고 모델에는 상태 코드뿐이다 — null 표시 회귀 방지")
+    @DisplayName("전용 템플릿이 없는 상태(400·401·405·500)는 폴백 error 뷰이고 모델에는 상태 코드뿐이다 — null 표시 회귀 방지")
     void otherStatuses_fallbackViewWithOnlyStatus() {
-        for (int status : new int[]{400, 401, 405, 500, 503}) {
+        for (int status : new int[]{400, 401, 405, 500}) {
             ModelAndView modelAndView = handle(status, "/admin/x", "", "SQL 오류: 내부 정보");
 
             assertThat(modelAndView.getViewName()).as("상태 " + status).isEqualTo("error");
@@ -129,6 +129,15 @@ class CustomErrorControllerTest {
 
         assertThat(modelAndView.getViewName()).isEqualTo("error");
         assertThat(modelAndView.getModel()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("503은 전용 화면이고 컨테이너 오류 메시지를 모델에 싣지 않는다")
+    void serviceUnavailable_dedicatedViewWithoutInternalMessage() {
+        ModelAndView modelAndView = handle(503, "/banners/1/image", "", "SQL 오류: 내부 정보");
+
+        assertThat(modelAndView.getViewName()).isEqualTo("error/503");
+        assertThat(modelAndView.getModel()).containsOnlyKeys("timestamp");
     }
 
     @Test

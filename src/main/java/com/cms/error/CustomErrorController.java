@@ -51,6 +51,10 @@ public class CustomErrorController implements ErrorController {
             modelAndView.setViewName("error/429");
             modelAndView.addObject("timestamp", new java.util.Date());
             modelAndView.addObject("path", requestURI);
+        } else if (statusCode != null && statusCode == 503) {
+            // 지금 sendError(503)을 쓰는 곳은 공개 파일 전송 전체 상한(PublicTransferInterceptor)뿐이지만 컨테이너의 503도 여기로 오므로 문구는 전송에 한정하지 않는다.
+            modelAndView.setViewName("error/503");
+            modelAndView.addObject("timestamp", new java.util.Date());
         } else {
             // 전용 템플릿이 없는 그 밖의 상태 — 안전한 폴백. 모델에는 상태 코드(숫자)만 싣는다:
             // jakarta.servlet.error.message·예외 정보는 내부 메시지를 담을 수 있어 화면에 내보내지 않는다.

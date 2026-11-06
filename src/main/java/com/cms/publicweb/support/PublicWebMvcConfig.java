@@ -15,9 +15,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class PublicWebMvcConfig implements WebMvcConfigurer {
 
     private final ObjectProvider<PublicSiteService> publicSiteService;
+    private final ObjectProvider<PublicTransferLimiter> publicTransferLimiter;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new PublicSiteInterceptor(publicSiteService));
+        // 사이트 해석 뒤에 둔다 — 없는 사이트의 요청은 전송 슬롯을 쓰지 않는다.
+        registry.addInterceptor(new PublicTransferInterceptor(publicTransferLimiter));
     }
 }

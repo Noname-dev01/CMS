@@ -1,5 +1,6 @@
 package com.cms.publicweb.board.controller;
 
+import com.cms.publicweb.support.PublicFileTransfer;
 import com.cms.publicweb.support.PublicSiteRoutes;
 import com.cms.publicweb.support.SiteScopedPublic;
 import com.cms.publicweb.board.dto.PublicBoardListResult;
@@ -116,6 +117,7 @@ public class PublicBoardController {
      * <p>파일은 힙에 통째로 올리지 않고 고정 크기 버퍼로 응답에 흘려보낸다. 열린 스트림은 이 메서드가 {@code try-with-resources}로 단독 소유·close한다.
      * 전송·close 중 실패의 응답 상태별 처리는 {@link #writeBody}·{@link #resetIfUncommitted} 참조.
      */
+    @PublicFileTransfer
     @GetMapping("/{boardSlug}/posts/{postId}/attachments/{attachmentId}")
     public void attachment(@PathVariable String boardSlug,
                            @PathVariable String postId,
