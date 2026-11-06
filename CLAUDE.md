@@ -154,6 +154,7 @@ context7(라이브러리 공식 문서 조회)·playwright(브라우저 UI 검�
 9. 비자명한 이슈를 해결했다면 `docs/troubleshooting.md`의 알맞은 카테고리에 기록한다. (기준은 `troubleshooting-log` 스킬 참고)
 10. 확인되지 않거나 확실하지 않은 부분은 **추측하지 말고 질문**한다. 사용자가 결정해야 하는 트레이드오프는 선택지로 정리해 질문한다. (사용자가 매번 요청하지 않아도 항상 적용)
 11. codex 계열 도구(`/codex:review`, `/codex:adversarial-review` 등)의 출력을 사용자에게 전달할 때는 **원문 전체를 한국어로 번역**해 보여준다 — 코드 식별자·기술 용어는 원형 유지, 내용 누락·축약 금지. 요약만 제시하고 원문을 생략하지 않는다.
+12. 개발 절차는 `/feature`, `plan-review-loop`, `code-review-loop`, `commitPR`이 우선한다. superpowers의 `brainstorming`, `writing-plans`, `executing-plans`, `subagent-driven-development`, `requesting-code-review`, `finishing-a-development-branch`로 대체하지 않는다. `systematic-debugging`, `test-driven-development`, `verification-before-completion`은 쓰되, 적용 범위는 `/feature`의 "스킬 적용 범위"를 따른다.
 
 ## 주의사항 / 금지 사항
 

@@ -39,6 +39,11 @@
 
 ### 6. 테스트
 - 검증 범위는 CLAUDE.md "작업 방식" 4번을 따른다 (개발 중 부분 실행, PR 직전 전체 1회).
+- TDD를 적용해도 시험 작성 방식은 `src/test/java`의 `CLAUDE.md`를 따른다.
+- 목은 시험 대상 밖의 협력 객체나 느리고 외부에 있는 의존성에만 쓴다.
+- 쿼리, 트랜잭션, 잠금, 마이그레이션은 실제 DB로 시험한다.
+- 목이 호출됐는지만 단언하지 않는다. 호출 자체가 계약인 경우만 예외다.
+- Flyway 마이그레이션은 TDD 제외 대상이 아니라 `docs/migration-guide.md`의 시험 정책을 따른다.
 - 레거시 호환 케이스의 예: null 정규화. 구조적 파급의 예: 슬라이스 테스트 5곳에 목 빈 추가.
 - DB 테스트는 Testcontainers(`MariaDbContainerSupport`)가 일회용 MariaDB를 띄우므로 로컬 DB·env가 필요 없다.
   실패하면 Docker 가용성(Docker Desktop 미기동 등)과 코드 문제를 구분해 진단한다.
