@@ -39,6 +39,10 @@ description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 
 - 감사 로그(`AdminActionLog`)가 원 트랜잭션 롤백 시 함께 유실될 가능성 (REQUIRES_NEW 계약 확인)
 - Swagger/api-docs가 dev 전용·ROLE_ADMIN 제한을 벗어나 노출될 가능성
 - 로그인/관리자 핵심 플로우가 깨질 가능성
+- 콘텐츠 본문 HTML이 저장 또는 출력에서 sanitizer를 거치지 않아 저장형 XSS가 가능한 경로
+- 무인증 공개 경로로 비공개·예약·만료·삭제 콘텐츠나 그 첨부·이미지가 노출될 가능성
+- 업로드·다운로드 경로에서 형식 검증 우회나 저장 경로 탈출이 가능한 경우
+- 위임 불가 기능이 DB 값으로 MANAGER에게 열리거나, 다른 회원의 권한 행으로 접근이 허용될 가능성
 
 ## 2. 보안 점검 (실제 코드 기준)
 
@@ -52,6 +56,19 @@ description: 프로젝트 전체를 보안·권한·데이터 정합성·설정 
 - 최후 활성 ADMIN 제거 방지 가드
 - actuator 노출 범위 (health만 공개가 의도 범위)
 - CORS 설정 존재 시 범위
+
+## 2-A. 공개 영역·콘텐츠 점검 (계약 원본은 해당 패키지 `CLAUDE.md`)
+
+- 공개 경로 전수: `/{siteKey}/…`, `@SiteScopedPublic`, `PublicSiteInterceptor`, `SecurityConfig` 허용 목록과
+  공개 인벤토리 시험이 서로 일치하는지 (`com.cms.publicweb.support`, `com.cms.config`)
+- 본문 HTML: 모든 출력 경로의 `HtmlContentSanitizer` 저장·출력 양쪽 적용, 편집기 허용 목록 일치 (`com.cms.common.html`)
+- 파일: `AttachmentFilePolicy`·`ContentBodyPolicy` 단일 사용, `FileStorage` 경로 탈출·심볼릭 링크 거부,
+  공개 첨부·이미지의 공개 판정 (`com.cms.common.storage`, `com.cms.publicweb.board`, `com.cms.admin.contentimage`)
+- 레이트리밋: `RateLimitFilter` 적용 범위, 키가 `getRemoteAddr()`인지, `X-Forwarded-For` 미사용, fail-open 범위 (`com.cms.config`)
+- 공개 문의: Turnstile fail-closed, 기본 닫힘 503, 실제 키 설정과 테스트 키 차단 (`com.cms.publicweb.inquiry`)
+- 위임 권한: `AdminFeature` 카탈로그, `member_permission`·`member_board_permission`, `AdminPermissionEvaluator` 판정과
+  역할 변경 시 권한 삭제 (`com.cms.admin.permission`)
+- 비밀번호: HIBP 유출 검사 장애 시 동작, 변경 강제 흐름 (`com.cms.admin.member`)
 
 ## 3. API 계약 점검
 
