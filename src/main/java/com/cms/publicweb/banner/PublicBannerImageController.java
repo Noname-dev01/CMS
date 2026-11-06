@@ -2,6 +2,7 @@ package com.cms.publicweb.banner;
 
 import com.cms.common.storage.StoredFileStream;
 import com.cms.publicweb.banner.dto.PublicBannerImageRef;
+import com.cms.publicweb.support.PublicFileTransfer;
 import com.cms.publicweb.support.PublicImageStreamer;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ public class PublicBannerImageController {
 
     private final PublicBannerService publicBannerService;
 
+    @PublicFileTransfer
     @GetMapping("/{id}/image")
     public void image(@PathVariable String id, HttpServletResponse response) throws IOException {
         Optional<Opened> opened = open(id, response);

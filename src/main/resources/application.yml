@@ -105,6 +105,11 @@ cms:
   # false는 망이 격리된 설치와 시험용이다.
   password-breach-check:
     enabled: ${CMS_PASSWORD_BREACH_CHECK_ENABLED:true}
+  # 공개 파일 전송(첨부·본문 이미지·배너·팝업 GET)의 동시 상한. 느린 수신자가 Tomcat 스레드를 모두 차지해 관리자 화면까지 멈추는 것을 막는다(PLAN-public-transfer-limit.md).
+  # max-total은 server.tomcat.threads.max(기본 200)의 절반 이하여야 기동한다. max-per-ip는 브라우저의 HTTP/1.1 호스트당 연결 6개 기준으로 같은 IP 뒤의 사용자 몇 명을 수용한다 — 프록시 도입 시 재확인(docs/verification/deployment-edge.md).
+  public-transfer:
+    max-total: 100
+    max-per-ip: 20
   rate-limit:
     # 무인증 공개 엔드포인트(/notices/**, 비밀번호 재설정 API)의 최소 방어 —
     # 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단"하는 목적이다.

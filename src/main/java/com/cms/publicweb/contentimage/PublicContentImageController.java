@@ -1,5 +1,6 @@
 package com.cms.publicweb.contentimage;
 
+import com.cms.publicweb.support.PublicFileTransfer;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +36,7 @@ public class PublicContentImageController {
 
     private final PublicContentImageService publicContentImageService;
 
+    @PublicFileTransfer
     @GetMapping("/{id}")
     public void image(@PathVariable String id, HttpServletRequest request, HttpServletResponse response) throws IOException {
         Optional<ContentImageDownload> download = openDownload(id, request, response);
