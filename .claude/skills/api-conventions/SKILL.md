@@ -19,7 +19,7 @@ description: 이 프로젝트의 RESTful API 설계 규칙(URI 명명, 상태 �
 
 ### 상태 코드 규칙
 
-- `400` 검증 실패(`VALIDATION_ERROR`)·JSON 파싱 오류(`JSON_PARSE_ERROR`)·경로 변수·쿼리 파라미터 타입 불일치(`INVALID_REQUEST`), `401` 미인증, `403` 권한 없음, `404` 자원 없음, `405` 지원하지 않는 HTTP 메서드(`METHOD_NOT_ALLOWED`, `Allow` 헤더에 실제 지원 메서드 포함), `406` 응답 형식(Accept) 협상 실패(`NOT_ACCEPTABLE`), `409` 상태 충돌·중복(`DUPLICATE_RESOURCE`), `415` 지원하지 않는 요청 Content-Type(`UNSUPPORTED_MEDIA_TYPE`), `500` 서버 오류(`INTERNAL_ERROR`). 새 비밀번호 거부(유출·현재 값과 같음)는 `400` `PASSWORD_REJECTED`다 — 재설정 화면이 무효 토큰과 구분한다.
+- `400` 검증 실패(`VALIDATION_ERROR`)·JSON 파싱 오류(`JSON_PARSE_ERROR`)·경로 변수·쿼리 파라미터 타입 불일치(`INVALID_REQUEST`), `401` 미인증, `403` 권한 없음, `404` 자원 없음, `405` 지원하지 않는 HTTP 메서드(`METHOD_NOT_ALLOWED`, `Allow` 헤더에 실제 지원 메서드 포함), `406` 응답 형식(Accept) 협상 실패(`NOT_ACCEPTABLE`), `409` 중복(`DUPLICATE_RESOURCE`)·상태 충돌과 잠금 충돌(`RESOURCE_CONFLICT`), `415` 지원하지 않는 요청 Content-Type(`UNSUPPORTED_MEDIA_TYPE`), `429` 빈도 제한 초과(`RATE_LIMITED`, `Retry-After` 헤더 포함), `500` 서버 오류(`INTERNAL_ERROR`), `503` 동시 실행 상한에 걸린 일시적 거부(`SERVICE_BUSY`, `Retry-After` 헤더 포함). 새 비밀번호 거부(유출·현재 값과 같음)는 `400` `PASSWORD_REJECTED`다 — 재설정 화면이 무효 토큰과 구분한다.
 - DB 유니크 제약 위반(`DataIntegrityViolationException`)도 409 `DUPLICATE_RESOURCE`로 처리된다. `uk_member_user_id`·`uk_member_email` 위반 시 각각 사람이 읽을 수 있는 메시지로 응답한다.
 - 컨트롤러까지 도달한 API 예외는 `GlobalApiExceptionHandler`를 통해 `common` 패키지의 공통 응답 포맷으로 반환한다. 이 advice의 모든 응답은 `Accept` 헤더와 무관하게 `application/json` Content-Type을 명시한다(`Accept: text/html` 요청에도 JSON을 유지, `docs/troubleshooting.md` 참조).
 - 경로 변수·쿼리 파라미터의 타입 변환 실패(예: 열거형 필드에 정의되지 않은 값)로 생긴 검증 메시지는 입력값 원문을 반영하지 않는 고정 문구로 대체된다 — 일반 Bean Validation 문구(`@NotNull`·`@Size` 등)는 그대로 유지된다.
