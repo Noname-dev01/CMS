@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -51,6 +52,7 @@ jobs:
   # 머지 차단은 브랜치 보호의 필수 체크에 이 job을 등록해야 성립한다(docs/branching.md).
   browser-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
