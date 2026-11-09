@@ -44,8 +44,13 @@ CI_TMP_DIR=""
 # 두 번째 create는 Conflict). 네트워크 이름은 Docker 문서상 중복 검출이 보장되지 않아 잠금으로 쓰지
 # 않는다. 컨테이너는 만들기만 하고 기동하지 않는다. 라벨의 무작위 토큰은 재사용 경로가 "부모 실행이 만든
 # 스택"임을 증명하는 데도 쓴다(ci_require_parent_ownership).
-# 비정상 종료(SIGKILL 등)로 잠금이 남으면 자동으로 빼앗지 않는다 — 진행 중인 실행이 없음을 사람이 확인한
-# 뒤 `docker rm cms-ci-prod-lock`으로 지운다.
+# mariadb 이미지가 VOLUME /var/lib/mysql을 선언해 create만으로 잠금 컨테이너에 빈 익명 볼륨이 딸린다 —
+# 그래서 해제는 `docker rm -v`다(-v는 익명 볼륨만 지우고 이름 붙은 볼륨은 건드리지 않는다).
+# 비정상 종료(SIGKILL 등)로 잠금이 남으면 자동으로 빼앗지 않는다. 사람이 ① 진행 중인 실행이 없음을 확인하고
+# ② `docker inspect cms-ci-prod-lock --format '{{index .Config.Labels "cms.ci.run"}} {{.State.StartedAt}}'`
+# 출력이 "<토큰> 0001-01-01T00:00:00Z"(라벨 있음·한 번도 기동 안 됨 — 이 스크립트의 잠금)일 때만
+# `docker rm -v cms-ci-prod-lock`으로 지운다. 그 외에는 같은 이름의 다른 컨테이너이므로 지우지 않는다
+# (익명 볼륨이라도 보존할 데이터일 수 있다).
 CI_LOCK_NAME="cms-ci-prod-lock"
 CI_HOLDS_LOCK=0
 
@@ -69,7 +74,7 @@ ci_acquire_lock() {
   # 이미지 pull 실패 등 이름 충돌이 아닌 실패와 구분하기 위해 오류 출력을 보관한다.
   if ! err=$(docker create --name "$CI_LOCK_NAME" --label "cms.ci.run=$token" "$img" true 2>&1 >/dev/null); then
     if docker inspect "$CI_LOCK_NAME" >/dev/null 2>&1; then
-      ci_fail "다른 CI 실행이 진행 중이거나 이전 실행이 남긴 잠금($CI_LOCK_NAME)이 있습니다. 실행 중인 것이 없음을 확인한 뒤에만 'docker rm $CI_LOCK_NAME'으로 지우세요."
+      ci_fail "다른 CI 실행이 진행 중이거나 이전 실행이 남긴 잠금($CI_LOCK_NAME)이 있습니다. 실행 중인 것이 없음을 확인한 뒤, docker inspect $CI_LOCK_NAME --format '{{index .Config.Labels \"cms.ci.run\"}} {{.State.StartedAt}}' 출력이 '<토큰> 0001-01-01T00:00:00Z'(이 스크립트의 잠금)일 때만 'docker rm -v $CI_LOCK_NAME'으로 지우세요. 그 외에는 같은 이름의 다른 컨테이너이니 지우지 말고 소유자를 확인하세요."
     fi
     ci_fail "잠금 컨테이너를 만들지 못했습니다: $err"
   fi
@@ -154,8 +159,9 @@ ci_cleanup() {
     fi
   fi
   # 잠금은 정리가 성공한 뒤에 푼다 — 정리가 끝나기 전에 다른 실행이 시작되지 않게.
+  # -v: 이번 실행이 create한 잠금에 딸린 익명 볼륨(mariadb VOLUME)도 함께 지운다.
   if [ "$CI_HOLDS_LOCK" = "1" ] && [ "$cleanup_failed" = "0" ]; then
-    docker rm "$CI_LOCK_NAME" >/dev/null 2>&1 || true
+    docker rm -v "$CI_LOCK_NAME" >/dev/null 2>&1 || true
   fi
   if [ "$cleanup_failed" = "1" ] && [ "$code" -eq 0 ]; then
     code=1
