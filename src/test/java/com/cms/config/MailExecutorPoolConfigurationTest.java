@@ -1,11 +1,16 @@
 package com.cms.config;
 
+import com.cms.admin.member.service.PasswordResetExecutorConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.task.TaskExecutionAutoConfiguration;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.ClassPathResource;
@@ -43,6 +48,41 @@ class MailExecutorPoolConfigurationTest {
                     // 큐 용량 — 무제한(기본값)이면 remainingCapacity가 Integer.MAX_VALUE다
                     assertThat(executor.getThreadPoolExecutor().getQueue().remainingCapacity()).isEqualTo(20);
                 });
+    }
+
+    @Test
+    @DisplayName("발급 전용 executor(2/2/100, 종료 시 최대 5초 대기)가 있어도 Boot applicationTaskExecutor(4/4/20)는 유지되고 한정자 없는 TaskExecutor 주입은 그것을 받는다")
+    void issueExecutor_keepsApplicationTaskExecutorAsDefault() throws Exception {
+        new ApplicationContextRunner()
+                .withConfiguration(AutoConfigurations.of(TaskExecutionAutoConfiguration.class))
+                .withPropertyValues(taskExecutionPropertiesFromApplicationYml())
+                .withUserConfiguration(PasswordResetExecutorConfig.class, PlainTaskExecutorConsumer.class)
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasBean("applicationTaskExecutor");
+
+                    ThreadPoolTaskExecutor issue = context.getBean(
+                            PasswordResetExecutorConfig.ISSUE_EXECUTOR, ThreadPoolTaskExecutor.class);
+                    assertThat(issue.getCorePoolSize()).isEqualTo(2);
+                    assertThat(issue.getMaxPoolSize()).isEqualTo(2);
+                    assertThat(issue.getThreadPoolExecutor().getQueue().remainingCapacity()).isEqualTo(100);
+                    assertThat(ReflectionTestUtils.getField(issue, "waitForTasksToCompleteOnShutdown")).isEqualTo(true);
+                    assertThat(ReflectionTestUtils.getField(issue, "awaitTerminationMillis")).isEqualTo(5000L);
+
+                    // defaultCandidate=false가 빠지면 Boot 자동 구성이 물러나거나 메일 단계가 발급 executor를 받는다
+                    Object applicationTaskExecutor = context.getBean("applicationTaskExecutor");
+                    assertThat(context.getBean("plainTaskExecutorHolder", TaskExecutor[].class)[0])
+                            .isSameAs(applicationTaskExecutor);
+                    assertThat(applicationTaskExecutor).isNotSameAs(issue);
+                });
+    }
+
+    /** 한정자 없는 TaskExecutor 주입이 어떤 빈을 받는지 보는 최소 소비자(PasswordResetService의 메일 executor 주입과 같은 형태). */
+    @Configuration(proxyBeanMethods = false)
+    static class PlainTaskExecutorConsumer {
+        @Bean
+        TaskExecutor[] plainTaskExecutorHolder(TaskExecutor executor) {
+            return new TaskExecutor[]{executor};
+        }
     }
 
     /** application.yml의 spring.task.execution.* 키만 "key=value" 형태로 추출한다. */
