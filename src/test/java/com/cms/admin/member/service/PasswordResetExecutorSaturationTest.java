@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -113,7 +114,7 @@ class PasswordResetExecutorSaturationTest {
 
     private PasswordResetService service(Clock clock) {
         return new PasswordResetService(memberRepository, passwordEncoder, password -> false, mailSender, eventPublisher,
-                new TransactionTemplate(transactionManager), clock, executor, BASE_URL);
+                new TransactionTemplate(transactionManager), clock, new SyncTaskExecutor(), executor, BASE_URL);
     }
 
     private Member member(long id) {

@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -87,6 +88,17 @@ class PasswordResetConcurrencyIntegrationTest extends MariaDbContainerSupport {
      * <p>Executor 빈이 존재하면 Boot의 applicationTaskExecutor 자동 구성이 물러나므로
      * ({@code @ConditionalOnMissingBean(Executor.class)}) 컨텍스트에 executor는 이것 하나만 남는다.
      */
+    /**
+     * 발급 executor도 동기로 바꾼다 — 두 요청 스레드가 각자 발급 트랜잭션을 실행해야 행 잠금 경합이 실제로 일어난다
+     * (비동기 2스레드 풀에 맡기면 경합 여부가 풀 스케줄링에 달린다). 운영 빈은 이름(한정자)으로만 주입되므로 이름으로 교체한다.
+     */
+    @TestBean(name = PasswordResetExecutorConfig.ISSUE_EXECUTOR, methodName = "syncIssueExecutor")
+    TaskExecutor issueExecutor;
+
+    static TaskExecutor syncIssueExecutor() {
+        return new SyncTaskExecutor();
+    }
+
     @TestConfiguration
     static class SyncMailExecutorConfig {
         @Bean

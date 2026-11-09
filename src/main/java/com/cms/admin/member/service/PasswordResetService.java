@@ -10,6 +10,7 @@ import com.cms.common.exception.PasswordRejectedException;
 import com.cms.config.auth.AdminSessionRevokeEvent;
 import com.cms.config.auth.LoginFailureService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.task.TaskExecutor;
@@ -28,6 +29,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.List;
@@ -46,6 +48,8 @@ public class PasswordResetService {
 
     static final Duration TOKEN_TTL = Duration.ofMinutes(30);
     static final Duration REISSUE_COOLDOWN = Duration.ofSeconds(60);
+    /** 접수 뒤 발급 작업이 실행될 수 있는 최대 대기. 쿨다운의 절반 — 함께 접수된 요청이 쿨다운을 넘겨 재발급되지 않게 한다. */
+    static final Duration MAX_ISSUE_WAIT = Duration.ofSeconds(30);
     private static final String INVALID_TOKEN_MESSAGE = "유효하지 않은 재설정 토큰입니다.";
 
     private final MemberRepository memberRepository;
@@ -55,6 +59,7 @@ public class PasswordResetService {
     private final ApplicationEventPublisher eventPublisher;
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
+    private final TaskExecutor issueExecutor;
     private final TaskExecutor mailExecutor;
     private final String baseUrl;
     private final SecureRandom secureRandom = new SecureRandom();
@@ -71,6 +76,7 @@ public class PasswordResetService {
                                 ApplicationEventPublisher eventPublisher,
                                 TransactionTemplate transactionTemplate,
                                 Clock clock,
+                                @Qualifier(PasswordResetExecutorConfig.ISSUE_EXECUTOR) TaskExecutor issueExecutor,
                                 TaskExecutor mailExecutor,
                                 @Value("${app.base-url}") String baseUrl) {
         this.memberRepository = memberRepository;
@@ -80,6 +86,7 @@ public class PasswordResetService {
         this.eventPublisher = eventPublisher;
         this.transactionTemplate = transactionTemplate;
         this.clock = clock;
+        this.issueExecutor = issueExecutor;
         this.mailExecutor = mailExecutor;
         this.baseUrl = validateAndNormalizeBaseUrl(baseUrl);
     }
@@ -98,13 +105,14 @@ public class PasswordResetService {
     /**
      * 재설정 메일 발송 요청. 이메일 존재 여부·계정 상태와 무관하게 항상 정상 반환한다(계정 열거 방지).
      *
-     * <p>토큰 발급(트랜잭션)과 메일 발송(커밋 후)을 분리한다 — SMTP 지연이 DB 커넥션을
-     * 점유하지 않도록. 같은 클래스 내부 호출은 @Transactional 프록시를 타지 않으므로
-     * 경계는 TransactionTemplate으로 코드에 명시한다.
+     * <p>요청 스레드는 정규화·로그·작업 제출만 한다. 계정 조회·토큰 발급·메일 발송은 모두 발급 executor에서
+     * 실행한다 — 2026-11-07 측정에서 요청 스레드가 하던 발급 트랜잭션(잠금 조회·토큰 쓰기·커밋) 때문에
+     * 발급되는 계정은 중앙값 6.6ms 느려 요청 1건으로 구분됐고, 쿨다운·무자격 계정도 약 0.16ms 느렸다
+     * (PLAN-password-reset-timing.md, 처방은 PLAN-password-reset-async-issue.md). 이 메서드에 DB 접근을
+     * 되돌리면 그 신호가 다시 생긴다 — {@code PasswordResetServiceTest}가 요청 스레드의 DB 호출 0건을 고정한다.
      *
-     * <p>발송은 별도 executor에서 실행한다 — 발송을 응답 경로에 두면 존재 계정만 SMTP 지연이
-     * 응답 시간에 실리므로, 항상 200을 반환해도 응답 시간 측정으로 계정 존재 여부가 노출된다
-     * (타이밍 부채널). 발급 트랜잭션의 미세한 시간 차는 SMTP 왕복 대비 무시할 수준으로 본다.
+     * <p>발급 큐가 차서 제출이 거부돼도 응답은 같다(WARN 로그만). 형식·길이 위반 입력은 계정과 무관하게
+     * {@link EmailNormalizer}가 400을 낸다.
      *
      * @param clientIp 참고 로그 전용 — 공개 엔드포인트라 위조 가능하므로 보안 판단 근거로 쓰지 않는다
      */
@@ -112,20 +120,56 @@ public class PasswordResetService {
         String normalizedEmail = EmailNormalizer.normalize(email);
         log.info("비밀번호 재설정 요청 수신 email={}, ip={}", maskEmail(normalizedEmail), clientIp);
 
-        Optional<IssueResult> issued;
+        Instant acceptedAt = clock.instant();
         try {
-            issued = transactionTemplate.execute(status -> issueToken(normalizedEmail));
-        } catch (PessimisticLockingFailureException e) {
-            // 락 타임아웃·데드락이 500으로 새면 "행 존재 + 경합 중" 신호가 된다 — 조용히 200 유지
-            log.warn("비밀번호 재설정 발급 잠금 실패 email={}, exceptionType={}",
+            issueExecutor.execute(() -> issueAndDispatch(normalizedEmail, acceptedAt));
+        } catch (RuntimeException e) {
+            // 큐 포화·종료 중 제출 거부 — 계정과 무관한 실패라 응답에 드러내지 않는다
+            log.warn("비밀번호 재설정 발급 제출 거부 email={}, exceptionType={}",
                     maskEmail(normalizedEmail), e.getClass().getSimpleName());
-            return;
         }
+    }
 
-        if (issued == null || issued.isEmpty()) {
-            return;
+    /**
+     * 발급 executor에서 실행한다. 토큰 발급(트랜잭션)과 메일 발송(커밋 후)은 분리한다 — SMTP 지연이 DB 커넥션을
+     * 점유하지 않도록. 같은 클래스 내부 호출은 @Transactional 프록시를 타지 않으므로 경계는 TransactionTemplate으로 명시한다.
+     *
+     * <p>어떤 예외도 밖으로 내보내지 않는다. 예외 메시지·스택에 이메일이나 SQL 값이 섞일 수 있어 예외 타입만 남긴다.
+     */
+    private void issueAndDispatch(String normalizedEmail, Instant acceptedAt) {
+        try {
+            Instant startedAt = clock.instant();
+            if (waitedTooLong(acceptedAt, startedAt)) {
+                log.warn("비밀번호 재설정 발급 대기 초과 email={}, waitedMs={}",
+                        maskEmail(normalizedEmail), Duration.between(acceptedAt, startedAt).toMillis());
+                return;
+            }
+
+            Optional<IssueResult> issued;
+            try {
+                issued = transactionTemplate.execute(status -> issueToken(normalizedEmail, acceptedAt));
+            } catch (PessimisticLockingFailureException e) {
+                log.warn("비밀번호 재설정 발급 잠금 실패 email={}, exceptionType={}",
+                        maskEmail(normalizedEmail), e.getClass().getSimpleName());
+                return;
+            }
+
+            if (issued == null || issued.isEmpty()) {
+                return;
+            }
+            dispatchResetMail(issued.get());
+        } catch (Exception e) {
+            log.error("비밀번호 재설정 발급 실패 email={}, exceptionType={}",
+                    maskEmail(normalizedEmail), e.getClass().getSimpleName());
         }
-        dispatchResetMail(issued.get());
+    }
+
+    /**
+     * 접수 후 {@link #MAX_ISSUE_WAIT}를 넘겼는지. 쿨다운은 실행 시각으로 판정하므로, 함께 접수된 요청이 오래 기다리면
+     * 실행 간격이 쿨다운을 넘어 앞선 링크를 무효화하는 재발급이 생긴다 — 30초(쿨다운의 절반)로 막는다.
+     */
+    private static boolean waitedTooLong(Instant acceptedAt, Instant now) {
+        return Duration.between(acceptedAt, now).compareTo(MAX_ISSUE_WAIT) > 0;
     }
 
     /**
@@ -142,7 +186,7 @@ public class PasswordResetService {
         }
     }
 
-    private Optional<IssueResult> issueToken(String normalizedEmail) {
+    private Optional<IssueResult> issueToken(String normalizedEmail, Instant acceptedAt) {
         // 잠금 조회 — 쿨다운 검사~토큰 저장의 check-then-act 경합 차단
         // (이 트랜잭션의 최초 엔티티 로드라 1차 캐시 문제 없음)
         Optional<Member> found = memberRepository.findByEmailForUpdate(normalizedEmail);
@@ -152,7 +196,15 @@ public class PasswordResetService {
         }
         Member member = found.get();
 
-        LocalDateTime now = LocalDateTime.now(clock);
+        Instant lockedAt = clock.instant();
+        // 행 잠금 대기로 접수 후 상한을 넘겼으면 어떤 상태 변경보다 먼저 버린다 — 작업 시작 때 검사만으로는
+        // 잠금 대기 뒤의 뒤늦은 재발급을 막지 못한다. 쿨다운 판정과 같은 시각으로 비교한다.
+        if (waitedTooLong(acceptedAt, lockedAt)) {
+            log.warn("비밀번호 재설정 발급 대기 초과(잠금 대기) memberId={}, waitedMs={}",
+                    member.getId(), Duration.between(acceptedAt, lockedAt).toMillis());
+            return Optional.empty();
+        }
+        LocalDateTime now = LocalDateTime.ofInstant(lockedAt, clock.getZone());
 
         // 만료된 자동 잠금(30분 경과)은 재설정 경로에서도 해제 — 로그인 폼 제출 없이 바로
         // "비밀번호 찾기"를 눌러도 동작해야 한다. 행 잠금 하라 경합 안전, 수동 잠금(lockedAt null)은 부적격 유지.

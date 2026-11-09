@@ -322,6 +322,7 @@ class PasswordResetMailTimeoutIntegrationTest {
                 new TransactionTemplate(transactionManager),
                 Clock.fixed(FIXED_INSTANT, ZONE),
                 new SyncTaskExecutor(),
+                new SyncTaskExecutor(),
                 BASE_URL
         );
     }

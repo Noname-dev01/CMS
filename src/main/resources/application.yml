@@ -32,6 +32,10 @@ spring:
       # 보장하지 않는다. core=max인 이유: 큐가 유한해도 core<max면 큐가 찬 뒤에야 스레드가 늘고,
       # SMTP 병목에서는 스레드를 늘려도 동시 연결만 늘어난다. 이 executor를 다른 기능이 쓰게 되면
       # 메일 전용 빈 분리를 재평가한다(PLAN-mail-executor-bound.md, remediation-plan Deferred Work).
+      # 2026-11-08부터 재설정의 계정 조회·토큰 발급은 이 executor가 아니라 전용 빈 passwordResetIssueExecutor
+      # (2/2/100, PasswordResetExecutorConfig — defaultCandidate=false라 이 자동 구성을 거두지 않는다)에서 실행되고,
+      # 이 executor는 발송만 맡는다. 거부 시 토큰 정리도 요청 스레드가 아니라 발급 스레드에서 일어난다
+      # (PLAN-password-reset-async-issue.md).
       pool:
         core-size: 4
         max-size: 4

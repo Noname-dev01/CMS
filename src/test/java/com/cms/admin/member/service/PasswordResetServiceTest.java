@@ -6,6 +6,10 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.config.auth.AdminSessionRevokeEvent;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,8 +18,11 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.task.SyncTaskExecutor;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.core.task.TaskRejectedException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.SimpleMailMessage;
@@ -27,6 +34,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -34,6 +42,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,6 +52,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class PasswordResetServiceTest {
@@ -85,6 +95,7 @@ class PasswordResetServiceTest {
                 eventPublisher,
                 new TransactionTemplate(transactionManager),
                 Clock.fixed(FIXED_INSTANT, ZONE),
+                new SyncTaskExecutor(),
                 new SyncTaskExecutor(),
                 BASE_URL
         );
@@ -274,6 +285,7 @@ class PasswordResetServiceTest {
         PasswordResetService service = new PasswordResetService(
                 memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
                 new TransactionTemplate(transactionManager), Clock.fixed(FIXED_INSTANT, ZONE),
+                new SyncTaskExecutor(),
                 deferred::add, BASE_URL);
 
         Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
@@ -296,6 +308,7 @@ class PasswordResetServiceTest {
         PasswordResetService service = new PasswordResetService(
                 memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
                 new TransactionTemplate(transactionManager), Clock.fixed(FIXED_INSTANT, ZONE),
+                new SyncTaskExecutor(),
                 task -> { throw new TaskRejectedException("pool saturated"); }, BASE_URL);
 
         Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
@@ -305,6 +318,162 @@ class PasswordResetServiceTest {
 
         verify(mailSender, never()).send(any(SimpleMailMessage.class));
         verify(memberRepository).clearResetTokenIfMatches(1L, member.getResetToken());
+    }
+
+    // ==================== 발급의 응답 경로 분리 (PLAN-password-reset-async-issue.md) ====================
+
+    private ListAppender<ILoggingEvent> logAppender;
+    private Logger serviceLogger;
+
+    private List<ILoggingEvent> captureLogs() {
+        logAppender = new ListAppender<>();
+        logAppender.start();
+        serviceLogger = (Logger) LoggerFactory.getLogger(PasswordResetService.class);
+        serviceLogger.addAppender(logAppender);
+        return logAppender.list;
+    }
+
+    @AfterEach
+    void detachLogs() {
+        if (serviceLogger != null) {
+            serviceLogger.detachAppender(logAppender);
+        }
+    }
+
+    private PasswordResetService serviceWith(Clock clock, TaskExecutor issueExecutor) {
+        return new PasswordResetService(
+                memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
+                new TransactionTemplate(transactionManager), clock, issueExecutor, new SyncTaskExecutor(), BASE_URL);
+    }
+
+    /** 시험이 옮길 수 있는 시계 — 발급 대기 시간 경계를 만든다. */
+    private static final class MovableClock extends Clock {
+        private final AtomicReference<Instant> now = new AtomicReference<>(FIXED_INSTANT);
+
+        void advance(Duration d) {
+            now.updateAndGet(i -> i.plus(d));
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZONE;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now.get();
+        }
+    }
+
+    @Test
+    @DisplayName("요청 스레드는 DB·메일에 닿지 않는다 — 조회·발급·발송은 모두 발급 executor에서 실행된다 (응답 시간 균일)")
+    void requestReset_requestThreadTouchesNoDb() {
+        List<Runnable> deferred = new ArrayList<>();
+        PasswordResetService service = serviceWith(Clock.fixed(FIXED_INSTANT, ZONE), deferred::add);
+        Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
+        given(memberRepository.findByEmailForUpdate("admin01@test.com")).willReturn(Optional.of(member));
+
+        service.requestReset("admin01@test.com", "127.0.0.1");
+
+        verifyNoInteractions(memberRepository, transactionManager, mailSender);
+        assertEquals(1, deferred.size());
+
+        deferred.get(0).run();
+        assertNotNull(member.getResetToken());
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    @DisplayName("발급 큐 포화(제출 거부)도 예외 없이 반환하고 DB에 닿지 않으며, 로그에는 마스킹된 이메일만 남는다")
+    void requestReset_issueRejected_silentWithoutDb() {
+        List<ILoggingEvent> logs = captureLogs();
+        PasswordResetService service = serviceWith(Clock.fixed(FIXED_INSTANT, ZONE),
+                task -> { throw new TaskRejectedException("issue queue full"); });
+
+        assertDoesNotThrow(() -> service.requestReset("admin01@test.com", "127.0.0.1"));
+
+        verifyNoInteractions(memberRepository, transactionManager, mailSender);
+        List<String> messages = logs.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        assertTrue(messages.stream().anyMatch(m -> m.contains("발급 제출 거부") && m.contains("ad***@test.com")));
+        assertTrue(messages.stream().noneMatch(m -> m.contains("admin01@test.com")));
+    }
+
+    @Test
+    @DisplayName("발급 작업의 일반 DB 예외는 작업 안에서 끝난다 — 발송 없음, 로그는 예외 타입만(메시지·스택 없음)")
+    void requestReset_issueFailure_loggedByTypeOnly() {
+        List<ILoggingEvent> logs = captureLogs();
+        List<Runnable> deferred = new ArrayList<>();
+        PasswordResetService service = serviceWith(Clock.fixed(FIXED_INSTANT, ZONE), deferred::add);
+        given(memberRepository.findByEmailForUpdate(anyString()))
+                .willThrow(new DataAccessResourceFailureException("connection lost admin01@test.com"));
+
+        service.requestReset("admin01@test.com", "127.0.0.1");
+        assertEquals(1, deferred.size());
+        assertDoesNotThrow(() -> deferred.get(0).run());
+
+        verify(mailSender, never()).send(any(SimpleMailMessage.class));
+        assertTrue(logs.stream().anyMatch(e -> e.getFormattedMessage().contains("발급 실패")
+                && e.getFormattedMessage().contains("DataAccessResourceFailureException")));
+        assertTrue(logs.stream().noneMatch(e -> e.getFormattedMessage().contains("admin01@test.com")));
+        assertTrue(logs.stream().allMatch(e -> e.getThrowableProxy() == null), "throwable을 통째로 남기지 않는다");
+    }
+
+    @Test
+    @DisplayName("접수 후 정확히 30초에 실행된 발급은 처리된다 (경계 포함)")
+    void requestReset_waitedExactly30s_issued() {
+        MovableClock clock = new MovableClock();
+        List<Runnable> deferred = new ArrayList<>();
+        PasswordResetService service = serviceWith(clock, deferred::add);
+        Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
+        given(memberRepository.findByEmailForUpdate("admin01@test.com")).willReturn(Optional.of(member));
+
+        service.requestReset("admin01@test.com", "127.0.0.1");
+        clock.advance(Duration.ofSeconds(30));
+        deferred.get(0).run();
+
+        assertNotNull(member.getResetToken());
+        verify(mailSender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    @DisplayName("큐에서 30초를 넘게 기다린 발급 작업은 DB에 닿지 않고 버려진다")
+    void requestReset_waitedOver30sInQueue_droppedBeforeDb() {
+        List<ILoggingEvent> logs = captureLogs();
+        MovableClock clock = new MovableClock();
+        List<Runnable> deferred = new ArrayList<>();
+        PasswordResetService service = serviceWith(clock, deferred::add);
+
+        service.requestReset("admin01@test.com", "127.0.0.1");
+        clock.advance(Duration.ofSeconds(30).plusMillis(1));
+        deferred.get(0).run();
+
+        verifyNoInteractions(memberRepository, transactionManager, mailSender);
+        assertTrue(logs.stream().anyMatch(e -> e.getFormattedMessage().contains("대기 초과")));
+    }
+
+    @Test
+    @DisplayName("행 잠금 대기로 30초를 넘기면 잠금 직후 버려진다 — 자동 잠금 해제·토큰 발급·발송 없음")
+    void requestReset_lockWaitPast30s_noStateChange() {
+        MovableClock clock = new MovableClock();
+        List<Runnable> deferred = new ArrayList<>();
+        PasswordResetService service = serviceWith(clock, deferred::add);
+        Member member = autoLockedMember(NOW.minusMinutes(31)); // 해제 대상이지만 해제되면 안 된다
+        given(memberRepository.findByEmailForUpdate("admin01@test.com")).willAnswer(inv -> {
+            clock.advance(Duration.ofSeconds(31)); // 잠금을 기다리는 동안 시간이 흐른다
+            return Optional.of(member);
+        });
+
+        service.requestReset("admin01@test.com", "127.0.0.1");
+        deferred.get(0).run();
+
+        assertEquals(MemberStatus.LOCKED, member.getStatus());
+        assertNull(member.getResetToken());
+        verify(mailSender, never()).send(any(SimpleMailMessage.class));
     }
 
     // ==================== resetPassword ====================
@@ -452,6 +621,7 @@ class PasswordResetServiceTest {
             assertThrows(IllegalStateException.class, () -> new PasswordResetService(
                             memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
                             new TransactionTemplate(transactionManager), Clock.fixed(FIXED_INSTANT, ZONE),
+                            new SyncTaskExecutor(),
                             new SyncTaskExecutor(), url),
                     "기동 실패해야 하는 base-url: " + url);
         }
@@ -463,6 +633,7 @@ class PasswordResetServiceTest {
         PasswordResetService service = new PasswordResetService(
                 memberRepository, passwordEncoder, breachedPasswordChecker, mailSender, eventPublisher,
                 new TransactionTemplate(transactionManager), Clock.fixed(FIXED_INSTANT, ZONE),
+                new SyncTaskExecutor(),
                 new SyncTaskExecutor(), "http://localhost:8080/");
 
         Member member = member(MemberStatus.ACTIVE, Role.ROLE_ADMIN);
