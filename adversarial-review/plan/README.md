@@ -61,6 +61,8 @@
 | 50 | ✅ **완료 (2026-11-07 · #213 `3e22999`)** [PLAN-public-transfer-limit.md](PLAN-public-transfer-limit.md) — 공개 파일 전송 동시 상한(전체 100·IP별 20, IP 초과 429·전체 초과 503, 로그인 세션 면제), 로드맵 "후속 과제 — ②"의 남는 위험 (v4, 적대적 리뷰 4라운드 ship) | security | 없음 | 승인 완료(2026-11-07, 스키마·인가 정책·`SecurityConfig`·의존성 변경 없음. 공개 네 경로에 포화 시 429·503 응답 추가) |
 | 51 | **실기 검증 완료 (2026-11-07, 커밋·PR 전)** [PLAN-prod-path-verification.md](PLAN-prod-path-verification.md) — prod 컨테이너 경로의 브라우저 골든 패스·권한 경계·재기동·실제 HIBP 호출 확인, 결함 없음. 실제 SMTP 발송·운영망·TLS는 미확인 (v3, 적대적 리뷰 3라운드 ship) | test | 없음 | 승인 완료(2026-11-07, 코드·스키마·인가 정책·의존성 변경 없음) |
 | 14 | [PLAN-audit-log-integrity.md](PLAN-audit-log-integrity.md) — 감사 로그 신뢰성 강화: IP 위조 차단 + 커밋 순서 보장 (로드맵 2026-09-05 선정 Top 5 ③, 외부 기술 감사 H-03·M-01) | security/fix | 없음 | 불필요(신규 의존성 없음, 스키마·인가 정책 변경 없음) |
+| 52 | ✅ **측정 완료 (2026-11-07)** [PLAN-password-reset-timing.md](PLAN-password-reset-timing.md) — 비밀번호 재설정 요청의 응답 시간으로 계정 존재가 드러나는지 측정: 메일이 발급되는 계정이 요청 1건으로 구분됨(강한 신호, AUC 0.999). 처방은 53번 (v5, 적대적 리뷰 4라운드 ship) | test/security | 없음 | 승인 완료(2026-11-07, 코드·스키마·인가 정책·의존성 변경 없음 — 측정 도구 미커밋, 격리 스택 정리) |
+| 53 | ✅ **구현·검증 완료 (2026-11-08, 커밋·PR 전)** [PLAN-password-reset-async-issue.md](PLAN-password-reset-async-issue.md) — 재설정 발급을 응답 경로 밖 전용 executor로 옮겨 계정 열거 신호 제거, 발급 대기 30초 상한. 재측정에서 모든 판정 쌍 사전 기준 미달 (v3, 적대적 리뷰 3라운드 ship) | security | 52번 | 승인 완료(2026-11-08, 동시성·보안 계약 변경. 스키마·인가 정책·`SecurityConfig`·의존성 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
