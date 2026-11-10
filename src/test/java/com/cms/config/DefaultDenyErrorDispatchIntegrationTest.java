@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.web.server.context.WebServerApplicationContext;
+import org.springframework.core.env.Environment;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
@@ -39,6 +41,12 @@ class DefaultDenyErrorDispatchIntegrationTest extends MariaDbContainerSupport {
     @Autowired
     @Qualifier("requestMappingHandlerMapping")
     RequestMappingHandlerMapping handlerMapping;
+
+    @Autowired
+    WebServerApplicationContext webServerContext;
+
+    @Autowired
+    Environment environment;
 
     private final HttpClient client = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -126,5 +134,18 @@ class DefaultDenyErrorDispatchIntegrationTest extends MariaDbContainerSupport {
                 .toList();
 
         assertThat(violations).as("정적 예약 접두사 하위 컨트롤러 매핑").isEmpty();
+    }
+
+    @Test
+    @DisplayName("(f) 잘못된 퍼센트 인코딩(컨테이너 단계 400) — 기본 구성(운영과 같음)에서 본문에 서버 버전·내부 메시지가 없고 오류 보고 밸브는 1개다 (이슈 #223)")
+    void malformedRequests_hideServerInfo_inDefaultConfiguration() throws Exception {
+        // 미설정 = Boot 기본 NEVER — Boot의 조건부 보호가 켜진 분기. 꺼진 분기(devtools 모사)는 ContainerErrorReportIntegrationTest
+        assertThat(environment.getProperty("spring.web.error.include-stacktrace")).isNull();
+
+        RawHttpRequests.assertMalformedRequestsHideServerInfo(port);
+        assertThat(RawHttpRequests.errorReportValves(webServerContext)).singleElement().satisfies(valve -> {
+            assertThat(valve.isShowServerInfo()).isFalse();
+            assertThat(valve.isShowReport()).isFalse();
+        });
     }
 }
