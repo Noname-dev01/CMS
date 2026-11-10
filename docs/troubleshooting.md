@@ -339,6 +339,16 @@ IDE로 개발할 때는 저장 시 자동 컴파일(Build project automatically)
 
 **검증**: `./gradlew dependencies --configuration runtimeClasspath`로 `tools.jackson.core:jackson-databind`·`com.fasterxml.jackson.core:jackson-databind`·`spring-webmvc` 해석 버전 확인, prod 이미지 `app.jar` 내 jar 이름 확인, `curl -D - http://localhost:<port>/admin/member/settings`로 실제 `Location` 확인.
 
+### bootRun(dev)에서만 잘못된 인코딩 주소의 400 화면에 `Apache Tomcat/버전`이 보인다 — devtools가 Boot의 오류 밸브 숨김 조건을 끈다 (2026-11-10, 이슈 #223, PLAN-tomcat-error-report.md)
+
+**증상**: `GET /main/%zz`·`/admin/%zz`·`/main/%00`·`/main/a%2fb` 같은 요청이 프로젝트 오류 화면이 아니라 Tomcat 기본 화면(`HTTP Status 400 – Bad Request`)을 돌려주고, 본문에 `Message Invalid URI: [The hexadecimal encoding is invalid]`와 `<h3>Apache Tomcat/11.0.26</h3>`가 보였다. 그런데 같은 코드의 실서버 통합 시험(`RANDOM_PORT`)과 운영 jar에서는 버전이 보이지 않았다.
+
+**원인**: 이 요청들은 Tomcat `CoyoteAdapter`가 URI 디코딩 단계에서 거절해 Spring까지 오지 않고, 본문은 Host 파이프라인의 `ErrorReportValve`가 그린다. Boot 4.0.8 `TomcatWebServerFactoryCustomizer.customizeErrorReportValve`는 **`spring.web.error.include-stacktrace == NEVER`일 때만** `showServerInfo=false`·`showReport=false` 밸브를 넣는다(javap로 확인). `spring-boot-autoconfigure-4.0.8.jar!/META-INF/spring-devtools.properties`의 `defaults.spring.web.error.include-stacktrace=always`가 bootRun(devtools 활성)에서 이 조건을 꺼, Tomcat 기본 밸브(서버 정보·상세 보고 표시)가 쓰였다. devtools는 `developmentOnly`라 bootJar에는 없다.
+
+**해결**: `com.cms.config.TomcatErrorReportConfig`가 Host 시작 직후(`AFTER_START`) 파이프라인의 모든 `ErrorReportValve`에서 두 플래그를 끈다 — `include-stacktrace` 값과 무관. 커스터마이저 실행 시점에 밸브를 고치거나 추가하면 안 된다: Boot는 기존 밸브를 확인하지 않고 자기 밸브를 추가하므로 실행 순서에 따라 밸브가 둘이 되거나 보호에서 빠진다.
+
+**교훈·검증 요령**: "시험·운영에서는 안 보이는데 bootRun에서만 보인다"면 devtools 기본 속성(`spring-devtools.properties`의 `defaults.*`)을 먼저 의심한다(로그 `Devtools property defaults active!`). 이런 요청은 `java.net.http.HttpClient`(`URI.create`가 거부)와 MockMvc(커넥터 미경유)로 보낼 수 없어 원시 소켓·`curl --path-as-is`로 보낸다. `ErrorReportValve`는 요청 언어로 제목을 번역하므로 본문 단언 시험은 `Accept-Language: en`을 고정한다.
+
 ---
 
 ## 애플리케이션 / 런타임

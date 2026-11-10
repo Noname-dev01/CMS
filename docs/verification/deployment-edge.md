@@ -8,7 +8,7 @@
 
 현재 `docker-compose.prod.yml`은 `127.0.0.1:8080`에만 바인딩한다 — 이 루프백 바인딩을 그대로 인터넷에 노출하면 안 된다.
 
-## 체크리스트 (11항목 — remediation-plan.md 7절 M-05 9항목 + SameSite 쿠키 1항목 + 공개 전송 상한 1항목)
+## 체크리스트 (12항목 — remediation-plan.md 7절 M-05 9항목 + SameSite 쿠키 1항목 + 공개 전송 상한 1항목 + 컨테이너 단계 오류 본문 1항목)
 
 - [ ] 외부 client → ingress → backend의 실제 hop과 TLS 종료 위치를 기록했다.
 - [ ] host ingress라면 loopback backend 접근을 확인했다. ingress가 container라면 그 container의 `127.0.0.1`은 앱 host가 아니라는 점을 반영해 실제 private 경로를 확인했다.
@@ -21,11 +21,13 @@
 - [ ] `APP_BASE_URL`의 비밀번호 재설정 링크가 최종 HTTPS origin과 일치한다.
 - [ ] **세션·CSRF 쿠키의 `SameSite` 속성이 실제 ingress 구성(단일 origin/서브도메인 분리 등)과 맞는지 확인했다** — 로드맵 "후속 과제 — ① 실배포 인프라"가 명시한 `forward-headers-strategy`·secure/SameSite 쿠키 항목. 현재 코드는 별도 `SameSite` 설정이 없어 서블릿 컨테이너 기본값을 따른다.
 - [ ] 공개 파일 전송 동시 상한(`cms.public-transfer`, IP당 20)이 실제 경로에서 외부 client별로 따로 집계된다. 프록시 IP 하나로 뭉치면 공개 파일 전체가 동시 20개로 제한된다. 프록시가 HTTP/2를 받는 구성이면 썸네일이 많은 갤러리 한 화면이 IP별 상한에 걸리지 않는지 확인했다.
+- [ ] ingress를 거쳐 잘못된 퍼센트 인코딩 요청(`curl --path-as-is https://<도메인>/main/%zz`, `/admin/%zz`)을 보냈을 때 응답 본문·헤더(`Server` 등)에 서버 종류·버전이 없다 — 앱 쪽(Tomcat 오류 화면)은 `TomcatErrorReportConfig`가 막지만(이슈 #223), ingress가 요청을 앱에 넘기기 전에 거절하거나 자기 오류 화면으로 바꾸면 **ingress 제품 자체의 버전 노출**은 앱이 막을 수 없다.
 
 proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목들은 모두 미완료다. 이번 PR에서 임의 제품 설정을 정하지 않는다. 실제 검증 중 결함이 발견되면 해당 ingress 통합 범위의 최소 수정안을 별도 승인받는다.
 
 ## 갱신 이력
 
+- 2026-11-10: 컨테이너 단계 오류 본문의 서버 버전 노출(이슈 #223) 수정에 따라 12번째 항목 추가. 체크 상태는 그대로(전 항목 미검증).
 - 2026-11-07: 공개 파일 전송 동시 상한 도입에 따라 11번째 항목 추가. 체크 상태는 그대로(전 항목 미검증).
 - 2026-10-06: 문서 정합(감사 L-02) — 7번째 항목의 IP 소스 불일치 서술을 #44 이후 상태로 갱신. 체크 상태는 그대로(전 항목 미검증).
 - 2026-09-27: PR 6(M-01·M-05) — 최초 작성. `adversarial-review/remediation-plan.md` 7절 M-05 체크리스트를 제품 중립적으로 옮기고 SameSite 항목을 추가. 전 항목 미검증.
