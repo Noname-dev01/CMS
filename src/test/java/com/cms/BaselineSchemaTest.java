@@ -465,4 +465,16 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
         assertThat(rows("SELECT column_type, is_nullable FROM information_schema.COLUMNS WHERE table_schema = '" + SCHEMA
                 + "' AND table_name = 'admin_action_log' AND column_name = 'target_label'")).containsExactly("varchar(500)|YES");
     }
+
+    @Test
+    @DisplayName("remember-me 영속 토큰(V15): 칼럼이 Spring JdbcTokenRepositoryImpl 기본 이름이고 series·token은 바이너리 비교(ascii_bin), username 인덱스가 있다")
+    void persistentLoginsTable() throws Exception {
+        assertThat(rows("SELECT column_name, column_type, is_nullable, IFNULL(collation_name, '-') FROM information_schema.COLUMNS WHERE table_schema = '" + SCHEMA
+                + "' AND table_name = 'persistent_logins' ORDER BY ordinal_position")).containsExactly(
+                "series|varchar(64)|NO|ascii_bin", "username|varchar(50)|NO|utf8mb4_general_ci",
+                "token|varchar(64)|NO|ascii_bin", "last_used|datetime(6)|NO|-");
+        assertThat(rows("SELECT CONCAT(index_name, '=', GROUP_CONCAT(column_name ORDER BY seq_in_index)) FROM information_schema.STATISTICS"
+                + " WHERE table_schema = '" + SCHEMA + "' AND table_name = 'persistent_logins' GROUP BY index_name ORDER BY index_name"))
+                .containsExactlyInAnyOrder("PRIMARY=series", "idx_persistent_logins_username=username");
+    }
 }

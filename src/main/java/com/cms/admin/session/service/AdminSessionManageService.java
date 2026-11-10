@@ -10,7 +10,10 @@ import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.auth.AdminSessionService;
 import com.cms.config.auth.AdminSessionService.ActiveSession;
+import com.cms.config.auth.AdminSessionService.FoundSession;
 import com.cms.config.auth.AdminSessionService.MemberExpiration;
+import com.cms.config.auth.RememberMeDeviceRevoker;
+import com.cms.config.auth.RememberMeTokenRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +34,8 @@ import java.util.Map;
 public class AdminSessionManageService {
 
     private final AdminSessionService adminSessionService;
+    private final RememberMeDeviceRevoker rememberMeDeviceRevoker;
+    private final RememberMeTokenRepository rememberMeTokens;
     private final Clock clock;
 
     public SessionListResponse getSessions(String currentSessionId) {
@@ -63,15 +68,24 @@ public class AdminSessionManageService {
         if (currentSessionId != null && AdminSessionService.handleOf(currentSessionId).equals(handle)) {
             throw new ConflictException("현재 사용 중인 세션은 만료할 수 없습니다. 로그아웃을 사용하세요.");
         }
-        ActiveSession expired = adminSessionService.expireByHandle(handle)
+        FoundSession found = adminSessionService.findActiveByHandle(handle)
                 .orElseThrow(() -> new ResourceNotFoundException("세션을 찾을 수 없습니다."));
-        return new SessionExpireResult(expired.memberId(), 1, false);
+        // remember-me 기기를 먼저 폐기한다(시리즈 삭제 → 같은 시리즈 세션 전부 만료). 삭제가 실패하면 예외로 끝나 세션도 그대로라
+        // 같은 핸들로 재시도할 수 있다. 시리즈가 없는 세션(상태 유지 없이 로그인)은 고른 세션만 만료한다(PLAN-remember-me-login.md 쟁점 3).
+        rememberMeDeviceRevoker.revokeDevice(found.principal().getRememberMeSeries());
+        found.info().expireNow();
+        return new SessionExpireResult(found.principal().getId(), 1, false);
     }
 
     /** 회원의 활성 세션 전부 만료. 현재 세션은 호출자 회원과 무관하게 항상 제외한다. 대상이 없어도 정상(0건)이다. */
     @AdminActionLogged(actionType = AdminActionTypes.SESSION_EXPIRE, targetType = "MEMBER",
             targetIdExpression = "memberId", targetLabelExpression = "auditLabel")
     public SessionExpireResult expireMemberSessions(Long memberId, String currentSessionId) {
+        // 그 회원의 remember-me 토큰을 현재 세션의 기기만 남기고 먼저 지운다 — 세션 없이 쿠키만 가진 기기도 접속 수단이다.
+        // 현재 세션 시리즈는 레지스트리 principal에서 읽는다(SecurityContext principal은 refreshAuthentication이 바꿨을 수 있다).
+        if (memberId != null) {
+            rememberMeTokens.removeAllForMemberExcept(memberId, adminSessionService.rememberMeSeriesOf(currentSessionId));
+        }
         MemberExpiration result = adminSessionService.expireSessionsFor(memberId, currentSessionId);
         return new SessionExpireResult(memberId, result.expiredCount(), result.currentExcluded());
     }

@@ -4,7 +4,12 @@ import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.admin.permission.FeatureKind;
 import com.cms.admin.permission.PermissionAction;
+import com.cms.config.auth.AdminRememberMeServices;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
+import com.cms.config.auth.LoginVisitRecorder;
+import com.cms.config.auth.RememberMeKey;
+import com.cms.config.auth.RememberMeLoginVerificationFilter;
+import com.cms.config.auth.RememberMeTokenRepository;
 import jakarta.servlet.DispatcherType;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import com.cms.config.ratelimit.RateLimitFilter;
@@ -35,6 +40,9 @@ import org.springframework.security.web.access.intercept.RequestAuthorizationCon
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.RememberMeAuthenticationToken;
+import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -83,7 +91,11 @@ public class SecurityConfig {
                                            LockingAuthenticationFailureHandler failureHandler,
                                            SessionRegistry sessionRegistry,
                                            RateLimitFilter rateLimitFilter,
-                                           AdminPermissionEvaluator permissionEvaluator) throws Exception {
+                                           AdminPermissionEvaluator permissionEvaluator,
+                                           AdminRememberMeServices rememberMeServices,
+                                           RememberMeKey rememberMeKey,
+                                           RememberMeTokenRepository rememberMeTokens,
+                                           LoginVisitRecorder visitRecorder) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> {
                     auth
@@ -189,6 +201,11 @@ public class SecurityConfig {
                         .logoutUrl("/admin/logout")
                         .logoutSuccessUrl("/admin/login")
                         .permitAll())
+                // "로그인 상태 유지"(영속 토큰 7일, 이슈 #222 — 2026-11-10 로그인 정책 변경 승인). URL 접근 규칙은 바꾸지 않는다.
+                // 서비스가 로그아웃 핸들러로도 등록돼 그 기기만 폐기한다. 폐기·검증 계약은 PLAN-remember-me-login.md·config/auth의 각 클래스.
+                .rememberMe((rememberMe) -> rememberMe
+                        .rememberMeServices(rememberMeServices)
+                        .key(rememberMeKey.value()))
                 // 타 관리자 상태·권한 변경 시 대상자 세션 강제 만료를 위한 세션 등록·추적.
                 // maximumSessions(-1): 동시 세션 수를 제한하지 않아(로그인 정책 무변경)
                 // SessionRegistry 등록과 만료 추적만 활성화한다.
@@ -198,6 +215,17 @@ public class SecurityConfig {
                         .expiredSessionStrategy(new AdminSessionExpiredStrategy()))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
+                            // remember-me 인증의 권한 부족도 ExceptionTranslationFilter가 진입점으로 보낸다(Spring 7 — 익명과 같이 취급).
+                            // 이미 컨텍스트를 비운 뒤라 원래 인증은 예외에 보존된 값으로 판정하고, 기존 403 응답을 그대로 낸다(PLAN v4).
+                            if (authException.getAuthenticationRequest() instanceof RememberMeAuthenticationToken) {
+                                AccessDeniedException denied = new AccessDeniedException("Access Denied");
+                                if (API_MATCHER.matches(request)) {
+                                    API_ACCESS_DENIED_HANDLER.handle(request, response, denied);
+                                } else {
+                                    DEFAULT_ACCESS_DENIED_HANDLER.handle(request, response, denied);
+                                }
+                                return;
+                            }
                             if (API_MATCHER.matches(request)) {
                                 API_AUTH_ENTRY_POINT.commence(request, response, authException);
                             } else {
@@ -224,7 +252,10 @@ public class SecurityConfig {
                 // 컨트롤러까지 도달하지 못하는 요청까지 quota를 소비시키면, 외부 사이트가 피해자
                 // 브라우저로 토큰 없는 form POST를 반복시켜 피해자 IP의 quota를 고갈시키는 교차
                 // 사이트 공격이 가능해진다(PLAN-public-endpoint-rate-limit.md 쟁점 4).
-                .addFilterAfter(rateLimitFilter, CsrfFilter.class);
+                .addFilterAfter(rateLimitFilter, CsrfFilter.class)
+                // 쿠키 자동 로그인의 사후 검증 — 세션 등록 뒤 시리즈가 아직 살아 있는지 보고 방문을 기록한다(빈이 아니라 서블릿 필터로 자동 등록되지 않는다).
+                .addFilterAfter(new RememberMeLoginVerificationFilter(rememberMeTokens, rememberMeServices, visitRecorder),
+                        RememberMeAuthenticationFilter.class);
         return http.build();
     }
 

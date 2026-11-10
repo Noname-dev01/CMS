@@ -53,7 +53,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         PermissionTestConfig.class,
         RateLimitFilterConfig.class,
         PasswordResetControllerTest.MockConfig.class,
-        GlobalApiExceptionHandler.class
+        GlobalApiExceptionHandler.class,
+        com.cms.config.RememberMeTestConfig.class
 })
 @ActiveProfiles({"test", "webmvc-test"})
 // build.gradle의 test 태스크가 전역으로 CMS_RATE_LIMIT_ENABLED=false를 주입하므로,
@@ -115,9 +116,11 @@ class PasswordResetControllerTest {
         public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler(
                 LoginFailureService loginFailureService) {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
-            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService,
-                    org.mockito.Mockito.mock(com.cms.admin.notification.service.NotificationRecorder.class),
-                    java.time.Clock.systemDefaultZone());
+            return new VisitLoggingAuthenticationSuccessHandler(loginFailureService,
+                    Mockito.mock(com.cms.config.auth.LoginVisitRecorder.class),
+                    Mockito.mock(com.cms.config.auth.RememberMeTokenRepository.class),
+                    Mockito.mock(com.cms.config.auth.AdminRememberMeServices.class),
+                    Mockito.mock(org.springframework.security.core.session.SessionRegistry.class));
         }
 
         @Bean

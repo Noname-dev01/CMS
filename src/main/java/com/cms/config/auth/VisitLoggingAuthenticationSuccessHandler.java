@@ -1,10 +1,6 @@
 package com.cms.config.auth;
 
 import com.cms.admin.member.domain.MemberStatus;
-import com.cms.admin.notification.service.NotificationRecorder;
-import com.cms.admin.visit.domain.VisitLog;
-import com.cms.admin.visit.repository.VisitLogRepository;
-import com.cms.common.web.ClientIpResolver;
 import com.cms.config.auth.LoginFailureService.MemberSnapshot;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.ServletException;
@@ -16,13 +12,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.session.SessionInformation;
+import org.springframework.security.core.session.SessionRegistry;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.time.Clock;
-import java.time.LocalDateTime;
-import java.util.Collection;
 import java.util.Optional;
 
 /**
@@ -39,10 +34,11 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareAuthenticationSuccessHandler {
 
-    private final VisitLogRepository visitLogRepository;
     private final LoginFailureService loginFailureService;
-    private final NotificationRecorder notificationRecorder;
-    private final Clock clock;
+    private final LoginVisitRecorder visitRecorder;
+    private final RememberMeTokenRepository rememberMeTokens;
+    private final AdminRememberMeServices rememberMeServices;
+    private final SessionRegistry sessionRegistry;
 
     @PostConstruct
     public void init() {
@@ -56,16 +52,15 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
                                         HttpServletResponse response,
                                         Authentication authentication) throws ServletException, IOException {
         // 첫 작업: 상태·역할·해시 재확인 — 거부될 인증이 성공 방문으로 기록되면 안 되므로 방문 로그보다 먼저.
-        if (!verifyFreshMemberState(authentication)) {
-            rejectAuthentication(request, response);
+        // 이어서 이 로그인이 방금 발급한 remember-me 기기가 아직 살아 있는지 본다(사후 검증 I2, PLAN-remember-me-login.md 쟁점 2).
+        if (!verifyFreshMemberState(authentication) || !verifyRememberMeDevice(request, authentication)) {
+            rejectAuthentication(request, response, authentication);
             return;
         }
 
-        // ROLE_ADMIN·ROLE_MANAGER 로그인만 방문으로 기록한다.
-        if (hasAdminOrManagerRole(authentication.getAuthorities())) {
-            tryLogVisit(request, authentication);
-            tryPurgeOldReadNotifications(authentication);
-        }
+        // remember-me 쿠키는 모든 검증을 통과한 뒤에만 싣는다(거부 응답에 발급 쿠키가 실리지 않게 — 코드 리뷰 반영).
+        rememberMeServices.issuePendingCookie(request, response);
+        visitRecorder.record(request, authentication);
 
         super.onAuthenticationSuccess(request, response, authentication);
     }
@@ -113,7 +108,18 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
      * 인증 완료 직전 재확인에서 거부된 로그인을 정리한다 —
      * 이미 등록된 세션 무효화 + SecurityContext 클리어 + 로그인 에러 페이지 리다이렉트.
      */
-    private void rejectAuthentication(HttpServletRequest request, HttpServletResponse response) throws IOException {
+    private void rejectAuthentication(HttpServletRequest request, HttpServletResponse response,
+                                      Authentication authentication) throws IOException {
+        // 방금 발급한 remember-me 기기도 정리한다 — 세션만 무효화하면 새 쿠키로 다음 요청에서 다시 들어온다(리뷰 v2-2).
+        String series = seriesOf(authentication);
+        if (series != null) {
+            try {
+                rememberMeTokens.removeSeries(series);
+            } catch (Exception e) {
+                log.error("거부된 로그인의 remember-me 토큰 정리 실패 (user={})", authentication.getName(), e);
+            }
+        }
+        rememberMeServices.cancelRememberMeCookie(request, response);
         HttpSession session = request.getSession(false);
         if (session != null) {
             session.invalidate();
@@ -122,43 +128,30 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
         getRedirectStrategy().sendRedirect(request, response, "/admin/login-error");
     }
 
-    private boolean hasAdminOrManagerRole(Collection<? extends GrantedAuthority> authorities) {
-        return authorities.stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_MANAGER"));
-    }
-
     /**
-     * 읽은 지 90일 지난 본인 알림 정리(D7·D8). 재확인을 통과한 뒤에만 호출되며, 실패해도 로그인을 막지 않는다.
-     * 로그인 경로는 {@code REQUIRES_NEW}로 요청당 커넥션 2개를 잡지 않는다(풀 고갈 규칙) — 호출 시점에 열린 트랜잭션이 없으므로 REQUIRED가 새 트랜잭션을 연다.
+     * 이 로그인이 remember-me 기기를 발급했다면, 그 시리즈가 아직 DB에 있고 현재 세션이 그 사이 만료되지 않았는지 본다.
+     * 세션 등록 ~ 시리즈 기록 사이에 회원 전체 폐기·수동 만료가 끼면 여기서 거부한다. 조회 실패도 거부(fail-closed).
+     * 세션 만료 표시는 일반 필드라 다른 스레드의 쓰기 가시성이 보장되지 않는다 — best-effort(쟁점 2 "남는 창").
      */
-    private void tryPurgeOldReadNotifications(Authentication authentication) {
-        if (!(authentication.getPrincipal() instanceof CustomUserDetails details) || details.getId() == null) {
-            return;
+    private boolean verifyRememberMeDevice(HttpServletRequest request, Authentication authentication) {
+        String series = seriesOf(authentication);
+        if (series == null) {
+            return true;
         }
         try {
-            notificationRecorder.purgeOldReadNotifications(details.getId());
+            HttpSession session = request.getSession(false);
+            SessionInformation info = session == null ? null : sessionRegistry.getSessionInformation(session.getId());
+            if (info != null && info.isExpired()) {
+                return false;
+            }
+            return rememberMeTokens.existsSeries(series);
         } catch (Exception e) {
-            log.error("읽은 알림 정리 실패 (user={})", authentication.getName(), e);
+            log.error("remember-me 기기 확인 실패 — 로그인을 거부합니다 (user={})", authentication.getName(), e);
+            return false;
         }
     }
 
-    /**
-     * 방문 로그 저장을 시도한다.
-     * 저장 실패가 로그인 자체를 막지 않도록 예외를 격리하되, 에러 로그로 누락을 추적한다.
-     */
-    private void tryLogVisit(HttpServletRequest request, Authentication authentication) {
-        try {
-            // 앱 KST Clock으로 기록 — 대시보드 집계(오늘 카운트·일별 추이)와 같은 시간원.
-            // JVM 기본 시간대 직접 호출은 UTC 환경에서 자정 전후 방문이 다른 날짜로 집계된다.
-            VisitLog visitLog = VisitLog.builder()
-                    .visitorUserId(authentication.getName())
-                    .requestIp(ClientIpResolver.resolve(request))
-                    .visitAt(LocalDateTime.now(clock))
-                    .build();
-            visitLogRepository.save(visitLog);
-        } catch (Exception e) {
-            log.error("방문 로그 저장 실패 (user={})", authentication.getName(), e);
-        }
+    private static String seriesOf(Authentication authentication) {
+        return authentication.getPrincipal() instanceof CustomUserDetails details ? details.getRememberMeSeries() : null;
     }
 }

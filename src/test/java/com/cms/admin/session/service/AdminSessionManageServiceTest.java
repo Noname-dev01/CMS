@@ -33,7 +33,10 @@ class AdminSessionManageServiceTest {
 
     private final SessionRegistry registry = new SessionRegistryImpl();
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-10T00:00:00Z"), KST);
-    private final AdminSessionManageService service = new AdminSessionManageService(new AdminSessionService(registry), clock);
+    // remember-me 기기 폐기는 RememberMeLoginIntegrationTest가 본다 — 여기 세션들은 시리즈가 없어 폐기 호출이 아무것도 하지 않는다.
+    private final AdminSessionManageService service = new AdminSessionManageService(new AdminSessionService(registry),
+            org.mockito.Mockito.mock(com.cms.config.auth.RememberMeDeviceRevoker.class),
+            org.mockito.Mockito.mock(com.cms.config.auth.RememberMeTokenRepository.class), clock);
 
     private CustomUserDetails principal(Long memberId, Role role) {
         return new CustomUserDetails(Member.builder()
