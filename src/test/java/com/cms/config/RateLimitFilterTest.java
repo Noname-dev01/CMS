@@ -42,7 +42,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         SecurityConfig.class,
         PermissionTestConfig.class,
         RateLimitFilterConfig.class,
-        RateLimitFilterTest.MockConfig.class
+        RateLimitFilterTest.MockConfig.class,
+        com.cms.config.RememberMeTestConfig.class
 })
 @ActiveProfiles({"test", "webmvc-test"})
 @TestPropertySource(properties = {
@@ -91,9 +92,11 @@ class RateLimitFilterTest {
         public VisitLoggingAuthenticationSuccessHandler visitLoggingAuthenticationSuccessHandler(
                 LoginFailureService loginFailureService) {
             VisitLogRepository mockRepo = Mockito.mock(VisitLogRepository.class);
-            return new VisitLoggingAuthenticationSuccessHandler(mockRepo, loginFailureService,
-                    org.mockito.Mockito.mock(com.cms.admin.notification.service.NotificationRecorder.class),
-                    Clock.systemDefaultZone());
+            return new VisitLoggingAuthenticationSuccessHandler(loginFailureService,
+                    Mockito.mock(com.cms.config.auth.LoginVisitRecorder.class),
+                    Mockito.mock(com.cms.config.auth.RememberMeTokenRepository.class),
+                    Mockito.mock(com.cms.config.auth.AdminRememberMeServices.class),
+                    Mockito.mock(org.springframework.security.core.session.SessionRegistry.class));
         }
 
         @Bean

@@ -73,17 +73,80 @@ public class AdminSessionService {
      * 동시에 두 요청이 같은 세션을 찾으면 둘 다 성공할 수 있다({@code expireNow()} 멱등).
      */
     public Optional<ActiveSession> expireByHandle(String handle) {
+        return findActiveByHandle(handle).map(found -> {
+            found.info().expireNow();
+            return toActiveSession(found.principal(), found.info());
+        });
+    }
+
+    /** 핸들로 찾은 활성 세션과 그 레지스트리 principal(remember-me 시리즈를 담고 있다). */
+    public record FoundSession(SessionInformation info, CustomUserDetails principal) {
+    }
+
+    /**
+     * 핸들에 해당하는 <b>조회 시점에 활성인</b> 세션을 찾기만 한다(만료하지 않는다). 수동 단일 만료가 remember-me 기기 토큰을 먼저 지우고
+     * 성공한 뒤에 만료하도록(삭제 실패 시 같은 핸들로 재시도 가능 — PLAN-remember-me-login.md 쟁점 3) 찾기와 만료를 나눈다.
+     */
+    public Optional<FoundSession> findActiveByHandle(String handle) {
         for (Object principal : sessionRegistry.getAllPrincipals()) {
             if (principal instanceof CustomUserDetails userDetails) {
                 for (SessionInformation info : sessionRegistry.getAllSessions(principal, false)) {
                     if (handleOf(info.getSessionId()).equals(handle)) {
-                        info.expireNow();
-                        return Optional.of(toActiveSession(userDetails, info));
+                        return Optional.of(new FoundSession(info, userDetails));
                     }
                 }
             }
         }
         return Optional.empty();
+    }
+
+    /** 세션 ID의 레지스트리 principal이 가진 remember-me 시리즈. 등록되지 않았거나 시리즈가 없으면 {@code null}. */
+    public String rememberMeSeriesOf(String sessionId) {
+        if (sessionId == null) {
+            return null;
+        }
+        SessionInformation info = sessionRegistry.getSessionInformation(sessionId);
+        return info != null && info.getPrincipal() instanceof CustomUserDetails details ? details.getRememberMeSeries() : null;
+    }
+
+    /**
+     * 같은 remember-me 기기(시리즈)를 가진 활성 세션을 모두 만료한다 — 서버에 남은 세션과 쿠키로 복원한 세션이 같은 시리즈를 가질 수 있다
+     * (PLAN-remember-me-login.md v5). 시리즈는 무작위 값이라 회원을 따로 거르지 않는다. 반환값은 {@code expireNow()}를 호출한 수(참고용).
+     */
+    public int expireSessionsWithSeries(String series) {
+        if (series == null) {
+            return 0;
+        }
+        int expired = 0;
+        for (Object principal : sessionRegistry.getAllPrincipals()) {
+            if (principal instanceof CustomUserDetails userDetails && series.equals(userDetails.getRememberMeSeries())) {
+                for (SessionInformation info : sessionRegistry.getAllSessions(principal, false)) {
+                    info.expireNow();
+                    expired++;
+                }
+            }
+        }
+        return expired;
+    }
+
+    /**
+     * 아이디로 회원의 활성 세션을 모두 만료한다 — <b>DB를 조회하지 않는다</b>. remember-me 탈취 처리가 토큰을 이미 지운 뒤에 쓰므로
+     * 추가 조회가 실패해 공격자 세션이 남는 일이 없어야 한다(PLAN-remember-me-login.md v5). 비교는 대소문자 무시(칼럼 콜레이션과 같은 판정).
+     */
+    public int expireSessionsForUserId(String userId) {
+        if (userId == null) {
+            return 0;
+        }
+        int expired = 0;
+        for (Object principal : sessionRegistry.getAllPrincipals()) {
+            if (principal instanceof CustomUserDetails userDetails && userId.equalsIgnoreCase(userDetails.getUserId())) {
+                for (SessionInformation info : sessionRegistry.getAllSessions(principal, false)) {
+                    info.expireNow();
+                    expired++;
+                }
+            }
+        }
+        return expired;
     }
 
     /**
@@ -119,7 +182,7 @@ public class AdminSessionService {
         expireSessionsFor(memberId, null);
     }
 
-    private ActiveSession toActiveSession(CustomUserDetails userDetails, SessionInformation info) {
+    private static ActiveSession toActiveSession(CustomUserDetails userDetails, SessionInformation info) {
         return new ActiveSession(
                 handleOf(info.getSessionId()),
                 userDetails.getId(),

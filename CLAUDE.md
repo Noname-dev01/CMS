@@ -104,6 +104,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 `SecurityConfig`의 경로별 접근 제어 표(승인 이력 포함)는 `com.cms.config`의 `CLAUDE.md` 참조. MANAGER가 접근할 수 있는 기능은 코드 카탈로그(`AdminFeature`) ∩ **그 회원 본인의** DB 허용 행으로 정해지고(기능 단위 위임은 `member_permission`, 게시판 단위 위임은 `member_board_permission` — 공지는 2026-10-09부터 **공지 게시판의 게시글이라 게시판 권한**이며 기능 단위 `NOTICE`는 제거됐다. 현재 `DELEGABLE` 기능은 공개 메인 배너 `BANNER`·정적 페이지 `SITE_PAGE`(2026-10-11)·공개 메인 팝업 `POPUP`(2026-10-12)·FAQ `FAQ`(2026-10-12)·미디어 라이브러리 `MEDIA`(2026-10-12)·문의함 `INQUIRY`(2026-10-12) 여섯이다(2026-10-10 — 첫 기능 단위 위임이라 공지 흡수 때 생긴 그 경로의 시험 공백이 이때 복구됐다) — `com.cms.admin.permission`의 `CLAUDE.md`. 2026-10-03부터 회원별 — 신규 MANAGER는 권한이 없다) **ADMIN은 DB를 보지 않고 항상 허용**이다 — 카탈로그·판정기·캐시·인가 선언 컨벤션·롤백 주의는 `com.cms.admin.permission`의 `CLAUDE.md` 참조(2026-10-02, 위임 불가 기능은 어떤 DB 값으로도 MANAGER에게 열리지 않는다).
 
 - `ACTIVE` 상태 계정만 로그인 가능 (`CustomUserDetailsService`). 연속 5회 로그인 실패 시 자동 잠금(30분 해제) — 정책 상세는 "핵심 도메인 모델 > Member" 참조 (2026-07-14 승인)
+- **로그인 상태 유지(remember-me 영속 토큰 7일)**(2026-11-10 승인, 이슈 #222): 비밀번호 없이 쿠키로 인증되는 경로다. 세션 강제 만료(역할·상태·비밀번호 변경·재설정·자동 잠금·수동 만료·로그아웃)가 쿠키로 되살아나지 않도록 토큰 폐기와 묶여 있다 — 세션을 끊는 새 경로를 만들면 토큰 폐기도 함께 설계한다. 상세는 `com.cms.config`의 `CLAUDE.md` "로그인 상태 유지".
 - **세션 강제 만료는 best-effort다** — 즉시 접근 차단 수단이 아니다. 상세는 `com.cms.admin.session`의 `CLAUDE.md`.
 - CSRF는 **모든 경로에 활성**이다. `/admin/api/**`를 포함한 상태 변경 요청(POST/PATCH/PUT/DELETE)은 반드시 CSRF 토큰을 포함해야 한다. Thymeleaf 페이지는 `head.html` 프래그먼트가 `<meta name="_csrf">` 태그로 토큰을 렌더링하며, JS에서 이 값을 읽어 `X-CSRF-TOKEN` 헤더로 전송한다. 신규 상태 변경 fetch 호출 작성 시 CSRF 헤더를 누락하지 않는다.
 - 메서드 레벨 보안: `MethodSecurityConfig`에서 활성화

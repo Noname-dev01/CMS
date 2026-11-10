@@ -32,6 +32,30 @@
 | `/css/**`, `/js/**`, `/img/**`, `/vendor/**`, `/favicon.ico` | GET·HEAD만 공개 (정적 리소스, 2026-09-29 승인). 앞 4개 접두사는 **정적 전용 예약 경로** — 컨트롤러 매핑 금지(`DefaultDenyErrorDispatchIntegrationTest`가 강제). `static/`에 새 최상위 디렉터리를 추가하면 `SecurityConfig.STATIC_PUBLIC_PATHS`에도 추가해야 한다(`SecurityConfigTest`가 감지). `/favicon.ico`는 파일이 없어도 열어 기존 404 유지 |
 | 그 외 모든 경로 | **기본 거부** (`anyRequest().denyAll()`, 2026-09-29 승인, 감사 M-08) — 비인증은 `/admin/login` 302, 인증(ADMIN·MANAGER)은 403. **새 엔드포인트는 반드시 위 표에 접근 규칙을 추가해야 한다**(누락 시 즉시 차단). `/admin` 아래 핸들러는 추가로 **인가 선언 컨벤션**(읽기 전용 GET/HEAD 페이지만 면제, 그 밖의 모든 핸들러와 모든 API는 `@RequirePermission`·`@RequireBoardPermission`(게시판 게이트 안 — 경로에 `{boardId}` 필수)·`hasRole('ADMIN')` 중 하나 — `AdminEndpointAuthorizationConventionTest`, 상세는 `com.cms.admin.permission`의 `CLAUDE.md`)도 지켜야 하며, 어기면 CI가 실패한다. 이 보장은 명시 허용 규칙에 매칭되지 않는 경로에 한정 — 정적 예약 접두사 하위는 위 컨트롤러 금지 규칙이 지킨다. 설계 근거·검증 이력은 `adversarial-review/plan/PLAN-default-deny-authorization.md` |
 
+## 로그인 상태 유지 (remember-me, 2026-11-10 승인 — 이슈 #222, `adversarial-review/plan/PLAN-remember-me-login.md`)
+
+URL 접근 규칙은 바뀌지 않았다. 구성 요소는 `config/auth`: `AdminRememberMeServices`(Spring `PersistentTokenBasedRememberMeServices` 확장)·`RememberMeTokenRepository`(테이블 `persistent_logins`, V15)·`RememberMeLoginVerificationFilter`(`RememberMeAuthenticationFilter` 바로 뒤, 빈이 아님)·`RememberMeTokenRevokeListener`·`RememberMeDeviceRevoker`·`RememberMeKey`(기동마다 무작위 — 재기동해도 DB 토큰은 유효)·`LoginVisitRecorder`(폼·자동 로그인 공용 방문 기록).
+
+- **유효 기간 7일**(자동 로그인마다 토큰 교체 → 마지막 사용 후 7일), 쿠키 `remember-me`·HttpOnly·`Secure`는 `request.isSecure()`(세션 쿠키와 같은 정책 — 프록시 뒤 판정은 `docs/verification/deployment-edge.md`).
+- **기기 = 시리즈**. 로그인이 쓰는 시리즈(DB 정식 값)를 principal(`CustomUserDetails.rememberMeSeries`)과 세션 속성 `REMEMBER_ME_SERIES`에 기록한다. `series`·`token` 칼럼은 `ascii_bin`(대소문자만 바꾼 시리즈가 같은 행을 찾지 못하게).
+- **폐기 표** — 항상 **토큰 삭제 → 세션 만료** 순서(자동 로그인 사후 검증과 경합하지 않는 근거):
+
+| 사건 | 범위 | 경계 |
+|---|---|---|
+| `AdminSessionRevokeEvent`(역할·상태 변경, 본인 비밀번호 변경, 재설정, 자동 잠금) | 그 회원의 모든 토큰 | `RememberMeTokenRevokeListener` **BEFORE_COMMIT**(원 트랜잭션 — 실패하면 원 변경도 롤백). AFTER_COMMIT JDBC 쓰기는 커밋이 보장되지 않아 쓰지 않는다 |
+| 수동 단일 만료 | 그 세션의 시리즈 + 같은 시리즈의 모든 세션(같은 기기) | `AdminSessionManageService` — 삭제 실패면 세션도 그대로(같은 핸들 재시도) |
+| 수동 회원 단위 만료 | 그 회원의 토큰 − 현재 세션의 시리즈 | 현재 세션 시리즈는 레지스트리 principal에서 읽는다 |
+| 명시적 로그아웃 | 이 기기(principal·레지스트리·쿠키·세션 속성 네 출처) + 같은 시리즈의 세션 | `AdminRememberMeServices.logout` → `RememberMeDeviceRevoker` |
+| 만료 세션의 후속 요청(`ConcurrentSessionFilter`가 로그아웃 핸들러 호출) | 없음 — 쿠키만 취소 | 지우면 회원 단위 만료가 보존한 현재 기기 시리즈가 사라진다 |
+| 탈취 감지(교체된 옛 쿠키 재사용) | 그 회원의 모든 세션 + 모든 토큰 | `processAutoLoginCookie`를 **한 번의 조회**로 직접 구현해(라이브러리의 사전·재조회 어긋남 제거) **세션 만료 → 토큰 삭제 → 세션 만료**(만료는 레지스트리만 — DB 무관). 뒤의 만료가 그 사이 현재 토큰으로 등록·검증을 마친 세션을 잡는다. 삭제가 실패하면 그 회원을 **메모리 차단 목록**에 올려 삭제가 성공할 때까지 그 회원의 자동 로그인을 거부하고 매번 재시도한다(남은 행으로 공격자의 최신 쿠키가 다시 들어오지 못하게 — 단일 인스턴스 메모리라 재기동하면 사라진다). 500 대신 익명 |
+
+- **같은 기기의 세션이 여럿일 수 있다**: 브라우저가 세션 쿠키만 잃고 remember-me로 복원하면 서버에 남은 옛 세션과 새 세션이 같은 시리즈다. 그래서 세션 관리 화면에서 옛 세션을 만료하면 **같은 기기의 현재 세션도 끊긴다**(실기 확인 — "현재 세션은 만료할 수 없다"는 핸들 단위 보호일 뿐이다).
+- **사후 검증**: 쿠키 자동 로그인은 세션 등록 뒤 `RememberMeLoginVerificationFilter`가 시리즈 행 존재와 **그 회원이 탈취 차단 목록에 없음**을 본다(없으면·조회 실패면 세션 무효화·컨텍스트 초기화·쿠키 취소 — fail-closed). 방문 기록(U3)은 통과 뒤. 폼 로그인은 `VisitLoggingAuthenticationSuccessHandler`가 같은 확인을 하고, 거부 경로는 방금 만든 시리즈 행을 지우고 쿠키를 취소한다. **폼 로그인의 remember-me 쿠키는 이 확인을 모두 통과한 뒤에만 싣는다**(`issuePendingCookie`) — 거부 응답에 발급 쿠키가 실리면 행 삭제가 실패했을 때 그 값으로 재인증할 수 있다. `loginSuccess`는 이 브라우저의 옛 시리즈(쿠키·세션 속성)를 먼저 지우고, 그 정리가 예외로 끝나면 이미 저장된 인증을 지운다(폼 로그인은 컨텍스트 저장이 `loginSuccess`보다 앞). `updateToken` 0행은 실패다.
+- **권한 부족은 403 유지**: Spring 7 `ExceptionTranslationFilter`는 remember-me 인증의 `AccessDeniedException`을 익명처럼 진입점으로 보내고 그 전에 컨텍스트를 비운다 → 진입점 람다가 예외의 `getAuthenticationRequest()`로 판별해 접근 거부 처리기를 직접 부른다.
+- **인증 출처 보존**: `AdminSecurityService.refreshAuthentication`은 `RememberMeAuthenticationToken`을 같은 타입으로 다시 만들고 시리즈를 옮긴다.
+- **수용한 한계**: 쿠키 탈취 시 7일 노출(민감 작업 재인증 없음 — 후속 후보), 여러 탭 동시 복원의 오탐 탈취(토큰·세션 전부 끊김), 폼 로그인의 세션 등록 ~ 시리즈 기록 수 ms 창의 수동 단일 만료(best-effort), 만료 행 정리 작업 없음.
+- **시험**: `RememberMeLoginIntegrationTest`(25건 — 경합은 `@MockitoSpyBean RememberMeTokenRepository`·`LoginVisitRecorder`로 결정적 재현, 변이 9종이 의도한 시험에서 실패함을 확인). `SecurityConfig`를 가져오는 슬라이스 시험은 `RememberMeTestConfig`(mock)를 함께 import한다.
+
 ## 무인증 공개 엔드포인트 레이트리밋
 
 - **무인증 공개 엔드포인트 레이트리밋** (`cms.rate-limit.*`, `com.cms.config.ratelimit`, 2026-08-12 도입): `/{siteKey}/notices/**`(GET·HEAD)·비밀번호 재설정 API 2종(POST)에 토큰 버킷 기반 최소 방어를 적용한다. "N회/기간"은 버스트 상한 N + 평균 N/기간을 뜻하며(엄격한 슬라이딩 상한 아님), 정확한 유량 계약을 보장하는 게이트웨이가 아니다. 저장소는 Caffeine(`maximumSize` + 버킷별 `Expiry`)이며, **fail-open을 운영 위험으로 명시 수용**한다 — 캐시가 포화되는 극단적 상황(대량 IP 회전 공격 등)에서는 개별 IP의 정확한 누적치 보장이 흐트러질 수 있다(메모리 상한·무제한 신규 키 수용·IP별 완벽한 정확성을 동시에 요구하려면 Redis 같은 외부 원자적 저장소가 필요하나 이번 범위·인프라 제약을 벗어나 기각). 필터는 `CsrfFilter` **다음**에 위치한다 — CSRF 검증 실패 요청이 quota를 소비하면 외부 사이트가 피해자 브라우저로 토큰 없는 form POST를 반복시켜 피해자 IP의 quota를 고갈시키는 교차 사이트 공격이 가능해지기 때문이다. 키는 `request.getRemoteAddr()` 고정(`X-Forwarded-For` 등은 위조 가능해 미사용). 상세 설계·리뷰 이력은 `adversarial-review/plan/PLAN-public-endpoint-rate-limit.md` 참조. **예외 1건(2026-11-02 승인, `PLAN-content-image-rate-limit.md`)**: 규칙 설정 `exempt-authenticated: true`인 규칙은 로그인한(익명이 아닌) 요청이 버킷을 쓰지 않고 통과한다 — 현재 `content-image`(`/content-images/*`) 하나뿐이고(`SitePublicRateLimitConventionTest`가 고정), 관리 편집기(Quill) 이미지는 스크립트로 자리표시를 만들 수 없어 같은 IP 익명 방문자가 버킷을 비우면 깨지던 문제의 해법이다. 익명 한도(240/60초)·URL 인가 규칙은 불변이고 면제는 다음 규칙 평가로 넘어가지 않는다. 공개 상세 본문 이미지는 외부 스크립트 `board-content-image-fallback.js`가 실패 시 안내 상자로 바꾼다.

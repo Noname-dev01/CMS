@@ -5,6 +5,8 @@ import com.cms.admin.member.domain.ProfileImageUrls;
 import com.cms.admin.member.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.authentication.RememberMeAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -17,6 +19,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class AdminSecurityService {
     private final MemberRepository memberRepository;
+    private final RememberMeKey rememberMeKey;
 
     public Long getCurrentAdminId(){
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -92,11 +95,12 @@ public class AdminSecurityService {
             }
 
             CustomUserDetails refreshedUser = new CustomUserDetails(memberOpt.get());
-            UsernamePasswordAuthenticationToken newAuth = new UsernamePasswordAuthenticationToken(
-                    refreshedUser,
-                    currentAuth.getCredentials(),
-                    refreshedUser.getAuthorities()
-            );
+            // remember-me 기기(시리즈)와 인증 종류를 보존한다 — 쿠키 자동 로그인을 비밀번호 인증으로 바꿔 표현하지 않는다
+            // (PLAN-remember-me-login.md 쟁점 4). 세션 레지스트리 principal은 그대로라 기기 폐기에는 영향이 없다.
+            refreshedUser.setRememberMeSeries(((CustomUserDetails) currentAuth.getPrincipal()).getRememberMeSeries());
+            AbstractAuthenticationToken newAuth = currentAuth instanceof RememberMeAuthenticationToken
+                    ? new RememberMeAuthenticationToken(rememberMeKey.value(), refreshedUser, refreshedUser.getAuthorities())
+                    : new UsernamePasswordAuthenticationToken(refreshedUser, currentAuth.getCredentials(), refreshedUser.getAuthorities());
             newAuth.setDetails(currentAuth.getDetails());
             SecurityContextHolder.getContext().setAuthentication(newAuth);
 
