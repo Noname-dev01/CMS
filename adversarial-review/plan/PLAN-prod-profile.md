@@ -492,7 +492,7 @@ src/test/java/com/cms/config/SecurityConfigTest.java   # actuator 케이스 추�
   - `prod-down.sh` 이후 `db_data_prod`·`notice_attachments_prod` 볼륨 보존 확인
   - 호스트 셸에 `ADMIN_BOOTSTRAP_PASSWORD`·`MAIL_PASS` leftover 설정 → `prod-up.sh`가 경고 후 unset, 컨테이너에는 `.env.prod` 값만 주입됨을 `docker inspect`로 확인
 - **회귀 검증**: dev DB(`cms-db-dev`, named volume `cms_db_data_dev`)가 이번 세션의 모든 prod 실기 검증 전후로 데이터 무결성 유지(`SELECT COUNT(*)` 동일값) 확인 — compose 프로젝트 이름 수정의 실효성 재검증 겸함.
-- **Playwright 실기 검증** (dev 프로파일, `./gradlew bootRun` + 기존 `cms-db-dev`): ADMIN(`admin`/`1234`) 로그인 → `/admin`(대시보드) → `/admin/member/manage`(관리자 조회, 기존 회원 2건 정상 표시) → `/admin/notice/manage`(공지사항 관리) → `/notices`(공개 공지 목록, 비로그인 전제 아님이나 페이지 자체 렌더링 확인) 전부 정상 렌더링, 신규 회귀 없음 확인(스크린샷: `regression-dashboard-dev.png`, `regression-member-manage-dev.png`, `regression-notice-manage-dev.png`, `regression-public-notices-dev.png`). 콘솔 오류는 `/favicon.ico` 500 1건뿐 — 이번 PR이 새로 만든 것이 아니라 오늘 `docs/troubleshooting.md`에 함께 기록한 기존 결함(핸들러 없는 경로 500)과 동일 근본 원인.
+- **Playwright 실기 검증** (dev 프로파일, `./gradlew bootRun` + 기존 `cms-db-dev`): ADMIN(`admin`/`1234`) 로그인 → `/admin`(대시보드) → `/admin/member/manage`(관리자 조회, 기존 회원 2건 정상 표시) → `/admin/notice/manage`(공지사항 관리) → `/notices`(공개 공지 목록, 비로그인 전제 아님이나 페이지 자체 렌더링 확인) 전부 정상 렌더링, 신규 회귀 없음 확인(스크린샷: `regression-dashboard-dev.png`, `regression-member-manage-dev.png`, `regression-notice-manage-dev.png`, `regression-public-notices-dev.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)). 콘솔 오류는 `/favicon.ico` 500 1건뿐 — 이번 PR이 새로 만든 것이 아니라 오늘 `docs/troubleshooting.md`에 함께 기록한 기존 결함(핸들러 없는 경로 500)과 동일 근본 원인.
 - `/deploy-check` 실행 결과: **needs-attention**(차단 0건). 리포트: `adversarial-review/deploy-check-2026-07-30.md`.
 
 ### 이슈

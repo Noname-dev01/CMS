@@ -107,7 +107,7 @@
 ### 검증 결과
 - 범위 시험(`com.cms.publicweb.*` + `com.cms.admin.board.*` + `*ConventionTest`): **737건 통과, 실패 0·건너뜀 0**. 전체 `./gradlew test`는 코드 리뷰 루프 마무리(또는 `commitPR` 직전)에 1회.
 - 시험이 실제로 회귀를 잡는지: `<img alt="">` 방식 상태에서 브라우저 시험이 실패했다(깨진 아이콘 검출) — D2 전환의 근거이자 변이 증거. 컨벤션 시험이 `<img>` 재도입·정적 `style`·`th:style` 추가를 막는다.
-- 실기(bootRun + 실제 관리 API로 데이터 생성 + Playwright): 1200×800 PNG 업로드 → 대표 지정 글 생성 → 썸네일 파일 생성(39,693B). ① 메인: 대표 있는 글만 썸네일 칸(`background-image:url(/content-images/112?size=thumb)`), 대표 없는 글은 칸 없음, 비노출 대표 글 미노출, 스크립트 0개 ② 상세: `<meta property="og:image" content="http://localhost:8080/content-images/112?size=thumb">`, 대표 없는 글은 메타 0, 비노출 글 404 ③ 그 URL 익명 200 `image/png`·`Cache-Control: no-store`·`nosniff`(원본 207,493B 대비 썸네일 39,693B) ④ 왕복: 노출 끔 → 메인 썸네일 0·상세 404·이미지 URL 404, 켬 → 복귀, 예약(2099) → 다시 사라짐, 기간 비움 → 복귀 ⑤ 숫자 게시판 경로 404(기존 동작). 스크린샷 `home-cover-og-image-screenshots/home-thumb.png`·`home-thumb-aligned.png`. 실기 데이터(게시판·글·이미지·썸네일 파일)는 모두 정리했다.
+- 실기(bootRun + 실제 관리 API로 데이터 생성 + Playwright): 1200×800 PNG 업로드 → 대표 지정 글 생성 → 썸네일 파일 생성(39,693B). ① 메인: 대표 있는 글만 썸네일 칸(`background-image:url(/content-images/112?size=thumb)`), 대표 없는 글은 칸 없음, 비노출 대표 글 미노출, 스크립트 0개 ② 상세: `<meta property="og:image" content="http://localhost:8080/content-images/112?size=thumb">`, 대표 없는 글은 메타 0, 비노출 글 404 ③ 그 URL 익명 200 `image/png`·`Cache-Control: no-store`·`nosniff`(원본 207,493B 대비 썸네일 39,693B) ④ 왕복: 노출 끔 → 메인 썸네일 0·상세 404·이미지 URL 404, 켬 → 복귀, 예약(2099) → 다시 사라짐, 기간 비움 → 복귀 ⑤ 숫자 게시판 경로 404(기존 동작). 스크린샷 `home-cover-og-image-screenshots/home-thumb.png`(2026-11-09 정리에서 삭제 — 정렬 전 화면)·`docs/screenshots/public-home/new-posts-thumb-aligned.png`(2026-11-09 정리로 이동). 실기 데이터(게시판·글·이미지·썸네일 파일)는 모두 정리했다.
 
 ### 이슈
 - 환경: Docker Desktop이 꺼져 있어 Testcontainers 시험이 `initializationError`로 실패 — 코드 문제가 아니라 데몬 미기동이었고 Docker Desktop을 기동해 해결.
@@ -121,6 +121,6 @@
 - 로드맵 "후속 과제 — 게시판 정의 고도화" ① 완료 표기는 `/updateRoadmap` 몫.
 
 ### 코드 리뷰 루프·전체 시험 (2026-11-03)
-- 1라운드 지적 1건(P2, `home.css`) **수용**: 좁은 화면에서 썸네일 행의 제목 공간이 사라진다. 실측(320px 화면 — 썸네일 행 제목 39px, 긴 게시판명이면 0px + 날짜가 행 밖으로 62px 넘침, 썸네일 없는 행은 123px)으로 확인했다. 수정: 썸네일 행만 `flex-wrap: wrap`·제목 `flex: 1 1 8rem`·게시판명 축소 허용 → 제목 170px, 넘침 없음, 넓은 화면(1000px)은 한 줄 유지(스크린샷 `home-thumb-narrow-320.png`). 회귀 시험 `HomeThumbFallbackBrowserTest.narrowViewportKeepsTitleAndDateInsideRow` 추가, CSS를 되돌리는 변이 실험에서 이 시험만 실패함을 확인. 2라운드 지적 0건(approve).
+- 1라운드 지적 1건(P2, `home.css`) **수용**: 좁은 화면에서 썸네일 행의 제목 공간이 사라진다. 실측(320px 화면 — 썸네일 행 제목 39px, 긴 게시판명이면 0px + 날짜가 행 밖으로 62px 넘침, 썸네일 없는 행은 123px)으로 확인했다. 수정: 썸네일 행만 `flex-wrap: wrap`·제목 `flex: 1 1 8rem`·게시판명 축소 허용 → 제목 170px, 넘침 없음, 넓은 화면(1000px)은 한 줄 유지(스크린샷 `home-thumb-narrow-320.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름) — 320px 배치는 #198에서 다시 바뀜). 회귀 시험 `HomeThumbFallbackBrowserTest.narrowViewportKeepsTitleAndDateInsideRow` 추가, CSS를 되돌리는 변이 실험에서 이 시험만 실패함을 확인. 2라운드 지적 0건(approve).
 - 전체 `./gradlew test`: **3,001건 통과, 실패 0, 건너뜀 12**(건너뜀과 이번 변경의 관련은 확인하지 않음 — 직전 작업 #193 기록도 12건).
 - 범위 밖 기존 문제: 320px 화면에서 카드(`minmax(300px, 1fr)`)가 뷰포트보다 넓어 가로 스크롤이 생긴다(이번 변경 이전부터).

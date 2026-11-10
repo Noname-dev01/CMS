@@ -89,7 +89,7 @@
 - **후행 공백 경계(R1-1) 실측**: 255자 + 후행 공백 1개(픽스처는 V4 전에 `256|256|20`으로 증명)를 넣고 V4를 실행하면 **엄격 모드에서도 성공하고 255자로 잘린다** — 우려가 실제로 확인됐다. 비공백 256자는 실패(컬럼 `longtext` 유지·값 256자 유지). 앱 경로로는 공백이 든 값을 만들 수 없어 가드를 두지 않고 `upgrade_trailingSpaceOverflowIsTruncatedSilently`로 한계를 고정했다.
 - **이전 앱 롤백 실측**: V4 스키마에서 옛 매핑(`@Lob`)으로 `@DataJpaTest`를 띄우면 `Schema validation: wrong column type encountered in column [profile_image_url] in table [member]; found [varchar (Types#VARCHAR)], but expecting [longtext (Types#CLOB)]`로 컨텍스트 생성이 실패한다 → 되돌릴 때 `ALTER TABLE member MODIFY profile_image_url LONGTEXT DEFAULT NULL`이 먼저 필요하다(`docs/migration-guide.md`에 기록).
 - **dev DB 사전 조회**: V3까지 적용, 회원 1명(이미지 없음), 길이 > 255 행 0건, 컬럼 `longtext`.
-- **실기(dev 스택 재빌드)**: 기동 로그 `Migrating schema cms to version "4 - shrink profile image url"` → `Successfully applied 1 migration`, `validate` 통과, DB 컬럼 `varchar(255)|YES|NULL`. 골든 패스(admin 로그인 → 내 정보): ① 프리셋 선택 → `PRESET`·25자·`/img/undraw_profile_1.svg`, ② PNG 업로드 → `UPLOADED`·`image/png`·51자 키, 다운로드 `200 image/png`·282바이트, 화면 프로필 카드·상단바 반영(`profile-image-url-shrink-screenshots/01-uploaded.png`), ③ 초기화 → `204`, DB `NONE`/`NULL`/`NULL`로 **원복**, 저장 파일 0개, 초기화 후 `GET` 404, CSRF 없는 `DELETE` 403. 앱 로그 오류 없음.
+- **실기(dev 스택 재빌드)**: 기동 로그 `Migrating schema cms to version "4 - shrink profile image url"` → `Successfully applied 1 migration`, `validate` 통과, DB 컬럼 `varchar(255)|YES|NULL`. 골든 패스(admin 로그인 → 내 정보): ① 프리셋 선택 → `PRESET`·25자·`/img/undraw_profile_1.svg`, ② PNG 업로드 → `UPLOADED`·`image/png`·51자 키, 다운로드 `200 image/png`·282바이트, 화면 프로필 카드·상단바 반영(`profile-image-url-shrink-screenshots/01-uploaded.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)), ③ 초기화 → `204`, DB `NONE`/`NULL`/`NULL`로 **원복**, 저장 파일 0개, 초기화 후 `GET` 404, CSRF 없는 `DELETE` 403. 앱 로그 오류 없음.
 
 ### 이슈
 

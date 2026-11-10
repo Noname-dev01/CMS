@@ -110,7 +110,7 @@
 | MANAGER가 `/admin/menu/manage` 직접 접근 | 서버측 차단(에러 페이지) — 노출 숨김과 접근 차단 이중 확인 |
 | 회귀 | 활동 로그(20행)·관리자 조회(12행) 정상, active 하이라이트 정상 |
 
-스크린샷: `sidebar-dynamic-admin.png`, `sidebar-dynamic-manager.png` (루트, 미추적)
+스크린샷: `sidebar-dynamic-admin.png`, `sidebar-dynamic-manager.png` (루트, 미추적 — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름))
 
 ## 검증 중 발견·해결한 이슈
 

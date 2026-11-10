@@ -133,8 +133,8 @@
 | 판별력 — 운영 코드 수정 전 신규 테스트 실행 | 신규 6케이스 **전부 실패**(서비스 4: GIF·ZIP 거부됨, GİF·ZİP 통과됨 / 저장소 2: 키에 확장자 없음). 같은 실행에서 기존 테스트는 모두 통과 → 로케일 변경이 다른 테스트로 새지 않음 |
 | 수정 후 대상 2클래스 | `NoticeAttachmentServiceTest` 26/0 실패, `LocalDiskFileStorageTest` 32건 실패 0(건너뜀 11은 Windows 링크 테스트) |
 | `./gradlew test` 전체(Windows, Testcontainers) | 1374건(기존 1368 + 6), 실패 0, 건너뜀 11 |
-| 실기 en_US — dev Docker 스택(현재 브랜치 빌드, `user.language=en`) | `report.pdf`·`IMAGE.GIF`·`ARCHIVE.ZIP` 201 → 다운로드 200 **바이트 일치**, 저장 키 `.pdf`·`.gif`·`.zip`. `malware.exe` 400, `IMAGE.GİF` 400("…: .gi̇f"). 비인증 첨부 목록 401, 비인증 업로드 401. 화면에 첨부 표시(`screenshots/extension-locale-root-01-en-US.png`) |
-| 실기 tr_TR — 같은 스택의 앱만 `JAVA_TOOL_OPTIONS=-Duser.language=tr -Duser.country=TR`로 재기동(임시 compose override, 미커밋. `user.language=tr` 확인) | `TR-IMAGE.GIF`·`TR-ARCHIVE.ZIP` **201**, 다운로드 200 바이트 일치, 저장 키 `.gif`·`.zip`(ASCII). `TR-IMAGE.GİF` 400. 화면에 첨부 5개 표시(`screenshots/extension-locale-root-02-tr-TR.png`). 수정 전 동작(400)은 위 판별력 실행으로 갈음 |
+| 실기 en_US — dev Docker 스택(현재 브랜치 빌드, `user.language=en`) | `report.pdf`·`IMAGE.GIF`·`ARCHIVE.ZIP` 201 → 다운로드 200 **바이트 일치**, 저장 키 `.pdf`·`.gif`·`.zip`. `malware.exe` 400, `IMAGE.GİF` 400("…: .gi̇f"). 비인증 첨부 목록 401, 비인증 업로드 401. 화면에 첨부 표시(`screenshots/extension-locale-root-01-en-US.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)) |
+| 실기 tr_TR — 같은 스택의 앱만 `JAVA_TOOL_OPTIONS=-Duser.language=tr -Duser.country=TR`로 재기동(임시 compose override, 미커밋. `user.language=tr` 확인) | `TR-IMAGE.GIF`·`TR-ARCHIVE.ZIP` **201**, 다운로드 200 바이트 일치, 저장 키 `.gif`·`.zip`(ASCII). `TR-IMAGE.GİF` 400. 화면에 첨부 5개 표시(`screenshots/extension-locale-root-02-tr-TR.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)). 수정 전 동작(400)은 위 판별력 실행으로 갈음 |
 | 원복 | 첨부 5개·공지 삭제(204), 첨부 행 0·저장 볼륨 파일 0, dev 스택 종료(볼륨 보존). 스크린샷은 `.gitignore`(`adversarial-review/**/*.png`)로 커밋 제외 |
 
 ### 이슈

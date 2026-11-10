@@ -126,8 +126,8 @@
 - **시험**: `./gradlew test --tests 'com.cms.admin.board.*' --tests '*ConventionTest' -PbrowserTests=exclude` — 455건 통과(실패 0). 새 시험: `myBoardsExposeTypeToReadOnlyManager`(READ만 가진 MANAGER가 GALLERY·WEBZINE·LIST를 받고 `actions`는 `["READ"]`, ADMIN도 받음, 같은 MANAGER의 `GET /admin/api/boards/{id}` 403), `myBoardsUnknownStoredValueReadsAsList`(`FUTURE` → `LIST`, 응답에 원본 없음). 전체 `./gradlew test`는 PR 직전(code-review-loop 마무리)에 1회 돌린다.
 - **실기(bootRun + Playwright, dev DB)**: READ·CREATE만 가진 MANAGER와 ADMIN으로 확인.
   - API: 6개 게시판(갤러리·웹진·목록·이미지 금지 갤러리·이미지 금지 웹진·저장값 `FUTURE`)의 `boardType`이 각각 GALLERY·WEBZINE·LIST·GALLERY·WEBZINE·LIST, 응답에 `FUTURE` 문자열 없음, 게시판 정의 API 403.
-  - 화면: 갤러리 새 글 — 본문 이미지가 없어 대표 묶음은 숨었지만 안내는 보임(`.playwright-mcp/note-01-gallery-manager.png`). **같은 페이지에서 목록 → 이미지 금지 웹진 → 이미지 금지 갤러리 → 웹진 → `FUTURE` → 갤러리 순으로 모달을 다시 열었을 때** 안내 표시·꼬리 문장·`imagePolicyNote`가 매번 그 게시판에 맞게 바뀌고 이전 상태가 남지 않음(R1).
-  - 데이터 왕복: MANAGER가 대표 있는 글·없는 글 생성(201) → ADMIN 편집 폼에서 안내와 대표 선택지(없음/108 선택됨)가 함께 보임(`.playwright-mcp/note-02-gallery-admin-edit-with-cover.png`) → 제목만 바꿔 저장 → 대표 108 유지(키 미전송 = 유지, 기존 계약 회귀 없음) → 공개 `/main/boards/board-14`에서 대표 없는 글은 자리표시, 있는 글은 `?size=thumb` 썸네일(안내 문구와 일치).
+  - 화면: 갤러리 새 글 — 본문 이미지가 없어 대표 묶음은 숨었지만 안내는 보임(`.playwright-mcp/note-01-gallery-manager.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)). **같은 페이지에서 목록 → 이미지 금지 웹진 → 이미지 금지 갤러리 → 웹진 → `FUTURE` → 갤러리 순으로 모달을 다시 열었을 때** 안내 표시·꼬리 문장·`imagePolicyNote`가 매번 그 게시판에 맞게 바뀌고 이전 상태가 남지 않음(R1).
+  - 데이터 왕복: MANAGER가 대표 있는 글·없는 글 생성(201) → ADMIN 편집 폼에서 안내와 대표 선택지(없음/108 선택됨)가 함께 보임(`.playwright-mcp/note-02-gallery-admin-edit-with-cover.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)) → 제목만 바꿔 저장 → 대표 108 유지(키 미전송 = 유지, 기존 계약 회귀 없음) → 공개 `/main/boards/board-14`에서 대표 없는 글은 자리표시, 있는 글은 `?size=thumb` 썸네일(안내 문구와 일치).
   - 콘솔 오류: 기존 favicon 404와 의도한 403 탐침뿐.
   - 정리: 검증 게시판 6개·게시글 2개는 관리 API로 소프트 삭제, 검증용 MANAGER와 권한 행은 삭제. 업로드한 이미지 108은 라이브러리 수동 회수 대상으로 dev DB에 남음.
 

@@ -150,7 +150,7 @@
   - 익명: `/admin/login`·`/notices`·정적 4종·`/actuator/health` 200 / `/favicon.ico`·`/css/none.css` 404(error/404 렌더링) / `/foo`·`/`·직접 `/error`·`/actuator/env`·`/swagger-ui.html` 302→`/admin/login` / `POST /notices`·`POST /css/x.css` 403(본문 `에러가 발생했습니다`) / `/admin/api/members` 401.
   - ADMIN 로그인 후: `/admin`·`/admin/member/manage` 200 / `/foo`·`/`·`/error`·`/actuator/env` **403(error 뷰 렌더링)** / swagger-ui 진입점·`swagger-ui-bundle.js`·`.css`·`swagger-initializer.js`·`/v3/api-docs`·`swagger-config` 전부 200 → dev swagger 무회귀.
   - 익명 첨부 다운로드 22회 연타 → 429 + `error/429` 페이지(`<title>429 - 요청이 너무 많습니다`) — ERROR 디스패치 경로로 렌더링됨.
-  - Playwright: 로그인 화면 CSS·fontawesome 아이콘 정상 렌더링(스크린샷 `screenshots/default-deny-login.png`, `default-deny-404.png` — `.gitignore`가 `adversarial-review/**/*.png`를 제외해 커밋 대상 아님). 콘솔 오류는 기존과 동일한 favicon 404 1건뿐.
+  - Playwright: 로그인 화면 CSS·fontawesome 아이콘 정상 렌더링(스크린샷 `docs/screenshots/auth/default-deny-login.png`(2026-11-09 정리로 이동), `default-deny-404.png`(2026-11-09 정리에서 삭제 — 현재 화면과 다름) — `.gitignore`가 `adversarial-review/**/*.png`를 제외해 커밋 대상 아님). 콘솔 오류는 기존과 동일한 favicon 404 1건뿐.
   - **원복**: 검증 로그인으로 생긴 `visit_log` 1건(id=234) 삭제, 앱 프로세스 종료(8099 해제) 확인.
 
 ### 이슈

@@ -325,8 +325,8 @@ CLAUDE.md
   - **TOCTOU 재검증**: 관리자가 해당 공지를 비노출로 전환·저장 → 같은 다운로드 URL 재요청 시 첨부 다운로드·상세 페이지 모두 404(HTML, JSON 아님) 확인 — 목록에서도 즉시 사라짐 확인
   - **IDOR**: 서로 다른 두 공지(A·B) 생성 후 A의 id + B 소유 attachmentId 조합 → 404 확인
   - 비숫자 id·attachmentId, 존재하지 않는 notice id, 존재하지 않는 attachmentId → 전부 404(HTML) 확인
-  - 404 페이지 렌더링 스크린샷(`public-notice-attachment-404.png`), 비노출 전환 후 목록 스크린샷(`public-notice-list-after-hide.png`), 첨부 없는 공지 상세 스크린샷(`public-notice-detail-no-attachments.png`) 확보
-  - 관리 화면 회귀 없음: 대시보드·회원 관리·공지사항 관리 정상 렌더링 확인(스크린샷 3장: `admin-dashboard-regression.png`, `admin-member-manage-regression.png`, `admin-notice-manage-regression.png`)
+  - 404 페이지 렌더링 스크린샷(`public-notice-attachment-404.png`), 비노출 전환 후 목록 스크린샷(`public-notice-list-after-hide.png`), 첨부 없는 공지 상세 스크린샷(`public-notice-detail-no-attachments.png`) 확보 — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)
+  - 관리 화면 회귀 없음: 대시보드·회원 관리·공지사항 관리 정상 렌더링 확인(스크린샷 3장: `admin-dashboard-regression.png`, `admin-member-manage-regression.png`, `admin-notice-manage-regression.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름))
   - 검증에 사용한 테스트 공지 2건·첨부 1건은 검증 후 관리 화면에서 삭제해 dev DB를 원복(공지 0건 확인)
 - Playwright MCP 도구는 정상 동작해 실기 검증을 전부 수행함(제약 없음)
 
@@ -472,7 +472,7 @@ CLAUDE.md
   - 404 계열(없는 첨부·없는 notice·비숫자·타 notice) 전부 동일한 HTML 404, HEAD 404, 비인증 POST 403.
   - `useYn=false` 전환 후 GET·HEAD·상세 모두 404, 재공개 후 200. 실파일을 옮기면 GET·HEAD 404, 복원 후 200.
   - **느린 클라이언트 12개(`--limit-rate 300k`, 풀 크기 10 초과)가 10MB를 전송 중인 동안 DB 조회 요청(`/notices`, `/admin`)이 12~57ms로 정상 응답**했고 12개 모두 200·10,485,760바이트를 완주.
-  - 브라우저(Playwright): 공개 상세에서 첨부 링크 클릭 → 실제 다운로드, sha256 일치. 관리자 대시보드·공지 관리(상세 모달의 첨부 목록 포함)·회원 관리·메뉴 관리·활동 로그·내 정보 화면이 `open-in-view=false`에서도 정상 렌더링, 콘솔 오류 0(favicon 404 제외 — 기존 사안), 서버 로그에 `ERROR`·`LazyInitializationException` 없음. 스크린샷 4장: `screenshots/streaming-admin-dashboard.png`·`streaming-admin-notice.png`·`streaming-admin-notice-detail.png`·`streaming-admin-member.png`·`streaming-public-detail.png`.
+  - 브라우저(Playwright): 공개 상세에서 첨부 링크 클릭 → 실제 다운로드, sha256 일치. 관리자 대시보드·공지 관리(상세 모달의 첨부 목록 포함)·회원 관리·메뉴 관리·활동 로그·내 정보 화면이 `open-in-view=false`에서도 정상 렌더링, 콘솔 오류 0(favicon 404 제외 — 기존 사안), 서버 로그에 `ERROR`·`LazyInitializationException` 없음. 스크린샷 4장: `screenshots/streaming-admin-dashboard.png`·`streaming-admin-notice.png`·`streaming-admin-notice-detail.png`·`streaming-admin-member.png`·`streaming-public-detail.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름).
   - 검증 후 dev DB 원복: 첨부 2건·공지 1건 삭제(공지는 소프트 삭제 후 직접 행 제거 — 총 9건으로 복귀), 실파일 제거 확인. 관리자 행위 감사 로그·방문 기록은 남김(정상 부수효과).
 
 ### 이슈

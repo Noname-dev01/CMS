@@ -206,7 +206,7 @@ private void verifyWithinRoot(Path effectiveRoot, Path realParent) {
 | 실기 — dev Docker 스택(현재 작업 트리 빌드, Linux, `appuser`) + Playwright | 아래 |
 
 실기 상세(`admin` 세션, 화면 JS와 같은 CSRF 메타 + fetch):
-1. 골든 패스: 공지 생성(201) → 첨부 업로드(201) → 관리자 다운로드(`load()`) 200, 5021바이트 **바이트 일치**. 프로필 PNG 업로드(200) → 다운로드(`load(key,"profile")`) 200 `image/png` **바이트 일치**. 공지 상세 화면에 첨부가 표시되고 상단바 아바타가 렌더링된다(스크린샷 `screenshots/storage-load-nofollow-01-notice-detail.png`, `.gitignore`로 커밋 제외).
+1. 골든 패스: 공지 생성(201) → 첨부 업로드(201) → 관리자 다운로드(`load()`) 200, 5021바이트 **바이트 일치**. 프로필 PNG 업로드(200) → 다운로드(`load(key,"profile")`) 200 `image/png` **바이트 일치**. 공지 상세 화면에 첨부가 표시되고 상단바 아바타가 렌더링된다(스크린샷 `screenshots/storage-load-nofollow-01-notice-detail.png`, `.gitignore`로 커밋 제외 — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)).
 2. 권한 경계: 비인증 관리자 첨부 다운로드 → 401. 비인증 공개 다운로드(`open()`) → 200·5021바이트(회귀 없음).
 3. 최종 파일 링크: 첨부 실파일을 `/etc/passwd` 링크로 교체 → 관리자 `load()` **500 JSON `INTERNAL_ERROR`, 응답에 `root:` 없음**, 공개 `open()`도 500·미노출. 서버 로그 원인: `IOException: Too many levels of symbolic links (NOFOLLOW_LINKS specified)` → `LocalDiskFileStorage.loadUnder` `IllegalStateException`(계획 쟁점 2의 OS 동작 예상과 일치).
 4. 네임스페이스 디렉터리 링크: `profile` → `/tmp/outside`(같은 파일 복사본) → 프로필 이미지 조회 **500**. `DELETE me/profile-image`는 204(DB 커밋)이고, 커밋 후 파일 삭제가 `저장 경로가 허용된 루트를 벗어났습니다`로 차단돼 `FileStorageTransactionSupport`가 "파일 삭제 실패 — 수동 정리 필요" 로그를 남긴다. **외부 파일은 그대로 남았다.**

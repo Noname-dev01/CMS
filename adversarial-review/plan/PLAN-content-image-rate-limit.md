@@ -141,8 +141,8 @@
 - **변이 실험**: 필터의 면제 분기를 `false`로 바꾸면 `RateLimitFilterTest`·`SitePublicRateLimitConventionTest`에서 정확히 2건 실패(원복 확인).
 - **실기(dev `bootRun` 8081, curl·Playwright)**:
   1. 익명 연속 600건 → 77건 200·523건 429, 같은 순간 관리자 세션 600/600 200. 면제가 없는 다른 규칙(공개 게시판 목록)은 관리자도 125건 뒤 429(면제가 `content-image`에 한정).
-  2. 공개 상세(익명, 한도 소진 직후 새로고침): 정상 이미지까지 3장 모두 안내 상자로 바뀌고 `alt`("정상 이미지"·"접수 마감: 11월 30일")가 글자 그대로 보이며 깨진 `<img>` 0개(`01-detail-rate-limited.png`). 15초 뒤 새로고침하면 정상 이미지는 복구되고 파일 없는 2장(404)만 상자로 남는다(`02-detail-recovered.png`).
-  3. 관리 화면: 익명 버킷 소진 상태(익명 `fetch` 429)에서 관리자 쿠키 이미지는 로드되고, 관리자 요청 뒤에도 익명은 계속 429(관리자가 버킷을 쓰지 않음). 글 상세 모달의 정상 이미지는 로드됨(`03-admin-modal-bucket-exhausted.png`).
+  2. 공개 상세(익명, 한도 소진 직후 새로고침): 정상 이미지까지 3장 모두 안내 상자로 바뀌고 `alt`("정상 이미지"·"접수 마감: 11월 30일")가 글자 그대로 보이며 깨진 `<img>` 0개(`docs/screenshots/rate-limit/content-image-01-detail-rate-limited.png`). 15초 뒤 새로고침하면 정상 이미지는 복구되고 파일 없는 2장(404)만 상자로 남는다(`docs/screenshots/rate-limit/content-image-02-detail-recovered.png`).
+  3. 관리 화면: 익명 버킷 소진 상태(익명 `fetch` 429)에서 관리자 쿠키 이미지는 로드되고, 관리자 요청 뒤에도 익명은 계속 429(관리자가 버킷을 쓰지 않음). 글 상세 모달의 정상 이미지는 로드됨(`docs/screenshots/rate-limit/content-image-03-admin-modal-bucket-exhausted.png`).
   4. 강제 만료된 세션 쿠키: 첫 요청은 `302 → /admin/login`(본문 0바이트)이라 이미지가 나가지 않고, 이후는 세션이 사라져 익명 취급(익명 한도 적용). 현재 유효 세션은 계속 200.
   5. 검증 행(게시판 #20·글 #123·이미지 109~111)과 업로드 파일은 삭제해 원복.
 

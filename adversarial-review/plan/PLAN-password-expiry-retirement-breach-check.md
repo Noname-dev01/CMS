@@ -227,7 +227,7 @@ DELETE FROM notification WHERE type = 'PASSWORD_EXPIRY';
   - 유출 값 `123456789012345`: 계정 생성·변경 모두 400 `PASSWORD_REJECTED`(응답 0.25~0.59초). 통과 값으로 생성 201.
   - 현재 비밀번호 틀림 + 유출 값은 기존 `INVALID_REQUEST`. 같은 값은 거부. 정상 변경 뒤 옛 세션 401, 옛 비밀번호 로그인 실패, 새 비밀번호 로그인 성공.
   - MANAGER의 계정 생성은 403. 감사 FAIL 행은 상수 메시지뿐이다.
-  - 재설정 화면(Playwright): 유출 → 사유 표시·폼 유지, 같은 값 → 사유 표시, 다른 값 → 성공, 토큰 소비. 스크린샷 `.playwright-mcp/reset-breached.png`(git 제외).
+  - 재설정 화면(Playwright): 유출 → 사유 표시·폼 유지, 같은 값 → 사유 표시, 다른 값 → 성공, 토큰 소비. 스크린샷 `docs/screenshots/auth/reset-breached.png`(git 제외).
   - fail-open: 응답 없는 주소로 설정하면 변경 200(2.39초, 연결 상한 2초), WARN 1건, 로그에 비밀번호 없음.
   - 시험 계정과 그 감사·방문 행은 삭제했다.
 
