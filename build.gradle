@@ -56,7 +56,7 @@ dependencies {
     implementation 'com.github.ben-manes.caffeine:caffeine'
     // 본문 HTML 허용 목록 sanitizer(HtmlContentSanitizer) — Boot BOM 관리 대상이 아니라 버전 명시
     // (PLAN-html-editor.md 쟁점 1 — 정리·이미지 src 제한·글자 수 계산을 한 파서로 처리).
-    implementation 'org.jsoup:jsoup:1.23.2'
+    implementation 'org.jsoup:jsoup:1.24.1'
     // Flyway (버전은 Boot BOM 관리. MariaDB 지원은 flyway-mysql 모듈에 포함 — Flyway 10부터 DB별 모듈 분리).
     // Boot 4는 Flyway 자동 구성이 별도 모듈이라 스타터로 받는다.
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
