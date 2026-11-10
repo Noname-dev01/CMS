@@ -542,7 +542,7 @@ PR A(#86) 이후 동결 상태로 남아 있던 역할 단위 테이블을 지�
   1. master(`9a6e3ef`) jar로 V21 적용, MANAGER `mgr1`(회원별 권한 0개) 생성, V21 덤프 저장.
   2. **전환 이전 앱(`3679f86`) on V21 DB → 기동 성공**(`newer than the latest available migration (16)` 경고만, Hibernate validate 통과). `mgr1` `GET /admin/api/notices` **200** — 역할 단위 시드 4행으로 판정(문서의 "회수 결과가 사라짐"이 실제 동작). → 22차 "미확인" 해소.
   3. PR B jar on V21 DB → V22 적용(`now at version v22`), `%permission%` 테이블은 `member_permission`만, V22 `success=1`. `mgr1` 공지 API 403(권한 0개).
-  4. playwright(ADMIN): 권한 관리에서 `mgr1`에 공지 조회 부여 → DB 행 1·`permission_version` 0→1·감사 `PERMISSION_UPDATE SUCCESS target_id=2 "v0→v1: +공지사항.조회"` → `mgr1` 같은 세션 공지 API 200 → 회수 → 행 0·버전 2·감사 `"v1→v2: -공지사항.조회"` → 403. 경계: `mgr1`의 권한 API·공지/메뉴/로그/회원 관리 페이지 403, 대시보드 200, CSRF 없는 POST 403. ADMIN 공지·활동 로그 화면 정상. 스크린샷 `.playwright-mcp/prb-grant-saved.png`·`prb-revoke-saved.png`·`prb-admin-notice.png`·`prb-admin-log.png`(git 추적 제외 폴더).
+  4. playwright(ADMIN): 권한 관리에서 `mgr1`에 공지 조회 부여 → DB 행 1·`permission_version` 0→1·감사 `PERMISSION_UPDATE SUCCESS target_id=2 "v0→v1: +공지사항.조회"` → `mgr1` 같은 세션 공지 API 200 → 회수 → 행 0·버전 2·감사 `"v1→v2: -공지사항.조회"` → 403. 경계: `mgr1`의 권한 API·공지/메뉴/로그/회원 관리 페이지 403, 대시보드 200, CSRF 없는 POST 403. ADMIN 공지·활동 로그 화면 정상. 스크린샷 `.playwright-mcp/prb-grant-saved.png`·`prb-revoke-saved.png`·`prb-admin-notice.png`·`prb-admin-log.png`(git 추적 제외 폴더 — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)).
   5. **전환 이전 앱 on V22 DB → 기동 실패**: `Schema-validation: missing table [permission_role]`.
   6. master jar(V22 없음) on V22 DB → 기동 성공(`newer than … (21)`), ADMIN 권한 API 200.
   7. **R-B3 재현**: V21 덤프 복원 → master jar 기동: 세 테이블 유지·최신 이력 21 / 이어서 PR B jar 기동: V22 재실행 → 두 테이블 다시 삭제·이력 22.

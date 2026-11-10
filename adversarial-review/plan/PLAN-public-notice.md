@@ -297,12 +297,12 @@ CLAUDE.md                                                              # 보안 
 - `./gradlew bootRun`(dev) 기동 성공, Flyway `Schema cms is up to date`(V10) 확인 — 스키마 무변경 재확인
 - **Playwright 실기 검증** (ADMIN 로그인 → 노출 공지 2건(스크립트 payload 포함) + 비노출 공지 1건 준비 → 쿠키 삭제로 비로그인 전환):
   - `/notices` 목록에 노출 공지만 표시, 비노출 공지 미표시 확인
-  - 상세(`/notices/{id}`) 진입 시 본문 줄바꿈(`white-space: pre-wrap`) 정상 렌더링, 작성자 정보 미표시 확인(스크린샷: `public-notice-detail.png`)
+  - 상세(`/notices/{id}`) 진입 시 본문 줄바꿈(`white-space: pre-wrap`) 정상 렌더링, 작성자 정보 미표시 확인(스크린샷: `public-notice-detail.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름))
   - 비노출 공지 ID 직접 접근 → 404 페이지 확인
   - 비숫자 ID(`/notices/abc`) 직접 접근 → JSON 아닌 404 HTML 페이지 확인(결정 3-1 검증)
   - `page=abc`, `page=99999999999999` → 200(0으로 보정) 확인
   - 404 페이지 "홈으로 돌아가기" 링크가 `/notices`로 이동, 재-404 순환 없음 확인
-  - `<script>`·`onerror` payload 공지 → 목록·상세 모두 텍스트로만 렌더링, alert 미실행 확인(스크린샷: `public-notice-xss-detail.png`)
+  - `<script>`·`onerror` payload 공지 → 목록·상세 모두 텍스트로만 렌더링, alert 미실행 확인(스크린샷: `public-notice-xss-detail.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름))
   - 관리 화면 회귀 없음: 대시보드·공지사항 관리·관리자 조회 정상 렌더링 확인(스크린샷 3장)
   - 검증에 사용한 테스트 공지 3건은 검증 후 관리 화면에서 삭제해 dev DB를 원복함
 - Playwright MCP 도구는 정상 동작해 실기 검증을 전부 수행함(제약 없음)

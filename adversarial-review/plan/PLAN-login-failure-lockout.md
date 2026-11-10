@@ -20,7 +20,7 @@
 ### 검증 결과
 - `./gradlew test` 전체 **338개 통과** (실패 0, 에러 0)
 - 빈 스키마(`cms_fresh`)에서 Flyway V1→V4 전체 적용 + `ddl-auto: validate` 기동 성공 (로그 확인 후 스키마 삭제)
-- Playwright 실기 (스크린샷 `lockout-01~04*.png`): 5회 실패 → LOCKED·감사 1건 → 올바른 비밀번호도 거부·카운트 불변 → `locked_at` 31분 전 세팅 후 로그인 → **자동 해제·대시보드 진입**(ACTIVE·카운트 0·`locked_at` null·`update_date` 앱 시계 갱신) → 활동 로그 화면 "계정 자동 잠금" 라벨 노출 → admin이 회원 관리 화면에서 상태 "활성" 저장 → **해제·카운트 리셋** → 재로그인 성공 → 메뉴 관리 화면 회귀 정상
+- Playwright 실기 (스크린샷 `lockout-01~04*.png` — 2026-11-09 정리: 01은 `docs/screenshots/auth/lockout-01-locked-correct-password-rejected.png`로 옮겼고 02~04는 현재 화면과 달라 삭제): 5회 실패 → LOCKED·감사 1건 → 올바른 비밀번호도 거부·카운트 불변 → `locked_at` 31분 전 세팅 후 로그인 → **자동 해제·대시보드 진입**(ACTIVE·카운트 0·`locked_at` null·`update_date` 앱 시계 갱신) → 활동 로그 화면 "계정 자동 잠금" 라벨 노출 → admin이 회원 관리 화면에서 상태 "활성" 저장 → **해제·카운트 리셋** → 재로그인 성공 → 메뉴 관리 화면 회귀 정상
 - 완료 기준 체크리스트 전 항목 충족 (잠금 정책 승인 2026-07-14 포함)
 
 ### 이슈

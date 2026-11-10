@@ -27,7 +27,7 @@
 - **R4**: 실서버 데이터 왕복 — 메뉴 생성(201)→비활성화(200)→영구삭제(204), `admin_action_log`에 `MENU_CREATE`·`MENU_UPDATE`·`MENU_DELETE`(target_label `modular-check`) 3건 기록, 메뉴 행 0으로 원복. 활동 로그 화면에 표시(playwright).
 - 실서버 직렬화: `GET /admin/api/logs` 날짜 ISO 문자열·null 키 생략 — 전환 전과 동일.
 - 경계: 미인증 API 401 JSON, 페이지·actuator(env·beans·metrics)·Swagger 302 → 로그인, ADMIN의 actuator/env·CSRF 없는 POST·미분류 경로 403, health만 공개.
-- playwright: 로그인·대시보드·쪽지 드롭다운(API 연동)·활동 로그 화면 정상(스크린샷 `.playwright-mcp/modular-*.png`).
+- playwright: 로그인·대시보드·쪽지 드롭다운(API 연동)·활동 로그 화면 정상(스크린샷 `.playwright-mcp/modular-*.png` — 2026-11-09 스크린샷 정리에서 삭제(현재 화면과 다름)).
 - **R6**: 런타임 의존성 185 → 115개, 새 라이브러리 0, 공통 라이브러리 버전 변화 0(spring-webmvc 7.0.9·Jackson 3.1.7/2.21.7·Tomcat 11.0.26·aspectjweaver 1.9.25.1 유지).
 - **R5**: prod 이미지 로컬 빌드 성공, Trivy(0.70.0·CRITICAL/HIGH·ignore-unfixed·`.trivyignore.yaml`) OS·`app.jar`·pebble 0건, `app.jar` 라이브러리 116개·불필요 모듈(kafka·webflux·jetty·restclient·jackson2·devtools) 0.
 
