@@ -1,6 +1,6 @@
 # PLAN — 컨테이너 단계 오류 화면의 서버 버전 노출 차단 (이슈 #223)
 
-- 상태: **구현 완료 (2026-11-10, 커밋·PR 전)** — v2, 적대적 리뷰 2라운드 ship
+- 상태: **완료 (2026-11-10 · #224 `da7149c`)** — v2, 적대적 리뷰 2라운드 ship
 - 브랜치: `security/hide-tomcat-error-report` (master `bbdf014`에서 분기)
 - 유형: security / fix — 스키마·인가 정책·API 변경 없음, `SecurityConfig` 무수정
 
