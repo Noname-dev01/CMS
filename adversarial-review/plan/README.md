@@ -65,6 +65,7 @@
 | 53 | ✅ **완료 (2026-11-09 · #216 `d166850`)** [PLAN-password-reset-async-issue.md](PLAN-password-reset-async-issue.md) — 재설정 발급을 응답 경로 밖 전용 executor로 옮겨 계정 열거 신호 제거, 발급 대기 30초 상한. 재측정에서 모든 판정 쌍 사전 기준 미달 (v3, 적대적 리뷰 3라운드 ship) | security | 52번 | 승인 완료(2026-11-08, 동시성·보안 계약 변경. 스키마·인가 정책·`SecurityConfig`·의존성 변경 없음) |
 | 54 | ✅ **완료 (2026-11-09 · #217 `bfd883a`)** [PLAN-ci-lock-anonymous-volume.md](PLAN-ci-lock-anonymous-volume.md) — CI 잠금 컨테이너 해제를 `docker rm -v`로 바꿔 로컬 실행마다 쌓이던 익명 볼륨 제거, 수동 안내는 라벨·미기동 확인 후에만 `-v` (v3, 적대적 리뷰 2라운드 ship) | fix | 없음 | 승인 완료(2026-11-09, 스크립트만 변경 — 스키마·인가 정책·`SecurityConfig`·의존성·Java 코드 변경 없음) |
 | 55 | ✅ **구현 완료 (2026-11-10, 커밋·PR 전)** [PLAN-tomcat-error-report.md](PLAN-tomcat-error-report.md) — 컨테이너 단계 오류 화면(Tomcat `ErrorReportValve`)의 서버 버전·내부 메시지 노출 차단 (이슈 #223, v2 적대적 리뷰 2라운드 ship) | security/fix | 없음 | 불필요(스키마·인가 정책·API·의존성 변경 없음, `SecurityConfig` 무수정 — 서버 컨테이너 설정 클래스 1개) |
+| 56 | ✅ **구현 완료 (2026-11-10, 커밋·PR 전)** [PLAN-remember-me-login.md](PLAN-remember-me-login.md) — 관리자 로그인 "로그인 상태 유지"(remember-me 영속 토큰 7일)와 세션 강제 만료·기기 단위 토큰 폐기 연동 (이슈 #222, v8 적대적 리뷰 8라운드 ship) | feat/security | 없음 | 승인 완료(2026-11-10, **로그인 정책 변경**·**스키마 변경 V15**, 사용자 결정 U1~U5) |
 
 ## 공통 규칙 (모든 계획에 적용)
 

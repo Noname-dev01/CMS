@@ -355,6 +355,19 @@ IDE로 개발할 때는 저장 시 자동 컴파일(Build project automatically)
 
 Spring Security 필터, AOP 로깅, 트랜잭션 경계, JPA/QueryDSL 동작 등 런타임 문제를 기록한다.
 
+### remember-me(Spring Security 7) 도입 때 조용히 지나가는 함정 — 강제 만료 무력화·권한 부족 401·탈취 500·0행 갱신 (2026-11-10, PLAN-remember-me-login.md, 이슈 #222)
+
+**증상/위험**: `rememberMe()`만 켜면 컴파일·기존 시험이 모두 통과해도 다음이 생긴다.
+1. **세션 강제 만료가 무력화된다** — 역할 변경·비밀번호 변경·재설정·세션 관리 화면의 만료로 세션이 끊겨도, 다음 요청에서 remember-me 쿠키가 새 세션을 만든다(상태 변경만 `loadUserByUsername`이 막는다).
+2. **자동 로그인 사용자의 권한 부족이 403이 아니라 401/로그인 302**가 된다 — `ExceptionTranslationFilter`가 `isRememberMe`도 `isAnonymous`처럼 진입점으로 보낸다. 게다가 `sendStartAuthentication`이 진입점 호출 **전에** 컨텍스트를 비우므로 진입점에서 `SecurityContextHolder`를 봐도 인증이 없다.
+3. **탈취 감지(교체된 옛 쿠키 재사용)가 500**이 된다 — `autoLogin`이 `CookieTheftException`을 쿠키 취소 뒤 다시 던지고, 그 필터는 `ExceptionTranslationFilter`보다 앞이다. 라이브러리는 토큰만 지우고 공격자가 이미 만든 세션은 그대로 둔다.
+4. `JdbcTokenRepositoryImpl.updateToken`은 영향 행 수를 버려, 조회 직후 폐기된 토큰으로도 자동 로그인이 진행된다. 기본 `logout`은 회원의 **모든 기기** 토큰을 지운다.
+5. AFTER_COMMIT 리스너에서 토큰을 JDBC로 지우면 이미 커밋된 트랜잭션의 연결에 참여해 확정되지 않을 수 있다(Spring `@TransactionalEventListener` 문서의 경고).
+
+**해결**: 폐기는 항상 "토큰 삭제 → 세션 만료" 순서, 회원 변경 이벤트는 BEFORE_COMMIT, 자동 로그인은 세션 등록 뒤 사후 검증 필터, 진입점은 예외의 `getAuthenticationRequest()`로 remember-me를 판별해 접근 거부 처리기를 직접 호출, `autoLogin`에서 탈취 예외를 잡아 세션까지 끊고 익명 처리. 전체 표는 `com.cms.config`의 `CLAUDE.md` "로그인 상태 유지".
+
+**시험 요령**: `MockHttpServletResponse.getCookie(name)`은 **첫 번째** 쿠키를 돌려준다 — 토큰 교체 쿠키 뒤에 취소 쿠키가 같은 응답에 실리는 경우(교체 후 상태 거부 등) 브라우저가 적용하는 마지막 값을 보려면 `getCookies()`의 마지막 항목을 본다. 401 응답 과정에서 요청 캐시가 새 익명 세션을 만들 수 있으므로 "세션이 없다"가 아니라 "세션에 인증이 없다"를 단언한다.
+
 ### Thymeleaf 조각 이름을 `body`·`script`로 지으면 `th:replace`가 HTML 요소 `<body>`·`<script>`를 통째로 끌어온다 (2026-10-11, PLAN-content-menu-unify.md 구현 중 시험으로 발견)
 
 #### 증상
