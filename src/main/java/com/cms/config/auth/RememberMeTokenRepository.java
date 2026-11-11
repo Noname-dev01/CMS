@@ -3,7 +3,10 @@ package com.cms.config.auth;
 import org.springframework.security.web.authentication.rememberme.JdbcTokenRepositoryImpl;
 
 import java.sql.Timestamp;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 
 /**
  * remember-me 영속 토큰 저장소(테이블 {@code persistent_logins}, V15 — 이슈 #222, PLAN-remember-me-login.md).
@@ -18,6 +21,18 @@ import java.util.Date;
  * (회원 변경 이벤트의 BEFORE_COMMIT 폐기가 이 성질에 기댄다).
  */
 public class RememberMeTokenRepository extends JdbcTokenRepositoryImpl {
+
+    /** 만료 행 정리 한 번이 로그인 응답을 붙잡는 시간의 예산 — 넘으면 남은 행은 다음 로그인으로 넘긴다. */
+    static final Duration PURGE_BUDGET = Duration.ofSeconds(2);
+
+    /**
+     * 정리 문장(조회·삭제)의 대기 상한. {@code ContentCounterWriter}와 같은 방식이다.
+     * 행 잠금 대기는 락마다 따로 계산돼 합산되지 않으므로 실행 상한을 함께 건다.
+     * {@code lock_wait_timeout}(기본 1일)은 메타데이터 잠금 대기다. 다른 연결이 이 표만 {@code LOCK TABLES}로 잡으면,
+     * 이 표를 쓰지 않던 remember-me 없는 로그인까지 정리 때문에 멈추므로 같이 묶는다(코드 리뷰 반영).
+     */
+    private static final String STATEMENT_LIMITS =
+            "SET STATEMENT max_statement_time=3, innodb_lock_wait_timeout=1, lock_wait_timeout=1 FOR ";
 
     @Override
     public void updateToken(String series, String tokenValue, Date lastUsed) {
@@ -55,6 +70,48 @@ public class RememberMeTokenRepository extends JdbcTokenRepositoryImpl {
         template().update(
                 "DELETE FROM persistent_logins WHERE username = (SELECT user_id FROM member WHERE id = ?) AND series <> ?",
                 memberId, keptSeries);
+    }
+
+    /**
+     * 만료된 행을 지운다 — 기준은 {@code now − 유효 기간}보다 <b>엄격히</b> 이전인 {@code last_used}로, 자동 로그인의 만료 판정
+     * ({@code last_used + 유효 기간 < now})과 같다. 모든 회원이 대상이다(PLAN-remember-me-token-purge.md).
+     *
+     * <ul>
+     *   <li>일관 읽기로 대상 시리즈를 고른 뒤 시리즈마다 조건을 다시 확인하며 지운다 — 범위 DELETE의 잠금을 피하고, 조회 뒤 갱신된 행은 남긴다.</li>
+     *   <li>로그인 응답 전에 동기로 돌므로 대기를 묶는다: 조회·삭제 문장마다 행·메타데이터 잠금 대기 1초와 실행 3초 상한을 건다.
+     *       조회부터 잰 경과가 다음 삭제 전에
+     *       {@link #PURGE_BUDGET}을 넘으면 멈춘다. 남은 행은 다음 로그인이 지운다.</li>
+     *   <li>실패하면 그 자리에서 예외를 던진다. 앞서 지운 행은 자동 커밋이라 지워진 채 남는다(허용).</li>
+     * </ul>
+     *
+     * @return 지운 행 수
+     */
+    public int purgeExpired(Instant now) {
+        Instant cutoff = now.minusSeconds(AdminRememberMeServices.VALIDITY_SECONDS);
+        long started = System.nanoTime();
+        List<String> expired = findExpiredSeries(cutoff);
+        int deleted = 0;
+        for (String series : expired) {
+            if (System.nanoTime() - started > PURGE_BUDGET.toNanos()) {
+                break;
+            }
+            if (deleteExpiredSeries(series, cutoff)) {
+                deleted++;
+            }
+        }
+        return deleted;
+    }
+
+    /** {@code last_used < cutoff}인 시리즈(일관 읽기). 바인딩은 쓰기와 같은 변환(Instant → JVM 시간대 Timestamp)이다. */
+    List<String> findExpiredSeries(Instant cutoff) {
+        return template().queryForList(
+                STATEMENT_LIMITS + "SELECT series FROM persistent_logins WHERE last_used < ?", String.class, Timestamp.from(cutoff));
+    }
+
+    /** 시리즈 하나를 아직 만료 상태일 때만 지운다. 지웠으면 {@code true}. */
+    boolean deleteExpiredSeries(String series, Instant cutoff) {
+        return template().update(STATEMENT_LIMITS + "DELETE FROM persistent_logins WHERE series = ? AND last_used < ?",
+                series, Timestamp.from(cutoff)) > 0;
     }
 
     private org.springframework.jdbc.core.JdbcTemplate template() {
