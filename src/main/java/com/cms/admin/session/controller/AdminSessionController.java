@@ -1,5 +1,6 @@
 package com.cms.admin.session.controller;
 
+import com.cms.config.auth.RequireFullAuthentication;
 import com.cms.admin.session.dto.response.SessionExpireResponse;
 import com.cms.admin.session.dto.response.SessionExpireResult;
 import com.cms.admin.session.dto.response.SessionListResponse;
@@ -54,6 +55,8 @@ public class AdminSessionController {
     @ApiResponse(responseCode = "400", description = "핸들 형식 오류")
     @ApiResponse(responseCode = "404", description = "활성 세션 없음(이미 만료·소멸)")
     @ApiResponse(responseCode = "409", description = "현재 사용 중인 세션")
+    @ApiResponse(responseCode = "403", description = "권한 없음 또는 재인증 필요(REAUTHENTICATION_REQUIRED — 로그인 상태 유지로 접속한 세션)")
+    @RequireFullAuthentication
     @DeleteMapping("/{handle}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> expireSession(@PathVariable String handle, HttpServletRequest request) {
@@ -67,6 +70,8 @@ public class AdminSessionController {
     @Operation(summary = "회원의 세션 전부 강제 만료", description = "현재 사용 중인 세션은 호출자와 무관하게 항상 제외한다. 대상 세션이 없어도 200(expiredCount 0)")
     @ApiResponse(responseCode = "200", description = "처리 완료")
     @ApiResponse(responseCode = "400", description = "memberId 누락·0 이하")
+    @ApiResponse(responseCode = "403", description = "권한 없음 또는 재인증 필요(REAUTHENTICATION_REQUIRED — 로그인 상태 유지로 접속한 세션)")
+    @RequireFullAuthentication
     @DeleteMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<SessionExpireResponse> expireMemberSessions(

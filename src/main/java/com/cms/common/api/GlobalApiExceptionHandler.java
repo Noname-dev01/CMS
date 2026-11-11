@@ -3,6 +3,9 @@ package com.cms.common.api;
 import com.cms.common.exception.ConflictException;
 import com.cms.common.exception.DuplicateResourceException;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.common.exception.ReauthenticationEndedException;
+import com.cms.common.exception.ReauthenticationFailedException;
+import com.cms.common.exception.ReauthenticationRequiredException;
 import com.cms.common.exception.PasswordRejectedException;
 import com.cms.common.exception.RateLimitedException;
 import com.cms.common.exception.ResourceNotFoundException;
@@ -411,6 +414,40 @@ public class GlobalApiExceptionHandler {
             HttpServletRequest request
     ) {
         return jsonError(HttpStatus.NOT_FOUND, request.getRequestURI(), "RESOURCE_NOT_FOUND", e.getMessage());
+    }
+
+    /**
+     * 쿠키 자동 로그인 세션의 민감 작업 — 비밀번호로 다시 로그인해야 한다(PLAN-sensitive-reauthentication.md 쟁점 3).
+     * 인증은 됐지만 이 작업에는 부족한 인증이라 401이 아니라 403이고, 화면이 일반 권한 부족과 구분하도록 전용 코드를 쓴다.
+     */
+    @ExceptionHandler(ReauthenticationRequiredException.class)
+    public ResponseEntity<ApiErrorResponse> handleReauthenticationRequired(
+            ReauthenticationRequiredException e,
+            HttpServletRequest request
+    ) {
+        return jsonError(HttpStatus.FORBIDDEN, request.getRequestURI(), "REAUTHENTICATION_REQUIRED", e.getMessage());
+    }
+
+    /**
+     * 재인증 비밀번호 오답 — 더 시도할 수 있다(PLAN-sensitive-reauthentication.md 쟁점 6). 메시지는 고정 문구다.
+     */
+    @ExceptionHandler(ReauthenticationFailedException.class)
+    public ResponseEntity<ApiErrorResponse> handleReauthenticationFailed(
+            ReauthenticationFailedException e,
+            HttpServletRequest request
+    ) {
+        return jsonError(HttpStatus.BAD_REQUEST, request.getRequestURI(), "REAUTHENTICATION_FAILED", e.getMessage());
+    }
+
+    /**
+     * 재인증 중 세션을 끝냈다(잠금·비활성·폐기 경합) — 미인증과 같은 401 {@code UNAUTHORIZED}라 화면이 로그인으로 보낸다(쟁점 6).
+     */
+    @ExceptionHandler(ReauthenticationEndedException.class)
+    public ResponseEntity<ApiErrorResponse> handleReauthenticationEnded(
+            ReauthenticationEndedException e,
+            HttpServletRequest request
+    ) {
+        return jsonError(HttpStatus.UNAUTHORIZED, request.getRequestURI(), "UNAUTHORIZED", e.getMessage());
     }
 
     /**
