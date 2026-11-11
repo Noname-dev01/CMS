@@ -105,6 +105,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 
 - `ACTIVE` 상태 계정만 로그인 가능 (`CustomUserDetailsService`). 연속 5회 로그인 실패 시 자동 잠금(30분 해제) — 정책 상세는 "핵심 도메인 모델 > Member" 참조 (2026-07-14 승인)
 - **로그인 상태 유지(remember-me 영속 토큰 7일)**(2026-11-10 승인, 이슈 #222): 비밀번호 없이 쿠키로 인증되는 경로다. 세션 강제 만료(역할·상태·비밀번호 변경·재설정·자동 잠금·수동 만료·로그아웃)가 쿠키로 되살아나지 않도록 토큰 폐기와 묶여 있다 — 세션을 끊는 새 경로를 만들면 토큰 폐기도 함께 설계한다. 상세는 `com.cms.config`의 `CLAUDE.md` "로그인 상태 유지".
+- **민감 작업 재인증**(2026-11-11 승인 — 인가·인증·로그인 경로 변경): 쿠키 자동 로그인 세션은 계정 생성·타 계정 수정·권한 교체·세션 만료·내 정보 수정·내 비밀번호 변경 전에 비밀번호를 한 번 더 확인한다(403 `REAUTHENTICATION_REQUIRED` → 화면 모달 → 재인증 API로 세션 승격 → 재시도). 계정·인증 상태를 바꾸는 새 API는 `@RequireFullAuthentication`을 붙이거나 면제 사유를 남긴다. **세션 레지스트리 만료는 `AdminSessionService` 밖에서 하지 않는다**(재인증의 세션 ID 교체와 한 모니터로 직렬화). 상세는 `com.cms.config`의 `CLAUDE.md` "민감 작업 재인증".
 - **세션 강제 만료는 best-effort다** — 즉시 접근 차단 수단이 아니다. 상세는 `com.cms.admin.session`의 `CLAUDE.md`.
 - CSRF는 **모든 경로에 활성**이다. `/admin/api/**`를 포함한 상태 변경 요청(POST/PATCH/PUT/DELETE)은 반드시 CSRF 토큰을 포함해야 한다. Thymeleaf 페이지는 `head.html` 프래그먼트가 `<meta name="_csrf">` 태그로 토큰을 렌더링하며, JS에서 이 값을 읽어 `X-CSRF-TOKEN` 헤더로 전송한다. 신규 상태 변경 fetch 호출 작성 시 CSRF 헤더를 누락하지 않는다.
 - 메서드 레벨 보안: `MethodSecurityConfig`에서 활성화

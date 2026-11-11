@@ -1,5 +1,6 @@
 package com.cms.admin.permission.controller;
 
+import com.cms.config.auth.RequireFullAuthentication;
 import com.cms.admin.permission.dto.request.MemberPermissionUpdateRequest;
 import com.cms.admin.permission.dto.response.MemberPermissionMatrixResponse;
 import com.cms.admin.permission.service.MemberPermissionService;
@@ -40,6 +41,8 @@ public class MemberPermissionController {
     @ApiResponse(responseCode = "400", description = "위임 불가 기능·미지원 동작·중복·READ 없는 쓰기·대상이 ROLE_ADMIN")
     @ApiResponse(responseCode = "404", description = "회원 없음(ROLE_USER 대상 포함)")
     @ApiResponse(responseCode = "409", description = "version 불일치(다른 관리자가 먼저 변경 또는 역할 변경)·삭제된 계정·형식이 올바르지 않은 행·락 대기 실패")
+    @ApiResponse(responseCode = "403", description = "권한 없음 또는 재인증 필요(REAUTHENTICATION_REQUIRED — 로그인 상태 유지로 접속한 세션)")
+    @RequireFullAuthentication
     @PutMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<MemberPermissionMatrixResponse> replacePermissions(

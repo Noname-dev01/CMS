@@ -55,19 +55,21 @@ public class LoginFailureService {
      *
      * @param requestIp  감사용 요청 IP — 호출자(실패 핸들러)가 컬럼 길이로 절단해 전달
      * @param requestUri 감사용 요청 URI — 동일
+     * @return 이번 실패로 계정이 잠겼는지(LOCKED 전이). 재인증 API가 "더 시도할 수 있는 오답"과 "세션 종료"를 구분하는 데 쓴다
+     *         (PLAN-sensitive-reauthentication.md 쟁점 6). 폼 로그인 실패 처리기는 반환값을 쓰지 않는다.
      */
     @Transactional
-    public void recordFailure(String userId, String requestIp, String requestUri) {
+    public boolean recordFailure(String userId, String requestIp, String requestUri) {
         int increased = memberRepository.increaseFailedLoginCount(userId);
         if (increased == 0) {
             // 미존재·비ACTIVE·비관리자 계정 — 아무것도 하지 않는다
-            return;
+            return false;
         }
 
         LocalDateTime now = LocalDateTime.now(clock);
         int locked = memberRepository.lockIfThresholdReached(userId, LOCK_THRESHOLD, now);
         if (locked == 0) {
-            return;
+            return false;
         }
 
         // clearAutomatically로 1차 캐시가 비워져 fresh 조회 — 감사·세션 만료에 쓸 memberId 확보
@@ -75,13 +77,14 @@ public class LoginFailureService {
         if (member == null) {
             // 잠금 UPDATE가 1행이었으므로 이론상 도달 불가 — 감사·세션 만료만 생략
             log.error("잠금 전이 후 회원 재조회 실패 — 감사 기록·세션 만료 생략 (userId={})", userId);
-            return;
+            return true;
         }
 
         // 발행 순서 = AFTER_COMMIT 재생 순서: 세션 만료(인메모리)가 감사 저장(DB)보다 먼저
         eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));
         eventPublisher.publishEvent(new AdminAccountAutoLockEvent(
                 member.getId(), userId, requestIp, requestUri, member.getUserId(), now));
+        return true;
     }
 
     /**

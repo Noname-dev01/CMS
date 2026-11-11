@@ -49,6 +49,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -557,20 +558,22 @@ class RememberMeLoginIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("F4③⑦: 본인 대상 회원 단위 만료는 현재 기기 시리즈만 남기고, 같은 시리즈의 만료된 세션 후속 요청도 그것을 지우지 않는다")
     void memberExpire_keepsCurrentDevice_evenAfterExpiredSiblingRequest() throws Exception {
+        // 회원 단위 만료는 재인증이 필요한 민감 작업이라(PLAN-sensitive-reauthentication.md) 호출 세션은 폼 로그인(체크) 세션이고,
+        // 같은 기기(같은 시리즈)의 형제 세션은 그 쿠키의 자동 로그인으로 만든다 — 검증 대상(현재 기기 시리즈 보존·형제 만료)은 그대로다.
         Member m = member(Role.ROLE_ADMIN);
-        Login s1 = login(m, true);
-        AutoLogin s2 = cookieOnly(s1.cookie());
+        Login current = login(m, true);
+        AutoLogin sibling = cookieOnly(current.cookie());
         Login other = login(m, true);
 
-        mvc.perform(delete("/admin/api/sessions").param("memberId", String.valueOf(m.getId())).session(s2.session()).with(csrf()))
+        mvc.perform(delete("/admin/api/sessions").param("memberId", String.valueOf(m.getId())).session(current.session()).with(csrf()))
                 .andExpect(status().isOk());
 
         assertThat(seriesExists(series(other.cookie()))).isFalse();
-        assertThat(seriesExists(series(s1.cookie()))).isTrue();
-        assertThat(meStatus(s1.session())).as("S1은 만료").isEqualTo(401);
-        assertThat(seriesExists(series(s1.cookie()))).as("만료 세션의 후속 요청은 시리즈를 지우지 않는다").isTrue();
-        assertThat(meStatus(s2.session())).isEqualTo(200);
-        assertThat(cookieOnly(s2.cookie()).result().getResponse().getStatus()).isEqualTo(200);
+        assertThat(seriesExists(series(current.cookie()))).isTrue();
+        assertThat(meStatus(sibling.session())).as("같은 기기의 형제 세션은 만료").isEqualTo(401);
+        assertThat(seriesExists(series(current.cookie()))).as("만료 세션의 후속 요청은 시리즈를 지우지 않는다").isTrue();
+        assertThat(meStatus(current.session())).isEqualTo(200);
+        assertThat(cookieOnly(sibling.cookie()).result().getResponse().getStatus()).isEqualTo(200);
     }
 
     @Test
@@ -716,15 +719,20 @@ class RememberMeLoginIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("F5③: 자동 로그인 뒤 내 정보를 수정해도 인증은 remember-me 그대로이고 시리즈가 유지된다")
+    @DisplayName("F5③: 자동 로그인 뒤 자기수정(기본 프로필 이미지)으로 인증을 새로 만들어도 remember-me 그대로이고 시리즈가 유지된다 — 완전 인증으로 승격되지 않는다")
     void refreshAuthentication_keepsRememberMeOrigin() throws Exception {
         Member m = member(Role.ROLE_MANAGER);
         Login login = login(m, true);
         AutoLogin auto = cookieOnly(login.cookie());
 
+        // 내 정보 수정은 재인증이 필요한 민감 작업이라(PLAN-sensitive-reauthentication.md) refreshAuthentication을 부르는 비민감 자기수정을 쓴다
+        mvc.perform(put(ME + "/profile-image").session(auto.session()).with(csrf()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"preset\":\"profile-1\"}"))
+                .andExpect(status().isOk());
         mvc.perform(patch(ME).session(auto.session()).with(csrf()).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"userName\":\"바뀐이름\",\"email\":\"" + m.getEmail() + "\"}"))
-                .andExpect(status().isOk());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("REAUTHENTICATION_REQUIRED"));
 
         SecurityContext context = (SecurityContext) auto.session().getAttribute("SPRING_SECURITY_CONTEXT");
         assertThat(context.getAuthentication()).isInstanceOf(RememberMeAuthenticationToken.class);

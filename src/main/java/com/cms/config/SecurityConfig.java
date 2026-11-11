@@ -6,6 +6,7 @@ import com.cms.admin.permission.FeatureKind;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.config.auth.AdminRememberMeServices;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
+import com.cms.config.auth.LoginSessionMutexFilter;
 import com.cms.config.auth.LoginVisitRecorder;
 import com.cms.config.auth.RememberMeKey;
 import com.cms.config.auth.RememberMeLoginVerificationFilter;
@@ -43,6 +44,7 @@ import org.springframework.security.web.session.HttpSessionEventPublisher;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.RememberMeAuthenticationToken;
 import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -255,7 +257,10 @@ public class SecurityConfig {
                 .addFilterAfter(rateLimitFilter, CsrfFilter.class)
                 // 쿠키 자동 로그인의 사후 검증 — 세션 등록 뒤 시리즈가 아직 살아 있는지 보고 방문을 기록한다(빈이 아니라 서블릿 필터로 자동 등록되지 않는다).
                 .addFilterAfter(new RememberMeLoginVerificationFilter(rememberMeTokens, rememberMeServices, visitRecorder),
-                        RememberMeAuthenticationFilter.class);
+                        RememberMeAuthenticationFilter.class)
+                // 세션이 있는 폼 로그인을 그 세션의 뮤텍스 안에서 처리한다 — ID 교체·레지스트리 등록·컨텍스트 저장·기기 정리가 재인증 승격과
+                // 겹치지 않게(PLAN-sensitive-reauthentication.md 쟁점 7). 빈이 아니라 서블릿 필터로 자동 등록되지 않는다.
+                .addFilterBefore(new LoginSessionMutexFilter(), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 

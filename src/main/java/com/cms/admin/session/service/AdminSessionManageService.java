@@ -73,7 +73,9 @@ public class AdminSessionManageService {
         // remember-me 기기를 먼저 폐기한다(시리즈 삭제 → 같은 시리즈 세션 전부 만료). 삭제가 실패하면 예외로 끝나 세션도 그대로라
         // 같은 핸들로 재시도할 수 있다. 시리즈가 없는 세션(상태 유지 없이 로그인)은 고른 세션만 만료한다(PLAN-remember-me-login.md 쟁점 3).
         rememberMeDeviceRevoker.revokeDevice(found.principal().getRememberMeSeries());
-        found.info().expireNow();
+        // 만료는 레지스트리 모니터 안에서 다시 찾아 한다 — 재인증의 세션 ID 교체와 겹쳐 만료가 사라지지 않게(PLAN-sensitive-reauthentication.md 쟁점 6).
+        // 그 사이 교체됐다면 옛 핸들은 없지만, remember-me 세션(교체 대상)은 위 revokeDevice가 시리즈로 새 ID까지 이미 만료했다.
+        adminSessionService.expireByHandle(handle);
         return new SessionExpireResult(found.principal().getId(), 1, false);
     }
 
