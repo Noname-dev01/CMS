@@ -150,7 +150,7 @@
 
 ---
 
-## 구현·검증 결과 (2026-11-11, 브랜치 `feat/remember-me-token-purge`, 미커밋)
+## 구현·검증 결과 (2026-11-11, PR #227 `b06e201` 머지 — CI `test`·`browser-test`·`prod-smoke` SUCCESS)
 
 ### Context
 로드맵 67차 후속 후보. `persistent_logins`의 만료 행을 아무도 지우지 않던 문제를, 스케줄러 없이 로그인 성공 시 전역 정리로 해결했다.
