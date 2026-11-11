@@ -1446,3 +1446,34 @@ Parameter 1 of function 'substring()' has type 'STRING', but argument is of type
 #### 교훈
 
 - `@Lob` 필드를 쿼리 함수에 넘기는 설계는 구현 전에 실제 DB로 확인한다. 컴파일은 통과하고 실행 시점에 실패한다.
+
+### 세션 ID를 바꾸면 이미 만료 처리한 세션이 되살아날 수 있다 / 폼 로그인의 레지스트리 등록은 세션 뮤텍스 밖이다 — Spring Security 7.0.7 `SessionRegistryImpl` (2026-11-11, PLAN-sensitive-reauthentication.md 계획 리뷰 4~8라운드)
+
+#### 오류 메시지
+
+```text
+(오류 없음 — 계획 리뷰에서 실행 순서 분석으로 발견, 바이트코드로 확인)
+관리자가 강제 만료한 세션이 재인증(세션 ID 교체) 뒤 다시 활성 상태가 됨 /
+같은 세션에서 다른 회원 폼 로그인이 겹치면 실제 인증 회원과 레지스트리 회원이 달라짐
+```
+
+#### 원인
+
+- `SessionRegistryImpl.onApplicationEvent(SessionIdChangedEvent)`는 옛 항목을 `removeSessionInformation`으로 지운 뒤 같은 principal로 `registerNewSession`을 한다 — **옛 항목의 `expired` 표시를 옮기지 않는다**(`javap -c -cp spring-security-core-7.0.7.jar org.springframework.security.core.session.SessionRegistryImpl`). 만료가 "옛 항목을 집어 든 뒤 ID 교체" 사이에 끼면 만료가 사라진다. 이 프로젝트는 회원 단위 만료가 현재 기기 시리즈를 보존하고, 탈취 감지 후 토큰 삭제가 실패하면 행이 남으므로 DB 재확인만으로는 이 부활을 잡지 못했다.
+- 폼 로그인은 `AbstractSessionFixationProtectionStrategy`가 **ID 교체만** `WebUtils.getSessionMutex` 안에서 하고, `RegisterSessionAuthenticationStrategy`는 그 밖에서 `getSession().getId()`를 읽어 등록하며, 컨텍스트 저장·`loginSuccess`는 그 뒤다(`spring-security-web-7.0.7.jar` 바이트코드). 다른 요청이 그 사이 ID를 바꾸면 미리 읽은 옛 ID로 등록된다 — 두 탭 동시 폼 로그인에도 같은 구조가 있다(추론, 재현은 안 함).
+- 세션 ID 변경 리스너(Tomcat → `HttpSessionEventPublisher` → 레지스트리)는 `changeSessionId()` 안에서 동기로 돌지만, Tomcat은 리스너 예외를 삼켜 정상 반환이 레지스트리 이동을 보장하지 않는다. MockMvc에는 이 리스너가 아예 없다.
+
+#### 해결 방법
+
+- **만료와 ID 교체를 한 모니터로**: `AdminSessionService`의 모든 만료 메서드와 `changeSessionIdIfActive`가 같은 모니터 안에서 돈다(모니터 안 DB 금지). 교체는 옛 항목이 만료·불일치면 하지 않고, 교체 뒤 새 ID 항목이 없으면 직접 옮긴다. 서비스 밖의 직접 `expireNow()`를 없앴다.
+- **세션이 있는 폼 로그인을 세션 뮤텍스 안에서**: `LoginSessionMutexFilter`(`UsernamePasswordAuthenticationFilter` 앞)가 `POST /admin/login`의 나머지 체인을 `WebUtils.getSessionMutex(session)`으로 감싼다(재진입이라 Spring 전략과 교착하지 않음).
+- 검증: `AdminSessionServiceSwapTest`(실제 `SessionRegistryImpl` + 이벤트를 발행하는 시험용 `changeSessionId`, 교체 중 만료가 모니터에서 기다림을 `Thread.State.BLOCKED`로 확인), `ReauthenticationApiIntegrationTest` F10·F11(레지스트리 스파이로 등록 직전에 멈추고 다른 요청이 세션 뮤텍스에서 기다림을 확인). 변이: 교체를 모니터 밖으로 → 1건, 로그인 필터 등록 제거 → 2건 실패.
+
+```bash
+./gradlew test --tests 'com.cms.config.auth.AdminSessionServiceSwapTest' --tests 'com.cms.config.auth.ReauthenticationApiIntegrationTest'
+```
+
+#### 교훈
+
+- 세션 ID를 바꾸는 새 경로를 만들면 레지스트리 만료 표시가 사라지는지부터 본다. "레지스트리가 옮긴다"는 가정은 이벤트를 받는다는 뜻일 뿐 상태를 보존한다는 뜻이 아니다.
+- Spring Security의 세션 뮤텍스는 ID 교체만 덮는다 — 인증 확정 전체(등록·저장)를 직렬화하려면 경계를 직접 감싸야 한다.
