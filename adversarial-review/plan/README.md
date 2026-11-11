@@ -66,6 +66,7 @@
 | 54 | ✅ **완료 (2026-11-09 · #217 `bfd883a`)** [PLAN-ci-lock-anonymous-volume.md](PLAN-ci-lock-anonymous-volume.md) — CI 잠금 컨테이너 해제를 `docker rm -v`로 바꿔 로컬 실행마다 쌓이던 익명 볼륨 제거, 수동 안내는 라벨·미기동 확인 후에만 `-v` (v3, 적대적 리뷰 2라운드 ship) | fix | 없음 | 승인 완료(2026-11-09, 스크립트만 변경 — 스키마·인가 정책·`SecurityConfig`·의존성·Java 코드 변경 없음) |
 | 55 | ✅ **완료 (2026-11-10 · #224 `da7149c`)** [PLAN-tomcat-error-report.md](PLAN-tomcat-error-report.md) — 컨테이너 단계 오류 화면(Tomcat `ErrorReportValve`)의 서버 버전·내부 메시지 노출 차단 (이슈 #223, v2 적대적 리뷰 2라운드 ship) | security/fix | 없음 | 불필요(스키마·인가 정책·API·의존성 변경 없음, `SecurityConfig` 무수정 — 서버 컨테이너 설정 클래스 1개) |
 | 56 | ✅ **완료 (2026-11-10 · #225 `fc38ff8`)** [PLAN-remember-me-login.md](PLAN-remember-me-login.md) — 관리자 로그인 "로그인 상태 유지"(remember-me 영속 토큰 7일)와 세션 강제 만료·기기 단위 토큰 폐기 연동 (이슈 #222, v8 적대적 리뷰 8라운드 ship) | feat/security | 없음 | 승인 완료(2026-11-10, **로그인 정책 변경**·**스키마 변경 V15**, 사용자 결정 U1~U5) |
+| 57 | 🔄 **구현·검증 완료, 커밋 전 (2026-11-11)** [PLAN-remember-me-token-purge.md](PLAN-remember-me-token-purge.md) — 만료된 remember-me 토큰 행(`persistent_logins`)을 로그인 성공 시 전역 정리(스케줄러 없음, 잠금 대기·경과 예산 상한, 적대적 리뷰 3라운드 ship) | feat/security | #56 | 승인 완료(2026-11-11, 스키마·인가 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
