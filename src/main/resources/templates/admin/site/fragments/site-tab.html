@@ -462,7 +462,7 @@ $(document).ready(function () {
         saving = true;
         refreshUi();
         try {
-            const response = await CmsReauth.fetch('/admin/api/sites/' + encodeURIComponent(target.id), { method: 'DELETE', headers: csrfHeaders() });
+            const response = await fetch('/admin/api/sites/' + encodeURIComponent(target.id), { method: 'DELETE', headers: csrfHeaders() });
             if (!response.ok && response.status !== 404) {
                 throw new Error(await errorMessage(response, '사이트 삭제에 실패했습니다.'));
             }

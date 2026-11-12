@@ -38,7 +38,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 public abstract class BrowserTestSupport extends MariaDbContainerSupport {
 
     /** 브라우저 시험 회원의 로그인 비밀번호. */
-    protected static final String TEST_PASSWORD = "browser-test-password";
+    private static final String TEST_PASSWORD = "browser-test-password";
 
     /** 전환을 끄는 스타일 요소의 id — {@link #restoreModalTransitions}가 지운다. */
     private static final String NO_TRANSITIONS_STYLE_ID = "__test-no-transitions";

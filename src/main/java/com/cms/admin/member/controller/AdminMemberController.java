@@ -1,6 +1,5 @@
 package com.cms.admin.member.controller;
 
-import com.cms.config.auth.RequireFullAuthentication;
 import com.cms.admin.member.dto.request.AdminMemberSearchRequest;
 import com.cms.admin.member.dto.request.AdminMemberUpdateRequest;
 import com.cms.admin.member.dto.request.AdminMyInfoUpdateRequest;
@@ -44,8 +43,7 @@ public class AdminMemberController {
     @Operation(summary = "관리자 계정 생성", description = "생성 가능한 userType: ROLE_ADMIN, ROLE_MANAGER")
     @ApiResponse(responseCode = "201", description = "관리자 계정 생성 성공")
     @ApiResponse(responseCode = "400", description = "요청값 검증 실패 또는 유출된 비밀번호(PASSWORD_REJECTED)")
-    @ApiResponse(responseCode = "403", description = "권한 없음 또는 재인증 필요(REAUTHENTICATION_REQUIRED — 로그인 상태 유지로 접속한 세션)")
-    @RequireFullAuthentication
+    @ApiResponse(responseCode = "403", description = "권한 없음")
     @PostMapping("members")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminSignupResponse> createAdmin(@Valid @RequestBody AdminSignupRequest req) {
@@ -93,10 +91,9 @@ public class AdminMemberController {
                     + "본인 계정은 수정할 수 없다(내 정보 수정 사용).")
     @ApiResponse(responseCode = "200", description = "수정 성공")
     @ApiResponse(responseCode = "400", description = "검증 실패, 본인 계정 대상, 전체 필드 누락")
-    @ApiResponse(responseCode = "403", description = "권한 없음 또는 재인증 필요(REAUTHENTICATION_REQUIRED — 로그인 상태 유지로 접속한 세션)")
+    @ApiResponse(responseCode = "403", description = "권한 없음")
     @ApiResponse(responseCode = "404", description = "관리자 없음(ROLE_USER 대상 포함)")
     @ApiResponse(responseCode = "409", description = "이메일 중복, 삭제된 계정, 최후 활성 ADMIN 제거 시도, 동시 변경 충돌")
-    @RequireFullAuthentication
     @PatchMapping("members/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AdminMemberResponse> updateAdminMember(
@@ -116,8 +113,6 @@ public class AdminMemberController {
     }
 
     @Operation(summary = "내 관리자 정보 수정")
-    @ApiResponse(responseCode = "403", description = "권한 없음 또는 재인증 필요(REAUTHENTICATION_REQUIRED — 로그인 상태 유지로 접속한 세션)")
-    @RequireFullAuthentication
     @PatchMapping("members/me")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> updateMyInfo(@Valid @RequestBody AdminMyInfoUpdateRequest request) {
@@ -174,8 +169,7 @@ public class AdminMemberController {
     @Operation(summary = "내 비밀번호 변경")
     @ApiResponse(responseCode = "200", description = "비밀번호 변경 성공")
     @ApiResponse(responseCode = "400", description = "현재 비밀번호 불일치, 새 비밀번호 확인 불일치, 또는 새 비밀번호 거부(PASSWORD_REJECTED — 유출·현재 값과 같음)")
-    @ApiResponse(responseCode = "403", description = "권한 없음 또는 재인증 필요(REAUTHENTICATION_REQUIRED — 로그인 상태 유지로 접속한 세션)")
-    @RequireFullAuthentication
+    @ApiResponse(responseCode = "403", description = "권한 없음")
     @PatchMapping("members/me/password")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> changeMyPassword(@Valid @RequestBody AdminMyPasswordChangeRequest request) {

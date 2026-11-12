@@ -357,6 +357,8 @@ Spring Security 필터, AOP 로깅, 트랜잭션 경계, JPA/QueryDSL 동작 등
 
 ### remember-me(Spring Security 7) 도입 때 조용히 지나가는 함정 — 강제 만료 무력화·권한 부족 401·탈취 500·0행 갱신 (2026-11-10, PLAN-remember-me-login.md, 이슈 #222)
 
+> **2026-11-12 기능 제거**(`PLAN-remember-me-removal.md`): remember-me는 걷어 냈고 아래 해결책의 코드도 함께 사라졌다. 다시 넣을 때 참고할 Spring 동작 기록으로 남긴다.
+
 **증상/위험**: `rememberMe()`만 켜면 컴파일·기존 시험이 모두 통과해도 다음이 생긴다.
 1. **세션 강제 만료가 무력화된다** — 역할 변경·비밀번호 변경·재설정·세션 관리 화면의 만료로 세션이 끊겨도, 다음 요청에서 remember-me 쿠키가 새 세션을 만든다(상태 변경만 `loadUserByUsername`이 막는다).
 2. **자동 로그인 사용자의 권한 부족이 403이 아니라 401/로그인 302**가 된다 — `ExceptionTranslationFilter`가 `isRememberMe`도 `isAnonymous`처럼 진입점으로 보낸다. 게다가 `sendStartAuthentication`이 진입점 호출 **전에** 컨텍스트를 비우므로 진입점에서 `SecurityContextHolder`를 봐도 인증이 없다.
@@ -1448,6 +1450,8 @@ Parameter 1 of function 'substring()' has type 'STRING', but argument is of type
 - `@Lob` 필드를 쿼리 함수에 넘기는 설계는 구현 전에 실제 DB로 확인한다. 컴파일은 통과하고 실행 시점에 실패한다.
 
 ### 세션 ID를 바꾸면 이미 만료 처리한 세션이 되살아날 수 있다 / 폼 로그인의 레지스트리 등록은 세션 뮤텍스 밖이다 — Spring Security 7.0.7 `SessionRegistryImpl` (2026-11-11, PLAN-sensitive-reauthentication.md 계획 리뷰 4~8라운드)
+
+> **2026-11-12 갱신**(`PLAN-remember-me-removal.md`): 재인증(세션 ID를 바꾸던 경로)을 제거하면서 `AdminSessionService`의 레지스트리 모니터·`changeSessionIdIfActive`·`AdminSessionServiceSwapTest`도 사라졌다. **`LoginSessionMutexFilter`는 남겼다** — 같은 세션 두 탭의 동시 폼 로그인(서로 다른 계정)이 만드는 레지스트리 불일치를 막는 독립 방어이고, 시험은 `ConcurrentFormLoginIntegrationTest`로 옮겼다(아래 명령의 시험 이름은 당시 것이다).
 
 #### 오류 메시지
 

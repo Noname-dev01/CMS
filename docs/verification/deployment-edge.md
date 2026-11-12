@@ -17,7 +17,7 @@
 - [ ] 앱이 신뢰할 proxy 범위를 명시했다. `server.forward-headers-strategy` 설정 한 줄만으로 검증 완료라고 보지 않는다.
 - [ ] 서로 다른 두 외부 client가 서로 다른 `remoteAddr`/rate-limit key로 관찰된다. 같은 NAT의 두 브라우저를 "두 IP"로 오인하지 않는다.
 - [ ] 임의 forwarded 헤더를 바꿔 레이트리밋 quota를 회피하거나 `AdminActionLogAspect`의 감사 IP를 위조할 수 없는지 시험했다. `RateLimitFilter`와 `ClientIpResolver`(감사·방문 로그)가 같은 `remoteAddr`를 쓰는지 실제 경로에서 대조했다(작성 당시의 IP 소스 불일치 — 감사 로그가 전달 헤더를 우선 사용 — 는 2026-09-28 `d8952ef` #44, 감사 H-03으로 `remoteAddr` 단일 소스로 통일됨).
-- [ ] HTTPS 외부 요청을 앱이 올바른 scheme으로 인식하고 `Secure`/`HttpOnly` cookie(세션 쿠키와 **remember-me 쿠키** 모두 — 둘 다 `request.isSecure()`로 `Secure`를 정한다, 2026-11-10 이슈 #222), HTTP→HTTPS redirect, 혼합 콘텐츠, redirect loop를 확인했다.
+- [ ] HTTPS 외부 요청을 앱이 올바른 scheme으로 인식하고 `Secure`/`HttpOnly` cookie, HTTP→HTTPS redirect, 혼합 콘텐츠, redirect loop를 확인했다.
 - [ ] `APP_BASE_URL`의 비밀번호 재설정 링크가 최종 HTTPS origin과 일치한다.
 - [ ] **세션·CSRF 쿠키의 `SameSite` 속성이 실제 ingress 구성(단일 origin/서브도메인 분리 등)과 맞는지 확인했다** — 로드맵 "후속 과제 — ① 실배포 인프라"가 명시한 `forward-headers-strategy`·secure/SameSite 쿠키 항목. 현재 코드는 별도 `SameSite` 설정이 없어 서블릿 컨테이너 기본값을 따른다.
 - [ ] 공개 파일 전송 동시 상한(`cms.public-transfer`, IP당 20)이 실제 경로에서 외부 client별로 따로 집계된다. 프록시 IP 하나로 뭉치면 공개 파일 전체가 동시 20개로 제한된다. 프록시가 HTTP/2를 받는 구성이면 썸네일이 많은 갤러리 한 화면이 IP별 상한에 걸리지 않는지 확인했다.
@@ -27,6 +27,7 @@ proxy 제품·trusted range·인증서·호스트가 미정이면 이 항목들�
 
 ## 갱신 이력
 
+- 2026-11-12: 로그인 상태 유지(remember-me) 제거(`PLAN-remember-me-removal.md`)에 따라 HTTPS 쿠키 항목에서 remember-me 쿠키를 뺐다(세션 쿠키만 남음). 체크 상태는 그대로(전 항목 미검증).
 - 2026-11-10: 로그인 상태 유지(remember-me) 도입에 따라 HTTPS 쿠키 항목에 remember-me 쿠키를 추가. 체크 상태는 그대로(전 항목 미검증).
 - 2026-11-10: 컨테이너 단계 오류 본문의 서버 버전 노출(이슈 #223) 수정에 따라 12번째 항목 추가. 체크 상태는 그대로(전 항목 미검증).
 - 2026-11-07: 공개 파일 전송 동시 상한 도입에 따라 11번째 항목 추가. 체크 상태는 그대로(전 항목 미검증).

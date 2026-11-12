@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.clearInvocations;
@@ -40,7 +39,6 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.response.SecurityMockMvcResultMatchers.authenticated;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -221,12 +219,9 @@ class AdminSessionManagementIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("ADMIN은 세션 관리 페이지 200(같은 기기 만료 안내 포함), 미인증은 로그인 리다이렉트")
+    @DisplayName("ADMIN은 세션 관리 페이지 200, 미인증은 로그인 리다이렉트")
     void page_adminOkAnonymousRedirected() throws Exception {
-        // 안내 요소의 존재만 고정한다 — 문구와 확인창 분기는 실기로 확인(PLAN-session-same-device-notice.md F1)
-        mockMvc.perform(get("/admin/session/manage").session(login(admin)))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("id=\"sameDeviceNotice\"")));
+        mockMvc.perform(get("/admin/session/manage").session(login(admin))).andExpect(status().isOk());
         mockMvc.perform(get("/admin/session/manage")).andExpect(status().is3xxRedirection());
     }
 

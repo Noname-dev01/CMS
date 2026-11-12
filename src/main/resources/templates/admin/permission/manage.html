@@ -38,7 +38,6 @@
                     <h1 class="h3 mb-0 text-gray-800">권한 관리</h1>
                 </div>
 
-                <div th:replace="~{admin/fragments/reauth-notice :: reauthNotice('로그인 상태 유지로 접속 중입니다. 권한 저장은 저장할 때 비밀번호를 한 번 더 확인합니다.')}"></div>
                 <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
                 <div id="pageSuccess" class="alert alert-success d-none" role="alert"></div>
 
@@ -136,7 +135,6 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
-<script src="/js/admin/reauth.js"></script>
 
 <script>
     const MEMBERS_URL = "/admin/api/members";
@@ -628,7 +626,7 @@
         clearMessages();
         refreshState();
         try {
-            const response = await CmsReauth.fetch(permissionUrl(target.memberId), {
+            const response = await fetch(permissionUrl(target.memberId), {
                 method: "PUT",
                 headers: getCsrfHeaders(),
                 body: JSON.stringify({ version: oldVersion, grants: grants, boardGrants: boardGrants })
@@ -651,11 +649,7 @@
             } else if (response.status === 400 || response.status === 404) {
                 showError(await extractErrorMessage(response, "요청 값이 올바르지 않습니다."));  // 초안 유지
             } else if (response.status === 403) {
-                // 쿠키 자동 로그인 세션의 재인증 거부는 서버 문구로 안내한다(초안 유지 — 다시 로그인한 뒤 저장)
-                const body = await response.json().catch(function () { return {}; });
-                showError(body.code === "REAUTHENTICATION_REQUIRED"
-                        ? body.message
-                        : "권한이 없습니다. 세션이 만료되었거나 관리자 권한이 변경되었을 수 있습니다.");
+                showError("권한이 없습니다. 세션이 만료되었거나 관리자 권한이 변경되었을 수 있습니다.");
             } else {
                 showError(await extractErrorMessage(response, "저장에 실패했습니다."));
             }

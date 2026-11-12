@@ -4,13 +4,8 @@ import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
 import com.cms.admin.permission.FeatureKind;
 import com.cms.admin.permission.PermissionAction;
-import com.cms.config.auth.AdminRememberMeServices;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.LoginSessionMutexFilter;
-import com.cms.config.auth.LoginVisitRecorder;
-import com.cms.config.auth.RememberMeKey;
-import com.cms.config.auth.RememberMeLoginVerificationFilter;
-import com.cms.config.auth.RememberMeTokenRepository;
 import jakarta.servlet.DispatcherType;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import com.cms.config.ratelimit.RateLimitFilter;
@@ -39,12 +34,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandlerImpl;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.authentication.RememberMeAuthenticationToken;
-import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 @Configuration
 public class SecurityConfig {
@@ -93,11 +85,7 @@ public class SecurityConfig {
                                            LockingAuthenticationFailureHandler failureHandler,
                                            SessionRegistry sessionRegistry,
                                            RateLimitFilter rateLimitFilter,
-                                           AdminPermissionEvaluator permissionEvaluator,
-                                           AdminRememberMeServices rememberMeServices,
-                                           RememberMeKey rememberMeKey,
-                                           RememberMeTokenRepository rememberMeTokens,
-                                           LoginVisitRecorder visitRecorder) throws Exception {
+                                           AdminPermissionEvaluator permissionEvaluator) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> {
                     auth
@@ -203,11 +191,6 @@ public class SecurityConfig {
                         .logoutUrl("/admin/logout")
                         .logoutSuccessUrl("/admin/login")
                         .permitAll())
-                // "로그인 상태 유지"(영속 토큰 7일, 이슈 #222 — 2026-11-10 로그인 정책 변경 승인). URL 접근 규칙은 바꾸지 않는다.
-                // 서비스가 로그아웃 핸들러로도 등록돼 그 기기만 폐기한다. 폐기·검증 계약은 PLAN-remember-me-login.md·config/auth의 각 클래스.
-                .rememberMe((rememberMe) -> rememberMe
-                        .rememberMeServices(rememberMeServices)
-                        .key(rememberMeKey.value()))
                 // 타 관리자 상태·권한 변경 시 대상자 세션 강제 만료를 위한 세션 등록·추적.
                 // maximumSessions(-1): 동시 세션 수를 제한하지 않아(로그인 정책 무변경)
                 // SessionRegistry 등록과 만료 추적만 활성화한다.
@@ -217,17 +200,6 @@ public class SecurityConfig {
                         .expiredSessionStrategy(new AdminSessionExpiredStrategy()))
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
-                            // remember-me 인증의 권한 부족도 ExceptionTranslationFilter가 진입점으로 보낸다(Spring 7 — 익명과 같이 취급).
-                            // 이미 컨텍스트를 비운 뒤라 원래 인증은 예외에 보존된 값으로 판정하고, 기존 403 응답을 그대로 낸다(PLAN v4).
-                            if (authException.getAuthenticationRequest() instanceof RememberMeAuthenticationToken) {
-                                AccessDeniedException denied = new AccessDeniedException("Access Denied");
-                                if (API_MATCHER.matches(request)) {
-                                    API_ACCESS_DENIED_HANDLER.handle(request, response, denied);
-                                } else {
-                                    DEFAULT_ACCESS_DENIED_HANDLER.handle(request, response, denied);
-                                }
-                                return;
-                            }
                             if (API_MATCHER.matches(request)) {
                                 API_AUTH_ENTRY_POINT.commence(request, response, authException);
                             } else {
@@ -255,11 +227,9 @@ public class SecurityConfig {
                 // 브라우저로 토큰 없는 form POST를 반복시켜 피해자 IP의 quota를 고갈시키는 교차
                 // 사이트 공격이 가능해진다(PLAN-public-endpoint-rate-limit.md 쟁점 4).
                 .addFilterAfter(rateLimitFilter, CsrfFilter.class)
-                // 쿠키 자동 로그인의 사후 검증 — 세션 등록 뒤 시리즈가 아직 살아 있는지 보고 방문을 기록한다(빈이 아니라 서블릿 필터로 자동 등록되지 않는다).
-                .addFilterAfter(new RememberMeLoginVerificationFilter(rememberMeTokens, rememberMeServices, visitRecorder),
-                        RememberMeAuthenticationFilter.class)
-                // 세션이 있는 폼 로그인을 그 세션의 뮤텍스 안에서 처리한다 — ID 교체·레지스트리 등록·컨텍스트 저장·기기 정리가 재인증 승격과
-                // 겹치지 않게(PLAN-sensitive-reauthentication.md 쟁점 7). 빈이 아니라 서블릿 필터로 자동 등록되지 않는다.
+                // 세션이 있는 폼 로그인을 그 세션의 뮤텍스 안에서 처리한다 — 같은 세션의 두 탭이 서로 다른 계정으로 동시에 로그인해도
+                // 레지스트리 등록·컨텍스트 저장이 섞여 "실제 인증 회원 ≠ 레지스트리 회원"이 되지 않게(그런 세션은 실제 회원의 강제 만료를 피한다,
+                // PLAN-remember-me-removal.md 쟁점 2). 빈이 아니라 서블릿 필터로 자동 등록되지 않는다.
                 .addFilterBefore(new LoginSessionMutexFilter(), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

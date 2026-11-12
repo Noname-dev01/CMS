@@ -1443,7 +1443,7 @@ $(document).ready(function () {
 
         let closeModal = false;
         try {
-            const response = await CmsReauth.fetch('/admin/api/menus/' + encodeURIComponent(target.menuNo), {
+            const response = await fetch('/admin/api/menus/' + encodeURIComponent(target.menuNo), {
                 method: 'DELETE',
                 headers: {
                     [csrfHeader]: csrfToken

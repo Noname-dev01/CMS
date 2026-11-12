@@ -161,7 +161,6 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
-<script src="/js/admin/reauth.js"></script>
 <script src="/js/admin/media-picker.js"></script>
 <script src="/js/admin/content-scope.js"></script>
 
@@ -271,10 +270,7 @@
 
     async function errorMessage(response, fallback) {
         if (response.status === 403) {
-            // 쿠키 자동 로그인 세션의 재인증 거부(모달 취소)만 서버 문구를 보인다(PLAN-content-delete-reauthentication.md) —
-            // 그 밖의 403(메서드 보안)은 message가 영문이라 고정 문구를 쓴다
-            const body = await response.json().catch(function () { return {}; });
-            return body.code === "REAUTHENTICATION_REQUIRED" ? body.message : "이 작업을 수행할 권한이 없습니다.";
+            return "이 작업을 수행할 권한이 없습니다.";   // 메서드 보안 403의 message는 영문이라 고정 문구를 쓴다
         }
         try {
             const body = await response.json();
@@ -664,7 +660,7 @@
         }
         setSaving(true);
         try {
-            const response = await CmsReauth.fetch(BANNERS_URL + "/" + encodeURIComponent(target.id), {
+            const response = await fetch(BANNERS_URL + "/" + encodeURIComponent(target.id), {
                 method: "DELETE",
                 headers: csrfHeaders(false)
             });

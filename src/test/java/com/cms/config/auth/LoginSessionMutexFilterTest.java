@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * {@link LoginSessionMutexFilter} — 세션이 있는 폼 로그인({@code POST /admin/login})만 그 세션의 뮤텍스 안에서 나머지 체인을 실행한다
- * (PLAN-sensitive-reauthentication.md 쟁점 7). 재인증과 같은 {@code WebUtils.getSessionMutex}를 쓰는지가 계약이다.
+ * (PLAN-remember-me-removal.md 쟁점 2). Spring 세션 고정 방지 전략과 같은 {@code WebUtils.getSessionMutex}를 쓰는지가 계약이다
+ * (같은 세션의 동시 로그인 직렬화는 {@code ConcurrentFormLoginIntegrationTest}가 실제 스택으로 본다).
  */
 class LoginSessionMutexFilterTest {
 
@@ -73,7 +74,7 @@ class LoginSessionMutexFilterTest {
         assertThat(get.heldMutex).isFalse();
 
         RecordingChain otherPost = new RecordingChain(session);
-        filter.doFilter(request("POST", "/admin/api/members/me/reauthentication", session), new MockHttpServletResponse(), otherPost);
+        filter.doFilter(request("POST", "/admin/api/members/me/password", session), new MockHttpServletResponse(), otherPost);
         assertThat(otherPost.called).isTrue();
         assertThat(otherPost.heldMutex).isFalse();
     }

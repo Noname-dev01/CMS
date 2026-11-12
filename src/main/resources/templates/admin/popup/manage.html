@@ -197,7 +197,6 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
-<script src="/js/admin/reauth.js"></script>
 <script src="/js/admin/media-picker.js"></script>
 <script src="/js/admin/content-scope.js"></script>
 <script src="/vendor/quill/quill.js"></script>
@@ -825,7 +824,7 @@
         }
         setSaving(true);
         try {
-            const response = await CmsReauth.fetch(POPUPS_URL + "/" + encodeURIComponent(target.id), {
+            const response = await fetch(POPUPS_URL + "/" + encodeURIComponent(target.id), {
                 method: "DELETE",
                 headers: csrfHeaders(false)
             });

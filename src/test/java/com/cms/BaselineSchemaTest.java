@@ -467,14 +467,9 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("remember-me 영속 토큰(V15): 칼럼이 Spring JdbcTokenRepositoryImpl 기본 이름이고 series·token은 바이너리 비교(ascii_bin), username 인덱스가 있다")
-    void persistentLoginsTable() throws Exception {
-        assertThat(rows("SELECT column_name, column_type, is_nullable, IFNULL(collation_name, '-') FROM information_schema.COLUMNS WHERE table_schema = '" + SCHEMA
-                + "' AND table_name = 'persistent_logins' ORDER BY ordinal_position")).containsExactly(
-                "series|varchar(64)|NO|ascii_bin", "username|varchar(50)|NO|utf8mb4_general_ci",
-                "token|varchar(64)|NO|ascii_bin", "last_used|datetime(6)|NO|-");
-        assertThat(rows("SELECT CONCAT(index_name, '=', GROUP_CONCAT(column_name ORDER BY seq_in_index)) FROM information_schema.STATISTICS"
-                + " WHERE table_schema = '" + SCHEMA + "' AND table_name = 'persistent_logins' GROUP BY index_name ORDER BY index_name"))
-                .containsExactlyInAnyOrder("PRIMARY=series", "idx_persistent_logins_username=username");
+    @DisplayName("로그인 상태 유지 토큰 테이블(persistent_logins)은 V15가 만들고 V16이 지워 새로 설치한 결과에 없다(PLAN-remember-me-removal.md 쟁점 3)")
+    void persistentLoginsTableIsAbsent() throws Exception {
+        assertThat(rows("SELECT table_name FROM information_schema.TABLES WHERE table_schema = '" + SCHEMA
+                + "' AND table_name = 'persistent_logins'")).isEmpty();
     }
 }

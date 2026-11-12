@@ -121,7 +121,6 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
-<script src="/js/admin/reauth.js"></script>
 
 <script th:inline="javascript">
     // 서버가 렌더링한 내 위임 권한 키("INQUIRY:UPDATE" 등). 버튼 표시용일 뿐 서버 판정(403)이 최종이다.
@@ -170,9 +169,7 @@
 
     async function errorMessage(response, fallback) {
         if (response.status === 403) {
-            // 쿠키 자동 로그인 세션의 재인증 거부(모달 취소)만 서버 문구를 보인다(PLAN-content-delete-reauthentication.md)
-            const body = await response.json().catch(function () { return {}; });
-            return body.code === "REAUTHENTICATION_REQUIRED" ? body.message : "이 작업을 할 권한이 없습니다.";
+            return "이 작업을 할 권한이 없습니다.";
         }
         if (response.status === 404) {
             return "문의를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.";
@@ -376,7 +373,7 @@
         btnDelete.disabled = true;
         setDetailError("");
         try {
-            const response = await CmsReauth.fetch(INQUIRY_URL + "/" + encodeURIComponent(detailId), {
+            const response = await fetch(INQUIRY_URL + "/" + encodeURIComponent(detailId), {
                 method: "DELETE",
                 headers: csrfHeaders()
             });

@@ -27,7 +27,6 @@
                 </div>
 
                 <div class="admin-manage-shell">
-                    <div th:replace="~{admin/fragments/reauth-notice :: reauthNotice('로그인 상태 유지로 접속 중입니다. 다른 관리자의 정보·역할·상태 변경은 저장할 때 비밀번호를 한 번 더 확인합니다.')}"></div>
                     <div id="pageAlert" class="alert alert-danger d-none" role="alert"></div>
 
                     <div class="card shadow mb-0 admin-panel">
@@ -203,7 +202,6 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
-<script src="/js/admin/reauth.js"></script>
 
 <script>
     const searchForm = document.getElementById("searchForm");
@@ -586,7 +584,7 @@
         const seq = detailSeq;
 
         try {
-            const response = await CmsReauth.fetch("/admin/api/members/" + encodeURIComponent(targetId), {
+            const response = await fetch("/admin/api/members/" + encodeURIComponent(targetId), {
                 method: "PATCH",
                 headers: getCsrfHeaders(),
                 body: JSON.stringify(payload)
