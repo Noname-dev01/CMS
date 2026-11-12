@@ -144,10 +144,12 @@ context7(라이브러리 공식 문서 조회)·playwright(브라우저 UI 검�
 1. 변경 범위가 크면 코드 작성 전에 **계획을 먼저 제시**하고 확인을 받는다.
 2. 한 번에 하나의 기능/관심사만 변경한다. 무관한 리팩터링을 섞지 않는다.
 3. **요청받지 않은 기능·추상화·설정 옵션을 미리 만들지 않는다. 문제를 해결하는 최소한의 코드로 구현한다.** (과도하게 복잡해 보이면 더 단순한 방법을 먼저 제시한다)
-4. **검증 범위는 단계별로 다르다**(2026-10-22 — 전체 실행 약 6분, PR CI가 전체를 다시 돌린다). 실패하면 원인을 설명한다.
+4. **검증 범위는 단계별로 다르다**(2026-10-22, 2026-11-12 개정 — 로컬 실측: 브라우저 시험 제외 4분 40초·포함 약 6분, PR CI가 `test`·`browser-test`를 병렬로 다시 돌린다). 실패하면 원인을 설명한다.
    - **개발 중 반복**: 바꾼 패키지의 시험 + 그 패키지를 쓰는 쪽의 시험(예: `admin.faq`를 바꾸면 `publicweb.faq`도) + 컨벤션 시험만 돌린다 — `./gradlew test --tests 'com.cms.admin.faq.*' --tests 'com.cms.publicweb.faq.*' --tests '*ConventionTest'`.
-   - **전체 `./gradlew test`를 바로 돌리는 경우**: 공용 코드(`common/**`·`config/**`·`src/test/java/com/cms/support/**`·`SecurityConfig`·마이그레이션·`build.gradle`·공용 템플릿 조각)를 바꿨거나 영향 범위를 가늠할 수 없을 때.
-   - **PR 직전 1회**: 커밋 전에 전체 `./gradlew test`를 한 번 통과시킨다(`code-review-loop` 마무리 단계가 이 역할 — 리뷰 루프를 건너뛰면 `commitPR` 전에 직접 돌린다). PR CI가 최종 안전망이다.
+   - **전체 시험을 바로 돌리는 경우**: 공용 코드(`common/**`·`config/**`·`src/test/java/com/cms/support/**`·`SecurityConfig`·마이그레이션·`build.gradle`·공용 템플릿 조각)를 바꿨거나 영향 범위를 가늠할 수 없을 때.
+   - **PR 직전 1회**: 커밋 전에 전체 시험을 한 번 통과시킨다(`code-review-loop` 마무리 단계가 이 역할 — 리뷰 루프를 건너뛰면 `commitPR` 전에 직접 돌린다). PR CI가 최종 안전망이다.
+   - **"전체 시험"의 명령**: 로컬은 `./gradlew test -PbrowserTests=exclude`다. 화면(`src/main/resources/templates/**`·`static/**`)이나 브라우저 시험(`BrowserTestSupport` 상속 클래스)을 바꿨을 때만 `./gradlew test -PbrowserTests=only`를 **추가로** 돌린다 — 그 밖의 브라우저 회귀는 PR CI의 필수 체크 `browser-test`가 잡는다. 인자 없는 `./gradlew test`는 둘을 합친 것이다.
+   - **전체 시험은 백그라운드로 실행한다**(공용 코드 수정 후·PR 직전 모두). 기다리는 동안 코드가 아닌 일(리뷰 결과 요약·커밋 분할 계획 초안·문서)만 하고 코드는 고치지 않는다 — 고치면 그 결과는 무효라 다시 돌린다. 통과를 확인하기 전에 통과를 주장하거나 커밋하지 않는다. 관련 시험만 돌리는 개발 중 반복은 짧아서 그대로 기다린다.
 5. 엔티티/스키마 변경 시 영향 범위(연관 엔티티, 마이그레이션 필요 여부)를 먼저 알린다.
 6. API 경로를 추가·변경할 때는 `api-conventions` 스킬의 규칙을 따르고, 호출하는 화면/JS 영향 범위를 함께 보고한다.
 7. 라이브러리 API가 불확실하면 context7로 확인한 뒤 작성한다 — 훈련 데이터가 오래됐을 수 있다.
