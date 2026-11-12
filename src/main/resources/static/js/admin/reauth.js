@@ -25,6 +25,7 @@
     let resolver = null;    // 현재 모달의 결과 전달 함수
     let busy = false;       // 표시 전환 중이거나 검증 요청 중 — 입력·확인·취소 잠금
     let hiding = null;      // 닫힘 전환이 끝나면(hidden) 해결되는 Promise
+    let returnFocus = null; // 모달을 열기 직전의 포커스 요소 — 닫힌 뒤 아래 모달 안이면 그리로 돌려보낸다
 
     function csrfHeaders() {
         const token = document.querySelector('meta[name="_csrf"]');
@@ -107,11 +108,37 @@
         });
         window.jQuery(root).on("hidden.bs.modal", function () {
             // 다른 모달 위에 떴다가 닫혔으면 Bootstrap이 지운 body 상태를 되돌린다(겹친 모달의 스크롤 유지)
-            if (document.querySelector(".modal.show")) {
+            const open = document.querySelectorAll(".modal.show");
+            if (open.length) {
                 document.body.classList.add("modal-open");
+                restoreUnderlyingFocus(open[open.length - 1]);
             }
+            returnFocus = null;
         });
         return { root: root, form: form, input: input, error: error, submit: submit, cancel: cancel };
+    }
+
+    /*
+     * 겹친 모달의 포커스 복원(PLAN-content-delete-reauthentication.md 쟁점 6). Bootstrap 4는 문서에 focusin.bs.modal 하나만 두고
+     * 이 모달의 hide()가 그것을 해제하므로, 아래 모달은 열려 있는데 Tab이 배경 화면으로 빠진다. Bootstrap의 _enforceFocus와 같은 규칙을
+     * 같은 이벤트 이름으로 다시 걸어(아래 모달이 나중에 닫히면 Bootstrap의 off가 그대로 해제한다) 포커스를 그 모달 안에 둔다.
+     * 열기 전 포커스 요소가 아래 모달 안에서 아직 포커스 가능하면 그리로, 아니면 모달 루트(tabindex=-1)로 돌린다 — 요청 전에 버튼을
+     * 비활성화하는 화면은 그 요소를 잃었을 수 있어 "버튼으로 복귀"가 아니라 "모달 안에 머문다"가 계약이다.
+     */
+    function restoreUnderlyingFocus(top) {
+        window.jQuery(document).off("focusin.bs.modal").on("focusin.bs.modal", function (event) {
+            if (document !== event.target && top !== event.target && !top.contains(event.target)) {
+                top.focus();
+            }
+        });
+        const target = returnFocus;
+        if (target && target !== document.body && top.contains(target) && !target.disabled) {
+            target.focus();
+            if (document.activeElement === target) {
+                return;
+            }
+        }
+        top.focus();
     }
 
     function setBusy(value) {
@@ -210,6 +237,7 @@
         if (!modal) {
             modal = buildModal();
         }
+        returnFocus = document.activeElement;
         modal.input.value = "";
         modal.error.textContent = "";
         modal.error.classList.add("d-none");

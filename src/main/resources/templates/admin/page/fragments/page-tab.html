@@ -592,7 +592,7 @@
         }
         setSaving(true);
         try {
-            const response = await fetch(PAGES_URL + "/" + encodeURIComponent(target.id) + "?version=" + encodeURIComponent(target.version), {
+            const response = await CmsReauth.fetch(PAGES_URL + "/" + encodeURIComponent(target.id) + "?version=" + encodeURIComponent(target.version), {
                 method: "DELETE",
                 headers: csrfHeaders(false)
             });

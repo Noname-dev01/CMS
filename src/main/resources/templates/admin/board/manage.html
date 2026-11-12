@@ -245,6 +245,7 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
+<script src="/js/admin/reauth.js"></script>
 <script src="/js/admin/content-scope.js"></script>
 
 <script>
@@ -679,7 +680,7 @@
         }
         setSaving(true);
         try {
-            const response = await fetch(BOARDS_URL + "/" + encodeURIComponent(target.id) + "?version=" + encodeURIComponent(target.version), {
+            const response = await CmsReauth.fetch(BOARDS_URL + "/" + encodeURIComponent(target.id) + "?version=" + encodeURIComponent(target.version), {
                 method: "DELETE",
                 headers: getCsrfHeaders()
             });
