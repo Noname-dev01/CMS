@@ -4,7 +4,6 @@ import com.cms.admin.board.dto.request.BoardCreateRequest;
 import com.cms.admin.board.dto.request.BoardUpdateRequest;
 import com.cms.admin.board.dto.response.BoardResponse;
 import com.cms.admin.board.service.BoardService;
-import com.cms.config.auth.RequireFullAuthentication;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -86,7 +85,6 @@ public class BoardController {
     @ApiResponse(responseCode = "404", description = "게시판 없음(삭제 포함)")
     @ApiResponse(responseCode = "409", description = "게시글이 남아 있음 또는 version 불일치")
     @DeleteMapping("/{boardId}")
-    @RequireFullAuthentication   // 복구할 수 없는 삭제 — 쿠키 자동 로그인 세션은 비밀번호 재확인(PLAN-content-delete-reauthentication.md)
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteBoard(@PathVariable Long boardId, @RequestParam(required = false) Integer version) {
         boardService.deleteBoard(boardId, version);

@@ -50,12 +50,8 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
         visitLogRepository = mock(VisitLogRepository.class);
         loginFailureService = mock(LoginFailureService.class);
         notificationRecorder = mock(com.cms.admin.notification.service.NotificationRecorder.class);
-        // 방문 기록은 LoginVisitRecorder로 옮겨졌다(remember-me 자동 로그인과 공유) — 실제 기록기에 같은 mock 저장소·고정 Clock을 넣어
-        // 기존 단언(방문 저장·KST 날짜·알림 정리)을 그대로 유지한다. remember-me 기기가 없는 로그인이라 토큰 저장소는 쓰이지 않는다.
-        handler = new VisitLoggingAuthenticationSuccessHandler(loginFailureService,
-                new LoginVisitRecorder(visitLogRepository, notificationRecorder, mock(RememberMeTokenRepository.class), FIXED_KST_CLOCK),
-                mock(RememberMeTokenRepository.class), mock(AdminRememberMeServices.class),
-                mock(org.springframework.security.core.session.SessionRegistry.class));
+        handler = new VisitLoggingAuthenticationSuccessHandler(visitLogRepository, loginFailureService,
+                notificationRecorder, FIXED_KST_CLOCK);
         // super 클래스의 리다이렉트를 방지하기 위해 DispatcherServlet 없이 동작하도록 설정
         handler.setDefaultTargetUrl("/admin");
         handler.setAlwaysUseDefaultTargetUrl(true);

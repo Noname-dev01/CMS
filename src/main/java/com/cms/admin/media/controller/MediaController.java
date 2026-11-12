@@ -7,7 +7,6 @@ import com.cms.admin.media.service.MediaService;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.RequirePermission;
-import com.cms.config.auth.RequireFullAuthentication;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -103,7 +102,6 @@ public class MediaController {
     @ApiResponse(responseCode = "404", description = "이미지 없음(호출자가 볼 수 없는 출처 포함)")
     @ApiResponse(responseCode = "409", description = "사용 중인 이미지 — 메시지에 사용처 요약")
     @DeleteMapping("/{id}")
-    @RequireFullAuthentication   // 복구할 수 없는 삭제 — 쿠키 자동 로그인 세션은 비밀번호 재확인(PLAN-content-delete-reauthentication.md)
     @RequirePermission(feature = AdminFeature.MEDIA, action = PermissionAction.DELETE)
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         mediaService.delete(id);

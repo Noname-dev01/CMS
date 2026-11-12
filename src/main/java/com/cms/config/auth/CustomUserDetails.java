@@ -15,23 +15,8 @@ public class CustomUserDetails implements UserDetails {
 
     private final Member member;
 
-    /**
-     * 이 로그인이 쓰는 remember-me 기기(시리즈, DB의 정식 값). 없으면 {@code null}.
-     * 세션 레지스트리가 이 principal을 쥐고 있어 수동 강제 만료·로그아웃이 기기 토큰을 찾는 데 쓴다 — 인증 판단에는 쓰지 않는다
-     * (PLAN-remember-me-login.md 쟁점 2). 세션 등록 뒤에 기록될 수 있어(폼 로그인) 다른 스레드에서 읽도록 {@code volatile}.
-     */
-    private volatile String rememberMeSeries;
-
     public CustomUserDetails(Member member) {
         this.member = member;
-    }
-
-    public String getRememberMeSeries() {
-        return rememberMeSeries;
-    }
-
-    public void setRememberMeSeries(String rememberMeSeries) {
-        this.rememberMeSeries = rememberMeSeries;
     }
 
     public Long getId() {

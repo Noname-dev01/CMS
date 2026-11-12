@@ -4,7 +4,6 @@ import com.cms.admin.site.dto.request.SiteCreateRequest;
 import com.cms.admin.site.dto.request.SiteUpdateRequest;
 import com.cms.admin.site.dto.response.SiteResponse;
 import com.cms.admin.site.service.SiteService;
-import com.cms.config.auth.RequireFullAuthentication;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -82,7 +81,6 @@ public class SiteController {
     @ApiResponse(responseCode = "404", description = "사이트 없음")
     @ApiResponse(responseCode = "409", description = "시드 사이트이거나 메뉴가 있어 삭제 거부")
     @DeleteMapping("/{id}")
-    @RequireFullAuthentication   // 복구할 수 없는 삭제 — 쿠키 자동 로그인 세션은 비밀번호 재확인(PLAN-content-delete-reauthentication.md)
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteSite(@PathVariable Long id) {
         siteService.deleteSite(id);

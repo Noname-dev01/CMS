@@ -476,7 +476,6 @@
 <script src="/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 <script src="/vendor/jquery-easing/jquery.easing.min.js"></script>
 <script src="/js/sb-admin-2.min.js"></script>
-<script src="/js/admin/reauth.js"></script>
 <script src="/js/admin/media-picker.js"></script>
 <script src="/vendor/quill/quill.js"></script>
 <script src="/js/admin/notice-editor.js"></script>
@@ -676,9 +675,7 @@
     async function extractErrorMessage(response, fallbackMessage) {
         // 403은 서버 메시지와 무관하게 고정 문구를 쓴다 — 메서드 계층 거부 메시지가 영문일 수 있고, 화면을 연 사이 권한이 회수된 경우의 안내다.
         if (response.status === 403) {
-            // 쿠키 자동 로그인 세션의 재인증 거부(첨부 삭제 모달 취소)만 서버 문구를 보인다(PLAN-content-delete-reauthentication.md)
-            const body = await response.clone().json().catch(function () { return {}; });
-            return body.code === "REAUTHENTICATION_REQUIRED" ? body.message : "권한이 없습니다. 권한이 변경되었을 수 있으니 페이지를 새로고침해 주세요.";
+            return "권한이 없습니다. 권한이 변경되었을 수 있으니 페이지를 새로고침해 주세요.";
         }
         try {
             const body = await response.json();
@@ -1616,7 +1613,7 @@
         const board = modalBoard;
         const postId = currentDetail.id;
         try {
-            const response = await CmsReauth.fetch(
+            const response = await fetch(
                 postsUrl(board) + "/" + encodeURIComponent(postId) + "/attachments/" + encodeURIComponent(button.dataset.id),
                 { method: "DELETE", headers: getCsrfHeaderOnly() }
             );
