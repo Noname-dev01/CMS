@@ -7,6 +7,28 @@
 > 요점 한 줄: **"코드를 읽기 전에 계획하지 않고, 리뷰받지 않은 계획으로 구현하지 않고,
 > 승인 없이 스키마를 바꾸지 않고, 테스트 통과로 끝내지 않고 실제 화면으로 확인한다."**
 
+## 경로 판정 — CMS 위험 지점 (최소 목록)
+
+전역 `/feature`는 정찰 직후 정식/경량 경로를 판정한다(위험 영역·외부 계약을 건드리면 정식).
+아래 표는 **건드리면 무조건 정식**인 위치만 모은 최소 목록이다. 표에 없다고 경량이 되지는 않는다.
+전역 명령의 개념 기준과 "애매하면 정식"이 그대로 적용된다. 새 가드 행·잠금·인가 지점을 만들면 이 표에 함께 추가한다.
+
+| 영역 | 위치 | 이름만 봐서는 모르는 이유 |
+|---|---|---|
+| 인증·접근 규칙 | `config/**`(`SecurityConfig`·`auth/`·`security/`·`ratelimit/`·`MethodSecurityConfig`) | 로그인 실패 잠금·세션 만료 리스너·레이트리밋 필터 순서가 설정 클래스 안에 있다 |
+| 위임 권한 | `admin/permission/**`, 컨트롤러·서비스의 인가 선언(`@PreAuthorize` 등) | 권한 캐시 무효화가 이벤트 리스너로 연결돼 있다 — `admin/permission/CLAUDE.md` |
+| 세션·계정 | `admin/session/**`, `admin/member/**`의 서비스·도메인 | 비밀번호 변경 관문·현재 세션 보호가 여기에 모인다 |
+| 가드 행 잠금 | `BannerLockRepository`·`FaqLockRepository`(`banner_lock`·`faq_lock`)와 이를 쓰는 서비스 | 평범한 CRUD처럼 보이지만 저장 전체를 가드 행으로 직렬화한다 |
+| 행 잠금·버전 | `@Lock`·`FOR UPDATE`·`@Version`이 있는 리포지토리와 이를 호출하는 서비스(`board`·`contentimage`·`media`·`menu`·`page`·`popup`·`site`·`inquiry`·`member`) | 잠금 순서가 패키지별 `CLAUDE.md`에 계약으로 적혀 있어, 호출 순서만 바꿔도 교착이 생길 수 있다 |
+| 트랜잭션 경계·이벤트 | `REQUIRES_NEW`·`@TransactionalEventListener` 사용처(`admin/log`·`notification`·`message`·`inquiry/InquiryNotifier`·`media/MediaImageRegistrar`) | 커밋 뒤 실행·독립 트랜잭션·리스너 순서(`@Order`)가 계약이다 |
+| 본문 HTML | `common/html/**`, 편집기 툴바·`formats`, 본문을 출력하는 템플릿 | sanitizer 허용 목록과 편집기가 1:1이어야 하고, 출력 경로가 하나 늘면 XSS 표면이 는다 |
+| 파일 저장·삭제 | `common/storage/**`, 첨부·이미지 삭제와 회수 경로 | 트랜잭션 정리·보존 규칙과 심볼릭 링크 거부가 여기에 있다 |
+| 공개 경로 | `publicweb/support/**`(`PublicSiteInterceptor`·`@PublicFileTransfer`), 공개 노출 조건 쿼리 | 공개 판정이 바뀌면 비공개·예약 글이 노출된다 |
+| 스키마 | `src/main/resources/db/migration/**`, 엔티티 매핑 | 마이그레이션 자체가 위험 영역이다 |
+
+경량으로 판정하기 쉬운 예: 문구·스타일만 바꾸는 템플릿 수정, 잠금 없는 조회 화면의 표시 항목 추가, 시험만 추가·정리, 문서.
+템플릿이라도 본문 HTML 출력이나 공개 노출 조건을 건드리면 정식이다.
+
 ## 단계별 CMS 규칙
 
 아래 "예"는 작성 당시의 사례라 지금 코드와 다를 수 있다. 판단 방식을 보여 주는 용도로만 읽는다.
