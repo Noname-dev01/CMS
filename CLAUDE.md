@@ -93,7 +93,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 - **개발**: `application-dev.yml` + `.env.dev`, MariaDB 포트 3307
 - **운영(prod, 배포 가능 상태 검증 완료 — 2026-07-29)**: `application-prod.yml` + `.env.prod`(커밋 금지). 절차·필수 환경변수는 `docs/deployment.md` 참고. 실제 인터넷 배포(호스트·도메인·TLS)는 별도 범위.
 - **프로파일 기본값 없음(의도)**: `spring.profiles.active: ${SPRING_PROFILES_ACTIVE}` — 미지정 시 기동 자체가 실패한다(placeholder 해석 실패로 fail-fast). `com.cms.config.ProfileGuardEnvironmentPostProcessor`가 추가로 `dev`+`prod` 동시 활성화와 활성 프로파일 0개(빈 문자열)를 컨텍스트 생성 전에 차단한다. 로컬 `./gradlew test`·CI 모두 `SPRING_PROFILES_ACTIVE=dev`를 명시 주입한다(`build.gradle`의 `test` 태스크, `.github/workflows/ci.yml`).
-- **스키마 관리는 Flyway** (`src/main/resources/db/migration/`, `ddl-auto: validate` — 공통값, 전 프로파일 적용): 엔티티 변경만으로는 스키마가 바뀌지 않는다 — 컬럼/인덱스 추가·변경 시 반드시 마이그레이션 파일을 함께 작성한다. 머지된 마이그레이션 파일은 수정 금지(체크섬 불일치로 기동 실패) — **유일한 예외는 실배포 전 기준 스키마로 합치기**다: 2026-10-21에 V1~V58을 `V1__baseline_schema.sql`·`V2__baseline_seed.sql`로 합쳤고(`adversarial-review/plan/PLAN-migration-squash.md`), 첫 실배포 직전에 그 사이 생긴 V3~Vn을 마지막으로 한 번 더 합친 뒤에는 예외가 없다. 기존 행에 영향을 주는 새 마이그레이션은 업그레이드 경로 시험을 쓴다. 합치기 후 기존 DB 재생성·시험 정책·새 마이그레이션 작성 규칙은 `docs/migration-guide.md` 참고.
+- **스키마 관리는 Flyway** (`src/main/resources/db/migration/`, `ddl-auto: validate` — 공통값, 전 프로파일 적용): 엔티티 변경만으로는 스키마가 바뀌지 않는다 — 컬럼/인덱스 추가·변경 시 반드시 마이그레이션 파일을 함께 작성한다. 머지된 마이그레이션 파일은 수정 금지(체크섬 불일치로 기동 실패, `.claude/hooks/protect-files.js` PreToolUse 훅이 `origin/master`에 있는 파일의 Edit/Write를 막는다 — Bash 쓰기는 못 막음. 새 파일은 `/create-migration`) — **유일한 예외는 실배포 전 기준 스키마로 합치기**다: 2026-10-21에 V1~V58을 `V1__baseline_schema.sql`·`V2__baseline_seed.sql`로 합쳤고(`adversarial-review/plan/PLAN-migration-squash.md`), 첫 실배포 직전에 그 사이 생긴 V3~Vn을 마지막으로 한 번 더 합친 뒤에는 예외가 없다. 기존 행에 영향을 주는 새 마이그레이션은 업그레이드 경로 시험을 쓴다. 합치기 후 기존 DB 재생성·시험 정책·새 마이그레이션 작성 규칙은 `docs/migration-guide.md` 참고.
 - **초기 관리자 계정**: dev(`TestMemberLoader`)·prod(`AdminBootstrapLoader`) 부트스트랩 계약과 기동 실패 조건은 `com.cms.admin.member`의 `CLAUDE.md` 참조.
 - **CI 배포 게이트**(`prod-smoke` job, 2026-09-29): prod 이미지 빌드·기동·보안 응답·백업복구 왕복·Trivy 이미지 스캔을 자동 검증한다. `mariadb`·`eclipse-temurin` 이미지는 digest로 고정돼 있어 참조를 바꾸면 `scripts/ci/check-image-refs.sh` 일치 검사를 통과해야 한다. `scripts/ci/*.sh`는 고정 이름 prod 자원을 만들고 지우므로 폐기 가능한 Docker 환경에서만 실행한다(로컬은 `CMS_CI_DISPOSABLE_DOCKER=1`, 상세는 `docs/deployment.md` "CI 배포 게이트").
 - **actuator**: `management.endpoints.web.exposure.include: health`(공통, 전 프로파일)+`show-details: never`. `SecurityConfig`가 `/actuator/health`만 `permitAll()`, `/actuator/**`는 `denyAll()`로 이중 방어한다(설정이 실수로 넓어져도 Security 레이어가 막음).
@@ -144,10 +144,12 @@ context7(라이브러리 공식 문서 조회)·playwright(브라우저 UI 검�
 1. 변경 범위가 크면 코드 작성 전에 **계획을 먼저 제시**하고 확인을 받는다.
 2. 한 번에 하나의 기능/관심사만 변경한다. 무관한 리팩터링을 섞지 않는다.
 3. **요청받지 않은 기능·추상화·설정 옵션을 미리 만들지 않는다. 문제를 해결하는 최소한의 코드로 구현한다.** (과도하게 복잡해 보이면 더 단순한 방법을 먼저 제시한다)
-4. **검증 범위는 단계별로 다르다**(2026-10-22 — 전체 실행 약 6분, PR CI가 전체를 다시 돌린다). 실패하면 원인을 설명한다.
+4. **검증 범위는 단계별로 다르다**(2026-10-22, 2026-11-12 개정 — 로컬 실측: 브라우저 시험 제외 4분 40초·포함 약 6분, PR CI가 `test`·`browser-test`를 병렬로 다시 돌린다). 실패하면 원인을 설명한다.
    - **개발 중 반복**: 바꾼 패키지의 시험 + 그 패키지를 쓰는 쪽의 시험(예: `admin.faq`를 바꾸면 `publicweb.faq`도) + 컨벤션 시험만 돌린다 — `./gradlew test --tests 'com.cms.admin.faq.*' --tests 'com.cms.publicweb.faq.*' --tests '*ConventionTest'`.
-   - **전체 `./gradlew test`를 바로 돌리는 경우**: 공용 코드(`common/**`·`config/**`·`src/test/java/com/cms/support/**`·`SecurityConfig`·마이그레이션·`build.gradle`·공용 템플릿 조각)를 바꿨거나 영향 범위를 가늠할 수 없을 때.
-   - **PR 직전 1회**: 커밋 전에 전체 `./gradlew test`를 한 번 통과시킨다(`code-review-loop` 마무리 단계가 이 역할 — 리뷰 루프를 건너뛰면 `commitPR` 전에 직접 돌린다). PR CI가 최종 안전망이다.
+   - **전체 시험을 바로 돌리는 경우**: 공용 코드(`common/**`·`config/**`·`src/test/java/com/cms/support/**`·`SecurityConfig`·마이그레이션·`build.gradle`·공용 템플릿 조각)를 바꿨거나 영향 범위를 가늠할 수 없을 때.
+   - **PR 직전 1회**: 커밋 전에 전체 시험을 한 번 통과시킨다(`code-review-loop` 마무리 단계가 이 역할 — 리뷰 루프를 건너뛰면 `commitPR` 전에 직접 돌린다). PR CI가 최종 안전망이다.
+   - **"전체 시험"의 명령**: 로컬은 `./gradlew test -PbrowserTests=exclude`다. 화면(`src/main/resources/templates/**`·`static/**`)이나 브라우저 시험(`BrowserTestSupport` 상속 클래스)을 바꿨을 때만 `./gradlew test -PbrowserTests=only`를 **추가로** 돌린다 — 그 밖의 브라우저 회귀는 PR CI의 필수 체크 `browser-test`가 잡는다. 인자 없는 `./gradlew test`는 둘을 합친 것이다.
+   - **전체 시험은 백그라운드로 실행한다**(공용 코드 수정 후·PR 직전 모두). 기다리는 동안 코드가 아닌 일(리뷰 결과 요약·커밋 분할 계획 초안·문서)만 하고 코드는 고치지 않는다 — 고치면 그 결과는 무효라 다시 돌린다. 통과를 확인하기 전에 통과를 주장하거나 커밋하지 않는다. 관련 시험만 돌리는 개발 중 반복은 짧아서 그대로 기다린다.
 5. 엔티티/스키마 변경 시 영향 범위(연관 엔티티, 마이그레이션 필요 여부)를 먼저 알린다.
 6. API 경로를 추가·변경할 때는 `api-conventions` 스킬의 규칙을 따르고, 호출하는 화면/JS 영향 범위를 함께 보고한다.
 7. 라이브러리 API가 불확실하면 context7로 확인한 뒤 작성한다 — 훈련 데이터가 오래됐을 수 있다.
