@@ -1,9 +1,16 @@
 {
-  "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": ["@playwright/mcp@latest", "--output-dir", "C:/Users/user/IdeaProjects/CMS/.playwright-mcp"]
-    }
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect-files.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }
-

@@ -49,6 +49,7 @@ src/main/generated/
 .claude/*
 !.claude/skills/
 !.claude/commands/
+!.claude/hooks/
 !.claude/settings.json
 .mcp.json
 
