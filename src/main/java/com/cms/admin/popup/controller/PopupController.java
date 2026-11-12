@@ -8,6 +8,7 @@ import com.cms.admin.popup.dto.request.PopupUpdateRequest;
 import com.cms.admin.popup.dto.response.PopupImageDownload;
 import com.cms.admin.popup.dto.response.PopupResponse;
 import com.cms.admin.popup.service.PopupService;
+import com.cms.config.auth.RequireFullAuthentication;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -101,6 +102,7 @@ public class PopupController {
     @ApiResponse(responseCode = "204", description = "삭제 성공")
     @ApiResponse(responseCode = "404", description = "팝업 없음")
     @DeleteMapping("/{id}")
+    @RequireFullAuthentication   // 복구할 수 없는 삭제 — 쿠키 자동 로그인 세션은 비밀번호 재확인(PLAN-content-delete-reauthentication.md)
     @RequirePermission(feature = AdminFeature.POPUP, action = PermissionAction.DELETE)
     public ResponseEntity<Void> deletePopup(@PathVariable Long id) {
         popupService.deletePopup(id);

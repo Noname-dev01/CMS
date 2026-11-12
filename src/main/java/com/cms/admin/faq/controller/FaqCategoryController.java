@@ -7,6 +7,7 @@ import com.cms.admin.faq.service.FaqService;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.RequirePermission;
+import com.cms.config.auth.RequireFullAuthentication;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -66,6 +67,7 @@ public class FaqCategoryController {
     @ApiResponse(responseCode = "404", description = "카테고리 없음")
     @ApiResponse(responseCode = "409", description = "FAQ가 남아 있음")
     @DeleteMapping("/{id}")
+    @RequireFullAuthentication   // 복구할 수 없는 삭제 — 쿠키 자동 로그인 세션은 비밀번호 재확인(PLAN-content-delete-reauthentication.md)
     @RequirePermission(feature = AdminFeature.FAQ, action = PermissionAction.DELETE)
     public ResponseEntity<Void> deleteCategory(@PathVariable Long id) {
         faqService.deleteCategory(id);

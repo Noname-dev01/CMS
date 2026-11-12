@@ -27,6 +27,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li><b>검사 대상 전수</b>: 계정·인증 상태를 바꾸는 컨트롤러({@link #ACCOUNT_CONTROLLERS})의 GET/HEAD가 아닌 모든 핸들러는 표지가 있거나
  *       사유가 적힌 면제({@link #EXEMPT})에 있어야 한다 — 표지 없이 새 쓰기 핸들러를 추가하면 실패. 면제가 낡으면(핸들러가 사라짐·표지와 중복) 실패.</li>
  *   <li><b>승인 집합</b>: 전체 {@code com.cms} 컨트롤러에서 표지가 붙은 핸들러가 {@link #APPROVED}와 정확히 같다 — 제거·다른 곳 오부착 검출.</li>
+ *   <li><b>삭제 전수</b>(PLAN-content-delete-reauthentication.md 쟁점 2): 전체 {@code com.cms} 컨트롤러의 DELETE 핸들러(메서드 제한 없는 매핑 포함)는
+ *       표지가 있거나 사유가 적힌 면제({@link #DELETE_EXEMPT} 또는 {@link #EXEMPT})에 있어야 한다 — 새 도메인의 삭제 API도 자동으로 검사된다.</li>
  * </ol>
  * 클래스 수준 부착은 표지의 {@code @Target(METHOD)}가 컴파일 단계에서 막는다. 한계: {@link #ACCOUNT_CONTROLLERS} 밖에 새 계정 관리 컨트롤러를 만들면
  * 1은 보지 못한다 — 그런 컨트롤러를 만들면 이 목록에 추가한다(`com.cms.config` CLAUDE.md "민감 작업 재인증").
@@ -45,7 +47,19 @@ class FullAuthenticationConventionTest {
             "AdminMemberController#changeMyPassword",
             "MemberPermissionController#replacePermissions",
             "AdminSessionController#expireSession",
-            "AdminSessionController#expireMemberSessions");
+            "AdminSessionController#expireMemberSessions",
+            // 복구할 수 없는 콘텐츠 삭제(2026-11-12 승인, PLAN-content-delete-reauthentication.md)
+            "BannerController#deleteBanner",
+            "PopupController#deletePopup",
+            "BoardController#deleteBoard",
+            "PostAttachmentController#delete",
+            "FaqController#deleteFaq",
+            "FaqCategoryController#deleteCategory",
+            "InquiryController#deleteInquiry",
+            "MediaController#delete",
+            "MenuController#deleteMenu",
+            "SitePageController#deletePage",
+            "SiteController#deleteSite");
 
     /** 검사 대상 컨트롤러의 쓰기 핸들러 중 표지를 붙이지 않는 것과 그 사유. */
     static final Map<String, String> EXEMPT = Map.of(
@@ -53,6 +67,12 @@ class FullAuthenticationConventionTest {
             "AdminMemberController#updateMyProfileImage", "본인 프로필 이미지 — 계정 탈취·권한과 무관, 위험 낮음",
             "AdminMemberController#applyDefaultProfileImage", "본인 기본 프로필 이미지 선택 — 위와 같음",
             "AdminMemberController#resetMyProfileImage", "본인 프로필 이미지 초기화 — 위와 같음");
+
+    /** DELETE 핸들러 중 표지를 붙이지 않는 것과 그 사유(계정 컨트롤러의 {@link #EXEMPT}와 별개 — 판정은 두 목록의 합집합). */
+    static final Map<String, String> DELETE_EXEMPT = Map.of(
+            "PostController#deletePost", "소프트 삭제 — 휴지통에서 복원할 수 있고 가장 자주 쓰는 삭제라 매번 확인하면 불편이 크다",
+            "AdminMessageController#delete", "본인 보관함의 쪽지 — 공개 콘텐츠·다른 사람 데이터와 무관",
+            "CustomErrorController#handleError", "오류 화면 — 모든 메서드의 ERROR 디스패치를 받는 메서드 제한 없는 매핑이며 상태를 바꾸지 않는다");
 
     record Handler(String controller, String method, Set<RequestMethod> httpMethods, boolean marked) {
         String key() {
@@ -62,6 +82,11 @@ class FullAuthenticationConventionTest {
         boolean write() {
             // 메서드 제한 없는 매핑은 쓰기도 받으므로 쓰기로 본다
             return httpMethods.isEmpty() || httpMethods.stream().anyMatch(m -> m != RequestMethod.GET && m != RequestMethod.HEAD);
+        }
+
+        boolean delete() {
+            // 메서드 제한 없는 매핑은 DELETE도 받는다
+            return httpMethods.isEmpty() || httpMethods.contains(RequestMethod.DELETE);
         }
     }
 
@@ -77,6 +102,62 @@ class FullAuthenticationConventionTest {
         Set<String> marked = scanHandlers().stream().filter(Handler::marked).map(Handler::key)
                 .collect(Collectors.toCollection(TreeSet::new));
         assertThat(marked).isEqualTo(new TreeSet<>(APPROVED));
+    }
+
+    @Test
+    @DisplayName("모든 컨트롤러의 DELETE 핸들러는 재인증 표지가 있거나 사유 있는 면제다")
+    void deleteHandlersAreMarkedOrExempt() {
+        assertThat(deleteViolations(scanHandlers(), EXEMPT, DELETE_EXEMPT)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("반례(삭제): 표지 없는 새 DELETE·메서드 제한 없는 매핑은 위반, 계정 면제에 있으면 통과, 낡은 삭제 면제(DELETE 아님·없음·표지와 중복)도 위반")
+    void deleteCounterExamples() {
+        List<Handler> handlers = List.of(
+                new Handler("NewDomain", "deleteThing", Set.of(RequestMethod.DELETE), false),
+                new Handler("NewDomain", "anyMethod", Set.of(), false),
+                new Handler("NewDomain", "update", Set.of(RequestMethod.PUT), false),
+                new Handler("NewDomain", "markedDelete", Set.of(RequestMethod.DELETE), true),
+                new Handler("Account", "resetOwn", Set.of(RequestMethod.DELETE), false),
+                new Handler("Post", "softDelete", Set.of(RequestMethod.DELETE), false),
+                new Handler("Post", "nowPut", Set.of(RequestMethod.PUT), false),
+                new Handler("Post", "markedAndExempt", Set.of(RequestMethod.DELETE), true));
+        Map<String, String> accountExempt = Map.of("Account#resetOwn", "본인");
+        Map<String, String> deleteExempt = Map.of(
+                "Post#softDelete", "휴지통",
+                "Post#nowPut", "DELETE가 아니게 바뀜",
+                "Post#removed", "사라짐",
+                "Post#markedAndExempt", "중복");
+
+        assertThat(deleteViolations(handlers, accountExempt, deleteExempt)).containsExactlyInAnyOrder(
+                "DELETE 표지·면제 없음: NewDomain#deleteThing",
+                "DELETE 표지·면제 없음: NewDomain#anyMethod",
+                "표지와 삭제 면제 중복: Post#markedAndExempt",
+                "낡은 삭제 면제(DELETE 핸들러 없음): Post#nowPut",
+                "낡은 삭제 면제(DELETE 핸들러 없음): Post#removed");
+    }
+
+    static List<String> deleteViolations(List<Handler> handlers, Map<String, String> accountExempt, Map<String, String> deleteExempt) {
+        List<String> violations = new ArrayList<>();
+        Set<String> deletes = new TreeSet<>();
+        for (Handler h : handlers) {
+            if (!h.delete()) {
+                continue;
+            }
+            deletes.add(h.key());
+            boolean exempted = deleteExempt.containsKey(h.key()) || accountExempt.containsKey(h.key());
+            if (h.marked() && deleteExempt.containsKey(h.key())) {
+                violations.add("표지와 삭제 면제 중복: " + h.key());
+            } else if (!h.marked() && !exempted) {
+                violations.add("DELETE 표지·면제 없음: " + h.key());
+            }
+        }
+        for (String key : deleteExempt.keySet()) {
+            if (!deletes.contains(key)) {
+                violations.add("낡은 삭제 면제(DELETE 핸들러 없음): " + key);
+            }
+        }
+        return violations;
     }
 
     @Test

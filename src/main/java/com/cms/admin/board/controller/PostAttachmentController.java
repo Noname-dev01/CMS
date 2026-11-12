@@ -5,6 +5,7 @@ import com.cms.admin.board.dto.response.PostAttachmentResponse;
 import com.cms.admin.board.service.PostAttachmentService;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.admin.permission.RequireBoardPermission;
+import com.cms.config.auth.RequireFullAuthentication;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -85,6 +86,7 @@ public class PostAttachmentController {
 
     @Operation(summary = "첨부파일 삭제", description = "첨부 삭제도 게시글 수정(UPDATE)이다 — DELETE만 가진 MANAGER는 첨부 있는 게시글을 못 지운다")
     @DeleteMapping("/{attachmentId}")
+    @RequireFullAuthentication   // 복구할 수 없는 삭제 — 쿠키 자동 로그인 세션은 비밀번호 재확인(PLAN-content-delete-reauthentication.md)
     @RequireBoardPermission(action = PermissionAction.UPDATE)
     public ResponseEntity<Void> delete(@PathVariable Long boardId, @PathVariable Long postId, @PathVariable Long attachmentId) {
         postAttachmentService.delete(boardId, postId, attachmentId);

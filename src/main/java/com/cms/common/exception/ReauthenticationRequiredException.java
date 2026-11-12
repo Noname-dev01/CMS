@@ -7,7 +7,7 @@ package com.cms.common.exception;
 public class ReauthenticationRequiredException extends RuntimeException {
 
     public static final String MESSAGE =
-            "로그인 상태 유지로 접속한 세션은 이 작업 전에 비밀번호 확인이 필요합니다. 다시 저장하고 비밀번호를 입력해 주세요.";
+            "로그인 상태 유지로 접속한 세션은 이 작업 전에 비밀번호 확인이 필요합니다. 다시 시도하고 비밀번호를 입력해 주세요.";
 
     public ReauthenticationRequiredException() {
         super(MESSAGE);

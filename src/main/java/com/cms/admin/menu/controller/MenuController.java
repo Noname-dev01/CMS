@@ -7,6 +7,7 @@ import com.cms.admin.menu.dto.response.MenuResponse;
 import com.cms.admin.menu.dto.response.MenuStructureResponse;
 import com.cms.admin.menu.dto.response.MenuTreeResponse;
 import com.cms.admin.menu.service.MenuService;
+import com.cms.config.auth.RequireFullAuthentication;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -100,6 +101,7 @@ public class MenuController {
     @ApiResponse(responseCode = "404", description = "메뉴 없음")
     @ApiResponse(responseCode = "409", description = "활성 메뉴이거나 하위 메뉴가 있어 영구삭제 거부")
     @DeleteMapping("/{id}")
+    @RequireFullAuthentication   // 복구할 수 없는 삭제 — 쿠키 자동 로그인 세션은 비밀번호 재확인(PLAN-content-delete-reauthentication.md)
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteMenu(@PathVariable Long id) {
         menuService.deleteMenu(id);
