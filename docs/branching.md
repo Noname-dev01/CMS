@@ -12,18 +12,33 @@
 
 ## 브랜치 네이밍
 
-| 작업 종류 | 접두사 | 커밋 접두사(기존) | 예시 |
-|-----------|--------|-------------------|------|
-| 기능 추가 | `feat/` | `기능:` | `feat/menu-management` |
-| 버그 수정 | `fix/` | `수정:` | `fix/password-change-404` |
-| 리팩터링 | `refactor/` | `리팩터링:` | `refactor/localdatetime-unify` |
-| 보안 | `security/` | `보안:` | `security/csrf-enable` |
-| 테스트 | `test/` | `테스트:` | `test/ci-db-isolation` |
-| 문서 | `docs/`, `chore/` | `문서:` | `chore/roadmap-member-permission-pr-b` |
-| 잡일·정리 | `chore/` | `정리:` | `chore/gitignore-cleanup` |
+| 작업 종류 | 접두사 | 커밋 접두사(기존) | PR 종류 라벨 | 예시 |
+|-----------|--------|-------------------|--------------|------|
+| 기능 추가 | `feat/` | `기능:` | `enhancement` | `feat/menu-management` |
+| 버그 수정 | `fix/` | `수정:` | `bug` | `fix/password-change-404` |
+| 리팩터링 | `refactor/` | `리팩터링:` | `refactor` | `refactor/localdatetime-unify` |
+| 보안 | `security/` | `보안:` | 성격대로 `enhancement`·`bug`·`refactor` + 영역 `security` | `security/csrf-enable` |
+| 테스트 | `test/` | `테스트:` | `test` | `test/ci-db-isolation` |
+| 문서 | `docs/`, `chore/` | `문서:` | `documentation` | `chore/roadmap-member-permission-pr-b` |
+| 잡일·정리 | `chore/` | `정리:` | `chore` | `chore/gitignore-cleanup` |
 
 - 슬래시(`/`) 뒤는 영문 소문자 하이픈 케이스(`kebab-case`).
 - GitHub 이슈 번호가 있으면 `feat/12-menu-management`처럼 번호를 앞에 붙인다.
+
+### PR 라벨 (2026-11-16 — Conventional Commits 참고)
+
+PR 라벨은 **종류 + 영역** 두 축으로 단다. 커밋 접두사는 한국어 그대로 두고, 라벨만 [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)의 타입 구분(`feat`·`fix`와 권장 타입 `refactor`·`test`·`docs`·`chore` 등)에 맞춘다.
+
+- **종류(정확히 1개)**: 위 표의 "PR 종류 라벨". 커밋 접두사에서 정한다.
+  - 표준에서 보안은 종류가 아니라 영역이다. 그래서 `보안:` PR은 변경 성격대로 종류를 고르고(새 기능이면 `enhancement`, 결함 수정이면 `bug`, 기능 제거·구조 변경이면 `refactor`) 영역 `security`를 함께 단다.
+- **영역(0~1개, 해당할 때만)**: `security`(인증·인가·암호화·공격 방어), `ops`(배포·CI·인프라 — Compose, `scripts/`, `Dockerfile`, 워크플로).
+- **관련 이슈가 있으면** 그 이슈의 종류·영역 라벨을 우선 따른다.
+- **PR에 달지 않는 라벨**:
+  - 이슈 상태 라벨 `blocked`·`deferred`
+  - Dependabot 자동 라벨 `dependencies`·`java`·`docker`·`docker_compose`·`github_actions`
+    - 수동으로 의존성 버전을 올리는 PR은 `dependencies`를 단다.
+  - 이슈 관리용 `duplicate`·`invalid`·`wontfix`·`question`·`good first issue`·`help wanted`
+- 예: `보안: 관리자 2단계 인증(TOTP) 도입` → `enhancement` + `security`, `정리: Locale.ROOT 컨벤션 시험 추가` → `chore`, `문서: …` → `documentation`.
 
 ---
 
