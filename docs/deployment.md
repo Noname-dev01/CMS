@@ -34,6 +34,7 @@
 | `CMS_CONTENT_IMAGE_MAX_TOTAL_BYTES`·`CMS_CONTENT_IMAGE_MAX_COUNT` | **선택** | 편집기 본문 이미지 전체 상한(DB 등록 이미지 기준). 기본 1GB·10,000개. 아래 "편집기 본문 이미지" 참조 |
 | `CMS_INQUIRY_TURNSTILE_ENABLED`·`_SITE_KEY`·`_SECRET_KEY` | **선택** | 공개 문의 폼의 Cloudflare Turnstile 캡차. 기본 `false` = 문의 기능 닫힘(503). 아래 "문의 폼" 참조 |
 | `CMS_PASSWORD_BREACH_CHECK_ENABLED` | **선택** | 유출 비밀번호 검사. 비우면 켜짐. 아래 "유출 비밀번호 검사" 참조 |
+| `CMS_TOTP_ENCRYPTION_KEY` | 필수 | 2단계 인증 비밀값 암호화 키(Base64 32바이트, `openssl rand -base64 32`). 비었거나 길이가 틀리면 앱이 기동하지 않는다. 아래 "2단계 인증(TOTP)" 참조 |
 
 ## SMTP timeout (감사 M-02, remediation-plan.md PR 5)
 
@@ -540,6 +541,22 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 - **끄기**: `CMS_PASSWORD_BREACH_CHECK_ENABLED=false`(망이 격리된 설치용). 꺼져 있으면 기동 때 WARN이 남는다.
 - **부트스트랩**: `ADMIN_BOOTSTRAP_PASSWORD`가 유출된 값이어도 기동을 막지 않고 WARN만 남긴다(기동을 외부 판정에 묶지 않는다). **WARN이 보이면 첫 로그인 후 바로 비밀번호를 바꾼다.**
 - **한계**: 설정한 뒤에 유출된 비밀번호와, 검사 도입 전에 만든 비밀번호는 잡지 못한다.
+
+## 2단계 인증(TOTP) (2026-11-14, adversarial-review/plan/PLAN-totp-two-factor.md, 이슈 #251)
+
+- **무엇을 하나**: 관리자(ADMIN·MANAGER)가 **내 설정**에서 직접 켜는 선택 기능이다. 켠 계정은 비밀번호 다음에 인증 앱의 6자리 코드(또는 복구 코드)를 입력해야 로그인된다. 켜지 않은 계정은 이전과 같다.
+- **키 보관**: `CMS_TOTP_ENCRYPTION_KEY`는 DB의 비밀값 암호문을 푸는 키다. **DB 백업과 다른 곳에 보관한다** — 같은 곳에 두면 백업 유출 시 2단계도 함께 뚫린다. 키를 **바꾸거나 잃으면 기존 등록이 모두 복호되지 않는다**(그 회원의 인증 앱 코드는 거부되고 ERROR 로그에 memberId가 남는다. 실패 횟수는 오르지 않는다). 이때 복구 코드로 로그인한 뒤 끄고 다시 등록하거나, 다른 ADMIN이 해제한다. 키 교체 절차(재암호화)는 아직 없다.
+- **잠금**: 2단계 오답은 비밀번호 실패와 **별도로** 세고(`member_totp.failed_attempts`), 5회면 계정을 30분 자동 잠금한다(비밀번호 실패 잠금과 같은 규칙·감사 `ACCOUNT_AUTO_LOCK`). 비밀번호 재로그인·재설정으로는 초기화되지 않는다. 이미 쓴 코드(등록 직후 같은 30초 등)는 실패로 세지 않고 다음 코드를 기다리라고 안내한다.
+- **복구**: 휴대폰을 잃은 회원은 ① 등록 때 받은 복구 코드(1회용 10개)로 로그인 → 내 설정에서 끄고 새 휴대폰으로 다시 등록하거나, ② 다른 ADMIN이 **회원 관리 → 상세 → [2단계 인증 해제]**로 해제한다(감사 `TOTP_RESET`). 비밀번호 재설정 메일은 2단계를 해제하지 않는다.
+- **유일한 ADMIN이 인증 앱과 복구 코드를 모두 잃은 경우**(앱으로 복구할 길이 없다): DB에서 그 회원의 등록을 지운다. 지운 뒤에는 비밀번호만으로 로그인되므로 로그인 직후 다시 등록한다.
+  ```sql
+  -- <user_id>는 대상 관리자 아이디
+  DELETE c FROM member_totp_recovery_code c JOIN member m ON m.id = c.member_id WHERE m.user_id = '<user_id>';
+  DELETE t FROM member_totp t JOIN member m ON m.id = t.member_id WHERE m.user_id = '<user_id>';
+  ```
+- **롤백 주의**: 이 기능이 없는 이전 앱으로 되돌리면 새 테이블(`member_totp`·`member_totp_recovery_code`)을 무시하고 **비밀번호만으로 로그인된다**(보안 수준 하락, 오류는 없다). 다시 올리면 기존 등록이 그대로 살아난다.
+- **인증 앱 안내**: Google Authenticator·Microsoft Authenticator 등은 **앱 안의 QR 스캔**으로 등록한다(2026-11-16 Google Authenticator로 확인). iPhone 기본 카메라로 찍으면 Apple **암호** 앱이 "확인 코드를 추가할 암호 선택" 목록을 띄운다 — 정상 동작이며, 이 CMS 계정 항목(없으면 새로 만든 항목)을 고르면 그 항목에 6자리 코드가 생긴다. 패스키는 지원하지 않는다.
+- **시각**: TOTP는 서버 시각에 기대므로 호스트 시계를 NTP로 맞춰 둔다(±30초 넘게 어긋나면 모든 코드가 거부된다).
 
 ## 문의 폼 (2026-10-12, adversarial-review/plan/PLAN-inquiry.md)
 
