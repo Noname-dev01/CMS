@@ -176,7 +176,7 @@ public class MemberTotpService {
      */
     public void resetByAdmin(CustomUserDetails actor, Long targetMemberId, String requestIp, String requestUri) {
         if (Objects.equals(actor.getId(), targetMemberId)) {
-            throw new InvalidRequestException("본인의 2단계 인증은 내 정보 설정에서 해제합니다.");
+            throw new InvalidRequestException("본인의 2단계 인증은 보안 설정에서 해제합니다.");
         }
         transactionTemplate.executeWithoutResult(status -> {
             Member target = memberRepository.findByIdForUpdate(targetMemberId)

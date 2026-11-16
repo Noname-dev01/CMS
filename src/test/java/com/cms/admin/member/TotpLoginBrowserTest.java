@@ -25,7 +25,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 2단계 인증(PLAN-totp-two-factor.md 결정 8)을 실제 브라우저로 고정한다 — 내 정보 설정 화면의 등록 JS(대기 발급 → QR·설정 키 표시 →
+ * 2단계 인증(PLAN-totp-two-factor.md 결정 8)을 실제 브라우저로 고정한다 — 보안 설정 화면의 등록 JS(대기 발급 → QR·설정 키 표시 →
  * 확정 → 복구 코드 1회 표시)와, 등록 뒤 실제 로그인 화면 → 2단계 코드 화면 → 대시보드 흐름. 이미 쓴 코드는 실패가 아니라 안내로 끝난다.
  */
 @SpringBootTest(classes = CmsTestApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)

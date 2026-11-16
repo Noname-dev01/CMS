@@ -95,7 +95,7 @@ public class TotpLoginController {
                 }
                 request.getSession(false).removeAttribute(TotpPendingState.SESSION_ATTRIBUTE);
                 successHandler.recordCompletedLogin(request, SecurityContextHolder.getContext().getAuthentication());
-                // 복구 코드로 들어왔으면 남은 개수를 보고 새로 등록할 수 있게 내 정보 설정으로 보낸다
+                // 복구 코드로 들어왔으면 남은 개수를 보고 새로 등록할 수 있게 보안 설정으로 보낸다
                 yield result.usedRecoveryCode() ? "redirect:/admin/member/settings?recoveryCodeUsed" : "redirect:/admin";
             }
         };

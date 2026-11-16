@@ -31,7 +31,7 @@
 
 로그인 경로(중간 상태·승격·면제 판정)는 `com.cms.config`의 `CLAUDE.md` "2단계 인증(TOTP)". 운영(키·복구 SQL·롤백)은 `docs/deployment.md`.
 
-- **선택 기능**: ADMIN·MANAGER가 내 설정에서 켠다. 필수화는 없다. 비밀번호 재설정은 2단계를 해제하지 않는다.
+- **선택 기능**: ADMIN·MANAGER가 보안 설정(`/admin/member/settings`)에서 켠다. 필수화는 없다. 비밀번호 재설정은 2단계를 해제하지 않는다.
 - **저장**: `member_totp`(회원당 1행, 행이 있으면 사용 중)와 `member_totp_recovery_code`(V17). **`Member`에 컬럼을 두지 않는다** — `CustomUserDetails`가 엔티티 전체를 세션·레지스트리에 보관하므로 암호문이 principal에 실린다. principal에는 로그인 시점의 사용 여부 불리언(`isTotpEnabled`)만 싣는다(갱신된 principal에서는 의미 없음).
 - **비밀값**: `TotpSecretCipher`(AES-256-GCM, AAD `member_totp:{memberId}` — 다른 행으로 옮긴 암호문은 복호 실패, 저장 형식 `v1:`+Base64). 키 `cms.totp.encryption-key`(`CMS_TOTP_ENCRYPTION_KEY`, Base64 32바이트)가 없거나 틀리면 **기동 실패**(`TotpConfig`), dev는 `application-dev.yml`의 고정 개발 키. 복호 실패는 판정 실패로 끝내고 **실패 횟수를 올리지 않는다**(서버 키 문제로 사용자가 잠기지 않게).
 - **TOTP**: 직접 구현(`TotpCodeVerifier`, RFC 6238 SHA1·30초·6자리, ±1 스텝, `Clock` 주입). `step > last_used_step`만 통과(재사용 차단). 정답이지만 이미 쓴 스텝이면 `REUSED` — 통과시키지 않고 **실패로 세지 않으며** "다음 코드를 기다리라"고 안내한다(등록 확정이 그 스텝을 쓰고 본인 세션을 끊으므로, 같은 30초 안에 다시 로그인하면 앱에 같은 코드가 떠 있다 — 구현 중 발견, 사용자 결정). otpauth URI는 Google "Key Uri Format"(RFC 3986 인코딩, 콜론은 계정 이름에서 `_`로, issuer는 기동 시 검증). QR은 ZXing core만(`TotpQrCodes`가 `BitMatrix`를 직접 PNG로 — javase 모듈 없음).
