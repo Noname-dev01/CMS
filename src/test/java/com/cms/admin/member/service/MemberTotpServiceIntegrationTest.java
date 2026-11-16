@@ -59,6 +59,7 @@ class MemberTotpServiceIntegrationTest extends MariaDbContainerSupport {
     private static final String URI = "/admin/api/members/me/totp";
 
     @Autowired MemberTotpService service;
+    @Autowired com.cms.config.auth.TotpLoginService totpLoginService;
     @Autowired MemberRepository memberRepository;
     @Autowired MemberTotpRepository memberTotpRepository;
     @Autowired MemberTotpRecoveryCodeRepository recoveryCodeRepository;
@@ -283,6 +284,173 @@ class MemberTotpServiceIntegrationTest extends MariaDbContainerSupport {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
+    }
+
+    // ---- 복구 코드 재발급 (PLAN-totp-recovery-code-reissue.md) ----
+
+    private static final String REISSUE_URI = "/admin/api/members/me/totp/recovery-codes";
+
+    private int totpFailures() {
+        return jdbc.queryForObject("SELECT failed_attempts FROM member_totp WHERE member_id = ?", Integer.class, member.getId());
+    }
+
+    private long lastUsedStep() {
+        return jdbc.queryForObject("SELECT last_used_step FROM member_totp WHERE member_id = ?", Long.class, member.getId());
+    }
+
+    private List<String> storedHashes() {
+        return jdbc.queryForList("SELECT code_hash FROM member_totp_recovery_code WHERE member_id = ?", String.class, member.getId());
+    }
+
+    @Test
+    @DisplayName("S1·S5·FM1: 재발급 → 새 코드 10개(해시만 저장, 옛 행·사용 기록 행 모두 삭제), 실패 횟수 0·쓴 스텝 기록, 감사 1행, 로그인 실패 횟수는 그대로")
+    void reissueRoundTrip() {
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock);
+        jdbc.update("UPDATE member_totp_recovery_code SET used_at = NOW(6) WHERE member_id = ? AND code_hash = ?",
+                member.getId(), RecoveryCodes.hash(enrollment.recoveryCodes().get(0)));
+        jdbc.update("UPDATE member_totp SET failed_attempts = 3 WHERE member_id = ?", member.getId());
+        jdbc.update("UPDATE member SET failed_login_count = 2 WHERE id = ?", member.getId());
+        long step = new TotpCodeVerifier(clock).currentStep();
+
+        List<String> codes = service.reissueRecoveryCodes(principal(member), " " + code(enrollment.secret()) + " ", PASSWORD, IP, REISSUE_URI);
+
+        assertThat(codes).hasSize(10).doesNotHaveDuplicates().doesNotContainAnyElementsOf(enrollment.recoveryCodes());
+        assertThat(storedHashes()).containsExactlyInAnyOrderElementsOf(codes.stream().map(RecoveryCodes::hash).toList());
+        assertThat(service.status(member.getId()).remainingRecoveryCodes()).isEqualTo(10);
+        assertThat(totpFailures()).as("FM1: 삭제 전에 초기화해야 반영된다").isZero();
+        assertThat(lastUsedStep()).as("FM1: 쓴 스텝 기록").isGreaterThanOrEqualTo(step);
+        assertThat(auditCount("TOTP_RECOVERY_CODES_REISSUE", member.getId())).isEqualTo(1);
+        assertThat(loginFailures()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("S2b: 이미 쓴 스텝의 코드(로그인 직후 앱에 떠 있는 코드)는 400 '이미 사용한 코드' — 실패로 세지 않고 코드는 그대로")
+    void reissueWithReusedCode() {
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock);
+        String good = code(enrollment.secret());
+        service.reissueRecoveryCodes(principal(member), good, PASSWORD, IP, REISSUE_URI);
+        List<String> hashes = storedHashes();
+
+        assertThatThrownBy(() -> service.reissueRecoveryCodes(principal(member), good, PASSWORD, IP, REISSUE_URI))
+                .isInstanceOf(InvalidRequestException.class).hasMessageContaining("이미 사용한 코드");
+        assertThat(totpFailures()).isZero();
+        assertThat(storedHashes()).containsExactlyInAnyOrderElementsOf(hashes);
+        assertThat(auditCount("TOTP_RECOVERY_CODES_REISSUE", member.getId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("S4·FM3·FM5: 비밀번호 오답은 코드를 판정·소비하지 않고 실패 횟수 +1(커밋), 5회째 LOCKED·실패 횟수 0·등록과 옛 코드 유지·감사 없음")
+    void reissueReauthFailuresCount() {
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock);
+        String good = code(enrollment.secret());
+        String wrong = TotpTestSupport.wrongCode(enrollment.secret(), clock);
+        long stepBefore = lastUsedStep();
+        List<String> hashes = storedHashes();
+
+        assertThatThrownBy(() -> service.reissueRecoveryCodes(principal(member), good, "wrong", IP, REISSUE_URI))
+                .isInstanceOf(InvalidRequestException.class);
+        assertThat(totpFailures()).isEqualTo(1);
+        assertThat(lastUsedStep()).as("FM3: 비밀번호가 틀리면 코드를 소비하지 않는다").isEqualTo(stepBefore);
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> service.reissueRecoveryCodes(principal(member), wrong, PASSWORD, IP, REISSUE_URI))
+                    .isInstanceOf(InvalidRequestException.class);
+        }
+        assertThat(totpFailures()).isEqualTo(4);
+        assertThatThrownBy(() -> service.reissueRecoveryCodes(principal(member), "12a456", PASSWORD, IP, REISSUE_URI))
+                .as("형식 오류도 오답으로 센다").isInstanceOf(InvalidRequestException.class);
+
+        assertThat(jdbc.queryForObject("SELECT status FROM member WHERE id = ?", String.class, member.getId())).isEqualTo("LOCKED");
+        assertThat(totpFailures()).isZero();
+        assertThat(enabled()).isTrue();
+        assertThat(storedHashes()).containsExactlyInAnyOrderElementsOf(hashes);
+        assertThat(auditCount("TOTP_RECOVERY_CODES_REISSUE", member.getId())).isZero();
+    }
+
+    @Test
+    @DisplayName("FM2: 유효한 복구 코드는 재인증으로 받지 않는다 — 400·실패 횟수 +1·그 복구 코드는 소비되지 않고 코드 10행 그대로")
+    void reissueRejectsRecoveryCode() {
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock);
+        String recovery = enrollment.recoveryCodes().get(2);
+        List<String> hashes = storedHashes();
+
+        assertThatThrownBy(() -> service.reissueRecoveryCodes(principal(member), recovery, PASSWORD, IP, REISSUE_URI))
+                .isInstanceOf(InvalidRequestException.class);
+
+        assertThat(totpFailures()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM member_totp_recovery_code WHERE member_id = ? AND code_hash = ? AND used_at IS NULL",
+                Integer.class, member.getId(), RecoveryCodes.hash(recovery))).isEqualTo(1);
+        assertThat(storedHashes()).containsExactlyInAnyOrderElementsOf(hashes);
+    }
+
+    @Test
+    @DisplayName("S6: 사용 중이 아니면 재발급은 409이고 아무것도 쓰지 않는다")
+    void reissueWhenNotEnabled() {
+        assertThatThrownBy(() -> service.reissueRecoveryCodes(principal(member), "123456", PASSWORD, IP, REISSUE_URI))
+                .isInstanceOf(ConflictException.class);
+        assertThat(loginFailures()).isZero();
+        assertThat(storedHashes()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("FM7·S2: ±1 스텝 허용 — 이전 스텝 코드와 현재 스텝 코드로 연속 재발급하면 둘 다 성공하고 마지막 묶음만 유효(첫 묶음·옛 코드로는 로그인 2단계 실패, 마지막 묶음으로는 성공)")
+    void consecutiveReissueKeepsOnlyLastBatch() {
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock);
+        long step = new TotpCodeVerifier(clock).currentStep();
+
+        List<String> first = service.reissueRecoveryCodes(principal(member), TotpCodeVerifier.codeAt(enrollment.secret(), step - 1), PASSWORD, IP, REISSUE_URI);
+        List<String> second = service.reissueRecoveryCodes(principal(member), TotpCodeVerifier.codeAt(enrollment.secret(), step), PASSWORD, IP, REISSUE_URI);
+
+        assertThat(storedHashes()).containsExactlyInAnyOrderElementsOf(second.stream().map(RecoveryCodes::hash).toList());
+        assertThat(totpLoginService.verify(principal(member), first.get(0), IP, "/admin/login/totp").status())
+                .isEqualTo(com.cms.config.auth.TotpLoginService.Status.WRONG_CODE);
+        assertThat(totpLoginService.verify(principal(member), enrollment.recoveryCodes().get(0), IP, "/admin/login/totp").status())
+                .isEqualTo(com.cms.config.auth.TotpLoginService.Status.WRONG_CODE);
+        assertThat(totpLoginService.verify(principal(member), second.get(0), IP, "/admin/login/totp").status())
+                .isEqualTo(com.cms.config.auth.TotpLoginService.Status.SUCCESS);
+        assertThat(auditCount("TOTP_RECOVERY_CODES_REISSUE", member.getId())).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("FM4: 이미 인가돼 회원 행 잠금에서 기다리던 재발급은, 그 사이 계정이 잠기면 올바른 자격정보여도 판정 없이 409이고 코드·카운터가 그대로다")
+    void waitingReissueRechecksStateAfterLock() throws Exception {
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock);
+        CustomUserDetails authorized = principal(member);
+        String good = code(enrollment.secret());
+        long stepBefore = lastUsedStep();
+        List<String> hashes = storedHashes();
+        CountDownLatch held = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicLong holder = new AtomicLong();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> locker = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                jdbc.queryForObject("SELECT id FROM member WHERE id = ? FOR UPDATE", Long.class, member.getId());
+                holder.set(jdbc.queryForObject("SELECT CONNECTION_ID()", Long.class));
+                jdbc.update("UPDATE member SET status = 'LOCKED', locked_at = NOW(6) WHERE id = ?", member.getId());
+                held.countDown();
+                await(release);
+            }));
+            assertThat(held.await(15, TimeUnit.SECONDS)).isTrue();
+            Future<Throwable> waiting = executor.submit(() -> {
+                try {
+                    service.reissueRecoveryCodes(authorized, good, PASSWORD, IP, REISSUE_URI);
+                    return null;
+                } catch (Throwable t) {
+                    return t;
+                }
+            });
+            new LockWaitObserver(connectionDetails.getJdbcUrl(), connectionDetails.getPassword()).awaitWaiterFor(holder.get(), Duration.ofSeconds(8));
+            release.countDown();
+            locker.get(10, TimeUnit.SECONDS);
+            assertThat(waiting.get(10, TimeUnit.SECONDS)).isInstanceOf(ConflictException.class);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+        assertThat(storedHashes()).containsExactlyInAnyOrderElementsOf(hashes);
+        assertThat(totpFailures()).isZero();
+        assertThat(lastUsedStep()).isEqualTo(stepBefore);
+        assertThat(auditCount("TOTP_RECOVERY_CODES_REISSUE", member.getId())).isZero();
     }
 
     // ---- ADMIN 해제 ----

@@ -2,6 +2,7 @@ package com.cms.admin.member.controller;
 
 import com.cms.admin.member.dto.request.TotpConfirmRequest;
 import com.cms.admin.member.dto.request.TotpDisableRequest;
+import com.cms.admin.member.dto.request.TotpRecoveryCodesReissueRequest;
 import com.cms.admin.member.service.MemberTotpService;
 import com.cms.admin.member.service.MemberTotpService.TotpStatus;
 import com.cms.admin.member.service.TotpEnrollment;
@@ -117,6 +118,21 @@ public class MemberTotpApiController {
                                         @Valid @RequestBody TotpDisableRequest body, HttpServletRequest request) {
         memberTotpService.disable(principal, body.code(), body.currentPassword(), ClientIpResolver.resolve(request), request.getRequestURI());
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "내 2단계 인증 복구 코드 재발급",
+            description = "현재 비밀번호와 인증 앱의 6자리 코드(복구 코드 불가)를 확인한 뒤 새 복구 코드 10개를 이 응답에서만 돌려준다. "
+                    + "옛 코드는 모두 무효가 되고 세션은 유지된다.")
+    @ApiResponse(responseCode = "200", description = "재발급")
+    @ApiResponse(responseCode = "400", description = "현재 비밀번호 또는 코드 불일치(2단계 실패 횟수에 반영)·이미 사용한 코드(반영 안 함)")
+    @ApiResponse(responseCode = "409", description = "사용 중이 아님·계정 상태 변경")
+    @PostMapping("me/totp/recovery-codes")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public TotpRecoveryCodesResponse reissueRecoveryCodes(@AuthenticationPrincipal CustomUserDetails principal,
+                                                          @Valid @RequestBody TotpRecoveryCodesReissueRequest body,
+                                                          HttpServletRequest request) {
+        return new TotpRecoveryCodesResponse(memberTotpService.reissueRecoveryCodes(principal, body.code(), body.currentPassword(),
+                ClientIpResolver.resolve(request), request.getRequestURI()));
     }
 
     @Operation(summary = "관리자의 2단계 인증 상태 조회(ADMIN)")

@@ -49,6 +49,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -182,6 +183,59 @@ class MemberTotpApiIntegrationTest extends MariaDbContainerSupport {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"123456\",\"currentPassword\":\"" + PASSWORD + "\"}"))
                 .andExpect(status().isConflict());
         assertThat(enrollment.recoveryCodes()).hasSize(10);
+    }
+
+    private org.springframework.test.web.servlet.ResultActions reissue(MockHttpSession session, String code) throws Exception {
+        return mockMvc.perform(post("/admin/api/members/me/totp/recovery-codes").session(session).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(JSON.writeValueAsString(java.util.Map.of("code", code, "currentPassword", PASSWORD))));
+    }
+
+    @Test
+    @DisplayName("재발급(PLAN-totp-recovery-code-reissue.md): 200 + 새 코드 10개·no-store, 세션 유지(다음 요청 200), 남은 개수 10. 같은 코드 재사용은 400 '이미 사용한 코드', 미사용은 409")
+    void reissueRecoveryCodes() throws Exception {
+        Member manager = member(Role.ROLE_MANAGER);
+        MockHttpSession session = login(manager); // 등록 전에 로그인 — 세션이 2단계 중간 상태가 아니게
+        TotpTestSupport.Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, manager.getId(), clock);
+        jdbc.update("UPDATE member_totp_recovery_code SET used_at = NOW(6) WHERE member_id = ? ORDER BY id LIMIT 3", manager.getId());
+        String code = TotpTestSupport.currentCode(enrollment.secret(), clock);
+
+        MvcResult result = reissue(session, code)
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", org.hamcrest.Matchers.containsString("no-store")))
+                .andReturn();
+        JsonNode codes = JSON.readTree(result.getResponse().getContentAsString()).get("recoveryCodes");
+        assertThat(codes).hasSize(10);
+        assertThat(codes.get(0).asText()).doesNotMatch(".*" + enrollment.recoveryCodes().get(0) + ".*");
+
+        mockMvc.perform(get("/admin/api/members/me/totp").session(session))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.remainingRecoveryCodes").value(10));
+
+        reissue(session, code)
+                .andExpect(status().isBadRequest())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.message")
+                        .value(org.hamcrest.Matchers.containsString("이미 사용한 코드")));
+
+        Member other = member(Role.ROLE_MANAGER);
+        reissue(login(other), "123456").andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("재발급 경계: 미인증 401, CSRF 없음 403, 빈 본문 400 VALIDATION_ERROR")
+    void reissueBoundaries() throws Exception {
+        mockMvc.perform(post("/admin/api/members/me/totp/recovery-codes").with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"123456\",\"currentPassword\":\"x\"}"))
+                .andExpect(status().isUnauthorized());
+        Member manager = member(Role.ROLE_MANAGER);
+        MockHttpSession session = login(manager);
+        mockMvc.perform(post("/admin/api/members/me/totp/recovery-codes").session(session)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"code\":\"123456\",\"currentPassword\":\"x\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/admin/api/members/me/totp/recovery-codes").session(session).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 
     @Test
