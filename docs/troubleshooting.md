@@ -1481,3 +1481,36 @@ Parameter 1 of function 'substring()' has type 'STRING', but argument is of type
 
 - 세션 ID를 바꾸는 새 경로를 만들면 레지스트리 만료 표시가 사라지는지부터 본다. "레지스트리가 옮긴다"는 가정은 이벤트를 받는다는 뜻일 뿐 상태를 보존한다는 뜻이 아니다.
 - Spring Security의 세션 뮤텍스는 ID 교체만 덮는다 — 인증 확정 전체(등록·저장)를 직렬화하려면 경계를 직접 감싸야 한다.
+
+### 2단계 인증 등록 시험이 가끔 `com.google.zxing.NotFoundException`으로 실패한다 — ZXing이 깨끗한 QR의 데이터 무늬를 위치 기준점으로 오인 (2026-11-16, 이슈 #265)
+
+#### 오류 메시지
+
+```
+MemberTotpApiIntegrationTest > S6: 상태(미사용) → 대기 201(QR은 같은 otpauth URI로 디코드) → … FAILED
+    com.google.zxing.NotFoundException
+```
+
+로컬과 CI(PR #266의 `test` 잡)에서 간헐적으로 실패했다. 실패 예외는 `NotFoundException`뿐 아니라 `FormatException`·`ChecksumException`도 나올 수 있다.
+
+#### 원인
+
+- 시험이 서버가 그린 등록 QR PNG를 `QRCodeReader().decode(...)`로 **힌트 없이** 해석했다. ZXing의 위치 기준점 탐색은 픽셀이 완벽한 이미지에서 데이터 영역의 1:1:3:1:1 비슷한 무늬를 왼쪽 아래 기준점으로 고르는 일이 있다. 그러면 QR 크기를 49칸이 아니라 45·41·37칸으로 잘못 잡아 해석에 실패한다(실패 QR 20장 중 17장, 나머지 3장은 기준점을 못 찾음).
+- 실패는 QR 내용에 따라 결정된다. 시험과 같은 형식의 URI 2000장 중 27장(1.35%)이 실패했고, 계정 이름(`nanoTime`) 자릿수별로 0.6~6.8%였다.
+- **QR 자체는 정상이다.** `PURE_BARCODE` 힌트로는 2000장 모두 원문대로 읽혔고, 실패 QR 20장을 Google Authenticator가 모두 등록했다(QR 등록까지만 확인했고 다른 앱은 미확인).
+- 효과가 없던 것: 여백 2→4(실패 27건 그대로, 오인은 여백이 아니라 데이터 영역에서 생긴다), `TRY_HARDER`(27건 그대로).
+
+#### 해결 방법
+
+- 시험 해석을 `com.cms.support.QrTestSupport.decode`로 모으고 `DecodeHintType.PURE_BARCODE`를 넘긴다. 이 힌트는 이미지 전체가 QR 하나라고 보고 기준점 탐색을 건너뛴다. 서버가 그린 QR에는 이 가정이 정확히 맞는다. 제품 코드(`TotpQrCodes`)는 바꾸지 않았다.
+- `TotpQrCodesTest`가 실측에서 실패한 URI 하나를 고정해, 힌트로는 원문대로 읽히고 힌트 없이는 실패함(시험 전제)을 함께 단언한다.
+- 확인: 같은 함수로 8000장(자릿수 8종 × 1000)을 해석해 실패 0.
+
+```bash
+./gradlew test --tests 'com.cms.admin.member.totp.TotpQrCodesTest' --tests 'com.cms.admin.member.controller.MemberTotpApiIntegrationTest'
+```
+
+#### 교훈
+
+- 서버가 그린 QR을 시험에서 읽을 때는 `PURE_BARCODE`를 쓴다. 카메라 영상용 기본 검출은 깨끗한 합성 이미지에서 오히려 흔들린다.
+- 간헐 실패를 무작위 입력으로만 시험하면 재현이 확률에 묶인다. 실측에서 실패한 입력을 하나 골라 고정한다.
