@@ -89,6 +89,12 @@ public final class AdminActionTypes {
     public static final String SITE_CREATE = "SITE_CREATE";
     public static final String SITE_UPDATE = "SITE_UPDATE";
     public static final String SITE_DELETE = "SITE_DELETE";
+    /** 2단계 인증(TOTP) 등록 — 본인 (targetId = 회원 번호) */
+    public static final String TOTP_ENABLE = "TOTP_ENABLE";
+    /** 2단계 인증 해제 — 본인 (targetId = 회원 번호) */
+    public static final String TOTP_DISABLE = "TOTP_DISABLE";
+    /** 2단계 인증 해제 — ADMIN이 다른 회원의 등록을 지움 (targetId = 대상 회원 번호) */
+    public static final String TOTP_RESET = "TOTP_RESET";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
@@ -104,7 +110,8 @@ public final class AdminActionTypes {
             FAQ_CREATE, FAQ_UPDATE, FAQ_DELETE, FAQ_CATEGORY_CREATE, FAQ_CATEGORY_UPDATE, FAQ_CATEGORY_DELETE, FAQ_ORDER,
             MEDIA_UPLOAD, MEDIA_DELETE,
             INQUIRY_STATUS, INQUIRY_DELETE,
-            SITE_CREATE, SITE_UPDATE, SITE_DELETE
+            SITE_CREATE, SITE_UPDATE, SITE_DELETE,
+            TOTP_ENABLE, TOTP_DISABLE, TOTP_RESET
     );
 
     private AdminActionTypes() {}

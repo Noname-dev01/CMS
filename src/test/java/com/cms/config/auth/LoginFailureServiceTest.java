@@ -59,6 +59,9 @@ class LoginFailureServiceTest extends MariaDbContainerSupport {
     @Autowired
     MemberRepository memberRepository;
 
+    @Autowired
+    com.cms.admin.member.repository.MemberTotpRepository memberTotpRepository;
+
     @PersistenceContext
     EntityManager entityManager;
 
@@ -199,8 +202,27 @@ class LoginFailureServiceTest extends MariaDbContainerSupport {
 
         Optional<MemberSnapshot> snapshot = loginFailureService.resetFailuresAndCheckActive(member.getUserId());
 
-        assertThat(snapshot).hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "encoded"));
+        assertThat(snapshot).hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "encoded", false));
         assertThat(reload(member.getId()).getFailedLoginCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("checkActive는 실패 횟수를 건드리지 않고 스냅샷만 준다 — 2단계 사용 여부는 member_totp 행 유무(PLAN-totp-two-factor.md 결정 1)")
+    void checkActive_doesNotReset_andReportsTotp() {
+        Member member = createMember(Role.ROLE_ADMIN, MemberStatus.ACTIVE);
+        for (int i = 0; i < 3; i++) {
+            loginFailureService.recordFailure(member.getUserId(), "127.0.0.1", "/admin/login");
+        }
+        assertThat(loginFailureService.checkActive(member.getUserId()))
+                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", false));
+
+        memberTotpRepository.saveAndFlush(com.cms.admin.member.domain.MemberTotp.enable(member.getId(), "v1:x", 0, FIXED_NOW));
+
+        assertThat(loginFailureService.checkActive(member.getUserId()))
+                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", true));
+        assertThat(reload(member.getId()).getFailedLoginCount()).isEqualTo(3);
+        assertThat(loginFailureService.resetFailuresAndCheckActive(member.getUserId()))
+                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", true));
     }
 
     @Test

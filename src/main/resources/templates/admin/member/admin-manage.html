@@ -185,6 +185,8 @@
             </div>
             <div class="modal-footer">
                 <span id="editHint" class="text-muted small mr-auto d-none"></span>
+                <!-- 인증기·복구 코드를 모두 잃은 회원의 2단계 인증 해제(ADMIN) — PLAN-totp-two-factor.md 결정 4 -->
+                <button type="button" class="btn btn-outline-danger d-none" id="btnTotpReset">2단계 인증 해제</button>
                 <button type="button" class="btn btn-primary d-none" id="btnEditMode">
                     <i class="fas fa-pen fa-sm mr-1"></i>수정
                 </button>
@@ -220,6 +222,7 @@
     const detailEditForm = document.getElementById("detailEditForm");
     const editHint = document.getElementById("editHint");
     const btnEditMode = document.getElementById("btnEditMode");
+    const btnTotpReset = document.getElementById("btnTotpReset");
     const btnSaveEdit = document.getElementById("btnSaveEdit");
     const btnCancelEdit = document.getElementById("btnCancelEdit");
     const editUserName = document.getElementById("editUserName");
@@ -237,6 +240,8 @@
     let currentAdminId = null;
     // 모달에 표시 중인 상세 데이터 (수정 모드 초기값·변경분 diff 계산에 사용)
     let currentDetail = null;
+    // 지금 연 상세의 2단계 인증 해제 버튼을 보일 수 있는가(사용 중이고 본인이 아님)
+    let totpResetAvailable = false;
     // 상세 조회·저장 응답 경쟁 방지 — 다른 회원을 열거나 모달을 닫으면 세대를 올려 늦게 도착한 응답을 버린다.
     let detailSeq = 0;
     let detailController = null;
@@ -473,6 +478,8 @@
         exitEditMode();
         currentDetail = null;
         btnEditMode.classList.add("d-none");
+        btnTotpReset.classList.add("d-none");
+        totpResetAvailable = false;
         editHint.classList.add("d-none");
         editHint.innerHTML = "";
         detailLoading.classList.remove("d-none");
@@ -518,6 +525,7 @@
         detailContent.classList.add("d-none");
         detailEditForm.classList.remove("d-none");
         btnEditMode.classList.add("d-none");
+        btnTotpReset.classList.add("d-none");
         btnSaveEdit.classList.remove("d-none");
         btnCancelEdit.classList.remove("d-none");
     }
@@ -541,6 +549,7 @@
         if (currentDetail) {
             detailContent.classList.remove("d-none");
             configureEditAccess(currentDetail);
+            btnTotpReset.classList.toggle("d-none", !totpResetAvailable);
         }
     }
 
@@ -601,6 +610,8 @@
             currentDetail = data;
             renderDetail(data);
             exitEditMode();
+            // 다시 그린 상세에 2단계 인증 행을 붙인다(실패해도 저장 결과에는 영향 없음)
+            loadTotpStatus(data, detailSeq).catch(function () {});
             showDetailSuccess("저장되었습니다."
                 + ((payload.status || payload.userType) ? " 대상자의 기존 로그인 세션은 만료 처리됩니다." : ""));
             loadAdminMembers(pageState.page);
@@ -702,6 +713,7 @@
             currentDetail = data;
             renderDetail(data);
             configureEditAccess(data);
+            await loadTotpStatus(data, seq, controller.signal);
         } catch (error) {
             if ((error && error.name === "AbortError") || seq !== detailSeq) {
                 return;
@@ -714,6 +726,76 @@
             }
         }
     }
+
+    /**
+     * 2단계 인증 상태 행을 붙이고, 사용 중이며 본인이 아니면 해제 버튼을 보인다. 값은 textContent로만 넣는다.
+     * 모달 세대가 바뀌었으면(다른 회원을 열었거나 닫음) 아무것도 하지 않는다.
+     */
+    async function loadTotpStatus(data, seq, signal) {
+        const response = await fetch("/admin/api/members/" + encodeURIComponent(data.id) + "/totp", { signal: signal });
+        if (seq !== detailSeq) {
+            return;
+        }
+        const row = document.createElement("div");
+        row.className = "detail-item";
+        row.id = "detailTotpRow";
+        const label = document.createElement("span");
+        label.className = "label";
+        label.textContent = "2단계 인증";
+        const value = document.createElement("div");
+        value.className = "value";
+        row.append(label, value);
+        detailContent.appendChild(row);
+        if (!response.ok) {
+            value.textContent = "확인 실패";
+            return;
+        }
+        const status = await response.json();
+        if (seq !== detailSeq) {
+            return;
+        }
+        value.textContent = status.enabled ? "사용 중" : "미사용";
+        const isSelf = currentAdminId !== null && data.id === currentAdminId;
+        totpResetAvailable = status.enabled && !isSelf;
+        btnTotpReset.classList.toggle("d-none", !totpResetAvailable);
+    }
+
+    btnTotpReset.addEventListener("click", async function () {
+        if (!currentDetail) {
+            return;
+        }
+        const targetId = currentDetail.id;
+        const seq = detailSeq;
+        if (!window.confirm("이 관리자의 2단계 인증을 해제할까요? 인증기와 복구 코드를 모두 잃은 경우에만 해제하세요. 해제하면 비밀번호만으로 로그인됩니다.")) {
+            return;
+        }
+        hideDetailError();
+        hideDetailSuccess();
+        btnTotpReset.disabled = true;
+        try {
+            const response = await fetch("/admin/api/members/" + encodeURIComponent(targetId) + "/totp", {
+                method: "DELETE", headers: getCsrfHeaders()
+            });
+            if (seq !== detailSeq || !currentDetail || currentDetail.id !== targetId) {
+                return;
+            }
+            if (!response.ok) {
+                showDetailError(await extractErrorMessage(response, "2단계 인증을 해제하지 못했습니다."));
+                return;
+            }
+            const row = document.getElementById("detailTotpRow");
+            if (row) {
+                row.querySelector(".value").textContent = "미사용";
+            }
+            totpResetAvailable = false;
+            btnTotpReset.classList.add("d-none");
+            showDetailSuccess("2단계 인증을 해제했습니다. 대상자에게 다시 등록하도록 안내하세요.");
+        } catch (error) {
+            showDetailError("네트워크 연결을 확인해주세요.");
+        } finally {
+            btnTotpReset.disabled = false;
+        }
+    });
 
     // 모달을 닫으면 진행 중인 상세 조회를 취소하고 세대를 올려 늦은 응답이 다음에 열 모달을 덮지 않게 한다.
     $("#adminDetailModal").on("hidden.bs.modal", function () {

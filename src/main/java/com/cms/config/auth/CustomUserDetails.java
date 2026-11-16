@@ -15,8 +15,23 @@ public class CustomUserDetails implements UserDetails {
 
     private final Member member;
 
+    /**
+     * 로그인 시점에 2단계 인증(TOTP)을 쓰고 있었는가 — {@code TotpAwareAuthenticationProvider}가 중간 상태 토큰을 만들지 정하는 데만 쓴다.
+     * 비밀값·암호문은 싣지 않는다(PLAN-totp-two-factor.md 결정 1). 로그인 뒤 갱신된 principal에서는 의미가 없다.
+     */
+    private final boolean totpEnabled;
+
     public CustomUserDetails(Member member) {
+        this(member, false);
+    }
+
+    public CustomUserDetails(Member member, boolean totpEnabled) {
         this.member = member;
+        this.totpEnabled = totpEnabled;
+    }
+
+    public boolean isTotpEnabled() {
+        return totpEnabled;
     }
 
     public Long getId() {

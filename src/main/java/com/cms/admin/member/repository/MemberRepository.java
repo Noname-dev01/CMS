@@ -137,6 +137,17 @@ public interface MemberRepository extends JpaRepository<Member, Long>, MemberRep
                                @Param("now") LocalDateTime now);
 
     /**
+     * 2단계 인증 연속 실패로 ACTIVE 관리자 계정을 LOCKED로 전이한다(자동 잠금 — 30분 해제 규칙 그대로).
+     * 호출자는 이미 이 회원 행을 잠갔다(2단계 판정 트랜잭션). 대기 중인 엔티티 변경(TOTP 실패 횟수 등)을 잃지 않도록 먼저 flush한다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Member m set m.status = com.cms.admin.member.domain.MemberStatus.LOCKED, "
+            + "m.lockedAt = :now, m.updateDate = :now "
+            + "where m.id = :id and m.status = com.cms.admin.member.domain.MemberStatus.ACTIVE "
+            + "and m.userType in (com.cms.admin.member.domain.Role.ROLE_ADMIN, com.cms.admin.member.domain.Role.ROLE_MANAGER)")
+    int lockByIdIfActive(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    /**
      * 성공 로그인 시 실패 카운트를 리셋한다 — ACTIVE 조건부 벌크 UPDATE.
      * 엔티티 더티체킹 저장은 전체/변경 컬럼 UPDATE가 경합 시 LOCKED를 되살릴 수 있어 금지.
      * 성공 직후 다른 요청이 먼저 잠갔다면 0행(no-op)으로 잠금이 보존된다.

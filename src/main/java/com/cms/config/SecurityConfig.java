@@ -6,6 +6,7 @@ import com.cms.admin.permission.FeatureKind;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.LoginSessionMutexFilter;
+import com.cms.config.auth.TotpAuthorities;
 import jakarta.servlet.DispatcherType;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
 import com.cms.config.ratelimit.RateLimitFilter;
@@ -95,6 +96,9 @@ public class SecurityConfig {
                         // 반드시 맨 앞에 둔다 (PLAN-default-deny-authorization.md 결정 2, 2026-09-29 승인).
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/admin/login", "/admin/login-error").permitAll()
+                        // 2단계 인증 코드 화면 — 비밀번호만 통과한 중간 상태(TOTP_PENDING)만 연다. 익명은 로그인 302, 완전 인증은 403
+                        // (2026-11-14 승인 — 인가 정책 변경, PLAN-totp-two-factor.md 결정 2). /admin/** 캐치올보다 앞이어야 한다.
+                        .requestMatchers("/admin/login/totp").hasAuthority(TotpAuthorities.PENDING)
                         // 비밀번호 재설정 — 비로그인 사용자의 유일한 복구 경로 (2026-07-13 인가 정책 변경 승인)
                         .requestMatchers("/admin/password-reset", "/admin/password-reset/confirm").permitAll()
                         .requestMatchers("/admin/api/password-reset-requests", "/admin/api/password-resets").permitAll()
@@ -207,8 +211,19 @@ public class SecurityConfig {
                             }
                         })
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            Authentication current = SecurityContextHolder.getContext().getAuthentication();
+                            if (TotpAuthorities.isPending(current)) {
+                                // 2단계 중간 상태는 "아직 로그인하지 않음"으로 다룬다 — 화면은 코드 화면으로, API는 JSON 401(PLAN-totp-two-factor.md 결정 2)
+                                if (API_MATCHER.matches(request)) {
+                                    API_AUTH_ENTRY_POINT.commence(request, response,
+                                            new InsufficientAuthenticationException("2단계 인증이 필요합니다."));
+                                } else {
+                                    response.sendRedirect(request.getContextPath() + VisitLoggingAuthenticationSuccessHandler.TOTP_PAGE);
+                                }
+                                return;
+                            }
                             if (API_MATCHER.matches(request)) {
-                                Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+                                Authentication auth = current;
                                 if (auth == null || auth instanceof AnonymousAuthenticationToken) {
                                     // CsrfFilter가 인증 체크보다 먼저 동작하므로, 미인증 요청의 CSRF 실패는
                                     // accessDeniedHandler로 도달한다. 이 경우 403 대신 401을 반환해야 한다.

@@ -1,12 +1,11 @@
 package com.cms.publicweb.support;
 
+import com.cms.config.auth.TotpAuthorities;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpHeaders;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -60,9 +59,8 @@ public class PublicTransferInterceptor implements HandlerInterceptor {
         return false;
     }
 
+    /** 로그인 사용자인가 — 2단계 중간 상태(비밀번호만 통과)는 아니다(PLAN-totp-two-factor.md 결정 3). */
     private static boolean isAuthenticatedUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        return authentication != null && authentication.isAuthenticated()
-                && !(authentication instanceof AnonymousAuthenticationToken);
+        return TotpAuthorities.isFullyAuthenticated(SecurityContextHolder.getContext().getAuthentication());
     }
 }

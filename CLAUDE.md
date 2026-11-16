@@ -14,7 +14,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `com.cms.admin.page` | 정적 페이지 — 위임 기능 `SITE_PAGE`, 개정 테이블, `version` 409, 본문 이미지 불허, "사이트 관리" 화면 구성 |
 | `com.cms.admin.contentimage` | 편집기 본문 이미지 — 업로드 권한·출처, 카운터 잠금, 참조 교체, 공개 판정, 수동 회수, 대표 이미지 썸네일 |
 | `com.cms.admin.log` | `@AdminActionLogged` 독립 트랜잭션(REQUIRES_NEW)·예외 격리 계약 |
-| `com.cms.admin.member` | 초기 관리자 부트스트랩, 비밀번호 재설정·로그인 실패 잠금·유출 비밀번호 차단·변경 강제, 프로필 이미지 |
+| `com.cms.admin.member` | 초기 관리자 부트스트랩, 비밀번호 재설정·로그인 실패 잠금·유출 비밀번호 차단·변경 강제, 2단계 인증(TOTP) 등록·해제·비밀값 보관, 프로필 이미지 |
 | `com.cms.admin.site` | 사이트 설정 — 기본 공개 사이트, 키 예약어 `SiteKey.RESERVED`, 링크 정책, 잠금 규약, 사이트별 콘텐츠·게시판, 공개 메뉴 렌더링 |
 | `com.cms.admin.menu` | 메뉴 — 사이트별 편집, `/admin/menu/manage`, 사이드바 3단 제약, 노출 계산 `MenuVisibility`, 시드 조건 |
 | `com.cms.admin.message` | 상단바 쪽지·쪽지함 — 입력 파이프라인, 발송 트랜잭션, 보관함 삭제, 현재 자격 가드 |
@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `com.cms.admin.session` | 세션 관리(영구 ADMIN 전용) — 해시 핸들, 현재 세션 보호, best-effort 만료, 감사 한계 |
 | `com.cms.admin.media` | 미디어 라이브러리 — 위임 기능 `MEDIA`, `content_image` 원본, 출처별 가시성, 잠금 순서, 사용 중 삭제 409 |
 | `com.cms.admin.permission` | MANAGER 위임 권한 카탈로그·판정기·캐시(**회원별 허용 행**), 권한관리 API·화면(`PUT` 교체·409·변형 행 가드), 역할 변경 시 개별 권한 삭제, 인가 선언 컨벤션, 롤백·재배포 주의 |
-| `com.cms.config` | `SecurityConfig` 경로별 접근 제어 표(승인 이력 포함) |
+| `com.cms.config` | `SecurityConfig` 경로별 접근 제어 표(승인 이력 포함), 2단계 인증 로그인 경로(중간 상태·승격·`AuthenticationProvider` 빈 1개 제약) |
 | `com.cms.publicweb.support` | 공개 경로 `/{siteKey}/…` — `@SiteScopedPublic`, `PublicSiteInterceptor`, `sitePrefix`, 공개 인벤토리 시험, 공개 파일 전송 동시 상한 `@PublicFileTransfer` |
 | `com.cms.publicweb.home` | 공개 메인 — 배너·공지·새 글, fail-soft, 스크립트 금지와 팝업 조각 예외, 레이트리밋 |
 | `com.cms.publicweb.page` | 공개 정적 페이지 — 현재 버전·개정 목록, 동일 404, 출력 시 이미지 불허 |
@@ -105,6 +105,7 @@ Spring Boot 기반 관리자 CMS로, 계층화된 MVC 패턴을 따른다. 의�
 
 - `ACTIVE` 상태 계정만 로그인 가능 (`CustomUserDetailsService`). 연속 5회 로그인 실패 시 자동 잠금(30분 해제) — 정책 상세는 "핵심 도메인 모델 > Member" 참조 (2026-07-14 승인)
 - **로그인 상태 유지(remember-me)는 없다**(2026-11-12 제거 — 인증·로그인 경로 변경·V16 스키마 변경 승인, `adversarial-review/plan/PLAN-remember-me-removal.md`): 관리자 세션은 폼 로그인만 만든다. 2026-11-10~12의 remember-me·민감 작업 재인증(비밀번호 모달·`@RequireFullAuthentication`)·세션 화면 같은 기기 안내를 모두 걷어 냈다(관리자 페이지라 쿠키 탈취 시 7일 노출을 남기지 않는다). 다시 넣으려면 새 계획부터 세운다 — 세션을 끊는 모든 경로를 토큰 폐기와 묶어야 한다. 같은 세션의 폼 로그인 직렬화(`LoginSessionMutexFilter`)는 두 탭 동시 로그인의 레지스트리 불일치를 막는 독립 방어로 남겼다. 상세는 `com.cms.config`의 `CLAUDE.md` "로그인 상태 유지 없음".
+- **2단계 인증(TOTP)은 회원별 선택 기능이다**(2026-11-14 — 인가 정책 변경 `/admin/login/totp`·V17 승인, `adversarial-review/plan/PLAN-totp-two-factor.md`, 이슈 #251): 켠 계정의 비밀번호 로그인은 역할 권한이 없는 중간 상태(`TOTP_PENDING`)만 얻고 코드 화면을 통과해야 원래 권한이 된다. **`AuthenticationProvider` 빈을 하나 더 만들지 않는다**(Spring Security 7.0.7은 그 타입 빈이 정확히 하나일 때만 전역 관리자에 쓴다 — 둘이면 2단계가 조용히 사라진다). "로그인 사용자" 면제 판정은 `TotpAuthorities.isFullyAuthenticated`를 쓴다. 운영 필수 환경변수 `CMS_TOTP_ENCRYPTION_KEY`. 상세는 `com.cms.config`·`com.cms.admin.member`의 `CLAUDE.md`.
 - **세션 강제 만료는 best-effort다** — 즉시 접근 차단 수단이 아니다. 상세는 `com.cms.admin.session`의 `CLAUDE.md`.
 - CSRF는 **모든 경로에 활성**이다. `/admin/api/**`를 포함한 상태 변경 요청(POST/PATCH/PUT/DELETE)은 반드시 CSRF 토큰을 포함해야 한다. Thymeleaf 페이지는 `head.html` 프래그먼트가 `<meta name="_csrf">` 태그로 토큰을 렌더링하며, JS에서 이 값을 읽어 `X-CSRF-TOKEN` 헤더로 전송한다. 신규 상태 변경 fetch 호출 작성 시 CSRF 헤더를 누락하지 않는다.
 - 메서드 레벨 보안: `MethodSecurityConfig`에서 활성화

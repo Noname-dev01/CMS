@@ -27,6 +27,21 @@
 
 - **로그인 성공·자동 잠금과 알림**(2026-10-05, `PLAN-admin-notification.md`): `VisitLoggingAuthenticationSuccessHandler`는 재확인 통과 뒤 읽은 알림 정리를 **자기 트랜잭션·try/catch**로 호출한다(로그인을 막지 않는다). `AdminAccountAutoLockEvent`에 `canonicalUserId`(DB 정규 아이디)·`lockedAt`이 추가됐다 — 기존 `userId`는 로그인 요청 **원문**이라 알림에 쓰지 않는다. 상세는 `com.cms.admin.notification`의 `CLAUDE.md`.
 
+## 2단계 인증(TOTP) (2026-11-14 — `adversarial-review/plan/PLAN-totp-two-factor.md`, 이슈 #251)
+
+로그인 경로(중간 상태·승격·면제 판정)는 `com.cms.config`의 `CLAUDE.md` "2단계 인증(TOTP)". 운영(키·복구 SQL·롤백)은 `docs/deployment.md`.
+
+- **선택 기능**: ADMIN·MANAGER가 내 설정에서 켠다. 필수화는 없다. 비밀번호 재설정은 2단계를 해제하지 않는다.
+- **저장**: `member_totp`(회원당 1행, 행이 있으면 사용 중)와 `member_totp_recovery_code`(V17). **`Member`에 컬럼을 두지 않는다** — `CustomUserDetails`가 엔티티 전체를 세션·레지스트리에 보관하므로 암호문이 principal에 실린다. principal에는 로그인 시점의 사용 여부 불리언(`isTotpEnabled`)만 싣는다(갱신된 principal에서는 의미 없음).
+- **비밀값**: `TotpSecretCipher`(AES-256-GCM, AAD `member_totp:{memberId}` — 다른 행으로 옮긴 암호문은 복호 실패, 저장 형식 `v1:`+Base64). 키 `cms.totp.encryption-key`(`CMS_TOTP_ENCRYPTION_KEY`, Base64 32바이트)가 없거나 틀리면 **기동 실패**(`TotpConfig`), dev는 `application-dev.yml`의 고정 개발 키. 복호 실패는 판정 실패로 끝내고 **실패 횟수를 올리지 않는다**(서버 키 문제로 사용자가 잠기지 않게).
+- **TOTP**: 직접 구현(`TotpCodeVerifier`, RFC 6238 SHA1·30초·6자리, ±1 스텝, `Clock` 주입). `step > last_used_step`만 통과(재사용 차단). 정답이지만 이미 쓴 스텝이면 `REUSED` — 통과시키지 않고 **실패로 세지 않으며** "다음 코드를 기다리라"고 안내한다(등록 확정이 그 스텝을 쓰고 본인 세션을 끊으므로, 같은 30초 안에 다시 로그인하면 앱에 같은 코드가 떠 있다 — 구현 중 발견, 사용자 결정). otpauth URI는 Google "Key Uri Format"(RFC 3986 인코딩, 콜론은 계정 이름에서 `_`로, issuer는 기동 시 검증). QR은 ZXing core만(`TotpQrCodes`가 `BitMatrix`를 직접 PNG로 — javase 모듈 없음).
+- **복구 코드**: 10개, 각 120비트(Base32 24자 `XXXX-…`), 정규화 후 SHA-256. 120비트는 NIST SP 800-63B-4 §3.1.2.2의 솔트 없는 빠른 해시 허용 기준(112비트) 이상이다 — 짧게 줄이면 비용 있는 해시로 바꿔야 한다. 재발급은 없다(끄고 다시 켜기).
+- **실패 횟수는 둘이다**: 비밀번호 단계는 `member.failed_login_count`, 2단계·본인 해제 재인증은 `member_totp.failed_attempts`. 후자는 5회면 계정을 `LOCKED`(30분 자동 해제 — `LoginFailureService.lockForSecondFactorFailures`, 같은 감사·세션 만료 이벤트) 하고 0으로 돌린다. **비밀번호 재로그인·재설정(`changePassword`가 `failed_login_count`를 0으로)으로 초기화되지 않는다.** 두 요소를 모두 통과하면 둘 다 0. 등록 확정의 재인증 실패는 아직 행이 없어 `failed_login_count`에 센다.
+- **변경 경로**(`MemberTotpService`): 모두 `member` 행 잠금(`findByIdForUpdate`) 아래이고, **잠금 직후 상태(ACTIVE·관리자 역할·principal과 같은 역할)를 다시 본다** — 세션 만료는 이미 인가를 통과한 진행 중 요청을 취소하지 않으므로, 잠금에서 기다리던 요청이 잠긴 계정을 판정·변경하면 안 된다(409, 판정·카운트 없음). 재인증 실패는 카운터가 커밋돼야 하므로 `TransactionTemplate`으로 판정을 커밋한 **뒤** 400을 던진다(`@Transactional`로 되돌리지 않는다). 등록 확정은 `AdminSessionRevokeEvent`로 **본인 전 세션 만료**(현재 포함 — 등록 전 세션을 2단계 없이 남기지 않는다). 본인 해제는 현재 비밀번호가 틀리면 코드를 판정·소비하지 않는다. ADMIN 해제는 대상 상태와 무관(복구 조작), 본인 대상 400, 미사용이면 아무것도 안 한다.
+- **등록 대기**: 세션의 `TotpEnrollment{enrollmentId, memberId, secret, issuedAt}`(10분, DB 쓰기 없음). 확정은 memberId·enrollmentId·시각을 모두 대조(409). `MemberTotpApiController`는 대기 발급과 확정을 **세션 뮤텍스 안에서** 검사부터 커밋·정리까지 처리한다 — 회원 행 잠금은 다른 탭의 세션 상태 교체를 막지 못한다. 잠금 순서는 세션 뮤텍스 → 회원 행(로그인 경로와 같다).
+- **감사**: `@AdminActionLogged`를 쓰지 않는다 — 실패·무변경도 정상 반환해 커밋하므로 aspect가 성공으로 기록한다. 실제로 바뀐 경우에만 `MemberTotpAuditEvent` → AFTER_COMMIT `MemberTotpAuditListener`(메서드 `@Order(20)`)가 `TOTP_ENABLE`·`TOTP_DISABLE`·`TOTP_RESET`을 남긴다.
+- **API**: `GET /admin/api/members/me/totp`, `POST …/me/totp-enrollments`(201), `PUT …/me/totp`(복구 코드 10개, 이 응답 1회), `DELETE …/me/totp`(204), ADMIN 전용 `GET`·`DELETE /admin/api/members/{id}/totp`. 본인 경로는 상시 허용 게이트, `{id}`는 ADMIN 캐치올 — URL 규칙 추가 없음.
+
 ## 프로필 이미지 (Base64-in-DB → FileStorage 이관 완료, 2026-08-10)
 
 업로드된 이미지는 더 이상 DB에 Base64로 저장되지 않는다 — `com.cms.common.storage.FileStorage`(공지 첨부파일용, 2026-07-22 도입)의 **`"profile"` 네임스페이스**에 실파일로 저장된다. `FileStorage`에 네임스페이스 인자 오버로드 3종(`store`/`load`/`delete`)이 추가되어(하위 호환 default 메서드) 프로필 이미지는 공지 첨부파일과 **물리적으로 분리된 디렉터리**(`root/profile/...`)에 저장된다 — `member.profile_image_url`에는 storageKey(공지 첨부파일과 같은 `yyyy/MM/dd/uuid.ext` 형태)가 그대로 들어가도, 네임스페이스가 다르므로 물리 경로가 겹치지 않는다. 네임스페이스 없는 기존 `load()/delete()`는 예약된 최상위 세그먼트(`"profile"`)로 시작하는 storageKey를 아예 해석하지 않는다(공지 첨부파일 storageKey가 오염되어 `profile/...` 형태가 되어도 프로필 파일에 접근 못함 — 반대 방향도 마찬가지).

@@ -448,6 +448,32 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("2단계 인증(V17): member_totp는 회원당 1행(PK)·없는 회원 거부, 복구 코드는 회원별 여러 행이며 회원이 지워지면 둘 다 연쇄 삭제된다")
+    void totpTables() throws Exception {
+        assertThat(rows("SELECT column_name, is_nullable, column_type, IFNULL(column_default, '') FROM information_schema.COLUMNS WHERE table_schema = '"
+                + SCHEMA + "' AND table_name = 'member_totp' ORDER BY ordinal_position")).containsExactly(
+                "member_id|NO|bigint(20)|", "secret|NO|varchar(255)|", "enabled_at|NO|datetime(6)|",
+                "last_used_step|NO|bigint(20)|", "failed_attempts|NO|int(11)|0");
+        assertThat(rows("SELECT column_name, is_nullable, column_type FROM information_schema.COLUMNS WHERE table_schema = '"
+                + SCHEMA + "' AND table_name = 'member_totp_recovery_code' ORDER BY ordinal_position")).containsExactly(
+                "id|NO|bigint(20)", "member_id|NO|bigint(20)", "code_hash|NO|char(64)", "used_at|YES|datetime(6)", "created_at|NO|datetime(6)");
+
+        long a = insertMember("baseline_totp");
+        String totp = "INSERT INTO member_totp (member_id, secret, enabled_at, last_used_step) VALUES (%d, 'v1:x', NOW(6), 0)";
+        st.executeUpdate(totp.formatted(a));
+        assertThatThrownBy(() -> st.executeUpdate(totp.formatted(a))).as("회원당 1행").isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> st.executeUpdate(totp.formatted(999999L))).as("없는 회원").isInstanceOf(SQLException.class);
+        String code = "INSERT INTO member_totp_recovery_code (member_id, code_hash, created_at) VALUES (%d, REPEAT('a', 64), NOW(6))";
+        st.executeUpdate(code.formatted(a));
+        st.executeUpdate(code.formatted(a));
+        assertThatThrownBy(() -> st.executeUpdate(code.formatted(999999L))).as("없는 회원").isInstanceOf(SQLException.class);
+
+        st.executeUpdate("DELETE FROM member WHERE id = " + a);
+        assertThat(count("SELECT COUNT(*) FROM member_totp WHERE member_id = " + a)).as("CASCADE").isZero();
+        assertThat(count("SELECT COUNT(*) FROM member_totp_recovery_code WHERE member_id = " + a)).as("CASCADE").isZero();
+    }
+
+    @Test
     @DisplayName("문의: 방문자 IP·User-Agent 컬럼이 없고(개인정보 최소 수집) 모든 컬럼이 NOT NULL이며 body는 text, 인덱스는 PRIMARY와 상태 탭 (status, id)뿐이다")
     void inquiryColumns() throws Exception {
         assertThat(rows("SELECT column_name, is_nullable, column_type FROM information_schema.COLUMNS WHERE table_schema = '" + SCHEMA

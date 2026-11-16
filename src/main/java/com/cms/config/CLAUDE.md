@@ -7,6 +7,7 @@
 | 경로 | 접근 |
 |------|------|
 | `/admin/login`, `/admin/login-error` | 공개 |
+| `/admin/login/totp` (GET·POST) | **2단계 인증 중간 상태(`TOTP_PENDING`)만** — 익명은 로그인 302, 완전 인증은 403(2026-11-14 승인 — 인가 정책 변경, `PLAN-totp-two-factor.md` 결정 2). `/admin/**` 캐치올보다 앞. 핸들러도 `@PreAuthorize("hasAuthority('TOTP_PENDING')")`를 직접 선언하고, `AdminEndpointAuthorizationConventionTest`는 **이 경로와 이 표현식의 조합만** 인가 선언으로 인정한다(다른 경로에 쓰면 위반). 아래 "2단계 인증(TOTP)" |
 | `/admin/password-reset`, `/admin/password-reset/confirm` | 공개 (비밀번호 재설정 페이지, 2026-07-13 승인) |
 | `/admin/api/password-reset-requests`, `/admin/api/password-resets` | 공개 (비밀번호 재설정 API — CSRF 토큰은 필요) |
 | `/swagger-ui.html`, `/swagger-ui/**`, `/v3/api-docs`, `/v3/api-docs/**` | `ROLE_ADMIN` 필수 |
@@ -45,6 +46,17 @@
 - Spring Security 7.0.7은 폼 로그인의 세션 ID 교체만 세션 뮤텍스 안에서 하고, 레지스트리 등록·컨텍스트 저장·성공 처리기는 그 밖에서 한다. 같은 세션의 두 탭이 **서로 다른 계정**으로 동시에 로그인하면 "실제 인증 회원 ≠ 레지스트리 회원"인 세션이 남을 수 있고, 강제 만료는 레지스트리에서 회원의 세션을 찾으므로 그 세션은 실제 회원이 강등·비활성화돼도 끊기지 않는다(요청마다 상태를 다시 보는 장치가 없고 `ROLE_ADMIN`은 DB를 보지 않는다). ADMIN은 두 번째 계정을 직접 만들 수 있어 혼자서도 이 상태를 만들 수 있다.
 - 그래서 `LoginSessionMutexFilter`(빈 아님, `UsernamePasswordAuthenticationFilter` 앞)가 **세션이 이미 있는** `POST /admin/login`의 나머지 체인을 `WebUtils.getSessionMutex(session)` 안에서 실행한다(재진입이라 Spring 전략과 교착하지 않음). 비용은 같은 세션의 로그인끼리 BCrypt·DB 시간 동안 줄을 서는 것뿐이다.
 - 시험: `LoginSessionMutexFilterTest`(뮤텍스 보유·통과 대상), `ConcurrentFormLoginIntegrationTest`(레지스트리 등록 직전에 스파이로 멈춰 다른 탭 로그인이 뮤텍스에서 기다림을 `Thread.State`로 확인 → 컨텍스트 회원 = 레지스트리 회원 → 그 회원 만료로 401. 변이: 필터 등록 제거 → 실패). 실제 서버에서 이 경합이 얼마나 쉽게 나는지는 측정하지 않았다. 경위는 `docs/troubleshooting.md` "세션 ID를 바꾸면 이미 만료 처리한 세션이 되살아날 수 있다 / 폼 로그인의 레지스트리 등록은 세션 뮤텍스 밖이다".
+
+## 2단계 인증(TOTP) (2026-11-14 — `adversarial-review/plan/PLAN-totp-two-factor.md`, 이슈 #251)
+
+회원별 선택 기능이다(ADMIN·MANAGER가 내 설정에서 켠다). 등록·해제·비밀값 보관은 `com.cms.admin.member`의 `CLAUDE.md`. 여기에는 로그인 경로의 계약만 둔다.
+
+- **중간 상태 = 역할 권한이 없는 인증**: 2단계를 켠 회원이 비밀번호를 통과하면 `TotpAwareAuthenticationProvider`가 권한 `{TOTP_PENDING}` 하나뿐인 토큰을 만든다. 모든 관리 게이트(`hasRole`·`featureReadGate`·`@PreAuthorize`·`AdminPermissionEvaluator`)가 역할 권한을 보므로 따로 막지 않아도 거부된다. 접근 거부 처리기는 이 상태를 "아직 로그인 안 함"으로 다뤄 화면은 코드 화면으로 302, `/admin/api/**`는 JSON 401을 준다. 권한 축소를 성공 처리기가 아니라 **프로바이더에서** 하는 이유: 성공 처리기는 컨텍스트가 세션에 저장된 뒤에 돈다(Spring Security 7.0.7 `AbstractAuthenticationProcessingFilter` 바이트코드).
+- **`AuthenticationProvider` 빈은 하나만**: 7.0.7의 전역 인증 관리자는 이 타입의 빈이 **정확히 하나**일 때만 그 빈을 쓴다(둘 이상이면 INFO 로그만 남기고 아무것도 등록하지 않는다 — `InitializeAuthenticationProviderBeanManagerConfigurer`). 새 프로바이더 빈을 추가하면 2단계가 조용히 사라지므로 `TotpPendingAuthorizationIntegrationTest`가 실제 체인에서 `TOTP_PENDING` 발급을 고정한다(변이: 빈 제거 → 7건 중 6건 실패). `@EnableMultiFactorAuthentication`은 쓰지 않는다 — 켜면 같은 이름 재로그인 때 기존 권한이 병합된다(`shouldPerformMfa`).
+- **비밀번호 단계 성공 처리기**: 재확인 스냅샷에 2단계 사용 여부가 있고 **토큰 종류(중간 상태인가)와 다르면 거부**한다(로그인 진행 중 등록·해제 커밋 경합). 중간 상태는 `checkActive`(실패 횟수 **리셋 없음** — 리셋하면 2단계 오답 뒤 비밀번호 재로그인으로 대입 제한이 무력화된다)를 쓰고, 세션에 `TotpPendingState{memberId, since}`를 두고 코드 화면으로 보낸다. 방문 기록·알림 정리는 2단계 통과 때 `recordCompletedLogin`이 한다.
+- **승격**(`TotpLoginController` → `TotpLoginService` → `TotpSessionPromoter`): 대기 표지(회원 일치·**5분**) → 레지스트리 항목(만료 아님) → 회원 행 잠금 한 트랜잭션에서 상태·역할·해시·등록 재확인과 코드 판정·소비·실패 기록(5회 → 잠금)을 하고 **커밋된 결과만** 돌려준다 → 그 뒤에야 세션 생성을 금지한 저장소(`setAllowSessionCreation(false)`)로 원래 역할 컨텍스트를 저장하고, 저장 전후로 같은 세션 ID·레지스트리 항목 생존을 다시 본다(어긋나면 무효화). **세션 ID는 바꾸지 않는다** — 바꾸면 만료 표시가 옮겨지지 않아 만료된 세션이 되살아날 수 있다(위 troubleshooting 항목). `POST /admin/login/totp`는 `LoginSessionMutexFilter`의 대상이다(같은 세션의 이중 제출·재로그인과 직렬화).
+- **잔여 위험(수용)**: 중간 세션 쿠키를 훔친 공격자는 피해자가 코드를 낸 뒤의 세션을 함께 쓴다(HttpOnly·5분 만료로 수용). 로그인 진행 중 등록 커밋이 겹치면 옛 세션 ID로 먼저 시작한 요청이 밀리초 동안 완전 권한을 지연 로딩할 수 있다(공격자가 주인의 등록 시점을 정할 수 없어 수용, 계획서 R8).
+- **"로그인 사용자" 판정**: 공개 레이트리밋 면제(`RateLimitFilter`)·공개 전송 상한 면제(`PublicTransferInterceptor`)는 `TotpAuthorities.isFullyAuthenticated`를 쓴다 — "익명이 아니면 로그인"으로 보면 중간 상태도 면제받는다. 새 면제 판정을 만들 때도 이것을 쓴다.
 
 ## 무인증 공개 엔드포인트 레이트리밋
 

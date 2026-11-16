@@ -2,6 +2,7 @@ package com.cms.config.auth;
 
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.repository.MemberRepository;
+import com.cms.admin.member.repository.MemberTotpRepository;
 import com.cms.admin.member.domain.Member;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.CredentialsExpiredException;
@@ -22,6 +23,7 @@ import java.util.Collections;
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final MemberRepository memberRepository;
+    private final MemberTotpRepository memberTotpRepository;
     private final LoginFailureService loginFailureService;
 
     /**
@@ -40,7 +42,8 @@ public class CustomUserDetailsService implements UserDetailsService {
 
         validateMemberStatus(member);
 
-        return new CustomUserDetails(member);
+        // 2단계 사용 여부는 같은 트랜잭션에서 읽어 불리언으로만 싣는다(비밀값은 principal에 두지 않는다 — PLAN-totp-two-factor.md 결정 1)
+        return new CustomUserDetails(member, memberTotpRepository.existsById(member.getId()));
     }
 
     private void validateMemberStatus(Member member) {

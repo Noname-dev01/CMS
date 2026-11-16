@@ -34,10 +34,23 @@ class AdminEndpointAuthorizationConventionTest {
             "GET /admin/password-reset", "GET /admin/password-reset/confirm",
             "POST /admin/api/password-reset-requests", "POST /admin/api/password-resets");
 
+    /**
+     * 2단계 인증 코드 화면 — 비밀번호만 통과한 중간 상태({@code TOTP_PENDING})만 들어오는 유일한 경로다(PLAN-totp-two-factor.md 결정 2).
+     * 이 경로에서만 {@code hasAuthority('TOTP_PENDING')} 선언을 인가 선언으로 인정한다(공개 예외가 아니다).
+     */
+    static final String TOTP_PAGE = "/admin/login/totp";
+    static final String TOTP_PENDING_EXPRESSION = "hasAuthority('TOTP_PENDING')";
+
     /** 한 핸들러가 가진 인가 선언을 분류한 결과. */
     record Handler(String className, String methodName, Set<RequestMethod> httpMethods, String path,
                    boolean requirePermission, AdminFeature feature, PermissionAction action,
-                   boolean adminOnly, boolean adminOrManager, boolean boardPermission) {
+                   boolean adminOnly, boolean adminOrManager, boolean boardPermission, boolean totpPending) {
+
+        Handler(String className, String methodName, Set<RequestMethod> httpMethods, String path,
+                boolean requirePermission, AdminFeature feature, PermissionAction action,
+                boolean adminOnly, boolean adminOrManager, boolean boardPermission) {
+            this(className, methodName, httpMethods, path, requirePermission, feature, action, adminOnly, adminOrManager, boardPermission, false);
+        }
 
         /** 게시판 단위 선언이 없는 핸들러(기존 시험의 반례 구성용). */
         Handler(String className, String methodName, Set<RequestMethod> httpMethods, String path,
@@ -56,7 +69,8 @@ class AdminEndpointAuthorizationConventionTest {
         }
 
         boolean declared() {
-            return requirePermission || adminOnly || adminOrManager || boardPermission;
+            return requirePermission || adminOnly || adminOrManager || boardPermission
+                    || (totpPending && TOTP_PAGE.equals(path));
         }
 
         boolean isApi() {
@@ -174,6 +188,26 @@ class AdminEndpointAuthorizationConventionTest {
     }
 
     @Test
+    @DisplayName("2단계 코드 화면: 그 경로의 hasAuthority('TOTP_PENDING')는 인가 선언으로 인정 — 선언이 없으면 위반, 다른 경로에 쓰면 위반")
+    void totpPendingDeclarationIsOnlyForCodePage() {
+        Handler declared = new Handler("Fake", "submit", Set.of(RequestMethod.POST), TOTP_PAGE,
+                false, null, null, false, false, false, true);
+        Handler undeclared = new Handler("Fake", "submit", Set.of(RequestMethod.POST), TOTP_PAGE,
+                false, null, null, false, false, false, false);
+        Handler elsewhere = new Handler("Fake", "submit", Set.of(RequestMethod.POST), "/admin/member/settings",
+                false, null, null, false, false, false, true);
+        Handler elsewhereApi = new Handler("Fake", "get", Set.of(RequestMethod.GET), "/admin/api/members/me",
+                false, null, null, false, false, false, true);
+
+        assertThat(violations(List.of(declared))).isEmpty();
+        assertThat(violations(List.of(undeclared))).hasSize(1);
+        assertThat(violations(List.of(elsewhere))).hasSize(1).first().asString().contains("2단계 코드 화면 전용");
+        assertThat(violations(List.of(elsewhereApi))).hasSize(1);
+        assertThat(scanHandlers()).filteredOn(h -> TOTP_PAGE.equals(h.path())).as("실제 코드 화면 핸들러가 선언을 가진다")
+                .isNotEmpty().allMatch(Handler::totpPending);
+    }
+
+    @Test
     @DisplayName("게시판 게이트 안의 API는 @RequireBoardPermission과 경로의 {boardId}를 갖고, @RequireBoardPermission은 게시판 게이트 밖에 쓰지 않는다")
     void boardGatedApisUseRequireBoardPermission() {
         assertThat(boardViolations(scanHandlers())).isEmpty();
@@ -242,6 +276,10 @@ class AdminEndpointAuthorizationConventionTest {
             if (!handler.isApi() && handler.readOnlyGetOrHead()) {
                 continue;
             }
+            if (handler.totpPending() && !TOTP_PAGE.equals(handler.path())) {
+                violations.add(handler.describe() + " — " + TOTP_PENDING_EXPRESSION + "는 2단계 코드 화면 전용");
+                continue;
+            }
             if (!handler.declared()) {
                 violations.add(handler.describe());
             }
@@ -295,7 +333,8 @@ class AdminEndpointAuthorizationConventionTest {
                         requirePermission == null ? null : requirePermission.action(),
                         expression.equals("hasRole('ADMIN')"),
                         expression.equals("hasAnyRole('ADMIN', 'MANAGER')"),
-                        AnnotatedElementUtils.findMergedAnnotation(method, RequireBoardPermission.class) != null));
+                        AnnotatedElementUtils.findMergedAnnotation(method, RequireBoardPermission.class) != null,
+                        expression.equals(TOTP_PENDING_EXPRESSION)));
             }
         }
         return handlers;

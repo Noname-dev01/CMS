@@ -109,6 +109,12 @@ cms:
   # false는 망이 격리된 설치와 시험용이다.
   password-breach-check:
     enabled: ${CMS_PASSWORD_BREACH_CHECK_ENABLED:true}
+  # 관리자 2단계 인증(TOTP, PLAN-totp-two-factor.md 결정 6). encryption-key는 비밀값 암호화 키(Base64 32바이트) — 기본값이 비어 있어
+  # 설정하지 않으면 기동이 실패한다(prod는 CMS_TOTP_ENCRYPTION_KEY 필수, dev는 application-dev.yml의 개발용 키).
+  # 키를 바꾸거나 잃으면 기존 등록이 모두 복호되지 않는다 — 복구 코드·ADMIN 해제로 다시 등록한다. issuer는 인증 앱에 보이는 이름(콜론 금지).
+  totp:
+    encryption-key: ${CMS_TOTP_ENCRYPTION_KEY:}
+    issuer: CMS
   # 공개 파일 전송(첨부·본문 이미지·배너·팝업 GET)의 동시 상한. 느린 수신자가 Tomcat 스레드를 모두 차지해 관리자 화면까지 멈추는 것을 막는다(PLAN-public-transfer-limit.md).
   # max-total은 server.tomcat.threads.max(기본 200)의 절반 이하여야 기동한다. max-per-ip는 브라우저의 HTTP/1.1 호스트당 연결 6개 기준으로 같은 IP 뒤의 사용자 몇 명을 수용한다 — 프록시 도입 시 재확인(docs/verification/deployment-edge.md).
   public-transfer:

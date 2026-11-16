@@ -39,6 +39,9 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareAuthenticationSuccessHandler {
 
+    /** 2단계 인증 코드 화면 */
+    public static final String TOTP_PAGE = "/admin/login/totp";
+
     private final VisitLogRepository visitLogRepository;
     private final LoginFailureService loginFailureService;
     private final NotificationRecorder notificationRecorder;
@@ -55,19 +58,35 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
     public void onAuthenticationSuccess(HttpServletRequest request,
                                         HttpServletResponse response,
                                         Authentication authentication) throws ServletException, IOException {
-        // 첫 작업: 상태·역할·해시 재확인 — 거부될 인증이 성공 방문으로 기록되면 안 되므로 방문 로그보다 먼저.
-        if (!verifyFreshMemberState(authentication)) {
+        boolean pending = TotpAuthorities.isPending(authentication);
+        // 첫 작업: 상태·역할·해시·2단계 사용 여부 재확인 — 거부될 인증이 성공 방문으로 기록되면 안 되므로 방문 로그보다 먼저.
+        if (!verifyFreshMemberState(authentication, pending)) {
             rejectAuthentication(request, response);
             return;
         }
 
-        // ROLE_ADMIN·ROLE_MANAGER 로그인만 방문으로 기록한다.
+        if (pending) {
+            // 비밀번호만 통과했다 — 2단계 화면으로. 방문 기록·알림 정리는 2단계 통과 때 한다(PLAN-totp-two-factor.md 결정 1).
+            CustomUserDetails details = (CustomUserDetails) authentication.getPrincipal();
+            request.getSession().setAttribute(TotpPendingState.SESSION_ATTRIBUTE,
+                    new TotpPendingState(details.getId(), LocalDateTime.now(clock)));
+            getRedirectStrategy().sendRedirect(request, response, TOTP_PAGE);
+            return;
+        }
+
+        recordCompletedLogin(request, authentication);
+        super.onAuthenticationSuccess(request, response, authentication);
+    }
+
+    /**
+     * 로그인 완료 기록(방문·읽은 알림 정리). 2단계 통과로 완전 권한이 된 뒤 {@code TotpLoginController}도 부른다.
+     * ROLE_ADMIN·ROLE_MANAGER 로그인만 방문으로 기록한다.
+     */
+    public void recordCompletedLogin(HttpServletRequest request, Authentication authentication) {
         if (hasAdminOrManagerRole(authentication.getAuthorities())) {
             tryLogVisit(request, authentication);
             tryPurgeOldReadNotifications(authentication);
         }
-
-        super.onAuthenticationSuccess(request, response, authentication);
     }
 
     /**
@@ -76,9 +95,12 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
      * 처리한다 — fail-open이면 DB 일시 장애 인터리빙에서 잠긴 계정 세션이 살아남는다.
      * (실패 카운트 리셋도 같은 트랜잭션에서 함께 수행된다 — 리셋 0행은 허용, 예외는 거부.)
      */
-    private boolean verifyFreshMemberState(Authentication authentication) {
+    private boolean verifyFreshMemberState(Authentication authentication, boolean pending) {
         try {
-            Optional<MemberSnapshot> found = loginFailureService.resetFailuresAndCheckActive(authentication.getName());
+            // 중간 상태는 실패 횟수를 리셋하지 않는다 — 리셋하면 2단계 오답 뒤 비밀번호 재로그인으로 대입 제한이 무력화된다
+            Optional<MemberSnapshot> found = pending
+                    ? loginFailureService.checkActive(authentication.getName())
+                    : loginFailureService.resetFailuresAndCheckActive(authentication.getName());
             if (found.isEmpty()) {
                 return false;
             }
@@ -88,8 +110,18 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
                 return false;
             }
 
+            // 로그인 진행 중 2단계 등록·해제가 커밋된 경합 — 토큰 종류와 현재 등록 상태가 다르면 거부한다.
+            // (등록 전 스냅샷으로 만든 완전 권한 세션, 해제 뒤에도 남는 중간 상태를 만들지 않는다)
+            if (snapshot.totpEnabled() != pending) {
+                return false;
+            }
+
             // 인증 중 역할 변경 경합 — 낡은 권한(특히 ADMIN)의 세션 생존 차단. 재로그인하면 새 권한으로 정상 로그인.
-            boolean roleMatches = authentication.getAuthorities().stream()
+            // 중간 상태 토큰에는 역할 권한이 없으므로 principal의 원래 역할과 비교한다.
+            Collection<? extends GrantedAuthority> granted = pending && authentication.getPrincipal() instanceof CustomUserDetails principal
+                    ? principal.getAuthorities()
+                    : authentication.getAuthorities();
+            boolean roleMatches = granted.stream()
                     .map(GrantedAuthority::getAuthority)
                     .anyMatch(authority -> authority.equals(snapshot.role().name()));
             if (!roleMatches) {

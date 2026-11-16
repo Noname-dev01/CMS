@@ -116,6 +116,16 @@ class RateLimitFilterTest {
     }
 
     @Test
+    @DisplayName("FM4: 2단계 중간 상태(비밀번호만 통과, 권한 TOTP_PENDING)는 로그인 면제를 받지 않고 익명과 같은 버킷을 쓴다(PLAN-totp-two-factor.md 결정 3)")
+    void exemptRule_totpPendingIsNotExempt() throws Exception {
+        RequestPostProcessor ip = from("10.10.10.6");
+        RequestPostProcessor pending = user("p").authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("TOTP_PENDING"));
+        mockMvc.perform(get("/content-images/rl-exempt").with(ip).with(pending)).andExpect(status().isOk());
+        mockMvc.perform(get("/content-images/rl-exempt").with(ip).with(pending)).andExpect(status().isOk());
+        mockMvc.perform(get("/content-images/rl-exempt").with(ip).with(pending)).andExpect(status().isTooManyRequests());
+    }
+
+    @Test
     @DisplayName("면제 규칙: 익명은 capacity 뒤 429, 같은 IP의 로그인 요청은 capacity를 넘겨도 통과하고 버킷을 소비하지 않는다")
     void exemptRule_authenticatedBypassesAndDoesNotConsume() throws Exception {
         RequestPostProcessor ip = from("10.10.10.5");

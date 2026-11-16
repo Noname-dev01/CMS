@@ -1,6 +1,7 @@
 package com.cms.config.ratelimit;
 
 import com.cms.common.api.ApiErrorResponse;
+import com.cms.config.auth.TotpAuthorities;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -9,8 +10,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -74,10 +73,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
         reject(request, response, decision);
     }
 
+    /** 로그인 사용자인가 — 2단계 중간 상태(비밀번호만 통과)는 아니다(PLAN-totp-two-factor.md 결정 3). */
     private static boolean isAuthenticatedUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        return authentication != null && authentication.isAuthenticated()
-                && !(authentication instanceof AnonymousAuthenticationToken);
+        return TotpAuthorities.isFullyAuthenticated(SecurityContextHolder.getContext().getAuthentication());
     }
 
     private RateLimitRule findMatchingRule(HttpServletRequest request) {

@@ -135,6 +135,19 @@ class PublicTransferLimitIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("FM4: 2단계 중간 상태 세션은 로그인 면제를 받지 않아 포화 상태에서 익명처럼 503이다(PLAN-totp-two-factor.md 결정 3)")
+    void totpPendingDoesNotBypassLimit() throws Exception {
+        saturateTotal();
+        com.cms.config.auth.CustomUserDetails details = new com.cms.config.auth.CustomUserDetails(admin(), true);
+        int status = mockMvc.perform(get(CONTENT_IMAGE).with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
+                        .authentication(org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated(details, null,
+                                java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("TOTP_PENDING"))))))
+                .andReturn().getResponse().getStatus();
+
+        assertThat(status).isEqualTo(503);
+    }
+
+    @Test
     @DisplayName("포화 상태에서 공개 페이지와 관리자 화면은 정상이다")
     void pagesSurviveSaturation() throws Exception {
         saturateTotal();

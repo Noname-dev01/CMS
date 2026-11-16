@@ -4,6 +4,7 @@ import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
+import com.cms.admin.member.repository.MemberTotpRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -36,17 +37,19 @@ public class LoginFailureService {
     public static final Duration LOCK_DURATION = Duration.ofMinutes(30);
 
     private final MemberRepository memberRepository;
+    private final MemberTotpRepository memberTotpRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     /**
-     * 성공 핸들러의 재확인용 스냅샷 — 인증 완료 직전의 fresh 상태·역할·비밀번호 해시.
+     * 성공 핸들러의 재확인용 스냅샷 — 인증 완료 직전의 fresh 상태·역할·비밀번호 해시·2단계 사용 여부.
+     * 2단계 사용 여부는 토큰 종류(중간 상태인가)와 대조한다 — 로그인 진행 중 등록·해제가 커밋된 경합을 거부하기 위해서다.
      * 해시를 담으므로 toString에서 가린다.
      */
-    public record MemberSnapshot(MemberStatus status, Role role, String passwordHash) {
+    public record MemberSnapshot(MemberStatus status, Role role, String passwordHash, boolean totpEnabled) {
         @Override
         public String toString() {
-            return "MemberSnapshot{status=" + status + ", role=" + role + "}";
+            return "MemberSnapshot{status=" + status + ", role=" + role + ", totpEnabled=" + totpEnabled + "}";
         }
     }
 
@@ -85,6 +88,24 @@ public class LoginFailureService {
     }
 
     /**
+     * 2단계 인증 실패 누적으로 계정을 잠근다 — 호출자가 이 회원 행을 잠근 트랜잭션 안에서 부른다(PLAN-totp-two-factor.md 결정 2-3).
+     * 잠금 전이·세션 만료·감사는 비밀번호 실패 잠금과 같은 규칙·이벤트를 쓴다(30분 자동 해제, AFTER_COMMIT 세션 만료 → 감사).
+     *
+     * @return 이번 호출로 잠겼으면 true(이미 ACTIVE가 아니면 false)
+     */
+    @Transactional
+    public boolean lockForSecondFactorFailures(Member member, String requestIp, String requestUri) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (memberRepository.lockByIdIfActive(member.getId(), now) == 0) {
+            return false;
+        }
+        eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));
+        eventPublisher.publishEvent(new AdminAccountAutoLockEvent(
+                member.getId(), member.getUserId(), requestIp, requestUri, member.getUserId(), now));
+        return true;
+    }
+
+    /**
      * 성공 로그인 시 실패 카운트를 리셋하고, 인증 완료 직전의 fresh 상태·역할·해시 스냅샷을 반환한다.
      * 리셋은 best-effort(경합으로 이미 잠겼으면 0행 no-op — 잠금 보존)지만,
      * 이 메서드의 예외는 호출자(성공 핸들러)가 로그인 거부(fail-closed)로 처리해야 한다.
@@ -93,8 +114,21 @@ public class LoginFailureService {
     public Optional<MemberSnapshot> resetFailuresAndCheckActive(String userId) {
         memberRepository.resetFailedLoginCountIfActive(userId);
         // clearAutomatically로 1차 캐시가 비워져 fresh 조회
+        return snapshot(userId);
+    }
+
+    /**
+     * 실패 횟수를 리셋하지 않고 fresh 스냅샷만 준다 — 2단계를 기다리는 비밀번호 단계 성공용(PLAN-totp-two-factor.md 결정 1).
+     * 여기서 리셋하면 "2단계 오답 → 비밀번호 재로그인"으로 대입 제한이 무력화된다. 리셋은 2단계까지 통과했을 때 한다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<MemberSnapshot> checkActive(String userId) {
+        return snapshot(userId);
+    }
+
+    private Optional<MemberSnapshot> snapshot(String userId) {
         return memberRepository.findByUserId(userId)
-                .map(m -> new MemberSnapshot(m.getStatus(), m.getUserType(), m.getPwd()));
+                .map(m -> new MemberSnapshot(m.getStatus(), m.getUserType(), m.getPwd(), memberTotpRepository.existsById(m.getId())));
     }
 
     /**

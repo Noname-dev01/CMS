@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <title>2단계 인증</title>
+
+    <link href="/vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
+    <link
+            href="https://fonts.googleapis.com/css?family=Nunito:200,200i,300,300i,400,400i,600,600i,700,700i,800,800i,900,900i"
+            rel="stylesheet">
+    <link href="/css/sb-admin-2.min.css" rel="stylesheet">
+    <link href="/css/admin/login.css" rel="stylesheet">
+</head>
+
+<body class="bg-gradient-primary">
+
+<div class="container">
+    <div class="row justify-content-center align-items-center min-vh-100">
+        <div class="col-xl-6 col-lg-7 col-md-9">
+            <div class="card o-hidden border-0 shadow-lg">
+                <div class="card-body p-5">
+                    <div class="text-center">
+                        <h1 class="h4 text-gray-900 mb-2">2단계 인증</h1>
+                        <p class="small text-muted mb-4">인증 앱에 표시된 6자리 코드를 입력하세요.<br>
+                            인증 앱을 쓸 수 없으면 등록할 때 받은 복구 코드를 입력하세요.</p>
+                    </div>
+                    <div th:if="${param.error}" class="alert alert-danger text-center mb-3" role="alert" id="totpError">
+                        <i class="fas fa-exclamation-circle mr-2"></i>
+                        인증 코드가 올바르지 않습니다. 여러 번 틀리면 계정이 잠깁니다.
+                    </div>
+                    <div th:if="${param.reused}" class="alert alert-warning text-center mb-3" role="alert" id="totpReused">
+                        <i class="fas fa-clock mr-2"></i>
+                        이미 사용한 코드입니다. 인증 앱에 다음 코드가 나오면 입력하세요.
+                    </div>
+                    <form th:action="@{/admin/login/totp}" method="post" class="user">
+                        <div class="form-group">
+                            <label for="totpCode" class="sr-only">인증 코드</label>
+                            <input type="text" name="code" id="totpCode" class="form-control form-control-user text-center"
+                                   autocomplete="one-time-code" autocapitalize="characters" spellcheck="false"
+                                   maxlength="40" required autofocus
+                                   placeholder="6자리 코드 또는 복구 코드">
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-user btn-block">확인</button>
+                    </form>
+                    <hr>
+                    <!-- 다른 계정으로 로그인: 중간 상태 세션을 로그아웃으로 끝낸다(CSRF 포함 POST) -->
+                    <form th:action="@{/admin/logout}" method="post" class="text-center">
+                        <button type="submit" class="btn btn-link small p-0">다른 계정으로 로그인</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</body>
+
+</html>
