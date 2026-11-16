@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.WebUtils;
@@ -31,8 +32,10 @@ import java.io.IOException;
 public class LoginSessionMutexFilter extends OncePerRequestFilter {
 
     /** 폼 로그인 처리 URL과 같은 매처 규칙(PathPattern) — {@code SecurityConfig.formLogin().loginProcessingUrl}과 같은 경로. */
-    static final RequestMatcher LOGIN_PROCESSING =
-            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/admin/login");
+    static final RequestMatcher LOGIN_PROCESSING = new OrRequestMatcher(
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/admin/login"),
+            // 2단계 코드 제출 — 판정·승격(컨텍스트 저장)을 같은 세션의 재로그인·이중 제출과 직렬화한다(PLAN-totp-two-factor.md 결정 2)
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/admin/login/totp"));
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

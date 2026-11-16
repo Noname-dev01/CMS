@@ -75,7 +75,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
         given(auth.getPrincipal()).willReturn(new CustomUserDetails(memberOf(principalRole)));
 
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, principalRole, AUTH_HASH)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, principalRole, AUTH_HASH, false)));
         return auth;
     }
 
@@ -143,7 +143,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_rejected_noNotificationWork() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH, false)));
 
         handler.onAuthenticationSuccess(requestWithIp("127.0.0.1"), new MockHttpServletResponse(), auth);
 
@@ -309,7 +309,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_freshStatusLocked_rejected() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH, false)));
 
         assertRejected(auth);
     }
@@ -319,7 +319,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_roleDemotedDuringAuth_rejected() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, false)));
 
         assertRejected(auth);
     }
@@ -329,7 +329,70 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_passwordChangedDuringAuth_rejected() throws Exception {
         Authentication auth = authWith("ROLE_ADMIN");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "{bcrypt}new-hash")));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "{bcrypt}new-hash", false)));
+
+        assertRejected(auth);
+    }
+
+    // ==================== 2단계 인증(TOTP) — PLAN-totp-two-factor.md 결정 1 ====================
+
+    /** 비밀번호만 통과한 중간 상태 토큰 — 권한은 TOTP_PENDING뿐, principal은 원래 역할을 가진 회원이다. */
+    private Authentication pendingAuth(Role role) {
+        Authentication auth = mock(Authentication.class);
+        given(auth.getName()).willReturn("testUser");
+        List<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(TotpAuthorities.PENDING));
+        given(auth.getAuthorities()).willAnswer(inv -> authorities);
+        given(auth.getPrincipal()).willReturn(new CustomUserDetails(memberOf(role), true));
+        return auth;
+    }
+
+    @Test
+    @DisplayName("중간 상태 + 스냅샷 일치(2단계 사용 중) → 실패 횟수를 리셋하지 않는 조회만 하고, 세션에 대기 상태를 두고 코드 화면으로. 방문 기록 없음")
+    void onAuthSuccess_pending_redirectsToCodePageWithoutReset() throws Exception {
+        Authentication auth = pendingAuth(Role.ROLE_MANAGER);
+        given(loginFailureService.checkActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, true)));
+        MockHttpServletRequest req = requestWithIp("127.0.0.1");
+        MockHttpSession session = new MockHttpSession();
+        req.setSession(session);
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        handler.onAuthenticationSuccess(req, res, auth);
+
+        assertThat(res.getRedirectedUrl()).isEqualTo("/admin/login/totp");
+        TotpPendingState state = (TotpPendingState) session.getAttribute(TotpPendingState.SESSION_ATTRIBUTE);
+        assertThat(state.memberId()).isEqualTo(1L);
+        assertThat(state.since()).isEqualTo(java.time.LocalDateTime.now(FIXED_KST_CLOCK));
+        verify(loginFailureService, never()).resetFailuresAndCheckActive(anyString());
+        verifyNoInteractions(visitLogRepository, notificationRecorder);
+    }
+
+    @Test
+    @DisplayName("FM3: 중간 상태인데 스냅샷은 2단계 미사용(로그인 중 해제 커밋) → 거부")
+    void onAuthSuccess_pendingButDisabledMeanwhile_rejected() throws Exception {
+        Authentication auth = pendingAuth(Role.ROLE_ADMIN);
+        given(loginFailureService.checkActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, false)));
+
+        assertRejected(auth);
+    }
+
+    @Test
+    @DisplayName("FM3: 완전 토큰인데 스냅샷은 2단계 사용 중(로그인 중 등록 커밋) → 거부 — 등록 전 스냅샷으로 만든 완전 권한 세션을 남기지 않는다")
+    void onAuthSuccess_fullButEnabledMeanwhile_rejected() throws Exception {
+        Authentication auth = authWith("ROLE_ADMIN");
+        given(loginFailureService.resetFailuresAndCheckActive(anyString()))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, true)));
+
+        assertRejected(auth);
+    }
+
+    @Test
+    @DisplayName("중간 상태라도 상태·역할·해시 불일치는 기존처럼 거부")
+    void onAuthSuccess_pendingWithStaleRole_rejected() throws Exception {
+        Authentication auth = pendingAuth(Role.ROLE_ADMIN);
+        given(loginFailureService.checkActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, true)));
 
         assertRejected(auth);
     }

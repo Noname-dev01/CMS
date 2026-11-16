@@ -49,6 +49,83 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- 2단계 인증(TOTP) — PLAN-totp-two-factor.md 결정 8 -->
+                    <div class="col-lg-6">
+                        <div class="card shadow mb-4" id="totpCard">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary">2단계 인증</h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="totpNotice" class="alert alert-warning d-none" role="alert"></div>
+                                <div id="totpAlert" class="alert alert-danger d-none" role="alert"></div>
+
+                                <div id="totpLoading" class="text-muted small">불러오는 중…</div>
+
+                                <!-- 미사용 -->
+                                <div id="totpOff" class="d-none">
+                                    <p>로그인할 때 비밀번호 다음에 인증 앱(Google Authenticator 등)의 6자리 코드를 한 번 더 입력합니다.
+                                        비밀번호가 유출돼도 휴대폰이 없으면 로그인할 수 없습니다.</p>
+                                    <button type="button" class="btn btn-primary" id="btnTotpStart">2단계 인증 사용하기</button>
+                                </div>
+
+                                <!-- 등록 진행 -->
+                                <div id="totpEnroll" class="d-none">
+                                    <ol class="pl-3 small">
+                                        <li>인증 앱으로 아래 QR 코드를 찍습니다. 찍을 수 없으면 설정 키를 직접 입력합니다.</li>
+                                        <li>앱에 표시된 6자리 코드와 현재 비밀번호를 입력합니다.</li>
+                                    </ol>
+                                    <div class="text-center mb-3">
+                                        <img id="totpQr" alt="2단계 인증 등록 QR 코드" width="200" height="200">
+                                    </div>
+                                    <p class="small mb-3">설정 키: <code id="totpSecret" class="user-select-all"></code></p>
+                                    <form id="totpConfirmForm" novalidate>
+                                        <div class="form-group">
+                                            <label for="totpConfirmCode">인증 코드</label>
+                                            <input type="text" class="form-control" id="totpConfirmCode" inputmode="numeric"
+                                                   autocomplete="one-time-code" maxlength="6" placeholder="6자리 숫자">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="totpConfirmPassword">현재 비밀번호</label>
+                                            <input type="password" class="form-control" id="totpConfirmPassword" autocomplete="current-password">
+                                        </div>
+                                        <p class="small text-muted">등록하면 보안을 위해 모든 세션이 종료되고 다시 로그인해야 합니다.</p>
+                                        <button type="submit" class="btn btn-primary" id="btnTotpConfirm">등록</button>
+                                        <button type="button" class="btn btn-secondary" id="btnTotpCancel">취소</button>
+                                    </form>
+                                </div>
+
+                                <!-- 등록 완료: 복구 코드 1회 표시 -->
+                                <div id="totpRecovery" class="d-none">
+                                    <div class="alert alert-success" role="alert">2단계 인증을 등록했습니다.</div>
+                                    <p><strong>복구 코드</strong> — 휴대폰을 잃었을 때 인증 코드 대신 한 번씩 쓸 수 있습니다.
+                                        <span class="text-danger">이 화면을 벗어나면 다시 볼 수 없으니</span> 안전한 곳에 보관하세요.</p>
+                                    <pre id="totpRecoveryList" class="bg-light p-3 border rounded"></pre>
+                                    <button type="button" class="btn btn-outline-primary btn-sm" id="btnTotpCopy">복사</button>
+                                    <a class="btn btn-primary btn-sm" href="/admin/login" id="btnTotpRelogin">보관했습니다 — 다시 로그인</a>
+                                </div>
+
+                                <!-- 사용 중 -->
+                                <div id="totpOn" class="d-none">
+                                    <p class="mb-1"><span class="badge badge-success">사용 중</span>
+                                        <span class="small text-muted ml-2">시작: <span id="totpEnabledAt"></span></span></p>
+                                    <p class="small">남은 복구 코드: <strong id="totpRemaining"></strong>개
+                                        <span class="text-muted">— 복구 코드를 새로 받으려면 끄고 다시 등록합니다.</span></p>
+                                    <form id="totpDisableForm" novalidate>
+                                        <div class="form-group">
+                                            <label for="totpDisableCode">인증 코드 또는 복구 코드</label>
+                                            <input type="text" class="form-control" id="totpDisableCode" autocomplete="one-time-code" maxlength="40">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="totpDisablePassword">현재 비밀번호</label>
+                                            <input type="password" class="form-control" id="totpDisablePassword" autocomplete="current-password">
+                                        </div>
+                                        <button type="submit" class="btn btn-outline-danger" id="btnTotpDisable">2단계 인증 끄기</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -150,6 +227,177 @@
             changeButton.disabled = false;
         }
     });
+</script>
+
+<script>
+    // 2단계 인증 카드 — 서버 값은 모두 textContent로만 넣는다(HTML로 해석하지 않는다).
+    (function () {
+        const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
+        const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
+        const el = function (id) { return document.getElementById(id); };
+        const sections = ["totpLoading", "totpOff", "totpEnroll", "totpRecovery", "totpOn"];
+        let enrollmentId = null;
+
+        function show(id) {
+            sections.forEach(function (s) { el(s).classList.toggle("d-none", s !== id); });
+        }
+
+        function alertError(message) {
+            el("totpAlert").textContent = message;
+            el("totpAlert").classList.remove("d-none");
+        }
+
+        function clearAlert() {
+            el("totpAlert").classList.add("d-none");
+        }
+
+        async function errorMessage(response, fallback) {
+            try {
+                const body = await response.json();
+                return body.message || fallback;
+            } catch (e) {
+                return fallback;
+            }
+        }
+
+        async function loadStatus() {
+            try {
+                const response = await fetch("/admin/api/members/me/totp", { headers: { "Accept": "application/json" } });
+                if (!response.ok) {
+                    alertError(await errorMessage(response, "2단계 인증 상태를 불러오지 못했습니다."));
+                    return;
+                }
+                const status = await response.json();
+                if (status.enabled) {
+                    el("totpEnabledAt").textContent = (status.enabledAt || "").replace("T", " ").substring(0, 16);
+                    el("totpRemaining").textContent = String(status.remainingRecoveryCodes);
+                    show("totpOn");
+                } else {
+                    show("totpOff");
+                }
+                if (new URLSearchParams(window.location.search).has("recoveryCodeUsed")) {
+                    el("totpNotice").textContent = "복구 코드로 로그인했습니다. 남은 복구 코드는 " + status.remainingRecoveryCodes
+                        + "개입니다. 인증 앱을 잃었다면 2단계 인증을 끄고 새 휴대폰으로 다시 등록하세요.";
+                    el("totpNotice").classList.remove("d-none");
+                }
+            } catch (e) {
+                alertError("네트워크 연결을 확인해주세요.");
+            }
+        }
+
+        el("btnTotpStart").addEventListener("click", async function () {
+            clearAlert();
+            this.disabled = true;
+            try {
+                const response = await fetch("/admin/api/members/me/totp-enrollments", {
+                    method: "POST", headers: { [csrfHeader]: csrfToken, "Accept": "application/json" }
+                });
+                if (!response.ok) {
+                    alertError(await errorMessage(response, "등록을 시작하지 못했습니다."));
+                    return;
+                }
+                const pending = await response.json();
+                enrollmentId = pending.enrollmentId;
+                el("totpQr").src = "data:image/png;base64," + pending.qrPngBase64;
+                el("totpSecret").textContent = pending.secret;
+                el("totpConfirmForm").reset();
+                show("totpEnroll");
+                el("totpConfirmCode").focus();
+            } catch (e) {
+                alertError("네트워크 연결을 확인해주세요.");
+            } finally {
+                this.disabled = false;
+            }
+        });
+
+        el("btnTotpCancel").addEventListener("click", function () {
+            clearAlert();
+            enrollmentId = null;
+            el("totpQr").removeAttribute("src");
+            el("totpSecret").textContent = "";
+            show("totpOff");
+        });
+
+        el("totpConfirmForm").addEventListener("submit", async function (event) {
+            event.preventDefault();
+            clearAlert();
+            const code = el("totpConfirmCode").value.trim();
+            const password = el("totpConfirmPassword").value;
+            if (!/^[0-9]{6}$/.test(code) || !password) {
+                alertError("6자리 인증 코드와 현재 비밀번호를 입력해주세요.");
+                return;
+            }
+            const button = el("btnTotpConfirm");
+            button.disabled = true;
+            try {
+                const response = await fetch("/admin/api/members/me/totp", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json", "Accept": "application/json", [csrfHeader]: csrfToken },
+                    body: JSON.stringify({ enrollmentId: enrollmentId, code: code, currentPassword: password })
+                });
+                if (!response.ok) {
+                    alertError(await errorMessage(response, "등록하지 못했습니다."));
+                    if (response.status === 409) {
+                        show("totpOff"); // 대기 만료·다른 화면에서 새로 시작 — 처음부터 다시
+                    }
+                    return;
+                }
+                const result = await response.json();
+                el("totpRecoveryList").textContent = result.recoveryCodes.join("\n");
+                el("totpQr").removeAttribute("src");
+                el("totpSecret").textContent = "";
+                show("totpRecovery");
+            } catch (e) {
+                alertError("네트워크 연결을 확인해주세요.");
+            } finally {
+                button.disabled = false;
+            }
+        });
+
+        el("btnTotpCopy").addEventListener("click", async function () {
+            try {
+                await navigator.clipboard.writeText(el("totpRecoveryList").textContent);
+                this.textContent = "복사됨";
+            } catch (e) {
+                this.textContent = "직접 선택해 복사하세요";
+            }
+        });
+
+        el("totpDisableForm").addEventListener("submit", async function (event) {
+            event.preventDefault();
+            clearAlert();
+            const code = el("totpDisableCode").value.trim();
+            const password = el("totpDisablePassword").value;
+            if (!code || !password) {
+                alertError("인증 코드(또는 복구 코드)와 현재 비밀번호를 입력해주세요.");
+                return;
+            }
+            if (!window.confirm("2단계 인증을 끄면 비밀번호만으로 로그인됩니다. 끌까요?")) {
+                return;
+            }
+            const button = el("btnTotpDisable");
+            button.disabled = true;
+            try {
+                const response = await fetch("/admin/api/members/me/totp", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json", "Accept": "application/json", [csrfHeader]: csrfToken },
+                    body: JSON.stringify({ code: code, currentPassword: password })
+                });
+                if (!response.ok) {
+                    alertError(await errorMessage(response, "2단계 인증을 끄지 못했습니다."));
+                    return;
+                }
+                el("totpDisableForm").reset();
+                await loadStatus();
+            } catch (e) {
+                alertError("네트워크 연결을 확인해주세요.");
+            } finally {
+                button.disabled = false;
+            }
+        });
+
+        loadStatus();
+    })();
 </script>
 
 </body>
