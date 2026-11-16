@@ -11,12 +11,9 @@ import com.cms.admin.member.totp.TotpCodeVerifier;
 import com.cms.admin.member.totp.TotpSecretCipher;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.QrTestSupport;
 import com.cms.support.TestMembers;
 import com.cms.support.TotpTestSupport;
-import com.google.zxing.BinaryBitmap;
-import com.google.zxing.RGBLuminanceSource;
-import com.google.zxing.common.HybridBinarizer;
-import com.google.zxing.qrcode.QRCodeReader;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,9 +30,6 @@ import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -134,10 +128,7 @@ class MemberTotpApiIntegrationTest extends MariaDbContainerSupport {
         JsonNode pending = startEnrollment(session);
         String uri = pending.get("otpauthUri").asText();
         assertThat(uri).startsWith("otpauth://totp/CMS:").contains("secret=" + pending.get("secret").asText());
-        BufferedImage qr = ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(pending.get("qrPngBase64").asText())));
-        int[] pixels = qr.getRGB(0, 0, qr.getWidth(), qr.getHeight(), null, 0, qr.getWidth());
-        assertThat(new QRCodeReader().decode(new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(qr.getWidth(), qr.getHeight(), pixels)))).getText())
-                .isEqualTo(uri);
+        assertThat(QrTestSupport.decode(Base64.getDecoder().decode(pending.get("qrPngBase64").asText()))).isEqualTo(uri);
 
         String body = mockMvc.perform(put("/admin/api/members/me/totp").session(session).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
