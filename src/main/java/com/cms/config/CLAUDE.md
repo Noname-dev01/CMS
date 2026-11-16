@@ -49,7 +49,7 @@
 
 ## 2단계 인증(TOTP) (2026-11-14 — `adversarial-review/plan/PLAN-totp-two-factor.md`, 이슈 #251)
 
-회원별 선택 기능이다(ADMIN·MANAGER가 내 설정에서 켠다). 등록·해제·비밀값 보관은 `com.cms.admin.member`의 `CLAUDE.md`. 여기에는 로그인 경로의 계약만 둔다.
+회원별 선택 기능이다(ADMIN·MANAGER가 보안 설정에서 켠다). 등록·해제·비밀값 보관은 `com.cms.admin.member`의 `CLAUDE.md`. 여기에는 로그인 경로의 계약만 둔다.
 
 - **중간 상태 = 역할 권한이 없는 인증**: 2단계를 켠 회원이 비밀번호를 통과하면 `TotpAwareAuthenticationProvider`가 권한 `{TOTP_PENDING}` 하나뿐인 토큰을 만든다. 모든 관리 게이트(`hasRole`·`featureReadGate`·`@PreAuthorize`·`AdminPermissionEvaluator`)가 역할 권한을 보므로 따로 막지 않아도 거부된다. 접근 거부 처리기는 이 상태를 "아직 로그인 안 함"으로 다뤄 화면은 코드 화면으로 302, `/admin/api/**`는 JSON 401을 준다. 권한 축소를 성공 처리기가 아니라 **프로바이더에서** 하는 이유: 성공 처리기는 컨텍스트가 세션에 저장된 뒤에 돈다(Spring Security 7.0.7 `AbstractAuthenticationProcessingFilter` 바이트코드).
 - **`AuthenticationProvider` 빈은 하나만**: 7.0.7의 전역 인증 관리자는 이 타입의 빈이 **정확히 하나**일 때만 그 빈을 쓴다(둘 이상이면 INFO 로그만 남기고 아무것도 등록하지 않는다 — `InitializeAuthenticationProviderBeanManagerConfigurer`). 새 프로바이더 빈을 추가하면 2단계가 조용히 사라지므로 `TotpPendingAuthorizationIntegrationTest`가 실제 체인에서 `TOTP_PENDING` 발급을 고정한다(변이: 빈 제거 → 7건 중 6건 실패). `@EnableMultiFactorAuthentication`은 쓰지 않는다 — 켜면 같은 이름 재로그인 때 기존 권한이 병합된다(`shouldPerformMfa`).
