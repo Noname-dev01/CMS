@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head th:fragment="adminHead">
+<!--/* 화면은 adminHead(~{::title})로 자기 head의 <title>을 넘긴다 — 탭 제목이 화면마다 달라진다(이슈 #262). */-->
+<head th:fragment="adminHead(title)">
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
@@ -8,7 +9,7 @@
   <meta name="author" content="">
   <meta name="_csrf" th:content="${_csrf.token}"/>
   <meta name="_csrf_header" th:content="${_csrf.headerName}"/>
-  <title>관리자 대시보드</title>
+  <title th:replace="${title}">관리자 대시보드</title>
 
   <!-- Custom fonts for this template-->
   <link th:href="@{/vendor/fontawesome-free/css/all.min.css}" rel="stylesheet">
