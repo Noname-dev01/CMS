@@ -2,7 +2,9 @@
 <html lang="en"
       xmlns:th="http://www.thymeleaf.org"
       xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
-<head th:replace="~{admin/fragments/head :: adminHead}"></head>
+<head th:replace="~{admin/fragments/head :: adminHead(~{::title})}">
+    <title>관리자 대시보드</title>
+</head>
 
 <body id="page-top">
 

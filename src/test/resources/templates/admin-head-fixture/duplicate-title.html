@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<!--/* AdminHeadTitleRenderingTest 전용: 본문의 속성 있는 SVG <title>도 ~{::title}에 잡혀 head에 들어가는 실패 모드를 재현한다. */-->
+<head th:replace="~{admin/fragments/head :: adminHead(~{::title})}">
+    <title>픽스처 화면</title>
+</head>
+<body>
+<svg><title id="icon-title">아이콘</title></svg>
+</body>
+</html>

@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html xmlns:th="http://www.thymeleaf.org">
-<head th:replace="~{admin/fragments/head :: adminHead}">
+<head th:replace="~{admin/fragments/head :: adminHead(~{::title})}">
     <title>권한 관리</title>
 </head>
 <body id="page-top">
 <!--
-    th:replace는 head 태그 자체를 통째로 adminHead 프래그먼트로 치환하므로 원래 head 안의 title·link·style은 렌더링되지 않는다.
+    th:replace는 head 태그 자체를 통째로 adminHead 프래그먼트로 치환하므로 원래 head 안의 link·style은 렌더링되지 않는다(title만 조각 인자로 넘어간다).
     페이지 전용 CSS는 body 시작 지점에 둔다(menu/manage.html 컨벤션).
 -->
 <style>
