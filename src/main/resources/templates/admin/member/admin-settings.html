@@ -111,12 +111,34 @@
                                     <a class="btn btn-primary btn-sm" href="/admin/login" id="btnTotpRelogin">보관했습니다 — 다시 로그인</a>
                                 </div>
 
+                                <!-- 복구 코드 재발급 완료: 새 코드 1회 표시(세션 유지) -->
+                                <div id="totpReissued" class="d-none">
+                                    <div class="alert alert-success" role="alert">복구 코드를 새로 발급했습니다. 이전 복구 코드는 더 이상 쓸 수 없습니다.</div>
+                                    <p><strong>새 복구 코드</strong> — <span class="text-danger">이 화면을 벗어나면 다시 볼 수 없으니</span> 안전한 곳에 보관하세요.</p>
+                                    <pre id="totpReissuedList" class="bg-light p-3 border rounded"></pre>
+                                    <button type="button" class="btn btn-outline-primary btn-sm" id="btnTotpReissuedCopy">복사</button>
+                                    <button type="button" class="btn btn-primary btn-sm" id="btnTotpReissuedDone">보관했습니다</button>
+                                </div>
+
                                 <!-- 사용 중 -->
                                 <div id="totpOn" class="d-none">
                                     <p class="mb-1"><span class="badge badge-success">사용 중</span>
                                         <span class="small text-muted ml-2">시작: <span id="totpEnabledAt"></span></span></p>
                                     <p class="small">남은 복구 코드: <strong id="totpRemaining"></strong>개
-                                        <span class="text-muted">— 복구 코드를 새로 받으려면 끄고 다시 등록합니다.</span></p>
+                                        <span class="text-muted">— 부족하면 아래에서 새로 받을 수 있습니다(기존 코드는 모두 무효).</span></p>
+                                    <!-- 복구 코드 재발급 — PLAN-totp-recovery-code-reissue.md 결정 4 -->
+                                    <form id="totpReissueForm" class="mb-4" novalidate>
+                                        <div class="form-group">
+                                            <label for="totpReissueCode">인증 앱의 6자리 코드</label>
+                                            <input type="text" class="form-control" id="totpReissueCode" inputmode="numeric"
+                                                   autocomplete="one-time-code" maxlength="6">
+                                        </div>
+                                        <div class="form-group">
+                                            <label for="totpReissuePassword">현재 비밀번호</label>
+                                            <input type="password" class="form-control" id="totpReissuePassword" autocomplete="current-password">
+                                        </div>
+                                        <button type="submit" class="btn btn-outline-primary" id="btnTotpReissue">복구 코드 새로 받기</button>
+                                    </form>
                                     <form id="totpDisableForm" novalidate>
                                         <div class="form-group">
                                             <label for="totpDisableCode">인증 코드 또는 복구 코드</label>
@@ -264,8 +286,16 @@
         const csrfToken = document.querySelector('meta[name="_csrf"]').getAttribute('content');
         const csrfHeader = document.querySelector('meta[name="_csrf_header"]').getAttribute('content');
         const el = function (id) { return document.getElementById(id); };
-        const sections = ["totpLoading", "totpOff", "totpEnroll", "totpRecovery", "totpOn"];
+        const sections = ["totpLoading", "totpOff", "totpEnroll", "totpRecovery", "totpReissued", "totpOn"];
         let enrollmentId = null;
+        // 재발급·해제 상호 배제 — 늦게 도착한 재발급 응답이 그 사이 해제로 지워진 코드를 보여 주지 않게(PLAN 결정 4)
+        let totpBusy = false;
+
+        function setTotpBusy(busy) {
+            totpBusy = busy;
+            el("btnTotpReissue").disabled = busy;
+            el("btnTotpDisable").disabled = busy;
+        }
 
         function show(id) {
             sections.forEach(function (s) { el(s).classList.toggle("d-none", s !== id); });
@@ -383,17 +413,121 @@
             }
         });
 
-        el("btnTotpCopy").addEventListener("click", async function () {
+        async function copyCodes(button, listId) {
             try {
-                await navigator.clipboard.writeText(el("totpRecoveryList").textContent);
-                this.textContent = "복사됨";
+                await navigator.clipboard.writeText(el(listId).textContent);
+                button.textContent = "복사됨";
             } catch (e) {
-                this.textContent = "직접 선택해 복사하세요";
+                button.textContent = "직접 선택해 복사하세요";
             }
+        }
+
+        el("btnTotpCopy").addEventListener("click", function () { copyCodes(this, "totpRecoveryList"); });
+        el("btnTotpReissuedCopy").addEventListener("click", function () { copyCodes(this, "totpReissuedList"); });
+
+        // 결과를 확정할 수 없는 경우의 안내 — 서버가 이미 커밋했을 수 있으니 기존 코드 무효 가능성과 다음 코드로 다시 받는 길을 함께 알린다
+        const REISSUE_NETWORK = "네트워크 연결이 끊겨 결과를 확인하지 못했습니다. 재발급이 이미 처리됐다면 기존 복구 코드는 더 이상 쓸 수 없습니다."
+            + " 연결을 확인한 뒤 인증 앱에 새 코드가 표시되면 다시 받아 주세요.";
+        const REISSUE_SERVER = "서버 응답에 문제가 있어 결과를 확인하지 못했습니다. 재발급이 이미 처리됐다면 기존 복구 코드는 더 이상 쓸 수 없습니다."
+            + " 잠시 후 인증 앱에 새 코드가 표시되면 다시 받아 주세요.";
+        // 200은 커밋 뒤에만 나가므로 처리된 것이 확실하다
+        const REISSUE_UNREADABLE = "재발급은 처리됐지만 새 복구 코드를 표시하지 못했습니다. 기존 복구 코드는 더 이상 쓸 수 없습니다."
+            + " 인증 앱에 새 코드가 표시되면 다시 받아 주세요.";
+
+        async function reissueOutcomeUnknown(message) {
+            alertError(message);
+            el("totpReissueForm").reset(); // 처리됐다면 같은 코드는 다시 쓸 수 없고, 비밀번호를 화면에 남기지 않는다
+            await loadStatus();
+            // 상태 조회도 실패하면 loadStatus가 같은 경고 칸을 덮어쓴다 — 기존 코드 무효 가능성 안내를 잃지 않게 다시 세우고 덧붙인다
+            if (el("totpAlert").textContent !== message) {
+                alertError(message + " (현재 상태를 불러오지 못했습니다.)");
+            }
+        }
+
+        el("totpReissueForm").addEventListener("submit", async function (event) {
+            event.preventDefault();
+            if (totpBusy) {
+                return;
+            }
+            clearAlert();
+            const code = el("totpReissueCode").value.trim();
+            const password = el("totpReissuePassword").value;
+            if (!/^[0-9]{6}$/.test(code)) {
+                alertError("인증 앱의 6자리 코드를 입력해주세요. 복구 코드로는 재발급할 수 없습니다.");
+                return;
+            }
+            if (!password) {
+                alertError("현재 비밀번호를 입력해주세요.");
+                return;
+            }
+            if (!window.confirm("기존 복구 코드는 모두 쓸 수 없게 됩니다. 새로 받을까요?")) {
+                return;
+            }
+            setTotpBusy(true);
+            try {
+                let response;
+                try {
+                    response = await fetch("/admin/api/members/me/totp/recovery-codes", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Accept": "application/json", [csrfHeader]: csrfToken },
+                        body: JSON.stringify({ code: code, currentPassword: password })
+                    });
+                } catch (e) {
+                    // 응답을 받지 못함 — 서버가 이미 커밋했을 수 있다
+                    await reissueOutcomeUnknown(REISSUE_NETWORK);
+                    return;
+                }
+                if (response.status >= 400 && response.status < 500) {
+                    // 확정 실패 — 서버가 처리하지 않았다고 답했다
+                    const fallback = response.status === 401 ? "로그인이 만료됐습니다. 다시 로그인해 주세요."
+                        : response.status === 403 ? "페이지를 새로고침한 뒤 다시 시도해 주세요."
+                        : "복구 코드를 새로 받지 못했습니다.";
+                    alertError(await errorMessage(response, fallback));
+                    el("totpReissuePassword").value = "";
+                    if (response.status === 409) {
+                        await loadStatus(); // 다른 화면에서 해제됐으면 미사용 화면으로
+                    }
+                    return;
+                }
+                if (!response.ok) {
+                    // 5xx(앱 500, 프록시 502·503·504 등) — 처리 여부 불명
+                    await reissueOutcomeUnknown(REISSUE_SERVER);
+                    return;
+                }
+                let result = null;
+                try {
+                    result = await response.json();
+                } catch (e) {
+                    result = null;
+                }
+                if (!result || !Array.isArray(result.recoveryCodes)) {
+                    // 성공 응답인데 본문을 읽지 못함 — 처리는 됐다
+                    await reissueOutcomeUnknown(REISSUE_UNREADABLE);
+                    return;
+                }
+                el("totpReissueForm").reset();
+                // "복구 코드로 로그인했습니다(남은 N개)" 안내는 재발급 뒤 틀린 숫자가 되므로 지우고, 다시 뜨지 않게 쿼리도 지운다
+                el("totpNotice").classList.add("d-none");
+                history.replaceState(null, "", window.location.pathname);
+                el("btnTotpReissuedCopy").textContent = "복사";
+                el("totpReissuedList").textContent = result.recoveryCodes.join("\n");
+                show("totpReissued");
+            } finally {
+                setTotpBusy(false);
+            }
+        });
+
+        el("btnTotpReissuedDone").addEventListener("click", async function () {
+            el("totpReissuedList").textContent = "";
+            clearAlert();
+            await loadStatus();
         });
 
         el("totpDisableForm").addEventListener("submit", async function (event) {
             event.preventDefault();
+            if (totpBusy) {
+                return;
+            }
             clearAlert();
             const code = el("totpDisableCode").value.trim();
             const password = el("totpDisablePassword").value;
@@ -404,8 +538,7 @@
             if (!window.confirm("2단계 인증을 끄면 비밀번호만으로 로그인됩니다. 끌까요?")) {
                 return;
             }
-            const button = el("btnTotpDisable");
-            button.disabled = true;
+            setTotpBusy(true);
             try {
                 const response = await fetch("/admin/api/members/me/totp", {
                     method: "DELETE",
@@ -421,7 +554,7 @@
             } catch (e) {
                 alertError("네트워크 연결을 확인해주세요.");
             } finally {
-                button.disabled = false;
+                setTotpBusy(false);
             }
         });
 
