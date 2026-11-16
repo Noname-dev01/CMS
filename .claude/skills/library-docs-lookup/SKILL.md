@@ -54,4 +54,5 @@ playwright로 확인할 수 없는 환경이라면 그 사실을 명시하고 �
 - 카테고리는 기존 폴더(`auth`·`board-admin`·`error-pages`·`member`·`public-board`·`public-home`·`rate-limit`·`site-page` 등 — `docs/screenshots/`를 먼저 확인)를 우선 쓴다. 맞는 곳이 없으면 기능 영역을 나타내는 kebab-case 이름으로 새로 만들고(`admin`/`public` 구분을 기존 이름처럼 붙임 — 예: `faq-admin`, `public-faq`), 결과 보고에 "새 카테고리 생성"을 한 줄로 적는다.
 - 파일 이름은 `<상황>-<순번>-<결과>.png`를 권장한다(예: `lockout-01-locked-correct-password-rejected.png`).
 - `filename` 없이 찍은 확인용 스크린샷·콘솔 로그·스냅샷은 `.playwright-mcp/`에 자동 저장된다. 남길 필요가 없는 것은 거기에 둔다.
+- 작업 세션이 끝나면 `.playwright-mcp/`의 `console-*.log`·`page-*.yml`은 지운다. 문서가 경로로 참조하는 png는 남긴다(지우려면 참조 문서에 삭제 사실을 함께 적는다).
 - `docs/screenshots/`와 `.playwright-mcp/`는 모두 `.gitignore` 대상이라 커밋되지 않는다. 문서에는 경로만 적는다.
