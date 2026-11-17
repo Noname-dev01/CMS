@@ -13,7 +13,7 @@ RUN ./gradlew --version --no-daemon
 COPY . .
 RUN ./gradlew clean bootJar --no-daemon
 
-FROM eclipse-temurin:21-jre-noble@sha256:0eda5830ed7b669abc246a8dc520ea8a23cab06f9a8d4b6964109e2f2394e46f
+FROM eclipse-temurin:21-jre-noble@sha256:0d57a8e90c2bb844c5a8e1b2b71e11eff06dad7edcfd803cd21ed4ae203b2515
 WORKDIR /app
 
 # CVE-2026-109518: 공식 이미지(2026-11-05 기준 apt 2.8.3)에 아직 수정판(2.8.4ubuntu0.1)이 없어 이 두 패키지만 상향한다.
