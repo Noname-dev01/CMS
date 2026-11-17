@@ -59,8 +59,10 @@ services:
       # 유출 비밀번호 검사 — 기본 켜짐. 앱 컨테이너가 api.pwnedpasswords.com에 HTTPS로 나갈 수 있어야 하고, 막혀 있으면 WARN만 남기고 통과시킨다.
       CMS_PASSWORD_BREACH_CHECK_ENABLED: ${CMS_PASSWORD_BREACH_CHECK_ENABLED:-true}
       # 2단계 인증(TOTP) 비밀값 암호화 키 — Base64 32바이트, 필수(없거나 길이가 틀리면 앱이 기동 실패, PLAN-totp-two-factor.md 결정 6).
-      # 키를 바꾸거나 잃으면 기존 등록이 모두 복호되지 않는다 — 백업과 별도로 보관한다(docs/deployment.md "2단계 인증").
+      # 키를 잃으면 기존 등록이 모두 복호되지 않는다 — 백업과 별도로 보관한다. 바꿀 때는 아래 옛 키로 교체한다(docs/deployment.md "2단계 인증").
       CMS_TOTP_ENCRYPTION_KEY: ${CMS_TOTP_ENCRYPTION_KEY:?필수 환경변수입니다}
+      # 키 교체 중에만 넣는 옛 키(선택 — 비면 없음). 복호에만 쓰이고 기동 때 옛 키 행을 현재 키로 다시 암호화한다(PLAN-totp-key-rotation.md).
+      CMS_TOTP_PREVIOUS_ENCRYPTION_KEY: ${CMS_TOTP_PREVIOUS_ENCRYPTION_KEY-}
       # 부트스트랩 3변수는 선택 입력이다 — ROLE_ADMIN + ACTIVE/LOCKED/PASSWORD_EXPIRED 중
       # 하나인 계정이 이미 있는 정상 운영 환경에서는(D-01 대안 A, 잠금·만료 중이어도 포함)
       # 이 값들이 없어도 기동돼야 하므로 Compose가 무조건 요구하지 않는다(결정 4·7).
