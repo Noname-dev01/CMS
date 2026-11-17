@@ -73,4 +73,12 @@ public class MemberTotp {
     public void resetFailures() {
         this.failedAttempts = 0;
     }
+
+    /**
+     * 같은 비밀값을 다른 키로 다시 암호화한 값으로 바꾼다(키 교체 — PLAN-totp-key-rotation.md).
+     * 호출자는 {@code member} 행 잠금 뒤 다시 읽은 엔티티에만 쓴다 — {@code @DynamicUpdate}가 없어 낡은 엔티티면 다른 컬럼이 되돌아간다.
+     */
+    public void replaceSecret(String encryptedSecret) {
+        this.secret = encryptedSecret;
+    }
 }
