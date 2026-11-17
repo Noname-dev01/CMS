@@ -73,6 +73,7 @@
 | 61 | ✅ **완료 (2026-11-12 · #233 `2ce574c`)** [PLAN-remember-me-removal.md](PLAN-remember-me-removal.md) — 로그인 상태 유지(remember-me)와 재인증 인프라 제거(#56~#60 걷어 냄 — `da7149c` 기준 파일 단위 복원), V16 `DROP TABLE persistent_logins`, 같은 세션 폼 로그인 직렬화(`LoginSessionMutexFilter`)는 독립 방어로 유지 (로드맵 71차 후속 후보 "콘텐츠 수정의 재확인 여부" 논의에서 사용자 결정, v3 — 적대적 리뷰 2라운드 ship 뒤 승인 단계 결정 반영) | security | 없음 | 승인 완료 (2026-11-12, **인증·로그인 경로 변경**·**스키마 변경 V16** — URL 규칙·의존성 무변경) |
 | 62 | 🔧 **구현·검증 완료, PR 전 (2026-11-14)** [PLAN-totp-two-factor.md](PLAN-totp-two-factor.md) — 관리자 2단계 인증(TOTP) 선택 등록: 역할 권한 없는 중간 상태(`TOTP_PENDING`)·코드 화면·복구 코드 10개·ADMIN 해제, 비밀값 AES-GCM 암호화(`CMS_TOTP_ENCRYPTION_KEY`), V17 `member_totp`·`member_totp_recovery_code`, ZXing core 3.5.4 (이슈 #251, 계획 리뷰 6라운드 ship) | security | 없음 | 승인 완료 (2026-11-14, **인가 정책 변경**(`/admin/login/totp`)·**스키마 변경 V17**·**새 의존성**·**운영 필수 환경변수**) |
 | 63 | 🔧 **구현·검증 완료, PR 전 (2026-11-16)** [PLAN-totp-recovery-code-reissue.md](PLAN-totp-recovery-code-reissue.md) — 2단계 인증 복구 코드 재발급: 현재 비밀번호 + 인증 앱 코드만으로 재인증, 옛 코드 전부 무효·새 10개 1회 표시, 재발급·해제 화면 상호 배제 (이슈 #257, 계획 리뷰 4라운드 ship) | security | 없음 | 승인 완료 (2026-11-16, 스키마·인가 정책 변경 없음, 새 API 1개) |
+| 64 | 🔧 **구현·검증 완료, PR 전 (2026-11-17)** [PLAN-totp-key-rotation.md](PLAN-totp-key-rotation.md) — 2단계 인증 암호화 키 교체: 옛 키 설정(`CMS_TOTP_PREVIOUS_ENCRYPTION_KEY`)·기동 시 행 단위 재암호화(회원 행 잠금)·현재 키 전 행 복호 점검 로그, 2단계 배포 1단계라 쓰기는 `v1` 유지·`v2:{키ID}:` 읽기만 (이슈 #258, 계획 리뷰 4라운드 ship) | security | 없음 | 승인 완료 (2026-11-17, 스키마·인가 정책·API 변경 없음, **운영 선택 환경변수 1개**) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
