@@ -74,6 +74,7 @@
 | 62 | ✅ **완료 (2026-11-16 · #260 `be92b35`)** [PLAN-totp-two-factor.md](PLAN-totp-two-factor.md) — 관리자 2단계 인증(TOTP) 선택 등록: 역할 권한 없는 중간 상태(`TOTP_PENDING`)·코드 화면·복구 코드 10개·ADMIN 해제, 비밀값 AES-GCM 암호화(`CMS_TOTP_ENCRYPTION_KEY`), V17 `member_totp`·`member_totp_recovery_code`, ZXing core 3.5.4 (이슈 #251, 계획 리뷰 6라운드 ship) | security | 없음 | 승인 완료 (2026-11-14, **인가 정책 변경**(`/admin/login/totp`)·**스키마 변경 V17**·**새 의존성**·**운영 필수 환경변수**) |
 | 63 | ✅ **완료 (2026-11-16 · #266 `2755a5b`)** [PLAN-totp-recovery-code-reissue.md](PLAN-totp-recovery-code-reissue.md) — 2단계 인증 복구 코드 재발급: 현재 비밀번호 + 인증 앱 코드만으로 재인증, 옛 코드 전부 무효·새 10개 1회 표시, 재발급·해제 화면 상호 배제 (이슈 #257, 계획 리뷰 4라운드 ship) | security | 없음 | 승인 완료 (2026-11-16, 스키마·인가 정책 변경 없음, 새 API 1개) |
 | 64 | 🔧 **구현·검증 완료, PR 전 (2026-11-17)** [PLAN-totp-key-rotation.md](PLAN-totp-key-rotation.md) — 2단계 인증 암호화 키 교체: 옛 키 설정(`CMS_TOTP_PREVIOUS_ENCRYPTION_KEY`)·기동 시 행 단위 재암호화(회원 행 잠금)·현재 키 전 행 복호 점검 로그, 2단계 배포 1단계라 쓰기는 `v1` 유지·`v2:{키ID}:` 읽기만 (이슈 #258, 계획 리뷰 4라운드 ship) | security | 없음 | 승인 완료 (2026-11-17, 스키마·인가 정책·API 변경 없음, **운영 선택 환경변수 1개**) |
+| 65 | 🔧 **구현·검증 완료, PR 전 (2026-11-17)** [PLAN-remove-apt-upgrade-run.md](PLAN-remove-apt-upgrade-run.md) — Dockerfile 임시 `apt` 상향 `RUN` 제거(이슈 #248): #271 새 런타임 digest의 `apt` 2.8.4ubuntu0.1 실측·`RUN` 전후 패키지 목록 동일 확인 후 제거, 되돌리기 규칙을 `docs/deployment.md`에 기록 | chore | #271 머지(완료) | 승인 완료 (2026-11-17, 베이스 이미지 빌드 단계 제거 — 스키마·인가 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
