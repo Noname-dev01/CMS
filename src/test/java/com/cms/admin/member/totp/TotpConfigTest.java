@@ -50,6 +50,33 @@ class TotpConfigTest {
     }
 
     @Test
+    @DisplayName("옛 키(cms.totp.previous-encryption-key)는 선택 — 비어 있으면 없음, 유효하면 암호기가 받는다")
+    void previousKeyIsOptional() {
+        String previous = Base64.getEncoder().encodeToString(new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+                17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32});
+        runner.withPropertyValues("cms.totp.encryption-key=" + VALID_KEY, "cms.totp.previous-encryption-key=").run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(TotpSecretCipher.class).previousKeyId()).isEmpty();
+        });
+        runner.withPropertyValues("cms.totp.encryption-key=" + VALID_KEY, "cms.totp.previous-encryption-key=" + previous).run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBean(TotpSecretCipher.class).previousKeyId()).isPresent();
+        });
+    }
+
+    @Test
+    @DisplayName("옛 키 형식이 틀리거나 현재 키와 같으면 기동 실패 — 조용히 무시하면 교체 중 옛 행이 모두 읽히지 않는다(FM3)")
+    void failsWithInvalidPreviousKey() {
+        runner.withPropertyValues("cms.totp.encryption-key=" + VALID_KEY,
+                        "cms.totp.previous-encryption-key=" + Base64.getEncoder().encodeToString(new byte[16]))
+                .run(context -> assertThat(context).hasFailed());
+        runner.withPropertyValues("cms.totp.encryption-key=" + VALID_KEY, "cms.totp.previous-encryption-key=not base64!")
+                .run(context -> assertThat(context).hasFailed());
+        runner.withPropertyValues("cms.totp.encryption-key=" + VALID_KEY, "cms.totp.previous-encryption-key=" + VALID_KEY)
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
     @DisplayName("issuer에 콜론이 있거나 비어 있으면 기동 실패")
     void failsWithInvalidIssuer() {
         runner.withPropertyValues("cms.totp.encryption-key=" + VALID_KEY, "cms.totp.issuer=C:MS")

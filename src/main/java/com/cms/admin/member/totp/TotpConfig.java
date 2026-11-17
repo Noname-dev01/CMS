@@ -16,7 +16,7 @@ public class TotpConfig {
     @Bean
     public TotpSecretCipher totpSecretCipher(TotpProperties properties) {
         OtpAuthUri.validateIssuer(properties.getIssuer());
-        return new TotpSecretCipher(properties.getEncryptionKey());
+        return new TotpSecretCipher(properties.getEncryptionKey(), properties.getPreviousEncryptionKey());
     }
 
     @Bean
