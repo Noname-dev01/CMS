@@ -151,6 +151,8 @@
 - 코드 리뷰(2026-11-19, `code-review-loop`): 1라운드 codex `review` 지적 0건 → 위험 변경이라 2라운드 `adversarial-review`(FM1~FM6·리뷰 초점) **approve, 지적 0건**. 수용·기각·보류 0건.
 - FM6 고정 방식(계획과 다름): 계획은 `ConcurrentFormLoginIntegrationTest` 방식(스레드 정지 + `Thread.State`)을 지정했으나, 필터가 인가부터 컨트롤러까지 감싼다는 사실은 그 시험이 이미 실제 스택으로 고정하므로 새 경로는 `LoginSessionMutexFilterTest`(GET·POST가 뮤텍스 안)와 `TotpEnrollmentLoginControllerIntegrationTest`(레지스트리 회원 교체 → 확정 안 함·세션 종료, 변이로 실패 확인)로 고정했다.
 
+- **PR CI에서 발견(2026-11-19, #278)**: `prod-smoke` job 실패 — 배포 게이트 `scripts/ci/prod-smoke.sh`가 2단계 미등록 부트스트랩 ADMIN으로 폼 로그인해 "인증된 ADMIN도 actuator 403"을 보는데, 이제 강제 등록 상태라 302였다. **정찰에서 CI 스크립트의 합성 ADMIN 로그인을 놓쳤다**(시험 파급을 Java 시험에서만 찾았다). 사용자 결정으로 스크립트가 강제 등록 상태의 차단(302·401)을 확인한 뒤 등록 화면의 설정 키로 TOTP를 계산해(bash·openssl·coreutils, RFC 6238 시험 벡터 자기 점검) 등록 → 재로그인·코드까지 마친 완전 권한 ADMIN으로 기존 403·404 점검을 하도록 고쳤다. TOTP 함수는 RFC 6238 부록 B 벡터 6개·파이썬 구현과 일치를 확인했고, 새 블록을 로컬 dev 앱에 대고 실행해 강제 등록·등록·코드 로그인·actuator 403까지 통과를 확인했다(Swagger 404는 dev에서 Swagger가 켜져 있어 확인 불가 — prod 이미지 CI가 본다). 임시 계정은 원복.
+
 ## 이슈
 - 실기 검증 중 상태 확인용 `fetch`가 리다이렉트를 따라 등록 화면 GET을 다시 부르면서 새 대기가 발급돼, 열려 있던 화면의 `enrollmentId`가 낡았다. 설계대로("GET은 대기를 새로 발급")지만 사용자가 등록 화면을 새로고침하거나 다른 관리 주소를 열면 스캔한 QR이 무효가 된다 — 후속 후보로 모음.
 - 브라우저 시험의 첫 단언(계산된 스타일·사후 `fetch`)이 결함을 놓쳤다(원인: 사후 요청은 무효화된 세션으로 나감). 응답 계측으로 바꿨다.
