@@ -41,15 +41,44 @@ class AdminEndpointAuthorizationConventionTest {
     static final String TOTP_PAGE = "/admin/login/totp";
     static final String TOTP_PENDING_EXPRESSION = "hasAuthority('TOTP_PENDING')";
 
+    /**
+     * 2단계 인증 강제 등록 화면 — 필수 역할(ADMIN)의 미등록 중간 상태({@code TOTP_ENROLLMENT_REQUIRED})만 들어오는 유일한 경로다
+     * (PLAN-totp-required-admin.md 결정 2). 이 경로에서만 {@code hasAuthority('TOTP_ENROLLMENT_REQUIRED')}를 인가 선언으로 인정한다.
+     */
+    static final String TOTP_ENROLLMENT_PAGE = "/admin/login/totp-enrollment";
+    static final String TOTP_ENROLLMENT_EXPRESSION = "hasAuthority('TOTP_ENROLLMENT_REQUIRED')";
+
+    /** 중간 상태 화면 경로 → 그 경로에서만 인정하는 표현식. 경로와 표현식이 짝이 맞을 때만 인가 선언이다. */
+    static final java.util.Map<String, String> INTERMEDIATE_PAGES = java.util.Map.of(
+            TOTP_PAGE, TOTP_PENDING_EXPRESSION,
+            TOTP_ENROLLMENT_PAGE, TOTP_ENROLLMENT_EXPRESSION);
+
     /** 한 핸들러가 가진 인가 선언을 분류한 결과. */
     record Handler(String className, String methodName, Set<RequestMethod> httpMethods, String path,
                    boolean requirePermission, AdminFeature feature, PermissionAction action,
-                   boolean adminOnly, boolean adminOrManager, boolean boardPermission, boolean totpPending) {
+                   boolean adminOnly, boolean adminOrManager, boolean boardPermission, String intermediateExpression) {
+
+        /** {@code totpPending}이면 코드 화면 표현식을 선언한 핸들러(기존 반례 구성용). */
+        Handler(String className, String methodName, Set<RequestMethod> httpMethods, String path,
+                boolean requirePermission, AdminFeature feature, PermissionAction action,
+                boolean adminOnly, boolean adminOrManager, boolean boardPermission, boolean totpPending) {
+            this(className, methodName, httpMethods, path, requirePermission, feature, action, adminOnly, adminOrManager, boardPermission,
+                    totpPending ? TOTP_PENDING_EXPRESSION : "");
+        }
 
         Handler(String className, String methodName, Set<RequestMethod> httpMethods, String path,
                 boolean requirePermission, AdminFeature feature, PermissionAction action,
                 boolean adminOnly, boolean adminOrManager, boolean boardPermission) {
-            this(className, methodName, httpMethods, path, requirePermission, feature, action, adminOnly, adminOrManager, boardPermission, false);
+            this(className, methodName, httpMethods, path, requirePermission, feature, action, adminOnly, adminOrManager, boardPermission, "");
+        }
+
+        /** 중간 상태 표현식 중 하나를 선언했는가(경로와의 짝은 따지지 않는다). */
+        boolean intermediate() {
+            return INTERMEDIATE_PAGES.containsValue(intermediateExpression);
+        }
+
+        boolean totpPending() {
+            return TOTP_PENDING_EXPRESSION.equals(intermediateExpression);
         }
 
         /** 게시판 단위 선언이 없는 핸들러(기존 시험의 반례 구성용). */
@@ -70,7 +99,7 @@ class AdminEndpointAuthorizationConventionTest {
 
         boolean declared() {
             return requirePermission || adminOnly || adminOrManager || boardPermission
-                    || (totpPending && TOTP_PAGE.equals(path));
+                    || (intermediate() && intermediateExpression.equals(INTERMEDIATE_PAGES.get(path)));
         }
 
         boolean isApi() {
@@ -208,6 +237,26 @@ class AdminEndpointAuthorizationConventionTest {
     }
 
     @Test
+    @DisplayName("2단계 강제 등록 화면: 그 경로의 hasAuthority('TOTP_ENROLLMENT_REQUIRED')만 인정 — 다른 경로·코드 화면 표현식과 섞어 쓰면 위반")
+    void totpEnrollmentDeclarationIsOnlyForEnrollmentPage() {
+        Handler declared = new Handler("Fake", "confirm", Set.of(RequestMethod.POST), TOTP_ENROLLMENT_PAGE,
+                false, null, null, false, false, false, TOTP_ENROLLMENT_EXPRESSION);
+        Handler pendingOnEnrollment = new Handler("Fake", "confirm", Set.of(RequestMethod.POST), TOTP_ENROLLMENT_PAGE,
+                false, null, null, false, false, false, TOTP_PENDING_EXPRESSION);
+        Handler enrollmentOnCodePage = new Handler("Fake", "submit", Set.of(RequestMethod.POST), TOTP_PAGE,
+                false, null, null, false, false, false, TOTP_ENROLLMENT_EXPRESSION);
+        Handler elsewhereApi = new Handler("Fake", "enroll", Set.of(RequestMethod.PUT), "/admin/api/members/me/totp",
+                false, null, null, false, false, false, TOTP_ENROLLMENT_EXPRESSION);
+
+        assertThat(violations(List.of(declared))).isEmpty();
+        assertThat(violations(List.of(pendingOnEnrollment))).hasSize(1).first().asString().contains("2단계 코드 화면 전용");
+        assertThat(violations(List.of(enrollmentOnCodePage))).hasSize(1).first().asString().contains("2단계 강제 등록 화면 전용");
+        assertThat(violations(List.of(elsewhereApi))).hasSize(1);
+        assertThat(scanHandlers()).filteredOn(h -> TOTP_ENROLLMENT_PAGE.equals(h.path())).as("실제 강제 등록 화면 핸들러가 선언을 가진다")
+                .hasSize(2).allMatch(h -> TOTP_ENROLLMENT_EXPRESSION.equals(h.intermediateExpression()));
+    }
+
+    @Test
     @DisplayName("게시판 게이트 안의 API는 @RequireBoardPermission과 경로의 {boardId}를 갖고, @RequireBoardPermission은 게시판 게이트 밖에 쓰지 않는다")
     void boardGatedApisUseRequireBoardPermission() {
         assertThat(boardViolations(scanHandlers())).isEmpty();
@@ -276,8 +325,9 @@ class AdminEndpointAuthorizationConventionTest {
             if (!handler.isApi() && handler.readOnlyGetOrHead()) {
                 continue;
             }
-            if (handler.totpPending() && !TOTP_PAGE.equals(handler.path())) {
-                violations.add(handler.describe() + " — " + TOTP_PENDING_EXPRESSION + "는 2단계 코드 화면 전용");
+            if (handler.intermediate() && !handler.intermediateExpression().equals(INTERMEDIATE_PAGES.get(handler.path()))) {
+                violations.add(handler.describe() + " — " + handler.intermediateExpression() + "는 "
+                        + (handler.totpPending() ? "2단계 코드 화면" : "2단계 강제 등록 화면") + " 전용");
                 continue;
             }
             if (!handler.declared()) {
@@ -334,7 +384,7 @@ class AdminEndpointAuthorizationConventionTest {
                         expression.equals("hasRole('ADMIN')"),
                         expression.equals("hasAnyRole('ADMIN', 'MANAGER')"),
                         AnnotatedElementUtils.findMergedAnnotation(method, RequireBoardPermission.class) != null,
-                        expression.equals(TOTP_PENDING_EXPRESSION)));
+                        INTERMEDIATE_PAGES.containsValue(expression) ? expression : ""));
             }
         }
         return handlers;

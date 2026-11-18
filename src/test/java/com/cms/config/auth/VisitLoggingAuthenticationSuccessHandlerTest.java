@@ -100,15 +100,17 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     // ==================== 역할 필터링 ====================
 
     @Test
-    @DisplayName("ROLE_ADMIN 로그인 시 visitLogRepository.save()가 호출된다")
-    void onAuthSuccess_roleAdmin_saveCalled() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
-        MockHttpServletRequest req = requestWithIp("127.0.0.1");
-        MockHttpServletResponse res = new MockHttpServletResponse();
-
+    @DisplayName("ROLE_ADMIN의 로그인 완료(2단계 통과 뒤 recordCompletedLogin) 시 visitLogRepository.save()가 호출된다")
+    void recordCompletedLogin_roleAdmin_saveCalled() throws Exception {
+        // ADMIN은 2단계가 필수라 폼 로그인 성공 처리기에 완전 토큰으로 오지 않는다 — 방문은 2단계 통과 때 기록한다(PLAN-totp-required-admin.md 결정 4)
+        Authentication auth = mock(Authentication.class);
+        given(auth.getName()).willReturn("testUser");
+        List<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_ADMIN"));
+        given(auth.getAuthorities()).willAnswer(inv -> authorities);
+        given(auth.getPrincipal()).willReturn(new CustomUserDetails(memberOf(Role.ROLE_ADMIN)));
         given(visitLogRepository.save(any())).willReturn(mock(VisitLog.class));
 
-        handler.onAuthenticationSuccess(req, res, auth);
+        handler.recordCompletedLogin(requestWithIp("127.0.0.1"), auth);
 
         verify(visitLogRepository).save(any(VisitLog.class));
     }
@@ -130,7 +132,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("관리자 로그인 성공 시 읽은 알림 정리가 호출된다")
     void onAuthSuccess_admin_purgesOldReadNotifications() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(visitLogRepository.save(any())).willReturn(mock(VisitLog.class));
 
         handler.onAuthenticationSuccess(requestWithIp("127.0.0.1"), new MockHttpServletResponse(), auth);
@@ -141,9 +143,9 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("재확인에서 거부된 로그인(잠긴 계정)에는 알림을 만들거나 정리하지 않는다")
     void onAuthSuccess_rejected_noNotificationWork() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_MANAGER, AUTH_HASH, false)));
 
         handler.onAuthenticationSuccess(requestWithIp("127.0.0.1"), new MockHttpServletResponse(), auth);
 
@@ -163,7 +165,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("읽은 알림 정리가 예외를 던져도 로그인은 성공한다")
     void onAuthSuccess_notificationFailure_doesNotBlockLogin() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(visitLogRepository.save(any())).willReturn(mock(VisitLog.class));
         org.mockito.Mockito.doThrow(new IllegalStateException("정리 실패 주입")).when(notificationRecorder)
                 .purgeOldReadNotifications(any());
@@ -203,7 +205,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("visitAt은 주입된 KST Clock 기준으로 기록된다 — UTC JVM에서 LocalDateTime.now() 직접 호출이면 날짜가 달라져 실패")
     void onAuthSuccess_visitAt_usesInjectedKstClock() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
 
         ArgumentCaptor<VisitLog> captor = ArgumentCaptor.forClass(VisitLog.class);
         given(visitLogRepository.save(captor.capture())).willReturn(mock(VisitLog.class));
@@ -221,7 +223,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("X-FORWARDED-FOR 헤더는 무시하고 RemoteAddr만 신뢰한다(IP 위조 차단, 감사 H-03)")
     void onAuthSuccess_ignoresForwardedForHeader() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         MockHttpServletRequest req = new MockHttpServletRequest();
         req.addHeader("X-FORWARDED-FOR", "1.2.3.4, 5.6.7.8, 9.10.11.12");
         req.setRemoteAddr("127.0.0.1");
@@ -238,7 +240,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("X-Real-IP 헤더도 무시하고 RemoteAddr만 신뢰한다")
     void onAuthSuccess_ignoresXRealIpHeader() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         MockHttpServletRequest req = new MockHttpServletRequest();
         req.addHeader("X-Real-IP", "192.168.0.1");
         req.setRemoteAddr("127.0.0.1");
@@ -255,7 +257,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("RemoteAddr이 45자를 초과하면 45자로 절단되어 저장된다")
     void onAuthSuccess_longRemoteAddr_truncatedTo45() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         MockHttpServletRequest req = new MockHttpServletRequest();
         req.setRemoteAddr("a".repeat(60));
         MockHttpServletResponse res = new MockHttpServletResponse();
@@ -273,7 +275,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("visitLogRepository.save() 예외 발생 시에도 리다이렉트(super 호출)는 정상 진행된다")
     void onAuthSuccess_saveFails_superStillCalled() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         MockHttpServletRequest req = requestWithIp("127.0.0.1");
         MockHttpServletResponse res = new MockHttpServletResponse();
 
@@ -307,19 +309,19 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("fresh 상태가 LOCKED이면 세션 무효화 + login-error 리다이렉트, 방문 로그 미저장")
     void onAuthSuccess_freshStatusLocked_rejected() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_MANAGER, AUTH_HASH, false)));
 
         assertRejected(auth);
     }
 
     @Test
-    @DisplayName("fresh 역할이 인증 권한과 불일치(ADMIN→MANAGER 강등)하면 거부된다")
+    @DisplayName("fresh 역할이 인증 권한과 불일치(MANAGER→USER 강등)하면 거부된다")
     void onAuthSuccess_roleDemotedDuringAuth_rejected() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_USER, AUTH_HASH, false)));
 
         assertRejected(auth);
     }
@@ -327,9 +329,9 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("fresh 해시가 인증 당시 해시와 불일치(인증 중 비밀번호 변경)하면 거부된다")
     void onAuthSuccess_passwordChangedDuringAuth_rejected() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "{bcrypt}new-hash", false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "{bcrypt}new-hash", false)));
 
         assertRejected(auth);
     }
@@ -380,9 +382,9 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("FM3: 완전 토큰인데 스냅샷은 2단계 사용 중(로그인 중 등록 커밋) → 거부 — 등록 전 스냅샷으로 만든 완전 권한 세션을 남기지 않는다")
     void onAuthSuccess_fullButEnabledMeanwhile_rejected() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, true)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, true)));
 
         assertRejected(auth);
     }
@@ -397,10 +399,80 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
         assertRejected(auth);
     }
 
+    // ==================== 2단계 인증 필수화(ADMIN) — PLAN-totp-required-admin.md 결정 4 ====================
+
+    /** 필수 역할의 미등록 강제 등록 상태 토큰 — 권한은 TOTP_ENROLLMENT_REQUIRED뿐, principal은 원래 역할을 가진 회원이다. */
+    private Authentication enrollmentRequiredAuth(Role role) {
+        Authentication auth = mock(Authentication.class);
+        given(auth.getName()).willReturn("testUser");
+        List<SimpleGrantedAuthority> authorities = List.of(new SimpleGrantedAuthority(TotpAuthorities.ENROLLMENT_REQUIRED));
+        given(auth.getAuthorities()).willAnswer(inv -> authorities);
+        given(auth.getPrincipal()).willReturn(new CustomUserDetails(memberOf(role), false));
+        return auth;
+    }
+
+    @Test
+    @DisplayName("강제 등록 상태 + 스냅샷 일치(미등록 ADMIN) → 실패 횟수 리셋 없는 조회만, 강제 등록 화면으로. 방문 기록·코드 대기 표지 없음")
+    void onAuthSuccess_enrollmentRequired_redirectsToEnrollmentPage() throws Exception {
+        Authentication auth = enrollmentRequiredAuth(Role.ROLE_ADMIN);
+        given(loginFailureService.checkActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, false)));
+        MockHttpServletRequest req = requestWithIp("127.0.0.1");
+        MockHttpSession session = new MockHttpSession();
+        req.setSession(session);
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        handler.onAuthenticationSuccess(req, res, auth);
+
+        assertThat(res.getRedirectedUrl()).isEqualTo("/admin/login/totp-enrollment");
+        assertThat(session.isInvalid()).isFalse();
+        assertThat(session.getAttribute(TotpPendingState.SESSION_ATTRIBUTE)).isNull();
+        verify(loginFailureService, never()).resetFailuresAndCheckActive(anyString());
+        verifyNoInteractions(visitLogRepository, notificationRecorder);
+    }
+
+    @Test
+    @DisplayName("FM2: 강제 등록 상태인데 스냅샷은 2단계 사용 중(다른 세션에서 등록 커밋) → 거부")
+    void onAuthSuccess_enrollmentRequiredButEnrolledMeanwhile_rejected() throws Exception {
+        Authentication auth = enrollmentRequiredAuth(Role.ROLE_ADMIN);
+        given(loginFailureService.checkActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, true)));
+
+        assertRejected(auth);
+    }
+
+    @Test
+    @DisplayName("FM2: 강제 등록 상태인데 스냅샷 역할이 MANAGER(로그인 중 강등 커밋) → 거부")
+    void onAuthSuccess_enrollmentRequiredButDemotedMeanwhile_rejected() throws Exception {
+        Authentication auth = enrollmentRequiredAuth(Role.ROLE_ADMIN);
+        given(loginFailureService.checkActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, false)));
+
+        assertRejected(auth);
+    }
+
+    @Test
+    @DisplayName("FM2: 2단계 없는 ADMIN 완전 토큰(필수 역할) → 거부 — 2단계를 거치지 않은 완전 권한 ADMIN 세션을 남기지 않는다")
+    void onAuthSuccess_fullAdminWithoutTotp_rejected() throws Exception {
+        Authentication auth = authWith("ROLE_ADMIN");
+
+        assertRejected(auth);
+    }
+
+    @Test
+    @DisplayName("FM2: MANAGER 완전 토큰인데 스냅샷은 ADMIN·미등록(로그인 중 승격 커밋) → 거부")
+    void onAuthSuccess_fullManagerPromotedMeanwhile_rejected() throws Exception {
+        Authentication auth = authWith("ROLE_MANAGER");
+        given(loginFailureService.resetFailuresAndCheckActive(anyString()))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, false)));
+
+        assertRejected(auth);
+    }
+
     @Test
     @DisplayName("fresh 조회 결과가 없으면(empty) 거부된다")
     void onAuthSuccess_memberNotFound_rejected() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString())).willReturn(Optional.empty());
 
         assertRejected(auth);
@@ -409,7 +481,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("재확인 호출이 예외를 던지면 로그인이 거부된다 (fail-closed — 재확인은 인증 결정)")
     void onAuthSuccess_recheckThrows_rejected() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
                 .willThrow(new RuntimeException("DB 오류"));
 
@@ -419,7 +491,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("principal이 CustomUserDetails가 아니면(해시 비교 불가) 거부된다")
     void onAuthSuccess_unexpectedPrincipalType_rejected() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         given(auth.getPrincipal()).willReturn("plain-string-principal");
 
         assertRejected(auth);
@@ -428,7 +500,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     @Test
     @DisplayName("재확인 통과 시 기본 성공 리다이렉트(/admin)가 수행된다")
     void onAuthSuccess_recheckPasses_redirectsToAdmin() throws Exception {
-        Authentication auth = authWith("ROLE_ADMIN");
+        Authentication auth = authWith("ROLE_MANAGER");
         MockHttpServletRequest req = requestWithIp("127.0.0.1");
         MockHttpServletResponse res = new MockHttpServletResponse();
         given(visitLogRepository.save(any())).willReturn(mock(VisitLog.class));

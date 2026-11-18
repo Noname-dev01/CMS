@@ -204,11 +204,12 @@ class TotpPendingAuthorizationIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("미등록 회원은 기존 흐름 그대로 /admin, 권한은 역할. 익명은 코드 화면에 오면 로그인으로 302")
+    @DisplayName("미등록 MANAGER(필수 대상 아님)는 기존 흐름 그대로 /admin, 권한은 역할. 익명은 코드 화면에 오면 로그인으로 302")
     void unenrolledLoginIsUnchanged() throws Exception {
-        Member admin = member(Role.ROLE_ADMIN);
-        MockHttpSession session = passwordLogin(admin, "/admin");
-        assertThat(authorities(session)).contains("ROLE_ADMIN").doesNotContain(TotpAuthorities.PENDING);
+        // 미등록 ADMIN은 강제 등록 상태다 — TotpEnrollmentRequiredAuthorizationIntegrationTest(PLAN-totp-required-admin.md 결정 1)
+        Member manager = member(Role.ROLE_MANAGER);
+        MockHttpSession session = passwordLogin(manager, "/admin");
+        assertThat(authorities(session)).contains("ROLE_MANAGER").doesNotContain(TotpAuthorities.PENDING);
         mockMvc.perform(get("/admin/login/totp")).andExpect(redirectedUrl("/admin/login"));
     }
 

@@ -58,4 +58,25 @@ public final class TotpTestSupport {
             }
         }
     }
+
+    /**
+     * 2단계를 켠 회원(ADMIN은 필수 — PLAN-totp-required-admin.md)의 실제 폼 로그인을 끝까지 마친 세션: 비밀번호 → 코드 화면 302 → 현재 코드 → {@code /admin} 302.
+     * 같은 회원이 30초 안에 다시 로그인하면 코드가 "이미 쓴 코드"가 되므로 제출 직전 쓴 스텝을 되돌린다(시험 전용 조작).
+     */
+    public static org.springframework.mock.web.MockHttpSession loginWithSecondFactor(
+            org.springframework.test.web.servlet.MockMvc mockMvc, org.springframework.jdbc.core.JdbcTemplate jdbc, Clock clock,
+            String userId, String password, long memberId, byte[] secret) throws Exception {
+        org.springframework.mock.web.MockHttpSession session = (org.springframework.mock.web.MockHttpSession) mockMvc.perform(
+                        org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin("/admin/login")
+                                .user(userId).password(password))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/admin/login/totp"))
+                .andReturn().getRequest().getSession(false);
+        long step = new TotpCodeVerifier(clock).currentStep();
+        jdbc.update("UPDATE member_totp SET last_used_step = ? WHERE member_id = ?", step - 2, memberId);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/admin/login/totp").session(session)
+                        .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf())
+                        .param("code", TotpCodeVerifier.codeAt(secret, step)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl("/admin"));
+        return session;
+    }
 }

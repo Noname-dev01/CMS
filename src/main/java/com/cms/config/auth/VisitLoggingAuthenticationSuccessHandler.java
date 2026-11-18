@@ -42,6 +42,9 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
     /** 2단계 인증 코드 화면 */
     public static final String TOTP_PAGE = "/admin/login/totp";
 
+    /** 2단계 인증 강제 등록 화면(필수 역할의 미등록 회원) */
+    public static final String TOTP_ENROLLMENT_PAGE = "/admin/login/totp-enrollment";
+
     private final VisitLogRepository visitLogRepository;
     private final LoginFailureService loginFailureService;
     private final NotificationRecorder notificationRecorder;
@@ -59,9 +62,16 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
                                         HttpServletResponse response,
                                         Authentication authentication) throws ServletException, IOException {
         boolean pending = TotpAuthorities.isPending(authentication);
+        boolean enrollmentRequired = TotpAuthorities.isEnrollmentRequired(authentication);
         // 첫 작업: 상태·역할·해시·2단계 사용 여부 재확인 — 거부될 인증이 성공 방문으로 기록되면 안 되므로 방문 로그보다 먼저.
-        if (!verifyFreshMemberState(authentication, pending)) {
+        if (!verifyFreshMemberState(authentication, pending, enrollmentRequired)) {
             rejectAuthentication(request, response);
+            return;
+        }
+
+        if (enrollmentRequired) {
+            // 2단계가 필수인 역할이 아직 등록하지 않았다 — 강제 등록 화면으로. 방문 기록은 등록 뒤 코드로 다시 로그인할 때(PLAN-totp-required-admin.md 결정 4)
+            getRedirectStrategy().sendRedirect(request, response, TOTP_ENROLLMENT_PAGE);
             return;
         }
 
@@ -95,10 +105,12 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
      * 처리한다 — fail-open이면 DB 일시 장애 인터리빙에서 잠긴 계정 세션이 살아남는다.
      * (실패 카운트 리셋도 같은 트랜잭션에서 함께 수행된다 — 리셋 0행은 허용, 예외는 거부.)
      */
-    private boolean verifyFreshMemberState(Authentication authentication, boolean pending) {
+    private boolean verifyFreshMemberState(Authentication authentication, boolean pending, boolean enrollmentRequired) {
+        boolean intermediate = pending || enrollmentRequired;
         try {
-            // 중간 상태는 실패 횟수를 리셋하지 않는다 — 리셋하면 2단계 오답 뒤 비밀번호 재로그인으로 대입 제한이 무력화된다
-            Optional<MemberSnapshot> found = pending
+            // 중간 상태는 실패 횟수를 리셋하지 않는다 — 리셋하면 2단계 오답 뒤 비밀번호 재로그인으로 대입 제한이 무력화된다.
+            // 강제 등록 상태도 같다(리셋은 등록 확정이 한다).
+            Optional<MemberSnapshot> found = intermediate
                     ? loginFailureService.checkActive(authentication.getName())
                     : loginFailureService.resetFailuresAndCheckActive(authentication.getName());
             if (found.isEmpty()) {
@@ -110,15 +122,17 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
                 return false;
             }
 
-            // 로그인 진행 중 2단계 등록·해제가 커밋된 경합 — 토큰 종류와 현재 등록 상태가 다르면 거부한다.
-            // (등록 전 스냅샷으로 만든 완전 권한 세션, 해제 뒤에도 남는 중간 상태를 만들지 않는다)
-            if (snapshot.totpEnabled() != pending) {
+            // 로그인 진행 중 2단계 등록·해제·역할 변경이 커밋된 경합 — 토큰 종류와 지금 기대되는 종류가 다르면 거부한다.
+            // (등록 전 스냅샷으로 만든 완전 권한 세션, 해제 뒤에도 남는 중간 상태, 필수 역할의 2단계 없는 완전 권한을 만들지 않는다)
+            boolean expectPending = snapshot.totpEnabled();
+            boolean expectEnrollment = !snapshot.totpEnabled() && TotpAuthorities.isRequired(snapshot.role());
+            if (expectPending != pending || expectEnrollment != enrollmentRequired) {
                 return false;
             }
 
             // 인증 중 역할 변경 경합 — 낡은 권한(특히 ADMIN)의 세션 생존 차단. 재로그인하면 새 권한으로 정상 로그인.
             // 중간 상태 토큰에는 역할 권한이 없으므로 principal의 원래 역할과 비교한다.
-            Collection<? extends GrantedAuthority> granted = pending && authentication.getPrincipal() instanceof CustomUserDetails principal
+            Collection<? extends GrantedAuthority> granted = intermediate && authentication.getPrincipal() instanceof CustomUserDetails principal
                     ? principal.getAuthorities()
                     : authentication.getAuthorities();
             boolean roleMatches = granted.stream()

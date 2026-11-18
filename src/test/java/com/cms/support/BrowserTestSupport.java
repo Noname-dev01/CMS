@@ -1,6 +1,11 @@
 package com.cms.support;
 
 import com.cms.admin.member.domain.Member;
+import com.cms.admin.member.repository.MemberTotpRecoveryCodeRepository;
+import com.cms.admin.member.repository.MemberTotpRepository;
+import com.cms.admin.member.totp.TotpCodeVerifier;
+import com.cms.admin.member.totp.TotpSecretCipher;
+import com.cms.config.auth.TotpAuthorities;
 import com.microsoft.playwright.APIRequestContext;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.Browser;
@@ -13,10 +18,14 @@ import com.microsoft.playwright.options.RequestOptions;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URI;
+import java.time.Clock;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
@@ -51,6 +60,15 @@ public abstract class BrowserTestSupport extends MariaDbContainerSupport {
     private static final Pattern CSRF_INPUT = Pattern.compile("name=\"_csrf\"\\s+value=\"([^\"]+)\"|value=\"([^\"]+)\"\\s+name=\"_csrf\"");
 
     private static final AtomicInteger BARRIER_SEQ = new AtomicInteger();
+
+    @Autowired private MemberTotpRepository memberTotpRepository;
+    @Autowired private MemberTotpRecoveryCodeRepository recoveryCodeRepository;
+    @Autowired private TotpSecretCipher totpCipher;
+    @Autowired private JdbcTemplate totpJdbc;
+    @Autowired private Clock clock;
+
+    /** {@link #enableFormLogin}이 2단계를 켜 둔 회원 id → 비밀값(시험 인스턴스마다). */
+    private final Map<Long, byte[]> totpSecrets = new HashMap<>();
 
     private static Playwright playwright;
     private static Browser browser;
@@ -98,33 +116,63 @@ public abstract class BrowserTestSupport extends MariaDbContainerSupport {
      * {@code TestMembers.save}로 만든 회원이 실제 로그인 폼으로 로그인할 수 있게 비밀번호를 BCrypt로 바꾼다. 앱은 {@code BCryptPasswordEncoder}만 쓰므로
      * {@code TestMembers}의 {@code {noop}} 비밀번호로는 폼 로그인이 안 된다(MockMvc 시험은 인증 주체를 직접 만들어 이 경로를 타지 않는다).
      */
-    protected static void enableFormLogin(JdbcTemplate jdbc, Member member) {
+    protected void enableFormLogin(JdbcTemplate jdbc, Member member) {
         jdbc.update("UPDATE member SET pwd = ? WHERE id = ?", new BCryptPasswordEncoder().encode(TEST_PASSWORD), member.getId());
+        // 2단계가 필수인 역할(ADMIN)은 등록하지 않으면 강제 등록 화면에서 멈춘다 — 등록 API를 거치지 않고 켜 두고 비밀값을 보관한다
+        // (PLAN-totp-required-admin.md 결정 7. 강제 등록 흐름 자체는 TotpEnrollmentLoginControllerIntegrationTest가 고정한다)
+        if (TotpAuthorities.isRequired(member.getUserType()) && !memberTotpRepository.existsById(member.getId())) {
+            totpSecrets.put(member.getId(),
+                    TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, totpCipher, member.getId(), clock).secret());
+        }
     }
 
     /**
      * 실제 로그인 엔드포인트({@code POST /admin/login})로 폼을 제출해 로그인한다. {@code member}는 {@link #enableFormLogin}을 거친 회원이어야 한다.
+     * 2단계를 켜 둔 회원(ADMIN)은 이어서 코드 화면({@code POST /admin/login/totp})에 현재 코드를 낸다 — 같은 회원이 30초 안에 다시 로그인하면 코드가
+     * "이미 쓴 코드"가 되므로 제출 직전 쓴 스텝을 되돌린다(시험 전용 조작, PLAN-totp-required-admin.md FM5).
      * 화면을 그리지 않고 페이지 컨텍스트와 쿠키를 공유하는 요청 컨텍스트로 보낸다(설계 2 — 로그인 화면·대시보드 렌더가 회당 약 0.8초). 로그인 필터·BCrypt
      * 검증·성공 핸들러·세션 고정 보호는 그대로 거친다. 호출 뒤에는 목적 화면으로 {@code navigate}한다.
      */
-    protected static void loginAsAdmin(Page page, int port, Member member) {
+    protected void loginAsAdmin(Page page, int port, Member member) {
         String loginUrl = "http://localhost:" + port + "/admin/login";
         APIRequestContext request = page.context().request();
-        APIResponse form = request.get(loginUrl);
-        Matcher csrf = CSRF_INPUT.matcher(form.text());
-        if (form.status() != 200 || !csrf.find()) {
-            throw new IllegalStateException("로그인 화면에서 CSRF 토큰을 찾지 못했다: status=" + form.status());
-        }
         APIResponse response = request.post(loginUrl, RequestOptions.create()
                 .setForm(FormData.create()
                         .set("username", member.getUserId())
                         .set("password", TEST_PASSWORD)
-                        .set("_csrf", csrf.group(1) != null ? csrf.group(1) : csrf.group(2)))
+                        .set("_csrf", csrfFrom(request, loginUrl)))
                 .setMaxRedirects(0));
+        byte[] secret = totpSecrets.get(member.getId());
+        if (secret != null) {
+            // 비밀번호만 통과한 중간 상태 — 코드 화면으로 가야 한다
+            expectRedirect(response, "/admin/login/totp", "폼 로그인(비밀번호 단계)");
+            long step = new TotpCodeVerifier(clock).currentStep();
+            totpJdbc.update("UPDATE member_totp SET last_used_step = ? WHERE member_id = ?", step - 2, member.getId());
+            String totpUrl = "http://localhost:" + port + "/admin/login/totp";
+            // 인증 뒤 CSRF 토큰이 바뀌므로 코드 화면에서 새로 읽는다
+            response = request.post(totpUrl, RequestOptions.create()
+                    .setForm(FormData.create()
+                            .set("code", TotpCodeVerifier.codeAt(secret, step))
+                            .set("_csrf", csrfFrom(request, totpUrl)))
+                    .setMaxRedirects(0));
+        }
+        // 성공은 /admin으로 간다. 실패·계정 상태 재검증 실패는 /admin/login-error, 미등록 ADMIN은 강제 등록 화면으로 간다.
+        expectRedirect(response, "/admin", "폼 로그인");
+    }
+
+    private static String csrfFrom(APIRequestContext request, String url) {
+        APIResponse form = request.get(url);
+        Matcher csrf = CSRF_INPUT.matcher(form.text());
+        if (form.status() != 200 || !csrf.find()) {
+            throw new IllegalStateException("화면에서 CSRF 토큰을 찾지 못했다: url=" + url + ", status=" + form.status());
+        }
+        return csrf.group(1) != null ? csrf.group(1) : csrf.group(2);
+    }
+
+    private static void expectRedirect(APIResponse response, String path, String step) {
         String location = response.headers().get("location");
-        // 성공 핸들러는 항상 /admin으로 보낸다. 실패·계정 상태 재검증 실패는 /admin/login-error로 간다.
-        if (response.status() != 302 || location == null || !"/admin".equals(URI.create(location).getPath())) {
-            throw new IllegalStateException("폼 로그인 실패: status=" + response.status() + ", location=" + location);
+        if (response.status() != 302 || location == null || !path.equals(URI.create(location).getPath())) {
+            throw new IllegalStateException(step + " 실패: status=" + response.status() + ", location=" + location);
         }
     }
 

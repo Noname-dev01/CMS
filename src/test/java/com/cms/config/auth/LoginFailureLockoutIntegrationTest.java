@@ -75,6 +75,10 @@ class LoginFailureLockoutIntegrationTest extends MariaDbContainerSupport {
     private final List<String> createdUserIds = new ArrayList<>();
 
     private Member createActiveAdmin() {
+        return createActiveMember(Role.ROLE_ADMIN);
+    }
+
+    private Member createActiveMember(Role role) {
         String unique = "lockout-it-" + System.nanoTime();
         String userId = unique.substring(0, Math.min(50, unique.length()));
         Member saved = memberRepository.save(Member.builder()
@@ -82,7 +86,7 @@ class LoginFailureLockoutIntegrationTest extends MariaDbContainerSupport {
                 .pwd(passwordEncoder.encode(RAW_PASSWORD))
                 .userName("잠금통합테스트")
                 .email(unique + "@lockout-it.test")
-                .userType(Role.ROLE_ADMIN)
+                .userType(role)
                 .status(MemberStatus.ACTIVE)
                 .createDate(LocalDateTime.now())
                 .updateDate(LocalDateTime.now())
@@ -172,7 +176,8 @@ class LoginFailureLockoutIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("자동 잠금 30분 경과 후 올바른 비밀번호 로그인은 자동 해제되어 성공한다")
     void expiredAutoLock_correctPassword_unlocksAndLogsIn() throws Exception {
-        Member member = createActiveAdmin();
+        // 완전 로그인(실패 횟수 리셋)까지 보려고 MANAGER — ADMIN은 2단계가 필수라 비밀번호 단계 뒤 강제 등록 상태다(PLAN-totp-required-admin.md)
+        Member member = createActiveMember(Role.ROLE_MANAGER);
         LocalDateTime expiredLockedAt = LocalDateTime.now(clock).minusMinutes(31);
         jdbcTemplate.update(
                 "UPDATE member SET status = 'LOCKED', failed_login_count = 5, locked_at = ? WHERE id = ?",

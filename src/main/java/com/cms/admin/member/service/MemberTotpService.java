@@ -48,7 +48,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class MemberTotpService {
 
-    static final Duration ENROLLMENT_TTL = Duration.ofMinutes(10);
+    public static final Duration ENROLLMENT_TTL = Duration.ofMinutes(10);
     private static final int SECRET_BYTES = 20;
     private static final String REAUTH_FAILED = "현재 비밀번호 또는 인증 코드가 올바르지 않습니다.";
     /** 비밀번호가 맞은 뒤에만 나온다(비밀번호 추측 신호 아님) — 로그인 직후 앱에 같은 코드가 떠 있는 정상 상황 */

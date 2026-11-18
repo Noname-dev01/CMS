@@ -56,7 +56,8 @@ class RememberMeRemovalIntegrationTest extends MariaDbContainerSupport {
     }
 
     private Member member() {
-        Member saved = TestMembers.save(memberRepository, "rmr", Role.ROLE_ADMIN);
+        // 폼 로그인이 바로 /admin으로 끝나는 역할 — ADMIN은 2단계가 필수다(PLAN-totp-required-admin.md)
+        Member saved = TestMembers.save(memberRepository, "rmr", Role.ROLE_MANAGER);
         jdbc.update("UPDATE member SET pwd = ? WHERE id = ?", passwordEncoder.encode(PASSWORD), saved.getId());
         created.add(saved.getId());
         return saved;
