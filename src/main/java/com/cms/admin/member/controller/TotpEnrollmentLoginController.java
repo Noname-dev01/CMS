@@ -37,7 +37,8 @@ import java.util.Objects;
  * 중간 상태({@code TOTP_ENROLLMENT_REQUIRED})만 들어온다 — URL 규칙과 메서드 선언 둘 다로 막는다. 요청은 {@link LoginSessionMutexFilter}가
  * 세션 뮤텍스 안에서 처리한다(같은 세션의 다른 계정 재로그인과 직렬화).
  *
- * <p>등록 서비스({@link MemberTotpService#startEnrollment}·{@link MemberTotpService#confirmEnrollment})는 보안 설정 화면과 같은 것을 쓴다 —
+ * <p>GET은 세션의 유효한 대기를 재사용하고 없거나 낡았을 때만 새로 발급한다({@link MemberTotpService#resumeOrStartEnrollment}, 이슈 #277).
+ * 확정({@link MemberTotpService#confirmEnrollment})은 보안 설정 화면과 같은 것을 쓴다 —
  * 확정은 현재 비밀번호와 코드를 받고, 성공하면 본인 전 세션을 만료하므로 사용자는 다시 로그인해 코드를 낸다.
  */
 @Slf4j
@@ -67,7 +68,10 @@ public class TotpEnrollmentLoginController {
         }
         TotpEnrollment pending;
         try {
-            pending = memberTotpService.startEnrollment(principal);
+            // 아직 유효한 같은 회원의 대기는 재사용한다 — 새로고침·다른 관리 주소의 302로 돌아와도 스캔한 QR이 유지된다(이슈 #277)
+            TotpEnrollment current = session.getAttribute(TotpEnrollment.SESSION_ATTRIBUTE) instanceof TotpEnrollment existing
+                    ? existing : null;
+            pending = memberTotpService.resumeOrStartEnrollment(principal, current);
         } catch (RuntimeException e) {
             // 이미 등록됨(다른 세션에서 확정) 등 — 이 중간 상태로는 진행할 수 없다
             log.warn("강제 등록 대기 발급 실패 — 세션을 끝냅니다 (memberId={}): {}", principal.getId(), e.getMessage());

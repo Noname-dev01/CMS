@@ -2,6 +2,7 @@ package com.cms.admin.member.service;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * 세션에 보관하는 2단계 인증 등록 대기 상태(DB 쓰기 없음). 확정 때 {@code memberId}·{@code enrollmentId}·발급 시각(10분)을
@@ -12,6 +13,14 @@ public record TotpEnrollment(String enrollmentId, Long memberId, byte[] secret, 
 
     /** 세션 속성 이름 */
     public static final String SESSION_ATTRIBUTE = TotpEnrollment.class.getName();
+
+    /**
+     * 강제 등록 화면이 이 대기를 다시 보여 줄 수 있는지(PLAN-totp-enrollment-reuse.md 결정 1) — 같은 회원이고 발급 후 10분 안.
+     * 경계는 확정 판정과 같다(정확히 10분은 유효). 재사용은 유효기간을 연장하지 않는다.
+     */
+    public boolean isReusableFor(Long requesterId, LocalDateTime now) {
+        return Objects.equals(memberId, requesterId) && !issuedAt.plus(MemberTotpService.ENROLLMENT_TTL).isBefore(now);
+    }
 
     @Override
     public String toString() {

@@ -97,6 +97,21 @@ public class MemberTotpService {
     }
 
     /**
+     * 강제 등록 화면용(PLAN-totp-enrollment-reuse.md 결정 1, 이슈 #277): 세션의 대기({@code current})가 같은 회원이고 아직 유효하면
+     * 그대로 돌려주고(새로고침·다른 주소에서 302로 돌아와도 스캔한 QR이 유지), 아니면 새로 발급한다. 이미 사용 중이면 재사용이어도 409.
+     * 보안 설정 화면의 API는 부를 때마다 대체하는 {@link #startEnrollment}를 그대로 쓴다.
+     */
+    public TotpEnrollment resumeOrStartEnrollment(CustomUserDetails principal, TotpEnrollment current) {
+        if (current != null && current.isReusableFor(principal.getId(), LocalDateTime.now(clock))) {
+            if (memberTotpRepository.existsById(principal.getId())) {
+                throw new ConflictException("이미 2단계 인증을 사용 중입니다.");
+            }
+            return current;
+        }
+        return startEnrollment(principal);
+    }
+
+    /**
      * 등록 대기를 확정한다 — 성공하면 원문 복구 코드 10개를 돌려주고(이 응답 1회뿐), 본인의 모든 세션을 만료한다(현재 세션 포함 —
      * 등록 전에 만들어진 세션을 2단계 없이 남기지 않는다).
      *
