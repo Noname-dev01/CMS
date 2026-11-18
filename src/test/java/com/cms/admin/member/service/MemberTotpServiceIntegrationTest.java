@@ -178,6 +178,41 @@ class MemberTotpServiceIntegrationTest extends MariaDbContainerSupport {
                 .isInstanceOf(ConflictException.class);
     }
 
+    // ---- 강제 등록 화면의 대기 재사용(PLAN-totp-enrollment-reuse.md 결정 1, 이슈 #277) ----
+
+    @Test
+    @DisplayName("#277: 같은 회원의 유효한 대기는 그대로 돌려준다(같은 enrollmentId·비밀값·발급 시각 — 연장 없음)")
+    void resumeReturnsValidPending() {
+        TotpEnrollment pending = service.startEnrollment(principal(member));
+        TotpEnrollment resumed = service.resumeOrStartEnrollment(principal(member), pending);
+        assertThat(resumed).isSameAs(pending);
+    }
+
+    @Test
+    @DisplayName("#277: 대기 없음·다른 회원 것·10분 지남이면 새로 발급한다(요청 회원·새 enrollmentId·새 비밀값)")
+    void resumeIssuesFreshWhenNotReusable() {
+        TotpEnrollment pending = service.startEnrollment(principal(member));
+        Member other = newMember("totp-svc-other", Role.ROLE_MANAGER);
+        TotpEnrollment othersPending = service.startEnrollment(principal(other));
+        TotpEnrollment stale = new TotpEnrollment(pending.enrollmentId(), pending.memberId(), pending.secret(),
+                LocalDateTime.now(clock).minus(MemberTotpService.ENROLLMENT_TTL).minusMinutes(1));
+
+        for (TotpEnrollment current : java.util.Arrays.asList(null, othersPending, stale)) {
+            TotpEnrollment fresh = service.resumeOrStartEnrollment(principal(member), current);
+            assertThat(fresh.memberId()).isEqualTo(member.getId());
+            assertThat(fresh.enrollmentId()).isNotEqualTo(pending.enrollmentId()).isNotEqualTo(othersPending.enrollmentId());
+            assertThat(fresh.secret()).hasSize(20).isNotEqualTo(pending.secret()).isNotEqualTo(othersPending.secret());
+        }
+    }
+
+    @Test
+    @DisplayName("#277 FM3: 유효한 대기가 있어도 이미 사용 중이면 409(재사용 경로도 등록 여부를 본다)")
+    void resumeConflictsWhenAlreadyEnabled() {
+        TotpEnrollment pending = service.startEnrollment(principal(member));
+        TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock);
+        assertThatThrownBy(() -> service.resumeOrStartEnrollment(principal(member), pending)).isInstanceOf(ConflictException.class);
+    }
+
     @Test
     @DisplayName("S10: 등록 확정의 비밀번호·코드 오답은 400이고 로그인 실패 횟수를 올린다(커밋) — 5회면 LOCKED")
     void enrollmentReauthFailuresCount() {

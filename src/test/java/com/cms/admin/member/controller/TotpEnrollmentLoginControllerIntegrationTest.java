@@ -5,6 +5,7 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.repository.MemberTotpRecoveryCodeRepository;
 import com.cms.admin.member.repository.MemberTotpRepository;
+import com.cms.admin.member.service.MemberTotpService;
 import com.cms.admin.member.service.TotpEnrollment;
 import com.cms.admin.member.totp.TotpCodeVerifier;
 import com.cms.admin.member.totp.TotpSecretCipher;
@@ -189,6 +190,78 @@ class TotpEnrollmentLoginControllerIntegrationTest extends MariaDbContainerSuppo
                         .param("currentPassword", PASSWORD))
                 .andExpect(redirectedUrl("/admin/login-error"));
 
+        assertThat(session.isInvalid()).isTrue();
+    }
+
+    // ---- 대기 재사용(PLAN-totp-enrollment-reuse.md, 이슈 #277) ----
+
+    private String renderedSecret(MockHttpSession session) throws Exception {
+        MvcResult result = mockMvc.perform(get(PAGE).session(session))
+                .andExpect(status().isOk()).andExpect(view().name("admin/login-totp-enrollment")).andReturn();
+        return (String) result.getModelAndView().getModel().get("secret");
+    }
+
+    @Test
+    @DisplayName("#277 S1·S2·S5: 새로고침·다른 관리 주소(302 경유)로 돌아와도 같은 대기(enrollmentId·설정 키), 처음 스캔한 QR의 코드로 확정 성공")
+    void refreshAndRedirectKeepSameEnrollment() throws Exception {
+        Member admin = admin();
+        MockHttpSession session = passwordLogin(admin, PAGE);
+        String firstSecret = renderedSecret(session);
+        TotpEnrollment first = (TotpEnrollment) session.getAttribute(TotpEnrollment.SESSION_ATTRIBUTE);
+
+        assertThat(renderedSecret(session)).as("새로고침").isEqualTo(firstSecret);
+        mockMvc.perform(get("/admin").session(session)).andExpect(redirectedUrl(PAGE));
+        assertThat(renderedSecret(session)).as("다른 주소에서 302로 돌아옴").isEqualTo(firstSecret);
+        assertThat(((TotpEnrollment) session.getAttribute(TotpEnrollment.SESSION_ATTRIBUTE)).enrollmentId())
+                .isEqualTo(first.enrollmentId());
+
+        mockMvc.perform(post(PAGE).session(session).with(csrf())
+                        .param("enrollmentId", first.enrollmentId())
+                        .param("code", code(first))
+                        .param("currentPassword", PASSWORD))
+                .andExpect(view().name("admin/login-totp-enrollment-done"));
+        assertThat(memberTotpRepository.existsById(admin.getId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("#277 S3·FM2: 세션 대기가 10분을 넘겼으면 GET이 새 대기를 발급한다")
+    void expiredPendingIsReplacedOnGet() throws Exception {
+        Member admin = admin();
+        MockHttpSession session = passwordLogin(admin, PAGE);
+        TotpEnrollment pending = openPage(session);
+        session.setAttribute(TotpEnrollment.SESSION_ATTRIBUTE, new TotpEnrollment(pending.enrollmentId(), pending.memberId(),
+                pending.secret(), java.time.LocalDateTime.now(clock).minus(MemberTotpService.ENROLLMENT_TTL).minusMinutes(1)));
+
+        TotpEnrollment fresh = openPage(session);
+
+        assertThat(fresh.enrollmentId()).isNotEqualTo(pending.enrollmentId());
+        assertThat(fresh.secret()).isNotEqualTo(pending.secret());
+    }
+
+    @Test
+    @DisplayName("#277 S4·FM1: 세션 대기가 다른 회원 것이면 그리지 않고 요청 회원의 새 대기를 발급한다")
+    void othersPendingIsNotRendered() throws Exception {
+        Member admin = admin();
+        Member other = admin();
+        MockHttpSession session = passwordLogin(admin, PAGE);
+        TotpEnrollment foreign = new TotpEnrollment("foreign-enrollment", other.getId(), new byte[20], java.time.LocalDateTime.now(clock));
+        session.setAttribute(TotpEnrollment.SESSION_ATTRIBUTE, foreign);
+
+        TotpEnrollment fresh = openPage(session);
+
+        assertThat(fresh.memberId()).isEqualTo(admin.getId());
+        assertThat(fresh.enrollmentId()).isNotEqualTo(foreign.enrollmentId());
+    }
+
+    @Test
+    @DisplayName("#277 S7·FM3: 유효한 대기가 있어도 그 사이 다른 경로로 등록됐으면 GET이 세션 종료·로그인 오류 화면")
+    void getAfterEnrollmentElsewhereEndsSession() throws Exception {
+        Member admin = admin();
+        MockHttpSession session = passwordLogin(admin, PAGE);
+        openPage(session);
+        TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, admin.getId(), clock);
+
+        mockMvc.perform(get(PAGE).session(session)).andExpect(redirectedUrl("/admin/login-error"));
         assertThat(session.isInvalid()).isTrue();
     }
 
