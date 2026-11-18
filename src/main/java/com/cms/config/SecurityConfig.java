@@ -99,6 +99,9 @@ public class SecurityConfig {
                         // 2단계 인증 코드 화면 — 비밀번호만 통과한 중간 상태(TOTP_PENDING)만 연다. 익명은 로그인 302, 완전 인증은 403
                         // (2026-11-14 승인 — 인가 정책 변경, PLAN-totp-two-factor.md 결정 2). /admin/** 캐치올보다 앞이어야 한다.
                         .requestMatchers("/admin/login/totp").hasAuthority(TotpAuthorities.PENDING)
+                        // 2단계 인증 강제 등록 화면 — 2단계가 필수인 역할(ADMIN)의 미등록 중간 상태(TOTP_ENROLLMENT_REQUIRED)만 연다
+                        // (2026-11-18 승인 — 인가 정책 변경, PLAN-totp-required-admin.md 결정 2). /admin/** 캐치올보다 앞이어야 한다.
+                        .requestMatchers(VisitLoggingAuthenticationSuccessHandler.TOTP_ENROLLMENT_PAGE).hasAuthority(TotpAuthorities.ENROLLMENT_REQUIRED)
                         // 비밀번호 재설정 — 비로그인 사용자의 유일한 복구 경로 (2026-07-13 인가 정책 변경 승인)
                         .requestMatchers("/admin/password-reset", "/admin/password-reset/confirm").permitAll()
                         .requestMatchers("/admin/api/password-reset-requests", "/admin/api/password-resets").permitAll()
@@ -212,13 +215,17 @@ public class SecurityConfig {
                         })
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
                             Authentication current = SecurityContextHolder.getContext().getAuthentication();
-                            if (TotpAuthorities.isPending(current)) {
-                                // 2단계 중간 상태는 "아직 로그인하지 않음"으로 다룬다 — 화면은 코드 화면으로, API는 JSON 401(PLAN-totp-two-factor.md 결정 2)
+                            if (TotpAuthorities.isIntermediate(current)) {
+                                // 2단계 중간 상태는 "아직 로그인하지 않음"으로 다룬다 — 화면은 그 상태의 화면(코드·강제 등록)으로, API는 JSON 401
+                                // (PLAN-totp-two-factor.md 결정 2, PLAN-totp-required-admin.md 결정 3)
+                                boolean enrollment = TotpAuthorities.isEnrollmentRequired(current);
                                 if (API_MATCHER.matches(request)) {
-                                    API_AUTH_ENTRY_POINT.commence(request, response,
-                                            new InsufficientAuthenticationException("2단계 인증이 필요합니다."));
+                                    API_AUTH_ENTRY_POINT.commence(request, response, new InsufficientAuthenticationException(
+                                            enrollment ? "2단계 인증 등록이 필요합니다." : "2단계 인증이 필요합니다."));
                                 } else {
-                                    response.sendRedirect(request.getContextPath() + VisitLoggingAuthenticationSuccessHandler.TOTP_PAGE);
+                                    response.sendRedirect(request.getContextPath() + (enrollment
+                                            ? VisitLoggingAuthenticationSuccessHandler.TOTP_ENROLLMENT_PAGE
+                                            : VisitLoggingAuthenticationSuccessHandler.TOTP_PAGE));
                                 }
                                 return;
                             }

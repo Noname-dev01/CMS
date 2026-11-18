@@ -13,7 +13,8 @@ import java.util.List;
 
 /**
  * 폼 로그인의 비밀번호 판정 — 2단계를 켠 회원이면 역할 권한이 없는 중간 상태 토큰({@link TotpAuthorities#PENDING})을 만든다
- * (PLAN-totp-two-factor.md 결정 1).
+ * (PLAN-totp-two-factor.md 결정 1). 2단계가 필수인 역할이 아직 등록하지 않았으면 강제 등록 상태 토큰({@link TotpAuthorities#ENROLLMENT_REQUIRED})을
+ * 만든다(PLAN-totp-required-admin.md 결정 1).
  *
  * <p>권한 축소를 여기서 하는 이유: 성공 처리기는 컨텍스트가 세션에 저장된 <b>뒤</b>에 돌아서, 그때 줄이면 완전 권한이 잠시
  * 세션에 남는다. 중간 상태 토큰은 역할 권한이 없어 기존 모든 게이트가 거부한다.
@@ -33,12 +34,22 @@ public class TotpAwareAuthenticationProvider extends DaoAuthenticationProvider {
 
     @Override
     protected Authentication createSuccessAuthentication(Object principal, Authentication authentication, UserDetails user) {
-        if (user instanceof CustomUserDetails details && details.isTotpEnabled()) {
-            UsernamePasswordAuthenticationToken pending = UsernamePasswordAuthenticationToken.authenticated(
-                    principal, null, List.of(new SimpleGrantedAuthority(TotpAuthorities.PENDING)));
-            pending.setDetails(authentication.getDetails());
-            return pending;
+        if (user instanceof CustomUserDetails details) {
+            if (details.isTotpEnabled()) {
+                return intermediate(principal, authentication, TotpAuthorities.PENDING);
+            }
+            // 2단계가 필수인 역할(ADMIN)이 아직 등록하지 않았다 — 강제 등록 화면만 들어가는 중간 상태(PLAN-totp-required-admin.md 결정 1)
+            if (TotpAuthorities.isRequired(details.getMember().getUserType())) {
+                return intermediate(principal, authentication, TotpAuthorities.ENROLLMENT_REQUIRED);
+            }
         }
         return super.createSuccessAuthentication(principal, authentication, user);
+    }
+
+    private static Authentication intermediate(Object principal, Authentication authentication, String authority) {
+        UsernamePasswordAuthenticationToken token = UsernamePasswordAuthenticationToken.authenticated(
+                principal, null, List.of(new SimpleGrantedAuthority(authority)));
+        token.setDetails(authentication.getDetails());
+        return token;
     }
 }

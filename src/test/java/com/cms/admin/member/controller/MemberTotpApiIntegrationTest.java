@@ -95,6 +95,11 @@ class MemberTotpApiIntegrationTest extends MariaDbContainerSupport {
     }
 
     private MockHttpSession login(Member member) throws Exception {
+        if (member.getUserType() == Role.ROLE_ADMIN) {
+            // ADMIN은 2단계가 필수다 — 미등록이면 강제 등록 상태라 등록해 두고 두 단계로 로그인한다(PLAN-totp-required-admin.md)
+            byte[] secret = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock).secret();
+            return TotpTestSupport.loginWithSecondFactor(mockMvc, jdbc, clock, member.getUserId(), PASSWORD, member.getId(), secret);
+        }
         MvcResult result = mockMvc.perform(formLogin("/admin/login").user(member.getUserId()).password(PASSWORD))
                 .andExpect(status().is3xxRedirection()).andReturn();
         return (MockHttpSession) result.getRequest().getSession(false);

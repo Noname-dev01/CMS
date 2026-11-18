@@ -15,7 +15,7 @@ import org.springframework.web.util.WebUtils;
 import java.io.IOException;
 
 /**
- * 세션이 이미 있는 폼 로그인({@code POST /admin/login})을 <b>그 세션의 뮤텍스 안에서</b> 처리한다
+ * 세션이 이미 있는 폼 로그인({@code POST /admin/login})·2단계 코드 제출·2단계 강제 등록 화면을 <b>그 세션의 뮤텍스 안에서</b> 처리한다
  * (PLAN-sensitive-reauthentication.md 쟁점 7에서 도입, PLAN-remember-me-removal.md 쟁점 2에서 독립 방어로 유지).
  *
  * <p>Spring Security 7.0.7은 폼 로그인의 세션 ID 교체만 세션 뮤텍스 안에서 하고, 레지스트리 등록({@code RegisterSessionAuthenticationStrategy} —
@@ -35,7 +35,11 @@ public class LoginSessionMutexFilter extends OncePerRequestFilter {
     static final RequestMatcher LOGIN_PROCESSING = new OrRequestMatcher(
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/admin/login"),
             // 2단계 코드 제출 — 판정·승격(컨텍스트 저장)을 같은 세션의 재로그인·이중 제출과 직렬화한다(PLAN-totp-two-factor.md 결정 2)
-            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/admin/login/totp"));
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, "/admin/login/totp"),
+            // 2단계 강제 등록 화면 — 대기 발급(GET)·확정(POST)을 같은 세션의 다른 계정 재로그인과 직렬화한다. 인가 판정(지연 로딩되는 컨텍스트 조회)도
+            // 이 필터 뒤라 뮤텍스 안에서 일어난다(PLAN-totp-required-admin.md 결정 2)
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, VisitLoggingAuthenticationSuccessHandler.TOTP_ENROLLMENT_PAGE),
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, VisitLoggingAuthenticationSuccessHandler.TOTP_ENROLLMENT_PAGE));
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

@@ -69,6 +69,7 @@ class MemberTotpServiceIntegrationTest extends MariaDbContainerSupport {
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactionManager;
     @Autowired JdbcConnectionDetails connectionDetails;
+    @Autowired org.springframework.security.core.session.SessionRegistry sessionRegistry;
 
     private final List<Long> created = new ArrayList<>();
     private Member member;
@@ -228,6 +229,75 @@ class MemberTotpServiceIntegrationTest extends MariaDbContainerSupport {
         assertThat(jdbc.queryForObject("SELECT status FROM member WHERE id = ?", String.class, member.getId())).isEqualTo("LOCKED");
         assertThat(enabled()).isTrue();
         assertThat(auditCount("TOTP_DISABLE", member.getId())).isZero();
+    }
+
+    /** 회원 세션 하나를 레지스트리에 등록하고 세션 ID를 돌려준다(세션 만료 리스너는 레지스트리에서 회원 세션을 찾는다). */
+    private String registerSession(Member m) {
+        String sessionId = "totp-svc-" + java.util.UUID.randomUUID();
+        sessionRegistry.registerNewSession(sessionId, principal(m));
+        return sessionId;
+    }
+
+    private boolean sessionExpired(String sessionId) {
+        var info = sessionRegistry.getSessionInformation(sessionId);
+        return info == null || info.isExpired();
+    }
+
+    @Test
+    @DisplayName("FM4(PLAN-totp-required-admin.md 결정 5): ADMIN 본인 해제(복구 코드) = 인증기 교체 — 등록 삭제 + 본인 전 세션 만료(다음 로그인은 강제 등록)")
+    void adminDisableExpiresOwnSessions() {
+        Member admin = newMember("totp-svc-admin", Role.ROLE_ADMIN);
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, admin.getId(), clock);
+        String sessionId = registerSession(admin);
+        try {
+            service.disable(principal(admin), enrollment.recoveryCodes().get(0), PASSWORD, IP, URI);
+
+            assertThat(memberTotpRepository.existsById(admin.getId())).isFalse();
+            assertThat(auditCount("TOTP_DISABLE", admin.getId())).isEqualTo(1);
+            assertThat(sessionExpired(sessionId)).as("필수 역할의 해제는 2단계 없는 완전 권한 세션을 남기지 않는다").isTrue();
+        } finally {
+            sessionRegistry.removeSessionInformation(sessionId);
+        }
+    }
+
+    @Test
+    @DisplayName("FM4: ADMIN 본인 해제의 판정 실패(오답)는 세션을 끊지 않고 등록이 남는다")
+    void adminDisableFailureKeepsSessions() {
+        Member admin = newMember("totp-svc-admin", Role.ROLE_ADMIN);
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, admin.getId(), clock);
+        String sessionId = registerSession(admin);
+        try {
+            assertThatThrownBy(() -> service.disable(principal(admin), TotpTestSupport.wrongCode(enrollment.secret(), clock), PASSWORD, IP, URI))
+                    .isInstanceOf(InvalidRequestException.class);
+
+            assertThat(memberTotpRepository.existsById(admin.getId())).isTrue();
+            assertThat(sessionExpired(sessionId)).isFalse();
+        } finally {
+            sessionRegistry.removeSessionInformation(sessionId);
+        }
+    }
+
+    @Test
+    @DisplayName("FM4: MANAGER(필수 대상 아님) 본인 해제는 지금처럼 세션을 유지한다")
+    void managerDisableKeepsSessions() {
+        Enrollment enrollment = TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, member.getId(), clock);
+        String sessionId = registerSession(member);
+        try {
+            service.disable(principal(member), code(enrollment.secret()), PASSWORD, IP, URI);
+
+            assertThat(enabled()).isFalse();
+            assertThat(sessionExpired(sessionId)).isFalse();
+        } finally {
+            sessionRegistry.removeSessionInformation(sessionId);
+        }
+    }
+
+    @Test
+    @DisplayName("상태의 required는 필수 역할(ADMIN)만 true")
+    void statusReportsRequired() {
+        Member admin = newMember("totp-svc-admin", Role.ROLE_ADMIN);
+        assertThat(service.status(admin.getId()).required()).isTrue();
+        assertThat(service.status(member.getId()).required()).isFalse();
     }
 
     @Test

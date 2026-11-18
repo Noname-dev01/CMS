@@ -61,6 +61,20 @@ class LoginSessionMutexFilterTest {
     }
 
     @Test
+    @DisplayName("FM6: 세션이 있는 강제 등록 화면 GET·POST도 뮤텍스 안에서 실행한다 — 같은 세션의 다른 계정 재로그인과 직렬화(PLAN-totp-required-admin.md 결정 2)")
+    void totpEnrollmentWithSession_runsInsideSessionMutex() throws Exception {
+        for (String method : new String[]{"GET", "POST"}) {
+            MockHttpSession session = new MockHttpSession();
+            RecordingChain chain = new RecordingChain(session);
+
+            filter.doFilter(request(method, "/admin/login/totp-enrollment", session), new MockHttpServletResponse(), chain);
+
+            assertThat(chain.called).as(method).isTrue();
+            assertThat(chain.heldMutex).as(method).isTrue();
+        }
+    }
+
+    @Test
     @DisplayName("세션이 없는 로그인·GET 로그인 화면·다른 경로의 POST는 감싸지 않고 그대로 통과한다")
     void otherRequests_passThroughUnlocked() throws Exception {
         RecordingChain noSession = new RecordingChain(null);

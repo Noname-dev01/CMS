@@ -53,9 +53,10 @@ public class MemberTotpApiController {
     private final MemberTotpService memberTotpService;
     private final TotpProperties totpProperties;
 
-    public record TotpStatusResponse(boolean enabled, LocalDateTime enabledAt, long remainingRecoveryCodes) {
+    /** @param required 2단계 인증이 필수인 역할인가(ADMIN) — 끄면 본인 전 세션이 만료되고 다음 로그인에서 다시 등록한다(PLAN-totp-required-admin.md 결정 5) */
+    public record TotpStatusResponse(boolean enabled, LocalDateTime enabledAt, long remainingRecoveryCodes, boolean required) {
         static TotpStatusResponse of(TotpStatus status) {
-            return new TotpStatusResponse(status.enabled(), status.enabledAt(), status.remainingRecoveryCodes());
+            return new TotpStatusResponse(status.enabled(), status.enabledAt(), status.remainingRecoveryCodes(), status.required());
         }
     }
 
@@ -108,7 +109,8 @@ public class MemberTotpApiController {
         }
     }
 
-    @Operation(summary = "내 2단계 인증 해제", description = "현재 비밀번호와 인증 코드(또는 복구 코드)가 필요하다.")
+    @Operation(summary = "내 2단계 인증 해제", description = "현재 비밀번호와 인증 코드(또는 복구 코드)가 필요하다. "
+            + "2단계가 필수인 역할(ADMIN)이면 해제 뒤 본인의 모든 세션이 만료되고, 다음 로그인에서 새 인증기를 등록해야 한다.")
     @ApiResponse(responseCode = "204", description = "해제 완료")
     @ApiResponse(responseCode = "400", description = "현재 비밀번호 또는 코드 불일치(2단계 실패 횟수에 반영)")
     @ApiResponse(responseCode = "409", description = "사용 중이 아님·계정 상태 변경")

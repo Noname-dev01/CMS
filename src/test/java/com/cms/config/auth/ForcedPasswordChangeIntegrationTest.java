@@ -122,7 +122,8 @@ class ForcedPasswordChangeIntegrationTest extends MariaDbContainerSupport {
     @Test
     @DisplayName("비밀번호를 1년 넘게 안 바꾼 계정도 정상 로그인되고 상태가 바뀌지 않는다 — 시간 기반 만료 없음")
     void oldPassword_loginSucceeds_noTransition() throws Exception {
-        Member member = member(Role.ROLE_ADMIN, LocalDateTime.now(clock).minusDays(400));
+        // 완전 로그인(/admin)까지 보려고 MANAGER — ADMIN은 2단계가 필수다(PLAN-totp-required-admin.md)
+        Member member = member(Role.ROLE_MANAGER, LocalDateTime.now(clock).minusDays(400));
 
         attemptLogin(member, RAW_PASSWORD, "/admin");
 

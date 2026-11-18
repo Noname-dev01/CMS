@@ -51,6 +51,17 @@ public class TotpSessionPromoter {
         return info != null && !info.isExpired();
     }
 
+    /**
+     * 레지스트리 항목이 살아 있고 그 회원이 {@code memberId}인가 — 같은 세션에서 다른 계정으로 다시 로그인한 뒤 낡은 요청이 진행되지 않게
+     * (PLAN-totp-required-admin.md 결정 2).
+     */
+    public boolean isLiveFor(String sessionId, Long memberId) {
+        SessionInformation info = sessionRegistry.getSessionInformation(sessionId);
+        return info != null && !info.isExpired()
+                && info.getPrincipal() instanceof CustomUserDetails registered
+                && memberId != null && memberId.equals(registered.getId());
+    }
+
     public boolean promote(HttpServletRequest request, HttpServletResponse response, CustomUserDetails principal, String expectedSessionId) {
         if (!sameLiveSession(request, expectedSessionId)) {
             reject(request);

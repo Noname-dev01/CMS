@@ -71,7 +71,9 @@ class NotificationLoginIntegrationTest extends MariaDbContainerSupport {
                 .pwd(passwordEncoder.encode(RAW_PASSWORD))
                 .userName("알림로그인")
                 .email(unique + "@notif-login.test")
-                .userType(Role.ROLE_ADMIN)
+                // 폼 로그인 성공 처리기 경로를 보려고 MANAGER로 둔다 — ADMIN은 2단계가 필수라 정리가 2단계 통과(recordCompletedLogin) 때 일어난다
+                // (PLAN-totp-required-admin.md 결정 4, 같은 메서드 — VisitLoggingAuthenticationSuccessHandlerTest)
+                .userType(Role.ROLE_MANAGER)
                 .status(MemberStatus.ACTIVE)
                 .createDate(now)
                 .updateDate(now)

@@ -322,7 +322,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 `.github/workflows/ci.yml`의 `prod-smoke` job이 `test` job과 병렬로 다음을 자동 검증한다. 머지 차단은 저장소 브랜치 보호에 `prod-smoke`를 **필수 체크로 등록**해야 성립하며, 2026-09-29에 등록됐다(`["test","prod-smoke"]`, `docs/branching.md`).
 
 - **이미지 참조 검사**(`scripts/ci/check-image-refs.sh`): `mariadb`·`eclipse-temurin` 참조가 전부 digest로 고정돼 있고 mariadb 참조의 sha256이 모두 같은지 확인.
-- **스모크**(`scripts/ci/prod-smoke.sh`): 실제 `prod-up.sh`로 이미지 빌드·기동 → health 200 → `/admin/login` 200 → Actuator 대표 3경로(`env`·`beans`·`metrics`)가 무인증 302→`/admin/login`, ADMIN 인증 403 → ADMIN 로그인 후 `/swagger-ui.html`·`/v3/api-docs` 404. 증명 범위는 이 열거 항목뿐이며 `/actuator/**` 전체가 아니다.
+- **스모크**(`scripts/ci/prod-smoke.sh`): 실제 `prod-up.sh`로 이미지 빌드·기동 → health 200 → `/admin/login` 200 → Actuator 대표 3경로(`env`·`beans`·`metrics`)가 무인증 302→`/admin/login` → 부트스트랩 ADMIN 비밀번호 로그인이 2단계 강제 등록 화면으로 가고 그 상태의 `/admin`·`/actuator/env`가 등록 화면 302·`/admin/api/members/me` 401 → 등록 화면의 설정 키로 TOTP 코드를 계산해(bash·openssl·coreutils, RFC 6238 시험 벡터로 자기 점검) 등록 → 다시 로그인·코드 → 완전 권한 ADMIN으로 Actuator 3경로 403 → `/swagger-ui.html`·`/v3/api-docs` 404(2026-11-19 이슈 #256 — ADMIN 2단계 필수화로 추가). 증명 범위는 이 열거 항목뿐이며 `/actuator/**` 전체가 아니다.
 - **백업·복구 왕복**(`scripts/ci/prod-backup-restore-roundtrip.sh`): quiesced 백업 → DB 행·볼륨 파일 변경(복구 직전 변경 반영 단언) → 잘못된 DB 이름 입력이 "입력 불일치" 사유로 거절되고 상태 불변 → 실제 복구 → DB 행·sha256·소유권 `10001:10001` 복원, 백업 이후 추가분 소멸. `recovery-drill.md`의 수동 drill(앱 레벨 첨부 조회)을 대체하지 않는다.
 - **이미지 스캔**(Trivy, 빌드된 `cms-prod-app`): 수정판 있는 HIGH/CRITICAL이면 실패. OS 레이어와 fat jar 내부 라이브러리를 모두 본다. 예외는 `.trivyignore.yaml`의 `statement`·`expired_at`·`paths`로만 두며 만료되면 다시 실패한다.
 
@@ -545,17 +545,20 @@ MANAGER의 권한은 **회원 단위**다 — 기능 단위 위임은 `member_pe
 
 ## 2단계 인증(TOTP) (2026-11-14, adversarial-review/plan/PLAN-totp-two-factor.md, 이슈 #251)
 
-- **무엇을 하나**: 관리자(ADMIN·MANAGER)가 **보안 설정**에서 직접 켜는 선택 기능이다. 켠 계정은 비밀번호 다음에 인증 앱의 6자리 코드(또는 복구 코드)를 입력해야 로그인된다. 켜지 않은 계정은 이전과 같다.
+- **무엇을 하나**: 켠 계정은 비밀번호 다음에 인증 앱의 6자리 코드(또는 복구 코드)를 입력해야 로그인된다. **ADMIN은 필수**(2026-11-18, `PLAN-totp-required-admin.md`, 이슈 #256), **MANAGER는 보안 설정에서 켜는 선택**이다(켜지 않은 MANAGER는 이전과 같다).
+- **ADMIN 첫 로그인(부트스트랩 계정 포함)**: 비밀번호를 넣으면 **2단계 인증 등록 화면**으로 간다 — 등록 전에는 다른 관리 화면·API를 쓸 수 없다. 인증 앱으로 QR을 스캔하고 6자리 코드와 현재 비밀번호를 넣어 등록하면 복구 코드 10개가 **한 번만** 보인다(보관한다). 등록하면 로그아웃되므로 다시 로그인 → 코드 입력 → 대시보드다. 기존 ADMIN도 이 버전 배포 뒤 첫 로그인에서 같은 절차를 거친다. 휴대폰이 없으면 같은 화면의 설정 키를 데스크톱 인증 앱에 직접 넣어도 된다.
+- **배포 직후 필수 확인(이 버전 첫 배포)**: 배포 **전에** 브라우저로 ADMIN 로그인해 둔 세션 쿠키로, 재기동 **뒤** `/admin`을 열면 로그인 화면으로 가야 한다(기존 완전 권한 세션이 남지 않음). 앱은 요청마다 2단계 등록 여부를 다시 보지 않고 재기동이 메모리 세션을 끊는 것에 기대기 때문이다(세션 영속 `server.servlet.session.persistent`를 켜지 않는다 — 기본 `false`). 대시보드가 그대로 열리면 배포를 멈추고 세션 영속 설정을 찾아 끈 뒤 다시 기동한다.
 - **키 보관**: `CMS_TOTP_ENCRYPTION_KEY`는 DB의 비밀값 암호문을 푸는 키다. **DB 백업과 다른 곳에 보관한다** — 같은 곳에 두면 백업 유출 시 2단계도 함께 뚫린다. 키를 **잃거나 옛 키 설정 없이 바꾸면 기존 등록이 복호되지 않는다**(그 회원의 인증 앱 코드는 거부되고 ERROR 로그에 memberId가 남는다. 실패 횟수는 오르지 않는다). 키를 바꿀 때는 아래 "2단계 인증 암호화 키 교체" 절차를 따른다. 키를 영영 잃었다면 복구 코드로 로그인한 뒤 끄고 다시 등록하거나, 다른 ADMIN이 해제한다.
 - **잠금**: 2단계 오답은 비밀번호 실패와 **별도로** 세고(`member_totp.failed_attempts`), 5회면 계정을 30분 자동 잠금한다(비밀번호 실패 잠금과 같은 규칙·감사 `ACCOUNT_AUTO_LOCK`). 비밀번호 재로그인·재설정으로는 초기화되지 않는다. 이미 쓴 코드(등록 직후 같은 30초 등)는 실패로 세지 않고 다음 코드를 기다리라고 안내한다.
-- **복구**: 휴대폰을 잃은 회원은 ① 등록 때 받은 복구 코드(1회용 10개)로 로그인 → 보안 설정에서 끄고 새 휴대폰으로 다시 등록하거나, ② 다른 ADMIN이 **회원 관리 → 상세 → [2단계 인증 해제]**로 해제한다(감사 `TOTP_RESET`). 비밀번호 재설정 메일은 2단계를 해제하지 않는다.
-- **유일한 ADMIN이 인증 앱과 복구 코드를 모두 잃은 경우**(앱으로 복구할 길이 없다): DB에서 그 회원의 등록을 지운다. 지운 뒤에는 비밀번호만으로 로그인되므로 로그인 직후 다시 등록한다.
+- **복구**: 휴대폰을 잃은 회원은 ① 등록 때 받은 복구 코드(1회용 10개)로 로그인 → 보안 설정에서 끄고 새 휴대폰으로 다시 등록하거나(**ADMIN은 끄면 모든 기기에서 로그아웃되고 다음 로그인 때 등록 화면이 나온다** — 인증기 교체), ② 다른 ADMIN이 **회원 관리 → 상세 → [2단계 인증 해제]**로 해제한다(감사 `TOTP_RESET` — 해제된 ADMIN은 다음 로그인에서 다시 등록한다). 비밀번호 재설정 메일은 2단계를 해제하지 않는다.
+- **유일한 ADMIN이 인증 앱과 복구 코드를 모두 잃은 경우**(앱으로 복구할 길이 없다): DB에서 그 회원의 등록을 지운다. 지운 뒤 로그인하면 비밀번호 다음에 등록 화면이 나오므로 새 인증 앱으로 다시 등록한다.
   ```sql
   -- <user_id>는 대상 관리자 아이디
   DELETE c FROM member_totp_recovery_code c JOIN member m ON m.id = c.member_id WHERE m.user_id = '<user_id>';
   DELETE t FROM member_totp t JOIN member m ON m.id = t.member_id WHERE m.user_id = '<user_id>';
   ```
 - **롤백 주의**: 이 기능이 없는 이전 앱으로 되돌리면 새 테이블(`member_totp`·`member_totp_recovery_code`)을 무시하고 **비밀번호만으로 로그인된다**(보안 수준 하락, 오류는 없다). 다시 올리면 기존 등록이 그대로 살아난다.
+- **필수화 롤백**(#256 이전 버전으로): 스키마 변경이 없어 그대로 되돌릴 수 있다. 되돌리면 ADMIN 2단계가 다시 선택이 되고, 이미 등록한 ADMIN은 계속 코드를 입력한다.
 - **인증 앱 안내**: Google Authenticator·Microsoft Authenticator 등은 **앱 안의 QR 스캔**으로 등록한다(2026-11-16 Google Authenticator로 확인). iPhone 기본 카메라로 찍으면 Apple **암호** 앱이 "확인 코드를 추가할 암호 선택" 목록을 띄운다 — 정상 동작이며, 이 CMS 계정 항목(없으면 새로 만든 항목)을 고르면 그 항목에 6자리 코드가 생긴다. 패스키는 지원하지 않는다.
 - **시각**: TOTP는 서버 시각에 기대므로 호스트 시계를 NTP로 맞춰 둔다(±30초 넘게 어긋나면 모든 코드가 거부된다).
 

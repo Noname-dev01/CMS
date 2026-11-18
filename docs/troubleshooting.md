@@ -1514,3 +1514,33 @@ MemberTotpApiIntegrationTest > S6: 상태(미사용) → 대기 201(QR은 같은
 
 - 서버가 그린 QR을 시험에서 읽을 때는 `PURE_BARCODE`를 쓴다. 카메라 영상용 기본 검출은 깨끗한 합성 이미지에서 오히려 흔들린다.
 - 간헐 실패를 무작위 입력으로만 시험하면 재현이 확률에 묶인다. 실측에서 실패한 입력을 하나 골라 고정한다.
+
+### 본인 세션을 강제 만료한 요청이 그린 화면에서 CSS가 로그인 화면으로 302된다 — `ConcurrentSessionFilter`는 정적 리소스 요청도 만료 처리한다 (2026-11-19, 이슈 #256 실기 검증)
+
+#### 오류 메시지
+
+```text
+Refused to apply style from 'http://localhost:8080/admin/login' because its MIME type ('text/html')
+is not a supported stylesheet MIME type, and strict MIME checking is enabled.
+```
+
+2단계 인증 강제 등록 완료 화면(`/admin/login/totp-enrollment` POST의 응답)이 스타일 없이 그려졌다. 시험(`TotpLoginBrowserTest`)은 처음에 이 결함을 놓쳤다.
+
+#### 원인
+
+- 등록 확정은 커밋 뒤(AFTER_COMMIT) `AdminSessionRevokeEvent`로 본인 전 세션을 **레지스트리에서 만료 표시**한다. 세션 자체는 그 응답이 끝날 때까지 살아 있다.
+- 브라우저는 완료 화면의 CSS를 같은 세션 쿠키로 요청한다. `ConcurrentSessionFilter`는 정적 리소스(`/css/**` — `permitAll`)라도 만료 표시된 세션이면 로그아웃·세션 무효화를 하고 만료 전략(`AdminSessionExpiredStrategy` → `/admin/login` 302)을 실행한다.
+- 시험이 놓친 이유: 처음 302된 요청이 세션을 무효화하므로, **그 뒤에** 보낸 확인 요청(`fetch('/css/…', {cache:'no-store'})`)은 200이다. 계산된 스타일로 본 단언도 통과했다(원인 미규명 — 응답 계측으로 302가 있었음은 확인했다).
+
+#### 해결 방법
+
+완료 화면을 그리기 **전에** 컨트롤러가 현재 세션을 직접 무효화한다(`TotpEnrollmentLoginController.confirm`의 `end(request, DONE_VIEW)`). 무효화된 세션 ID는 필터가 찾지 못해 정적 리소스 요청이 그대로 통과한다. 시험은 완료 화면을 불러오는 **동안의** CSS 응답을 `page.onResponse`로 모아 모두 200인지 단언한다.
+
+```bash
+./gradlew test --tests 'com.cms.admin.member.TotpLoginBrowserTest' -PbrowserTests=only
+```
+
+#### 교훈
+
+- 레지스트리 만료(`expireNow`)는 "다음 요청부터" 효과가 난다. 본인 세션을 끊는 요청이 HTML을 응답하면 그 화면의 하위 리소스가 첫 피해자가 된다. JSON 응답(보안 설정의 등록 API)은 화면이 이미 그려져 있어 드러나지 않는다.
+- "나중에 다시 요청해 보기"는 첫 요청의 부작용(세션 무효화)을 거친 상태를 보므로 이런 결함을 놓친다. 문제가 된 요청 자체를 관측한다.

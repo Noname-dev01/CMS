@@ -1,5 +1,7 @@
 package com.cms.admin.session;
 
+import com.cms.support.TotpTestSupport;
+
 import com.cms.admin.log.service.AdminActionLogService;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
@@ -63,6 +65,13 @@ class AdminSessionManagementIntegrationTest extends MariaDbContainerSupport {
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JdbcTemplate jdbc;
     @MockitoSpyBean AdminActionLogService auditService;
+    @Autowired com.cms.admin.member.repository.MemberTotpRepository memberTotpRepository;
+    @Autowired com.cms.admin.member.repository.MemberTotpRecoveryCodeRepository recoveryCodeRepository;
+    @Autowired com.cms.admin.member.totp.TotpSecretCipher cipher;
+    @Autowired java.time.Clock clock;
+
+    /** 2단계를 켜 둔 ADMIN id → 비밀값 */
+    private final java.util.Map<Long, byte[]> adminTotpSecrets = new java.util.HashMap<>();
 
     private final List<Long> createdMemberIds = new ArrayList<>();
     private Member admin;
@@ -108,6 +117,12 @@ class AdminSessionManagementIntegrationTest extends MariaDbContainerSupport {
     }
 
     private MockHttpSession login(Member member) throws Exception {
+        if (member.getUserType() == Role.ROLE_ADMIN) {
+            // ADMIN은 2단계가 필수다 — 등록해 두고 두 단계로 로그인한다(PLAN-totp-required-admin.md). 세션 ID는 2단계에서 바뀌지 않는다
+            byte[] secret = adminTotpSecrets.computeIfAbsent(member.getId(), id ->
+                    TotpTestSupport.enroll(memberTotpRepository, recoveryCodeRepository, cipher, id, clock).secret());
+            return TotpTestSupport.loginWithSecondFactor(mockMvc, jdbc, clock, member.getUserId(), PASSWORD, member.getId(), secret);
+        }
         MvcResult result = mockMvc.perform(formLogin("/admin/login").user(member.getUserId()).password(PASSWORD))
                 .andExpect(authenticated())
                 .andReturn();
