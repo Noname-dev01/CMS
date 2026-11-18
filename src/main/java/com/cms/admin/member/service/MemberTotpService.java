@@ -18,6 +18,7 @@ import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.exception.ResourceNotFoundException;
 import com.cms.config.auth.AdminSessionRevokeEvent;
 import com.cms.config.auth.CustomUserDetails;
+import com.cms.config.auth.TotpAuthorities;
 import com.cms.config.auth.LoginFailureService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -68,16 +69,20 @@ public class MemberTotpService {
     private final Clock clock;
     private final SecureRandom random = new SecureRandom();
 
-    public record TotpStatus(boolean enabled, LocalDateTime enabledAt, long remainingRecoveryCodes) {
+    /** @param required 이 회원의 역할에 2단계 인증이 필수인가(ADMIN — PLAN-totp-required-admin.md 결정 5) */
+    public record TotpStatus(boolean enabled, LocalDateTime enabledAt, long remainingRecoveryCodes, boolean required) {
     }
 
     private enum Verdict { OK, BAD_CREDENTIALS, REUSED_CODE, STATE_CHANGED, NOT_ENABLED, ALREADY_ENABLED }
 
     @Transactional(readOnly = true)
     public TotpStatus status(Long memberId) {
+        boolean required = memberRepository.findById(memberId)
+                .map(member -> TotpAuthorities.isRequired(member.getUserType()))
+                .orElse(false);
         return memberTotpRepository.findById(memberId)
-                .map(t -> new TotpStatus(true, t.getEnabledAt(), recoveryCodeRepository.countByMemberIdAndUsedAtIsNull(memberId)))
-                .orElse(new TotpStatus(false, null, 0));
+                .map(t -> new TotpStatus(true, t.getEnabledAt(), recoveryCodeRepository.countByMemberIdAndUsedAtIsNull(memberId), required))
+                .orElse(new TotpStatus(false, null, 0, required));
     }
 
     /** 새 비밀값으로 등록 대기를 만든다(DB 쓰기 없음 — 호출자가 세션에 둔다). 이미 사용 중이면 409. */
@@ -139,7 +144,10 @@ public class MemberTotpService {
         return recoveryCodes;
     }
 
-    /** 본인 해제 — 현재 비밀번호 + TOTP 또는 복구 코드. 비밀번호가 틀리면 코드는 판정·소비하지 않는다. */
+    /**
+     * 본인 해제 — 현재 비밀번호 + TOTP 또는 복구 코드. 비밀번호가 틀리면 코드는 판정·소비하지 않는다. 2단계가 필수인 역할(ADMIN)이면 해제 뒤
+     * 본인 전 세션을 만료한다(인증기 교체 — 다음 로그인에서 새로 등록, PLAN-totp-required-admin.md 결정 5).
+     */
     public void disable(CustomUserDetails principal, String code, String currentPassword, String requestIp, String requestUri) {
         Verdict verdict = transactionTemplate.execute(status -> {
             Member member = memberRepository.findByIdForUpdate(principal.getId()).orElse(null);
@@ -165,6 +173,11 @@ public class MemberTotpService {
             }
             recoveryCodeRepository.deleteAllByMemberId(member.getId());
             memberTotpRepository.delete(totp);
+            if (TotpAuthorities.isRequired(member.getUserType())) {
+                // 필수 역할의 해제는 인증기 교체다 — 2단계 없는 완전 권한 세션을 남기지 않도록 본인 전 세션 만료, 다음 로그인은 강제 등록
+                // (PLAN-totp-required-admin.md 결정 5). 발행 순서 = AFTER_COMMIT 재생 순서: 세션 만료(인메모리)가 감사(DB)보다 먼저
+                eventPublisher.publishEvent(new AdminSessionRevokeEvent(member.getId()));
+            }
             eventPublisher.publishEvent(new MemberTotpAuditEvent(AdminActionTypes.TOTP_DISABLE, member.getId(), member.getUserId(),
                     member.getId(), requestIp, requestUri, "DELETE"));
             return Verdict.OK;
