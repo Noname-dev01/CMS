@@ -76,6 +76,7 @@
 | 64 | ✅ **완료 (2026-11-17 · #274 `e17c2ba`)** [PLAN-totp-key-rotation.md](PLAN-totp-key-rotation.md) — 2단계 인증 암호화 키 교체: 옛 키 설정(`CMS_TOTP_PREVIOUS_ENCRYPTION_KEY`)·기동 시 행 단위 재암호화(회원 행 잠금)·현재 키 전 행 복호 점검 로그, 2단계 배포 1단계라 쓰기는 `v1` 유지·`v2:{키ID}:` 읽기만 (이슈 #258, 계획 리뷰 4라운드 ship) | security | 없음 | 승인 완료 (2026-11-17, 스키마·인가 정책·API 변경 없음, **운영 선택 환경변수 1개**) |
 | 65 | ✅ **완료 (2026-11-17 · #275 `d202fb0`)** [PLAN-remove-apt-upgrade-run.md](PLAN-remove-apt-upgrade-run.md) — Dockerfile 임시 `apt` 상향 `RUN` 제거(이슈 #248): #271 새 런타임 digest의 `apt` 2.8.4ubuntu0.1 실측·`RUN` 전후 패키지 목록 동일 확인 후 제거, 되돌리기 규칙을 `docs/deployment.md`에 기록 | chore | #271 머지(완료) | 승인 완료 (2026-11-17, 베이스 이미지 빌드 단계 제거 — 스키마·인가 변경 없음) |
 | 66 | ✅ **완료 (2026-11-18 · #276 `7f3cd8a`)** [PLAN-totp-key-rotation.md](PLAN-totp-key-rotation.md) "PR2" 절 — 2단계 인증 비밀값 쓰기 형식 `v2:{키ID}:` 전환: 기동 재작성 대상을 "현재 키 `v2` 접두어 + 현재 키 복호"가 아닌 행으로(현재 키 `v1` 행 포함), 점검 줄 `현재 키 v2 형식 C/T`, `BINARY` 비교 DB 확인 SQL·복원 키ID 조회, 롤백 하한 #274 (이슈 #269, 계획 리뷰 2라운드 ship) | security | #274 머지(해소) | 승인 완료 (2026-11-17, 스키마·인가 정책·API·설정 키 변경 없음, **롤백 하한 상향**) |
+| 67 | 🔧 **구현·검증 완료, PR 전 (2026-11-19)** [PLAN-totp-required-admin.md](PLAN-totp-required-admin.md) — 2단계 인증 ADMIN 필수화: 미등록 ADMIN은 역할 권한 없는 중간 상태(`TOTP_ENROLLMENT_REQUIRED`)로 강제 등록 화면(`/admin/login/totp-enrollment`)만, 성공 처리기 토큰 종류 3분기 대조, ADMIN 본인 해제 = 해제 + 본인 전 세션 만료(인증기 교체), MANAGER는 선택 유지 (이슈 #256, 계획 리뷰 2라운드 ship) | security | #251 머지(해소) | 승인 완료 (2026-11-18, **인가·로그인 정책 변경**, 스키마·의존성·설정 키 변경 없음) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
