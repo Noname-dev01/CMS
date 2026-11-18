@@ -37,14 +37,14 @@ class TotpSecretRewrapRunnerTest {
     }
 
     @Test
-    @DisplayName("정상이면 INFO 요약에 현재·옛 키ID와 '현재 키로 복호 가능 T/T'가 있다")
+    @DisplayName("정상이면 INFO 요약에 현재·옛 키ID와 '현재 키 v2 형식 T/T'가 있다")
     void logsHealthySummary(CapturedOutput output) {
         when(service.rewrapAll()).thenReturn(new RewrapReport("aaaaaaaaaaaaaaaa", Optional.of("bbbbbbbbbbbbbbbb"), 3, 2, 0, 0, 3, List.of()));
 
         runner.run(new DefaultApplicationArguments());
 
         assertThat(output).contains("INFO").contains("현재 키 ID=aaaaaaaaaaaaaaaa").contains("옛 키 ID=bbbbbbbbbbbbbbbb")
-                .contains("재암호화 2건").contains("현재 키로 복호 가능 3/3");
+                .contains("재암호화 2건").contains("현재 키 v2 형식 3/3");
     }
 
     @Test
@@ -54,6 +54,6 @@ class TotpSecretRewrapRunnerTest {
 
         runner.run(new DefaultApplicationArguments());
 
-        assertThat(output).contains("WARN").contains("옛 키 ID=없음").contains("복호 불가 1건").contains("현재 키로 복호 가능 2/3");
+        assertThat(output).contains("WARN").contains("옛 키 ID=없음").contains("복호 불가 1건").contains("현재 키 v2 형식 2/3");
     }
 }

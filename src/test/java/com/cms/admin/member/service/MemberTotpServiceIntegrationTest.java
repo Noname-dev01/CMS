@@ -128,7 +128,7 @@ class MemberTotpServiceIntegrationTest extends MariaDbContainerSupport {
 
         assertThat(codes).hasSize(10);
         String stored = jdbc.queryForObject("SELECT secret FROM member_totp WHERE member_id = ?", String.class, member.getId());
-        assertThat(stored).startsWith("v1:").doesNotContain(Base32.encode(pending.secret()));
+        assertThat(stored).startsWith("v2:").doesNotContain(Base32.encode(pending.secret()));
         assertThat(cipher.decrypt(member.getId(), stored)).isEqualTo(pending.secret());
         assertThat(jdbc.queryForList("SELECT code_hash FROM member_totp_recovery_code WHERE member_id = ?", String.class, member.getId()))
                 .containsExactlyInAnyOrderElementsOf(codes.stream().map(RecoveryCodes::hash).toList());

@@ -9,6 +9,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Optional;
@@ -20,9 +21,10 @@ import java.util.Optional;
  * <p>AAD는 {@code member_totp:{memberId}}라 다른 회원 행으로 옮겨 붙인 암호문은 복호되지 않는다.
  * 키는 Base64로 정확히 32바이트여야 하며, 아니면 생성이 실패한다(prod 기동 실패 — 키 없이 2단계를 조용히 쓰지 못하게 한다).
  *
- * <p><b>키 교체</b>(PLAN-totp-key-rotation.md): 옛 키를 하나 더 받아 복호에만 쓴다. 쓰기 형식은 {@code v1:} + Base64(IV‖암호문‖태그)
- * 그대로다 — 이 기능이 없는 이전 앱으로 롤백해도 읽히게(2단계 배포의 1단계). {@code v2:{키ID}:…}는 다음 단계의 쓰기 형식이며 여기서는
- * 읽기만 한다(그 단계에서 이 버전으로 롤백해도 읽히게). 키ID는 원시 키 SHA-256의 앞 8바이트 16진 소문자 16자다.
+ * <p><b>키 교체</b>(PLAN-totp-key-rotation.md): 옛 키를 하나 더 받아 복호에만 쓴다. 쓰기 형식은 {@code v2:{키ID}:} + Base64(IV‖암호문‖태그)다
+ * (2단계 배포의 2단계, 이슈 #269 — DB만 보고 행별 키를 가릴 수 있게). 키ID는 원시 키 SHA-256의 앞 8바이트 16진 소문자 16자다.
+ * {@code v1:}(키ID 없음, #269 이전 쓰기 형식)은 읽기만 한다. <b>복호 코드는 #274(키 교체 1단계)와 같다</b> — 그 버전으로 롤백해도 {@code v2}가 읽힌다.
+ * 그보다 이전 버전은 {@code v2}를 읽지 못한다.
  */
 public class TotpSecretCipher {
 
@@ -99,7 +101,7 @@ public class TotpSecretCipher {
         return Optional.ofNullable(previousKeyId);
     }
 
-    /** 항상 현재 키로 {@code v1} 형식을 쓴다. */
+    /** 항상 현재 키로 {@code v2:{현재 키ID}:} 형식을 쓴다. */
     public String encrypt(long memberId, byte[] secret) {
         try {
             byte[] iv = new byte[IV_BYTES];
@@ -108,7 +110,7 @@ public class TotpSecretCipher {
             cipher.init(Cipher.ENCRYPT_MODE, currentKey, new GCMParameterSpec(TAG_BITS, iv));
             cipher.updateAAD(aad(memberId));
             byte[] sealed = cipher.doFinal(secret);
-            return V1_PREFIX + Base64.getEncoder().encodeToString(ByteBuffer.allocate(iv.length + sealed.length).put(iv).put(sealed).array());
+            return currentPrefix() + Base64.getEncoder().encodeToString(ByteBuffer.allocate(iv.length + sealed.length).put(iv).put(sealed).array());
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("TOTP 비밀값 암호화에 실패했습니다.", e);
         }
@@ -122,6 +124,26 @@ public class TotpSecretCipher {
     /** 현재 키로만 복호한다 — 재암호화 대상 판정과 교체 완료 검증용. */
     public byte[] decryptWithCurrentKey(long memberId, String stored) {
         return decrypt(memberId, stored, false);
+    }
+
+    /**
+     * 현재 쓰기 형식인가 — {@code v2:{현재 키ID}:}로 시작하고(Java 비교, 대소문자 구분) 현재 키로 인증 복호된다.
+     * 재암호화 대상 판정과 교체 완료 검증의 기준이다(접두어만 보면 손상 행을, 복호만 보면 현재 키 {@code v1} 행을 놓친다).
+     */
+    public boolean isCurrent(long memberId, String stored) {
+        if (stored == null || !stored.startsWith(currentPrefix())) {
+            return false;
+        }
+        try {
+            Arrays.fill(decryptWithCurrentKey(memberId, stored), (byte) 0);
+            return true;
+        } catch (DecryptionException e) {
+            return false;
+        }
+    }
+
+    private String currentPrefix() {
+        return V2_PREFIX + currentKeyId + ":";
     }
 
     private byte[] decrypt(long memberId, String stored, boolean allowPrevious) {

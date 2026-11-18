@@ -17,22 +17,23 @@ import java.util.Optional;
 /**
  * 2단계 인증 비밀값을 현재 키로 다시 암호화한다(PLAN-totp-key-rotation.md 결정 3) — 기동 때 {@link TotpSecretRewrapRunner}가 부른다.
  *
- * <p>대상은 <b>현재 키만으로 복호되지 않는 행</b>이다({@code v1}에는 키ID가 없어 문자열로 키를 판별할 수 없다). 행마다 독립 트랜잭션에서
+ * <p>대상은 <b>현재 쓰기 형식이 아닌 행</b>이다 — {@link TotpSecretCipher#isCurrent}: {@code v2:{현재 키ID}:} 접두어(대소문자 구분)이고
+ * 현재 키로 인증 복호되는 행만 그대로 둔다(이슈 #269 — 현재 키 {@code v1} 행도 {@code v2}로 다시 쓴다). 행마다 독립 트랜잭션에서
  * {@code member} 행을 잠그고 {@code member_totp}를 다시 읽어 바꾼다 — 로그인 2단계와 같은 잠금으로 직렬화되고,
  * {@code MemberTotp}에 {@code @DynamicUpdate}가 없어 잠금 전에 읽은 엔티티를 저장하면 쓴 스텝·실패 횟수가 되돌아가기 때문이다.
  * 어느 키로도 풀리지 않는 행은 바꾸지 않는다. 한 행의 실패(커밋 실패 포함)는 집계만 하고 다음 행으로 간다.
- * 끝에 모든 행을 현재 키만으로 복호해 보는 검증을 한다 — 운영자의 교체 완료 기준이다(결정 5).
+ * 끝에 모든 행이 현재 쓰기 형식인지 같은 기준으로 검증한다 — 운영자의 교체 완료 기준이다(결정 5·PR2 P3). 접두어만 보는 완료 확인 SQL보다 엄격하다.
  */
 @Slf4j
 @Service
 public class TotpSecretRewrapService {
 
-    /** 점검 결과. {@code readableWithCurrentKey == total}이고 실패가 없으면 옛 키 설정을 지워도 된다. */
+    /** 점검 결과. {@code currentFormat == total}이고 실패가 없으면 옛 키 설정을 지워도 된다. */
     public record RewrapReport(String currentKeyId, Optional<String> previousKeyId, int total, int rewrapped,
-                               int unreadable, int errors, int readableWithCurrentKey, List<Long> unreadableWithCurrentKeyIds) {
+                               int unreadable, int errors, int currentFormat, List<Long> notCurrentFormatIds) {
 
         public boolean healthy() {
-            return unreadable == 0 && errors == 0 && readableWithCurrentKey == total;
+            return unreadable == 0 && errors == 0 && currentFormat == total;
         }
     }
 
@@ -55,7 +56,7 @@ public class TotpSecretRewrapService {
     public RewrapReport rewrapAll() {
         List<Long> targets = new ArrayList<>();
         for (MemberTotp totp : memberTotpRepository.findAll()) {
-            if (!readableWithCurrentKey(totp)) {
+            if (!isCurrent(totp)) {
                 targets.add(totp.getMemberId());
             }
         }
@@ -83,12 +84,12 @@ public class TotpSecretRewrapService {
         List<Long> notReadable = new ArrayList<>();
         for (MemberTotp totp : memberTotpRepository.findAll()) {
             total++;
-            if (!readableWithCurrentKey(totp)) {
+            if (!isCurrent(totp)) {
                 notReadable.add(totp.getMemberId());
             }
         }
         if (!notReadable.isEmpty()) {
-            log.error("현재 키만으로 복호되지 않는 TOTP 행이 있습니다 (memberIds={})", notReadable);
+            log.error("현재 키 v2 형식이 아닌 TOTP 행이 있습니다 (memberIds={})", notReadable);
         }
         return new RewrapReport(cipher.currentKeyId(), cipher.previousKeyId(), total, rewrapped, unreadable, errors,
                 total - notReadable.size(), List.copyOf(notReadable));
@@ -97,8 +98,8 @@ public class TotpSecretRewrapService {
     private RowResult rewrap(Long memberId) {
         memberRepository.findByIdForUpdate(memberId);
         Optional<MemberTotp> found = memberTotpRepository.findById(memberId);
-        if (found.isEmpty() || readableWithCurrentKey(found.get())) {
-            // 그 사이 해제됐거나 다른 경로(재등록·다른 기동)가 이미 현재 키로 바꿨다
+        if (found.isEmpty() || isCurrent(found.get())) {
+            // 그 사이 해제됐거나 다른 경로(재등록·다른 기동)가 이미 현재 형식으로 바꿨다
             return RowResult.SKIPPED;
         }
         MemberTotp totp = found.get();
@@ -116,12 +117,7 @@ public class TotpSecretRewrapService {
         return RowResult.REWRAPPED;
     }
 
-    private boolean readableWithCurrentKey(MemberTotp totp) {
-        try {
-            Arrays.fill(cipher.decryptWithCurrentKey(totp.getMemberId(), totp.getSecret()), (byte) 0);
-            return true;
-        } catch (TotpSecretCipher.DecryptionException e) {
-            return false;
-        }
+    private boolean isCurrent(MemberTotp totp) {
+        return cipher.isCurrent(totp.getMemberId(), totp.getSecret());
     }
 }
