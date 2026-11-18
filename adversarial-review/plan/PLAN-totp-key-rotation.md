@@ -1,6 +1,6 @@
-# PLAN — 2단계 인증 암호화 키 교체 (이슈 #258)
+# PLAN — 2단계 인증 암호화 키 교체 (이슈 #258, PR2 이슈 #269)
 
-- 상태: v5 — 계획 리뷰 4라운드 ship, 사용자 승인 (2026-11-17), 구현·검증 완료(PR 전)
+- 상태: PR1 v5 — 계획 리뷰 4라운드 ship, 사용자 승인, **머지 완료(2026-11-17 · #274 `e17c2ba`)**. **PR2(저장 형식 v2 전환, 이슈 #269)는 문서 끝 "PR2" 절** — v2, 계획 리뷰 2라운드 ship, 구현·검증 완료(PR 전)
 - 위험 변경: **2단계 인증 비밀값 저장(데이터 정합성 — 기존 암호문 재작성)**, **동시성(로그인 2단계와 재암호화의 회원 행 잠금)**, **설정 계약(새 설정 키·운영 환경변수)**
 - 스키마 변경: 없음 / 인가 정책 변경: 없음 / 새 의존성: 없음 / API 변경: 없음
 - 이슈: #258 (출처 `PLAN-totp-two-factor.md` R4·§7 범위 밖). **이 PR(PR1)에서 #258을 닫고**, 쓰기 형식 `v2` 전환은 PR2(후속 이슈)로 분리한다(§0).
@@ -113,6 +113,7 @@
 
 ## 개정 이력
 - v1 (2026-11-17): 최초 작성.
+- v2 변경 (리뷰 1라운드, 4건 모두 수용): ① PS4를 `T/T ⇒ SQL 0건` 한 방향으로, PF3에 접두어 정상·페이로드 손상 행 추가 ② 복원 키ID 조회를 `DISTINCT BINARY`로, 결과는 단서일 뿐임 명시 ③ `BINARY`·콜레이션 출처 링크, 실기에서 버전·digest 기록 ④ 롤백 실기 대상을 `e17c2ba`(#274)로 고정.
 - v2 변경 (리뷰 1라운드, 7건 모두 수용): ① 단일 인스턴스·정지 후 일괄 교체 전제(결정 7) ② 앱 설정 제거와 키 폐기 구분, 옛 키 보관·백업 복원(결정 6) ③ 대상 판정을 SQL `LIKE`에서 Java 비교로(콜레이션) ④ 현재 키만으로 전 행 복호하는 검증 단계, 완료 기준을 그 결과로 ⑤ runner 최종 catch-all과 `execute` 전체 try/catch, FM4 확장 ⑥ FM1을 `LockWaitObserver`로 ⑦ 복호 불가 진단 순서(결정 8).
 - v3 변경 (리뷰 2라운드): ① 혼합 키 백업의 단계적 수렴과 "교체 완료 전 백업 금지" — 수용, 새 시험 요구는 기각(각 단계가 FM이 고정한 같은 교체 동작). ② `prod-restore.sh`의 `docker start` 반영 — 수용, 스크립트 수정·Docker 버전 출처·prod 복원 실기 시험은 기각(runner가 복호 불가 행을 바꾸지 않음, env 반영 규칙은 기존 문서 규칙).
 - v4 변경 (리뷰 3라운드 ship): 복원 명령을 `bash scripts/prod-restore.sh <백업디렉터리>`로 교정.
@@ -156,3 +157,125 @@
 
 ## 후속
 - PR2: 쓰기 형식 `v2:{키ID}:` 전환·`v1`→`v2` 재작성·키ID SQL 확인 — 이슈 #269(2026-11-17 등록, 선행: 이 PR 운영 배포).
+
+---
+
+# PR2 — 저장 형식 `v2:{키ID}:` 전환 (이슈 #269)
+
+- 상태: v2 (2026-11-17) — 계획 리뷰 2라운드 ship, 사용자 승인(2026-11-18), 구현·검증 완료(PR 전)
+- 위험 변경: **2단계 인증 비밀값 저장(데이터 정합성 — 기존 `v1` 행 전부 재작성)**, **동시성(재작성은 PR1과 같은 회원 행 잠금 경로)**, **배포 호환(이전 앱 롤백 범위 축소)**
+- 스키마 변경: 없음 / 인가 정책 변경: 없음 / 새 의존성: 없음 / API 변경: 없음 / 설정 키 변경: 없음
+- 선행 조건: 이슈의 "#258 운영 배포"는 **실배포 이력이 없어 충족된 것으로 본다**(사용자 결정 2026-11-17). 첫 실배포에 PR1·PR2가 함께 들어가면 `v1`을 쓰는 운영 버전이 존재하지 않는다.
+
+## P0. 정찰 사실 (출처)
+- PR1 머지본(#274): `TotpSecretCipher.encrypt`는 `v1:` 쓰기(`TotpSecretCipher.java:103-115`), `decrypt`는 `v1`(현재→옛)·`v2:{키ID}:`(키ID 일치 키만) 읽기(`:127-159`), 접두어·키ID 대소문자 구분.
+- `TotpSecretRewrapService`: 대상 = 현재 키만으로 복호 안 되는 행(`:250-256`), 잠금 뒤 재판정(`:292-298`), 검증 C = 현재 키만으로 복호되는 행 수(`:277-289`). 러너 요약 문구 `현재 키로 복호 가능 C/T`(`TotpSecretRewrapRunner.java:356`).
+- 암호화 호출처: 등록 확정 `MemberTotpService`와 재작성 서비스 둘뿐 → `encrypt`만 바꾸면 새 등록도 `v2`.
+- `v1` 고정을 단언하는 시험: `TotpSecretCipherTest.roundTrip`·`encryptsWithCurrentKeyOnly`, `MemberTotpServiceIntegrationTest:131`, `TotpSecretRewrapServiceIntegrationTest:128-129`(현재 키 `v1` 행 = 같은 문자열). `'v1:x'` 고정값(`BaselineSchemaTest`·`LoginFailureServiceTest`)은 형식 무관.
+- `member_totp` 콜레이션 `utf8mb4_general_ci`(V17) — SQL 문자열 비교는 대소문자 무시. **`BINARY` 피연산자가 있으면 바이트 비교**(출처: MariaDB 공식 문서 [BINARY Operator](https://mariadb.com/docs/server/reference/sql-functions/string-functions/binary-operator)·[콜레이션 `_ci`](https://mariadb.com/docs/server/reference/data-types/string-data-types/character-sets/supported-character-sets-and-collations). 저장소의 운영·시험 이미지는 MariaDB 10.11 digest 고정 — 실기에서 `SELECT VERSION()`과 digest를 함께 기록해 실측).
+- `v2:` + 16자 + `:` = **20자** → `LEFT(secret, 20)`.
+- V17 주석의 `'v1:'` 문구는 머지된 마이그레이션이라 고치지 않는다.
+
+## P-결정
+
+### P1. 쓰기 — 항상 `v2:{현재 키ID}:` + Base64(IV‖암호문‖태그)
+- 페이로드·AAD·키ID 정의는 PR1과 같다. 읽기 경로(`decrypt`)는 **바꾸지 않는다** — PR1(#274) 버전이 그대로 읽는 이유.
+- 기각: 쓰기 형식 선택 설정(롤백용 토글) — 실배포 전이라 필요 없고 과설계.
+
+### P2. 재작성 대상 — "현재 키 `v2` 접두어 **그리고** 현재 키 복호 성공"이 아닌 모든 행
+- 판정을 암호기 메서드 `isCurrent(memberId, stored)`로 모은다: `stored.startsWith("v2:" + currentKeyId + ":")`(Java, 대소문자 구분) && `decryptWithCurrentKey` 성공(결과 바이트 즉시 0).
+- 잠금 뒤 재판정도 같은 메서드. 대상이면 `decrypt`(현재·옛, `v1`·`v2`) → `encrypt`(=`v2` 현재 키).
+- 결과: 첫 기동에 기존 `v1` 행(현재 키 포함)이 전부 한 번 `v2`로 바뀌고, 이후 기동에서는 바뀌지 않는다(다른 IV로 매번 다시 쓰지 않음).
+- 선택지: (a) 접두어만 — 현재 키ID 표시인데 손상·오표기된 행을 "완료"로 센다. (b) 복호만(PR1) — `v1` 현재 키 행이 남는다. (c) **둘 다(채택)**.
+- 대문자 변형(`V1:`·`V2:`·대문자 키ID): 접두어 불일치 → 대상 → 복호 실패 → **바꾸지 않고 "복호 불가"로 집계**(PR1 D2와 같음).
+
+### P3. 완료 검증 C의 정의를 "현재 키 `v2`로 저장됨"(P2의 `isCurrent`)으로 바꾼다
+- 이유: 이번에 추가하는 SQL 확인(`LEFT(secret,20) <> BINARY 'v2:<키ID>:'` 0건)과 로그 `T/T`가 같은 뜻이 되게. PR1 정의를 두면 재작성 커밋이 실패한 `v1` 행도 C에 들어가 로그는 `T/T`인데 SQL은 행을 보여 준다(오류 E는 WARN이지만 다음 기동에선 그 행이 다시 대상이 될 뿐 C로는 드러나지 않음).
+- 요약 문구를 `현재 키 v2 형식 C/T`로 바꾸고 레코드 필드 `readableWithCurrentKey`→`currentFormat`, `unreadableWithCurrentKeyIds`→`notCurrentFormatIds`로 이름을 맞춘다. ERROR 문구도 "현재 키 v2 형식이 아닌 TOTP 행". 운영 문서의 완료 기준 문구를 함께 고친다(실배포 전이라 기존 로그 해석 호환 부담 없음).
+- 기각: 문구 유지·의미만 변경 — 운영자가 "복호 가능"을 형식 무관으로 오해한다.
+
+### P4. "#258 버전이 이 형식을 읽음" 시험
+- (a) **채택**: `TotpSecretCipherTest`에 구현과 독립된 JDK 복호기(`open`)로 `encrypt` 결과를 #258의 파싱 규칙(`v2:` + 키ID 16자 + `:` + Base64)대로 열어 원문과 키ID(SHA-256 앞 8바이트)를 확인. `decrypt` 코드는 이 PR에서 diff 0줄 → #274의 `decrypt`와 동일(리뷰에서 diff로 확인).
+- (b) 실기: 브랜치로 `v2` 행을 만든 뒤 **#274 머지 커밋 `e17c2ba`의 앱으로 기동해 인증 앱 코드 로그인** — 실제 롤백 확인(계속 바뀌는 master가 아니라 고정 커밋, `git worktree`로 띄움).
+- 기각: #274의 클래스를 시험 트리에 복사 — 같은 코드 두 벌 유지.
+
+### P5. 운영 문서(`docs/deployment.md` "2단계 인증 암호화 키 교체")
+- 기동 점검 설명·완료 기준을 `현재 키 v2 형식 T/T`로.
+- **DB 확인 SQL**: `SELECT member_id FROM member_totp WHERE LEFT(secret, 20) <> BINARY 'v2:<현재 키ID>:';` — 0건이면 모든 행이 현재 키 표시. `BINARY` 필수(콜레이션이 대소문자 무시라 `V2:`·대문자 키ID 행이 숨는다). 이 SQL은 표시만 보고 복호는 보지 않으므로 **점검 줄 `T/T` ⇒ SQL 0건**만 성립하고 역은 아니다(접두어는 맞고 페이로드가 손상된 행은 SQL에 안 잡힌다) — 최종 기준은 점검 줄, SQL은 보조 확인.
+- **백업 복원 시 키ID 조회**: `SELECT DISTINCT BINARY SUBSTRING(secret, 1, 20) FROM member_totp;` — `BINARY`가 없으면 콜레이션이 정상·대문자 변형 접두어를 한 그룹으로 합친다. `v2:<키ID>:`면 보관 기록에서 그 키를 찾는다(키를 찾는 **단서**일 뿐 복호된다는 증거가 아니다 — 확인은 점검 줄). `mariadb` 클라이언트의 출력 모양은 실기에서 확인해 문서에 적는다. `v1:`로 시작하는 값(이 버전 전 백업)은 키ID가 없어 기존 절차(점검 줄)로.
+- **배포 순서·롤백 범위**: 이 버전은 #274(키 교체 지원) 이후 버전 위에만 배포한다. 배포 뒤 되돌릴 수 있는 버전은 **#274 이후**뿐 — 그 전 버전은 `v2`를 읽지 못해 2단계 등록 회원 전원의 인증 앱 코드가 거부된다(복구 코드 로그인은 가능). PR1의 "이 기능이 없는 이전 앱으로 롤백" 항목을 이 내용으로 바꾼다.
+- "저장 형식 메모"를 현행으로. 첫 기동에 전 행이 재작성된다는 점(재작성 N = T)과 그동안에도 두 형식 모두 읽힌다는 점.
+- `admin/member/CLAUDE.md` 키 교체 문단 현행화.
+
+### P6. 기동 시점(#247)과의 관계 — 변경 없음
+- 러너는 여전히 health 200 뒤에 돈다. 첫 기동 재작성량은 관리자 수(T)로 작고, 재작성 중에도 `v1`·`v2` 모두 읽혀 로그인 영향이 없다. 판정 개선은 #247 범위.
+
+## P-작업 단계
+1. `TotpSecretCipher`: `encrypt` → `v2`, `isCurrent(memberId, stored)` 추가, 클래스 주석.
+2. `TotpSecretRewrapService`: 대상·재판정·검증을 `isCurrent`로, 레코드 필드 이름. `TotpSecretRewrapRunner` 요약 문구.
+3. 시험 수정·추가(P-실패 모드 표).
+4. 문서: `docs/deployment.md`, `admin/member/CLAUDE.md`, `plan/README.md` 64행 완료 표시·PR2 행.
+
+## P-성공 기준
+- PS1. 새 암호문은 `v2:{현재 키ID}:`로 시작하고 왕복되며, 독립 복호기(#258 규칙)로 열린다.
+- PS2. 현재 키 `v1` 행·옛 키 `v1`/`v2` 행이 한 번의 기동 재작성 뒤 모두 `v2:{현재 키ID}:`이고 다른 컬럼 보존, 인증 앱 코드 로그인 통과. 두 번째 실행은 아무 행도 바꾸지 않는다.
+- PS3. 대문자 접두어 행은 바뀌지 않고 복호 불가로 집계, C에 들어가지 않는다.
+- PS4. 요약 `T/T`이면 DB SQL 0건이다(한 방향 — 역은 보장하지 않는다). 실기에서 둘 다 확인하고 `SELECT VERSION()`·이미지 digest를 기록한다.
+- PS5. 실기: 브랜치로 `v2` 행 생성 → `e17c2ba`(#274) 앱 기동 → 인증 앱 코드 로그인 성공.
+
+## P-실패 모드와 고정 시험
+| # | 실패 모드 | 고정 시험 |
+|---|---|---|
+| PF1 | 현재 키 `v1` 행을 재작성 대상에서 놓친다(PR1 판정 잔존) | `TotpSecretRewrapServiceIntegrationTest`: 현재 키 `v1` 행 → `v2:{현재 키ID}:`, 다른 컬럼 보존, 로그인 통과 |
+| PF2 | `v2` 현재 키 행을 매 기동 다시 쓴다 | 같은 시험에서 `rewrapAll` 두 번째 호출 뒤 모든 행 문자열 동일, `rewrapped=0` |
+| PF3 | 대문자 접두어 행·접두어는 맞지만 페이로드가 손상된 행을 현재 형식으로 세거나 덮어쓴다 | 통합 시험: `V2:{현재 키ID}:…`·`V1:…`·`v2:{현재 키ID}:`+손상 페이로드 행 → 문자열 불변, `unreadable`에 집계, `currentFormat`에서 제외(`C<T`). 손상 행은 SQL 조건(`LEFT(secret,20) <> BINARY …`)에는 걸리지 않음을 같은 시험에서 JDBC로 확인 — PS4가 한 방향인 근거 |
+| PF4 | 새 형식이 #274 버전에서 읽히지 않는다 | `TotpSecretCipherTest`: `encrypt` 결과를 독립 JDK 복호기로 #258 규칙대로 열기 + 실기 PS5 |
+| PF5 | 검증 C가 `v1` 행을 완료로 센다(로그 `T/T`인데 SQL 행 존재) | 통합 시험: 현재 키 `v1` 두 행 중 첫 커밋 실패 → `errors=1`, `currentFormat = total-1`, `notCurrentFormatIds`에 그 행 |
+
+## P-리스크
+- PR-1. 이 버전 배포 뒤 #274 이전 버전으로 롤백하면 2단계 회원 전원 코드 거부 — 문서로 고지(P5), 실배포 전이라 해당 운영 버전 없음.
+- PR-2. 첫 기동에 전 행이 다시 쓰여 그 기동 이전 백업과 이후 DB의 암호문이 모두 달라진다 — 키는 같으므로 복원에 영향 없음.
+- PR-3. SQL 확인은 표시만 본다 — 손상 행은 점검 줄로만 드러난다(문서에 명시).
+
+## P-범위 밖
+- 기동 준비 완료 판정(#247), 다중 인스턴스, 쓰기 형식 토글.
+
+## P-개정 이력
+- v1 (2026-11-17): 최초 작성.
+- v2 리뷰 2라운드: ship(새 지적 없음).
+
+## PR2 결과
+
+### Context
+이슈 #269. #274(PR1)는 롤백 호환을 위해 `v1`로 쓰고 `v2:{키ID}:`는 읽기만 했다. 실배포 이력이 없어 선행 조건 "#258 운영 배포"는 충족된 것으로 보고(사용자 결정) 쓰기를 `v2`로 바꾸고 기존 `v1` 행을 기동 때 `v2`로 다시 쓴다.
+
+### 핵심 확정 사항 (계획과 달라진 점 포함)
+- 계획 v2 그대로 구현했다. 계획과 달라진 결정 없음.
+- `TotpSecretCipher.decrypt`는 #274(`e17c2ba`)와 diff 0줄 — 바뀐 것은 `encrypt` 접두어와 새 `isCurrent`뿐(`git diff e17c2ba -- TotpSecretCipher.java`로 확인).
+- 서비스의 대상 판정·잠금 뒤 재판정·최종 검증 세 곳이 모두 `cipher.isCurrent` 하나를 쓴다.
+
+### 구현 파일
+- `admin/member/totp/TotpSecretCipher.java` — `encrypt`가 `v2:{현재 키ID}:`, `isCurrent(memberId, stored)`(접두어 Java 비교 + 현재 키 인증 복호), 클래스 주석.
+- `admin/member/service/TotpSecretRewrapService.java` — 판정을 `isCurrent`로, `RewrapReport` 필드 `currentFormat`·`notCurrentFormatIds`, ERROR 문구.
+- `admin/member/service/TotpSecretRewrapRunner.java` — 요약 `현재 키 v2 형식 C/T`.
+- 문서: `docs/deployment.md`("2단계 인증 암호화 키 교체" — 점검 줄·완료 기준·배포 순서와 롤백 범위·저장 형식·DB 확인 SQL·복원 키ID 조회), `admin/member/CLAUDE.md`, `plan/README.md`(64 완료·66 추가).
+- 시험: `TotpSecretCipherTest`(+2: PF4 독립 복호기, `isCurrent` 경계 — 기존 2건 `v2` 단언으로), `TotpSecretRewrapServiceIntegrationTest`(PF1 재작성·PF2 두 번째 실행·PF3 대문자·손상 행과 SQL 조건·PF5 커밋 실패 시 `v1` 행 미집계), `TotpSecretRewrapRunnerTest`(문구), `MemberTotpServiceIntegrationTest`(등록 행 `v2:`).
+
+### 검증 결과
+- **TDD**: 암호기 시험 4건·서비스 시험 PF1·PF5가 구현 전 실패 확인 후 통과. PF2·PF3는 구현 전에도 성립하는 동작이라 처음부터 통과(새 판정의 회귀 방지).
+- **변이**: `isCurrent`에서 접두어 검사 제거 → PF1·PF5·암호기 경계 시험 실패, 복호 검사 제거 → PF3·암호기 경계 시험 실패. 원복.
+- **영향 범위 시험**(`com.cms.admin.member.*`·`com.cms.config.auth.*`·`*ConventionTest`·`BaselineSchemaTest`): 76개 클래스 620건 통과, 실패 0. 전체 시험은 PR 직전(code-review-loop 마무리)에 한 번 돌린다.
+- **실기(dev, 2026-11-18, MariaDB `10.11.19-MariaDB-ubu2204`, 이미지 `mariadb:10.11@sha256:d769e379…deae`)**:
+  1. `e17c2ba`(#274) 앱을 `git worktree`로 기동 → admin 2단계 등록 → 행 `v1:…`(실제 이전 버전이 쓴 행).
+  2. 브랜치 앱 기동 → `TOTP 키 점검: … 전체 1건, 재암호화 1건, 복호 불가 0건, 오류 0건, 현재 키 v2 형식 1/1`, 행 `v2:0b8d6a080fd4c9a3:…`, `enabled_at`·`last_used_step`·`failed_attempts` 불변. `SELECT member_id … WHERE LEFT(secret, 20) <> BINARY 'v2:0b8d6a080fd4c9a3:'` 0건, `SELECT DISTINCT BINARY SUBSTRING(secret,1,20)` → `v2:0b8d6a080fd4c9a3:`(mariadb 클라이언트가 텍스트로 출력). 비밀번호 + 인증 앱 코드 로그인 성공(대시보드).
+  3. **롤백**: `e17c2ba` 앱 재기동 → `현재 키로 복호 가능 1/1`, `재암호화 0건`(`v2` 행을 그대로 둠) → 인증 앱 코드 로그인 성공(PS5).
+  4. 브랜치 앱 두 번째 기동 → `재암호화 0건 … 1/1`, 암호문 바이트 동일(PF2 실측).
+  5. 보안 설정 해제 API(204)로 dev DB 원상 복구 — `member_totp`·`member_totp_recovery_code` 0행, admin `ACTIVE`.
+- 화면·URL·인가 변경이 없어 권한 경계 직접 접근 점검과 브라우저 시험(`-PbrowserTests=only`)은 대상 아님. 로그인 화면 회귀는 실기 2·3·5에서 확인.
+
+### 이슈
+- `./gradlew bootRun`을 `taskkill`로 내리면 백그라운드 작업이 exit 1로 보고된다(의도한 종료).
+- 한글 로그 CP949 표시는 기존 환경 특성(`iconv`로 확인).
+
+### 후속
+- 없음(기동 준비 완료 판정은 기존 이슈 #247 범위 — 첫 기동 재작성 증가는 관리자 수 규모).
