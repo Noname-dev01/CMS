@@ -43,14 +43,34 @@ class TotpSecretCipherTest {
         return HexFormat.of().formatHex(digest, 0, 8);
     }
 
+    /** 구현과 독립된 JDK 직접 호출로 #258(#274) 버전의 v2 파싱 규칙대로 연다 — 'v2:' + 키ID 16자 + ':' + Base64(IV‖암호문‖태그). */
+    private static byte[] openAsV2(byte[] key, long memberId, String stored) throws Exception {
+        assertThat(stored).startsWith("v2:");
+        assertThat(stored.charAt(19)).isEqualTo(':');
+        assertThat(stored.substring(3, 19)).isEqualTo(keyId(key));
+        byte[] all = Base64.getDecoder().decode(stored.substring(20));
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, all, 0, 12));
+        cipher.updateAAD(("member_totp:" + memberId).getBytes(StandardCharsets.US_ASCII));
+        return cipher.doFinal(all, 12, all.length - 12);
+    }
+
     @Test
-    @DisplayName("암호화 → 복호화 왕복은 원래 비밀값이고, 저장 형식은 'v1:' 접두어 + 평문이 드러나지 않는 Base64다(PR1은 v1 쓰기 유지 — 이전 앱 호환)")
-    void roundTrip() {
+    @DisplayName("암호화 → 복호화 왕복은 원래 비밀값이고, 저장 형식은 'v2:{현재 키ID}:' 접두어 + 평문이 드러나지 않는 Base64다(이슈 #269)")
+    void roundTrip() throws Exception {
         TotpSecretCipher cipher = new TotpSecretCipher(KEY);
         byte[] secret = filled(20, (byte) 0x41);
         String stored = cipher.encrypt(7L, secret);
-        assertThat(stored).startsWith("v1:").doesNotContain(Base32.encode(secret)).hasSizeLessThanOrEqualTo(255);
+        assertThat(stored).startsWith("v2:" + keyId(KEY_BYTES) + ":").doesNotContain(Base32.encode(secret)).hasSizeLessThanOrEqualTo(255);
         assertThat(cipher.decrypt(7L, stored)).isEqualTo(secret);
+    }
+
+    @Test
+    @DisplayName("PF4: 새 암호문은 구현과 독립된 복호기로 #258(#274) 버전의 v2 규칙대로 열린다 — 그 버전으로 롤백해도 읽힌다")
+    void encryptedValueOpensWithV2RulesOfPreviousVersion() throws Exception {
+        byte[] secret = filled(20, (byte) 0x42);
+        String stored = new TotpSecretCipher(KEY, OTHER_KEY).encrypt(7L, secret);
+        assertThat(openAsV2(KEY_BYTES, 7L, stored)).isEqualTo(secret);
     }
 
     @Test
@@ -148,11 +168,29 @@ class TotpSecretCipherTest {
     }
 
     @Test
-    @DisplayName("옛 키가 있어도 새 암호문은 현재 키 v1이다")
-    void encryptsWithCurrentKeyOnly() {
+    @DisplayName("옛 키가 있어도 새 암호문은 현재 키 v2다")
+    void encryptsWithCurrentKeyOnly() throws Exception {
         TotpSecretCipher rotating = new TotpSecretCipher(KEY, OTHER_KEY);
         String stored = rotating.encrypt(7L, filled(20, (byte) 2));
-        assertThat(stored).startsWith("v1:");
+        assertThat(stored).startsWith("v2:" + keyId(KEY_BYTES) + ":");
         assertThat(new TotpSecretCipher(KEY).decrypt(7L, stored)).isEqualTo(filled(20, (byte) 2));
+    }
+
+    @Test
+    @DisplayName("isCurrent는 'v2:{현재 키ID}:'(대소문자 구분)이고 현재 키로 복호되는 값만 참이다 — v1·옛 키·대문자 변형·손상 페이로드는 거짓(P2)")
+    void isCurrentRequiresCurrentV2PrefixAndAuthenticatedDecrypt() throws Exception {
+        byte[] secret = filled(20, (byte) 6);
+        TotpSecretCipher cipher = new TotpSecretCipher(KEY, OTHER_KEY);
+        String current = "v2:" + keyId(KEY_BYTES) + ":" + seal(KEY_BYTES, 7L, secret);
+
+        assertThat(cipher.isCurrent(7L, current)).isTrue();
+        assertThat(cipher.isCurrent(7L, cipher.encrypt(7L, secret))).isTrue();
+        assertThat(cipher.isCurrent(7L, "v1:" + seal(KEY_BYTES, 7L, secret))).as("현재 키 v1").isFalse();
+        assertThat(cipher.isCurrent(7L, "v2:" + keyId(OTHER_KEY_BYTES) + ":" + seal(OTHER_KEY_BYTES, 7L, secret))).as("옛 키 v2").isFalse();
+        assertThat(cipher.isCurrent(7L, "V2" + current.substring(2))).as("대문자 접두어").isFalse();
+        assertThat(cipher.isCurrent(7L, "v2:" + keyId(KEY_BYTES).toUpperCase(java.util.Locale.ROOT) + current.substring(19))).as("대문자 키ID").isFalse();
+        assertThat(cipher.isCurrent(7L, current.substring(0, current.length() - 4) + "AAAA")).as("손상 페이로드").isFalse();
+        assertThat(cipher.isCurrent(8L, current)).as("다른 회원 행").isFalse();
+        assertThat(cipher.isCurrent(7L, null)).isFalse();
     }
 }

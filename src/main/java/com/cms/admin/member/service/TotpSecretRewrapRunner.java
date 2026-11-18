@@ -31,9 +31,9 @@ public class TotpSecretRewrapRunner implements ApplicationRunner {
             log.error("TOTP 키 점검 실패 — 재암호화·검증을 하지 못했습니다 (예외={})", e.getClass().getName());
             return;
         }
-        String summary = String.format("TOTP 키 점검: 현재 키 ID=%s, 옛 키 ID=%s, 전체 %d건, 재암호화 %d건, 복호 불가 %d건, 오류 %d건, 현재 키로 복호 가능 %d/%d",
+        String summary = String.format("TOTP 키 점검: 현재 키 ID=%s, 옛 키 ID=%s, 전체 %d건, 재암호화 %d건, 복호 불가 %d건, 오류 %d건, 현재 키 v2 형식 %d/%d",
                 report.currentKeyId(), report.previousKeyId().orElse("없음"), report.total(), report.rewrapped(),
-                report.unreadable(), report.errors(), report.readableWithCurrentKey(), report.total());
+                report.unreadable(), report.errors(), report.currentFormat(), report.total());
         if (report.healthy()) {
             log.info(summary);
         } else {
