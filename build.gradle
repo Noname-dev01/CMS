@@ -135,6 +135,10 @@ tasks.named('test') {
     // 제한하므로 둘 다 명시해야 한다 (PLAN-testcontainers.md 결정 2-1).
     maxParallelForks = 1
     forkEvery = 0
+    // 한 JVM이 전 시험을 돌리며 Spring 시험 컨텍스트를 캐시(기본 최대 32개)에 쌓으므로 Gradle 기본 힙(512MB)으로는 모자란다 —
+    // 2026-11-19 PR #282(패스키)가 컨텍스트 하나를 더하자 CI(Linux)에서 컨텍스트 로드 중 OutOfMemoryError: Java heap space
+    // (PublicTransferLimitServerTest 10건)가 났다. 로컬(Windows)은 같은 512MB로 통과했다(docs/troubleshooting.md).
+    maxHeapSize = '1g'
     // 컨테이너 시작 시 MariaDbContainerSupport가 남기는 컨테이너 ID 로그를 빌드 콘솔에
     // 노출한다 — 없으면 Gradle 기본 LIFECYCLE 로그 레벨에서 테스트 표준 출력이 보이지
     // 않아 실행 간 컨테이너 ID 대조 검증이 불가능하다.
