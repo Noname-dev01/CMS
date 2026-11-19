@@ -60,6 +60,10 @@ dependencies {
     // 2단계 인증(TOTP) 등록용 QR 코드 생성 — core 모듈만 쓴다(javase 모듈 없이 BitMatrix를 직접 PNG로 그린다).
     // Apache-2.0, 런타임 전이 의존성 없음. Boot BOM 관리 대상이 아니라 버전 명시(PLAN-totp-two-factor.md 결정 8).
     implementation 'com.google.zxing:core:3.5.4'
+    // 패스키(WebAuthn) 2단계 — RP 검증 연산(Webauthn4JRelyingPartyOperations)만 직접 쓴다. http.webAuthn()은 켜지 않는다
+    // (자체 로그인 필터·프로바이더가 2단계 계약을 우회). 버전은 Boot BOM(Spring Security 7.0.7) 관리, 전이로 webauthn4j-core
+    // (PLAN-passkey-second-factor.md 결정 2).
+    implementation 'org.springframework.security:spring-security-webauthn'
     // Flyway (버전은 Boot BOM 관리. MariaDB 지원은 flyway-mysql 모듈에 포함 — Flyway 10부터 DB별 모듈 분리).
     // Boot 4는 Flyway 자동 구성이 별도 모듈이라 스타터로 받는다.
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
