@@ -113,13 +113,6 @@ jobs:
         timeout-minutes: 10
         run: ./gradlew installPlaywrightBrowsers
 
-      - name: "[실험] apt 보관 설정과 보관 파일 수"
-        continue-on-error: true
-        run: |
-          apt-config dump | grep -i -E 'keep|clean|post-invoke' || echo "(해당 설정 없음)"
-          ls /var/cache/apt/archives/*.deb 2>/dev/null | wc -l
-          ls /var/cache/apt/archives/ | head -30
-
       - name: Collect apt packages for cache
         id: apt-collect
         timeout-minutes: 2
