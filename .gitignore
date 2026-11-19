@@ -42,6 +42,9 @@ out/
 .env*
 !.env.example
 
+### CI apt 캐시 (scripts/ci/playwright-apt-cache.sh) ###
+.ci-apt-cache/
+
 ### QueryDSL Generated ###
 src/main/generated/
 
