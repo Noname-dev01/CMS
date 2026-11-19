@@ -1,6 +1,6 @@
 # PLAN — CI browser-test의 Playwright 폰트(apt) 설치 시간 편차 줄이기 (이슈 #283)
 
-> 상태: v5 (적대적 리뷰 4라운드 반영) · 브랜치 `chore/ci-playwright-apt-cache` · 출처: `PLAN-passkey-login.md` "후속"
+> 상태: v5 (적대적 리뷰 5라운드 ship) · 구현·검증 완료(2026-11-20, §9) · 브랜치 `chore/ci-playwright-apt-cache` · 출처: `PLAN-passkey-login.md` "후속"
 
 ## 1. Context
 
@@ -142,4 +142,55 @@ CI 설정이라 단위 시험 대신 **실험 실행(초안 PR)의 로그**로 �
 
 ## 9. 구현·검증 결과
 
-(구현 후 작성)
+### Context
+v5(적대적 리뷰 5라운드 ship) 승인 후 구현(2026-11-20). PR #291(초안으로 실측 후 정식 전환).
+
+### 핵심 확정 사항
+- 결정 1~3을 계획대로 구현했다. 계획과 달라진 점:
+  - **후보 기록 조회를 `apt-get download --print-uris <패키지>`로 했다.** 이것이 apt가 보관 디렉터리에 쓰는 이름과 색인의 해시(가장 강한 것 — `SHA256`/`SHA512` 둘 다 처리)를 한 번에 준다. 그래서 §3의 "`Package`·`Version`·`Architecture`로 이름을 만든다"를 이것으로 바꿨다. 실측상 꼭 필요했다: 러너는 `xfonts-utils`를 `…_amd64v3.deb`로 보관하는데 deb 안의 `Architecture`는 `amd64`다. deb 값으로 이름을 만들었다면 그 파일은 투입 효과가 없었다.
+  - 실험 ③(F3 손상)·④(F6 시간 초과)는 스크립트 논리 시험이라, 같은 OS(`ubuntu:26.04`)의 실제 apt로 **로컬 Docker**에서 확인했다. CI 실행 횟수가 약 5회에서 2회로 줄었다. 러너에서만 볼 수 있는 것(정리 훅·Playwright update 뒤 보존·러너 이름 규칙·Gradle 환경 전달)은 CI 실행 2회로 확인했다.
+  - 키 계산 단계도 `continue-on-error`로 두고, 복원·저장은 접두어가 있을 때만 돈다(계획의 "비면 실패"를 "비면 캐시 단계만 건너뜀"으로 — 최적화가 필수 체크를 떨어뜨리지 않는다는 결정 2와 맞춤).
+
+### 구현 파일
+- `scripts/ci/playwright-apt-cache.sh` (신규 — `stage`·`collect`)
+- `.github/workflows/ci.yml` (`browser-test` job)
+- `.gitignore` (`.ci-apt-cache/`)
+- `src/test/java/CLAUDE.md` ("브라우저 설치" 문단)
+
+### 검증 결과
+**정적 검사**: actionlint 1.7.7·shellcheck 0.10.0 경고 없음.
+
+**로컬 Docker (`ubuntu:26.04`, root, 폰트 9개 + 의존 9개 = 18개 deb):**
+
+| 시나리오 | 결과 |
+|---|---|
+| A 정상 캐시 | 18개 투입, `Need to get 0 B/23.3 MB`, 회수 집합 해시 동일 |
+| B ⓐ끝부분 1바이트 변조(크기 유지) | 버림(해시 불일치) |
+| B ⓑ절반 절단 | 버림(분석 실패) — 이 파일은 제어 영역도 깨져 분석 분기를 탔다 |
+| B ⓒ누락 / ⓓ wqy 자리에 tlwg 내용 | ⓓ는 tlwg 이름으로 들어가고 wqy 자리는 비어 다시 받음 |
+| B ⓔ임의 바이트 / ⓕ `--nocheck`로 만든 Architecture 없는 deb | 둘 다 버림(분석 실패 또는 필드 누락) |
+| B 종합 | `stage` 종료 코드 0, `Need to get 20.4 MB`(= unifont 3.17 + freefont 5.66 + ipafont 3.70 + wqy 7.86), 회수 집합이 원래 해시로 돌아옴 |
+| C update 내부 제한 0.05초 | 투입 포기(경고), 종료 코드 0, 뒤이은 update가 잠금 대기 없이 성공, 미러에서 23.3MB 받음 |
+
+**CI (러너 `ubuntu26` 이미지 `20261111.196.1`, apt 3.2.1, dpkg 1.23.7):**
+
+| 실행 | 캐시 | apt 폰트 다운로드 | 설치 단계 | 캐시 단계 합(복원·`stage`·`collect`·저장) | `Run browser tests` |
+|---|---|---|---|---|---|
+| 기준선 run 44476953408 (azure 미러) | — | 21.9MB in 1s | 44초 | — | 1분 58초 (Firefox·WebKit 다운로드 포함) |
+| 기준선 run 44486452235 (us-east-2 미러) | — | 21.9MB in 2분 59초 | **4분 17초** | — | 2분 13초 (포함) |
+| 1회차 run 44558935498 job 135682554208 | 없음 | 21.9MB in 2s | 45초 | 약 3초 | 2분 5초 (다운로드 0건) |
+| 2회차 같은 run 재실행 job 135686298268 | 적중 | **`Need to get 0 B/21.9 MB`** | 50초 | 약 8초 (`stage` 6초 — update 3.4초 포함) | 2분 27초 (다운로드 0건) |
+
+- F1 ✓: `apt-config dump`에 deb를 지우는 설정이 없다(`Post-Invoke-Success`는 타임스탬프·motd·cnf 갱신뿐, `DPkg::Post-Invoke ""`, `AutocleanInterval "0"`). 설치 뒤 9개 회수, 이름 불일치 경고 없음.
+- F2 ✓: 적중 실행의 `Need to get 0 B`. Playwright의 `apt-get update` 뒤에도 투입분이 남았다.
+- F3·F6 ✓: 로컬 Docker(위 표).
+- F4 ✓: 두 실행 모두 `Run browser tests` 로그에 "Downloading Firefox/WebKit"·"missing dependencies" 0건, 시험 실행·통과.
+- F5 ✓: 같은 키 저장은 "Failed to save: Unable to reserve cache … another job may be creating"으로 끝났고, 단계와 job은 success.
+- 시간 해석: 미러가 빠를 때는 캐시가 이득이 없다(설치 단계 45초 → 50초, 캐시 단계 약 8초 추가 — 앞쪽 `apt-get update`가 한 번 더 돈다). 이득은 느린 미러에서 폰트 다운로드(관측 최대 2분 59초)를 없애는 데 있다. 느린 미러는 일부러 만들 수 없어서, 적중 실행이 미러에서 받는 바이트가 폰트 21.9MB → 0이라는 것을 근거로 삼는다(§5 2차 기준). `apt-get update`(3~5MB, 적중 시 두 번)는 여전히 미러에 묶인다.
+
+### 이슈
+- 로컬 Docker 시험에는 우분투 도커 이미지 전용 정리 훅 `/etc/apt/apt.conf.d/docker-clean`이 있어 시험 스크립트가 먼저 지웠다(러너 VM에는 없음 — F1에서 확인).
+- 처음 커밋·push·PR 생성을 한 명령으로 묶었을 때는 자동 권한 검사에 막혔다. 나눠서 실행하니 진행됐다.
+
+### 후속
+- 없음(후보: Ubuntu 이미지 메이저가 바뀌면 키 접두어가 바뀌어 첫 실행은 캐시 없이 돈다 — 의도된 동작).
