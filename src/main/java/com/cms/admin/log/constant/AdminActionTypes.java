@@ -97,6 +97,10 @@ public final class AdminActionTypes {
     public static final String TOTP_RESET = "TOTP_RESET";
     /** 2단계 인증 복구 코드 재발급 — 본인, 옛 코드 전부 무효 (targetId = 회원 번호) */
     public static final String TOTP_RECOVERY_CODES_REISSUE = "TOTP_RECOVERY_CODES_REISSUE";
+    /** 패스키 등록 — 본인 (targetId = 회원 번호, PLAN-passkey-second-factor.md 결정 5) */
+    public static final String PASSKEY_REGISTER = "PASSKEY_REGISTER";
+    /** 패스키 삭제 — 본인 (targetId = 회원 번호). TOTP 해제·리셋으로 함께 지운 경우는 TOTP_DISABLE·TOTP_RESET만 남는다 */
+    public static final String PASSKEY_DELETE = "PASSKEY_DELETE";
 
     /** 드롭다운·동기화 테스트 공용 — 새 타입 추가 시 이 목록도 함께 갱신 */
     public static final List<String> ALL = List.of(
@@ -113,7 +117,8 @@ public final class AdminActionTypes {
             MEDIA_UPLOAD, MEDIA_DELETE,
             INQUIRY_STATUS, INQUIRY_DELETE,
             SITE_CREATE, SITE_UPDATE, SITE_DELETE,
-            TOTP_ENABLE, TOTP_DISABLE, TOTP_RESET, TOTP_RECOVERY_CODES_REISSUE
+            TOTP_ENABLE, TOTP_DISABLE, TOTP_RESET, TOTP_RECOVERY_CODES_REISSUE,
+            PASSKEY_REGISTER, PASSKEY_DELETE
     );
 
     private AdminActionTypes() {}

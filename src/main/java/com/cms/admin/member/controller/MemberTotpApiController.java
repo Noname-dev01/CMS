@@ -3,6 +3,7 @@ package com.cms.admin.member.controller;
 import com.cms.admin.member.dto.request.TotpConfirmRequest;
 import com.cms.admin.member.dto.request.TotpDisableRequest;
 import com.cms.admin.member.dto.request.TotpRecoveryCodesReissueRequest;
+import com.cms.admin.member.service.MemberPasskeyService;
 import com.cms.admin.member.service.MemberTotpService;
 import com.cms.admin.member.service.MemberTotpService.TotpStatus;
 import com.cms.admin.member.service.TotpEnrollment;
@@ -52,11 +53,16 @@ public class MemberTotpApiController {
 
     private final MemberTotpService memberTotpService;
     private final TotpProperties totpProperties;
+    private final MemberPasskeyService passkeyService;
 
-    /** @param required 2단계 인증이 필수인 역할인가(ADMIN) — 끄면 본인 전 세션이 만료되고 다음 로그인에서 다시 등록한다(PLAN-totp-required-admin.md 결정 5) */
-    public record TotpStatusResponse(boolean enabled, LocalDateTime enabledAt, long remainingRecoveryCodes, boolean required) {
-        static TotpStatusResponse of(TotpStatus status) {
-            return new TotpStatusResponse(status.enabled(), status.enabledAt(), status.remainingRecoveryCodes(), status.required());
+    /**
+     * @param required     2단계 인증이 필수인 역할인가(ADMIN) — 끄면 본인 전 세션이 만료되고 다음 로그인에서 다시 등록한다(PLAN-totp-required-admin.md 결정 5)
+     * @param passkeyCount 유효한 패스키 수 — 2단계를 끄면 함께 지워진다(PLAN-passkey-second-factor.md 결정 1·5)
+     */
+    public record TotpStatusResponse(boolean enabled, LocalDateTime enabledAt, long remainingRecoveryCodes, boolean required,
+                                     long passkeyCount) {
+        static TotpStatusResponse of(TotpStatus status, long passkeyCount) {
+            return new TotpStatusResponse(status.enabled(), status.enabledAt(), status.remainingRecoveryCodes(), status.required(), passkeyCount);
         }
     }
 
@@ -70,7 +76,7 @@ public class MemberTotpApiController {
     @GetMapping("me/totp")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public TotpStatusResponse myStatus(@AuthenticationPrincipal CustomUserDetails principal) {
-        return TotpStatusResponse.of(memberTotpService.status(principal.getId()));
+        return TotpStatusResponse.of(memberTotpService.status(principal.getId()), passkeyService.countValid(principal.getId()));
     }
 
     @Operation(summary = "2단계 인증 등록 대기 발급", description = "새 비밀값·QR을 발급한다(DB 쓰기 없음, 10분 유효). 다시 부르면 이전 대기를 대체한다.")
@@ -141,7 +147,7 @@ public class MemberTotpApiController {
     @GetMapping("{id}/totp")
     @PreAuthorize("hasRole('ADMIN')")
     public TotpStatusResponse memberStatus(@PathVariable Long id) {
-        return TotpStatusResponse.of(memberTotpService.status(id));
+        return TotpStatusResponse.of(memberTotpService.status(id), passkeyService.countValid(id));
     }
 
     @Operation(summary = "관리자의 2단계 인증 해제(ADMIN)", description = "인증기·복구 코드를 모두 잃은 회원의 복구용. 사용 중이 아니면 아무것도 하지 않는다.")

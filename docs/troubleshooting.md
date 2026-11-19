@@ -351,6 +351,22 @@ IDE로 개발할 때는 저장 시 자동 컴파일(Build project automatically)
 
 ---
 
+### 의존성 하나 추가로 모든 API가 CBOR 본문을 받게 됐다 — 전이 `jackson-dataformat-cbor`를 보고 MVC가 변환기를 자동 추가 (2026-11-19, PLAN-passkey-second-factor.md 구현 중)
+
+**증상**: 오류는 없다. `spring-security-webauthn`(→ `webauthn4j-core 0.31.6` → `jackson-dataformat-cbor 3.1.7`)을 추가한 뒤 `RequestMappingHandlerAdapter.getMessageConverters()`에 `JacksonCborHttpMessageConverter`가 새로 생겼다(실측). 그 결과 모든 `@RequestBody` API가 `Content-Type: application/cbor` 본문을 받고 `Accept: application/cbor`로 응답하게 됐다 — 이 매퍼는 앱의 JSON 설정(중복 키 거부 등 입력 계약)을 거치지 않는다.
+
+**원인**: Spring Framework 7의 기본 메시지 변환기 구성은 클래스패스에 CBOR 데이터 형식 모듈이 있으면 CBOR 변환기를 더한다. 앱이 CBOR를 쓰지 않아도 전이 의존성만으로 켜진다.
+
+**해결**: `com.cms.config.HttpMessageConverterConfig`가 `configureMessageConverters(HttpMessageConverters.ServerBuilder)`의 `configureMessageConvertersList`에서 `JacksonCborHttpMessageConverter`를 지운다(→ CBOR 본문 415, CBOR Accept 406). `PasskeyModuleWiringIntegrationTest#noCborMessageConverter`가 고정한다(설정 없이 먼저 실패 확인). **새 의존성을 넣을 때는 전이 의존성 목록(`./gradlew dependencies --configuration runtimeClasspath`)에서 `jackson-dataformat-*`·`*-xml`처럼 MVC 기본 변환기를 켜는 모듈을 확인한다.**
+
+### CI에서만 시험 컨텍스트 로드가 `OutOfMemoryError: Java heap space`로 실패한다 — 한 JVM이 캐시하는 Spring 컨텍스트가 Gradle 기본 힙(512MB)을 넘김 (2026-11-19, PR #282)
+
+**오류 메시지**: CI `test` job에서 `PublicTransferLimitServerTest` 10건이 모두 실패. `Failed to instantiate [org.springframework.security.config.annotation.web.builders.HttpSecurity] … Java heap space` → 이어서 `ApplicationContext failure threshold (1) exceeded`. 시험 단언 실패가 아니라 컨텍스트 생성 실패다.
+
+**원인**: 시험은 `maxParallelForks = 1`·`forkEvery = 0`이라 JVM 하나가 전 시험(약 3,200건)을 돌리고, Spring 시험 컨텍스트 캐시(기본 최대 32개)가 서로 다른 구성(`@MockitoBean`·`@TestPropertySource`·`webEnvironment` 등)마다 컨텍스트를 하나씩 쌓아 둔다. `build.gradle`에 힙 설정이 없어 Gradle 기본 `-Xmx512m`이었는데, PR #282가 `@MockitoBean` 시험 클래스(새 컨텍스트 1개)를 더하자 CI(Linux)에서 한도를 넘었다. 로컬(Windows)은 같은 512MB로 통과했다(실행 순서·GC 차이 — 측정하지 않음). 같은 구조로 커넥션 한도가 먼저 터졌던 사례가 위 "전체 테스트에서만 `Too many connections`"다.
+
+**해결**: `build.gradle`의 `test` 태스크에 `maxHeapSize = '1g'`. 확인: `./gradlew test -PbrowserTests=exclude -i` 출력의 시험 워커 명령줄에 `-Xmx1g`가 보이고 전체 통과, PR CI `test` job 재통과. 컨텍스트가 계속 늘면 다시 부족해질 수 있다 — 그때는 새 구성(`@MockitoBean` 등)을 기존 컨텍스트와 맞추거나 `spring.test.context.cache.maxSize`를 실측해 낮추는 것을 검토한다.
+
 ## 애플리케이션 / 런타임
 
 Spring Security 필터, AOP 로깅, 트랜잭션 경계, JPA/QueryDSL 동작 등 런타임 문제를 기록한다.

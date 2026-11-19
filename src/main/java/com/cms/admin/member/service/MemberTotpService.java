@@ -6,6 +6,7 @@ import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.MemberTotp;
 import com.cms.admin.member.domain.MemberTotpRecoveryCode;
 import com.cms.admin.member.domain.Role;
+import com.cms.admin.member.repository.MemberPasskeyRepository;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.repository.MemberTotpRecoveryCodeRepository;
 import com.cms.admin.member.repository.MemberTotpRepository;
@@ -59,6 +60,7 @@ public class MemberTotpService {
     private final MemberRepository memberRepository;
     private final MemberTotpRepository memberTotpRepository;
     private final MemberTotpRecoveryCodeRepository recoveryCodeRepository;
+    private final MemberPasskeyRepository passkeyRepository;
     private final TotpCredentialChecker checker;
     private final TotpSecretCipher cipher;
     private final TotpCodeVerifier verifier;
@@ -186,6 +188,8 @@ public class MemberTotpService {
                 }
                 return Verdict.BAD_CREDENTIALS;
             }
+            // 패스키는 TOTP를 켠 회원의 대체 수단이라 함께 지운다(PLAN-passkey-second-factor.md 결정 1)
+            passkeyRepository.deleteAllByMemberId(member.getId());
             recoveryCodeRepository.deleteAllByMemberId(member.getId());
             memberTotpRepository.delete(totp);
             if (TotpAuthorities.isRequired(member.getUserType())) {
@@ -268,6 +272,7 @@ public class MemberTotpService {
             Member target = memberRepository.findByIdForUpdate(targetMemberId)
                     .orElseThrow(() -> new ResourceNotFoundException("관리자를 찾을 수 없습니다."));
             memberTotpRepository.findById(target.getId()).ifPresent(totp -> {
+                passkeyRepository.deleteAllByMemberId(target.getId()); // 결정 1 — 패스키도 함께
                 recoveryCodeRepository.deleteAllByMemberId(target.getId());
                 memberTotpRepository.delete(totp);
                 eventPublisher.publishEvent(new MemberTotpAuditEvent(AdminActionTypes.TOTP_RESET, actor.getId(), actor.getUserId(),

@@ -26,6 +26,10 @@ cms:
   # 2단계 인증 비밀값 암호화 키 — dev·시험 전용 고정값이다. 운영에 쓰지 않는다(운영은 CMS_TOTP_ENCRYPTION_KEY에 무작위 32바이트).
   totp:
     encryption-key: ${CMS_TOTP_ENCRYPTION_KEY:ZGV2LW9ubHktdG90cC1rZXktZG8tbm90LXVzZS0zMmI=}
+  # 패스키 — dev는 localhost(브라우저가 http를 허용하는 유일한 호스트). bootRun 포트가 다르면 CMS_PASSKEY_ALLOWED_ORIGINS로 바꾼다.
+  passkey:
+    rp-id: ${CMS_PASSKEY_RP_ID:localhost}
+    allowed-origins: ${CMS_PASSKEY_ALLOWED_ORIGINS:http://localhost:8080}
   inquiry:
     turnstile:
       enabled: ${CMS_INQUIRY_TURNSTILE_ENABLED:true}
