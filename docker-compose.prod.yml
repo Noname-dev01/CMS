@@ -63,6 +63,10 @@ services:
       CMS_TOTP_ENCRYPTION_KEY: ${CMS_TOTP_ENCRYPTION_KEY:?필수 환경변수입니다}
       # 키 교체 중에만 넣는 옛 키(선택 — 비면 없음). 복호에만 쓰이고 기동 때 옛 키 행을 현재 키로 다시 암호화한다(PLAN-totp-key-rotation.md).
       CMS_TOTP_PREVIOUS_ENCRYPTION_KEY: ${CMS_TOTP_PREVIOUS_ENCRYPTION_KEY-}
+      # 패스키(WebAuthn, 선택 — 비면 기능 꺼짐). 도메인·TLS가 정해진 뒤(#238) 켠다. 켜면 허용 origin이 https이고 rp-id와 맞아야 기동한다
+      # (PLAN-passkey-second-factor.md 결정 6, docs/deployment.md "패스키").
+      CMS_PASSKEY_RP_ID: ${CMS_PASSKEY_RP_ID-}
+      CMS_PASSKEY_ALLOWED_ORIGINS: ${CMS_PASSKEY_ALLOWED_ORIGINS-}
       # 부트스트랩 3변수는 선택 입력이다 — ROLE_ADMIN + ACTIVE/LOCKED/PASSWORD_EXPIRED 중
       # 하나인 계정이 이미 있는 정상 운영 환경에서는(D-01 대안 A, 잠금·만료 중이어도 포함)
       # 이 값들이 없어도 기동돼야 하므로 Compose가 무조건 요구하지 않는다(결정 4·7).
