@@ -3,26 +3,40 @@ package com.cms.config.auth;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.MemberTotp;
+import com.cms.admin.member.domain.MemberPasskey;
+import com.cms.admin.member.domain.MemberPasskeyUser;
+import com.cms.admin.member.passkey.PasskeyJson;
+import com.cms.admin.member.passkey.PasskeyRelyingParty;
+import com.cms.admin.member.repository.MemberPasskeyRepository;
+import com.cms.admin.member.repository.MemberPasskeyUserRepository;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.repository.MemberTotpRecoveryCodeRepository;
 import com.cms.admin.member.repository.MemberTotpRepository;
 import com.cms.admin.member.service.TotpCredentialChecker;
 import com.cms.admin.member.service.TotpCredentialChecker.Outcome;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.web.webauthn.api.AuthenticatorAssertionResponse;
+import org.springframework.security.web.webauthn.api.PublicKeyCredential;
+import org.springframework.security.web.webauthn.api.PublicKeyCredentialRequestOptions;
+import org.springframework.security.web.webauthn.api.PublicKeyCredentialUserEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * 로그인 2단계 판정(PLAN-totp-two-factor.md 결정 2-3). 회원 행 잠금 아래 한 트랜잭션에서 재확인 → 코드 판정·소비 →
  * 성공 리셋 또는 실패 기록·잠금을 하고 <b>커밋된 결과만</b> 돌려준다 — 완전 권한 컨텍스트 저장은 반환 뒤 호출자가 한다.
  * 실패도 기록이므로 예외로 롤백하지 않고 결과로 돌려준다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TotpLoginService {
@@ -30,6 +44,8 @@ public class TotpLoginService {
     public enum Status {
         SUCCESS,
         WRONG_CODE,
+        /** 패스키 검증 실패(서명·챌린지·자격 불일치) — 오답과 같이 센다(PLAN-passkey-second-factor.md 결정 4) */
+        WRONG_PASSKEY,
         /** 이미 쓴 코드 — 실패로 세지 않고 다음 코드를 기다리라고 안내한다 */
         REUSED_CODE,
         /** 이번 실패로 계정이 잠겼다 */
@@ -49,6 +65,10 @@ public class TotpLoginService {
     private final MemberTotpRecoveryCodeRepository recoveryCodeRepository;
     private final TotpCredentialChecker checker;
     private final LoginFailureService loginFailureService;
+    private final MemberPasskeyRepository passkeyRepository;
+    private final MemberPasskeyUserRepository passkeyUserRepository;
+    private final PasskeyRelyingParty relyingParty;
+    private final PasskeyJson passkeyJson;
     private final Clock clock;
 
     @Transactional
@@ -89,6 +109,81 @@ public class TotpLoginService {
                 boolean usedRecovery = outcome == Outcome.RECOVERY_CODE_MATCHED;
                 return new Result(Status.SUCCESS, recoveryCodeRepository.countByMemberIdAndUsedAtIsNull(member.getId()), usedRecovery);
             }
+        }
+    }
+
+    /**
+     * 코드 화면 GET의 패스키 어설션 대기 — 기능이 켜져 있고 그 회원에게 유효한 패스키가 있을 때만 만든다(없으면 빈 값 — 화면에 버튼 없음).
+     * 옵션의 {@code allowCredentials}는 그 회원의 유효한 자격뿐이다(라이브러리 → 저장소 어댑터). 쓰기가 없어 행 잠금을 잡지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public Optional<PasskeyAssertionState> startPasskeyAssertion(CustomUserDetails principal) {
+        if (!relyingParty.isEnabled() || passkeyRepository.countValidByMemberId(principal.getId()) == 0) {
+            return Optional.empty();
+        }
+        PublicKeyCredentialRequestOptions options = relyingParty.requestOptions(principal.getUsername());
+        if (options.getAllowCredentials() == null || options.getAllowCredentials().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new PasskeyAssertionState(UUID.randomUUID().toString(), principal.getId(), options, LocalDateTime.now(clock)));
+    }
+
+    /**
+     * 패스키로 2단계 판정(결정 4) — 코드 판정과 같은 회원 행 잠금·재확인·실패 기록·커밋 뒤 반환 계약이다.
+     * 기능 꺼짐·패스키 없음·TOTP 없음은 {@code REJECTED}(카운트 없음). 형식 오류·검증 실패·자격 불일치는 {@code WRONG_PASSKEY}(카운트, 5회 잠금).
+     */
+    @Transactional
+    public Result verifyPasskey(CustomUserDetails principal, PublicKeyCredentialRequestOptions options, String credentialJson,
+                                String requestIp, String requestUri) {
+        Optional<Member> locked = memberRepository.findByIdForUpdate(principal.getId());
+        if (locked.isEmpty() || !matchesLogin(locked.get(), principal)) {
+            return Result.of(Status.REJECTED);
+        }
+        Member member = locked.get();
+        Optional<MemberTotp> found = memberTotpRepository.findById(member.getId());
+        Optional<MemberPasskeyUser> handle = passkeyUserRepository.findById(member.getId());
+        if (found.isEmpty() || handle.isEmpty() || !relyingParty.isEnabled()
+                || passkeyRepository.countValidByMemberId(member.getId()) == 0) {
+            return Result.of(Status.REJECTED);
+        }
+        MemberTotp totp = found.get();
+
+        if (!passkeyMatches(member, handle.get(), totp, options, credentialJson)) {
+            if (totp.recordFailureAndCheckThreshold()) {
+                loginFailureService.lockForSecondFactorFailures(member, requestIp, requestUri);
+                return Result.of(Status.LOCKED);
+            }
+            return Result.of(Status.WRONG_PASSKEY);
+        }
+        totp.resetFailures();
+        // 벌크 리셋(clearAutomatically) 앞에서 반영한다 — totp 실패 횟수 0과 어댑터가 바꾼 서명 횟수·사용 시각(리뷰 2-2)
+        memberTotpRepository.flush();
+        memberRepository.resetFailedLoginCountIfActive(member.getUserId());
+        return new Result(Status.SUCCESS, recoveryCodeRepository.countByMemberIdAndUsedAtIsNull(member.getId()), false);
+    }
+
+    /** 어설션 검증 + 돌려받은 핸들과 자격 행이 이 회원의 유효한 것인지 직접 대조(allowCredentials 검사에 더한 이중 방어). */
+    private boolean passkeyMatches(Member member, MemberPasskeyUser handle, MemberTotp totp,
+                                   PublicKeyCredentialRequestOptions options, String credentialJson) {
+        try {
+            PublicKeyCredential<AuthenticatorAssertionResponse> credential = passkeyJson.readAssertion(credentialJson);
+            // 응답 userHandle은 서명 대상이 아니고 라이브러리(7.0.7)가 검증기에 넘기지 않는다 — 있으면 본인 핸들과 직접 대조한다
+            // (WebAuthn 사양: 응답 userHandle은 자격 소유자의 핸들과 같아야 한다. 코드 리뷰 2라운드)
+            if (credential.getResponse() != null && credential.getResponse().getUserHandle() != null
+                    && !Arrays.equals(credential.getResponse().getUserHandle().getBytes(), handle.getUserHandle())) {
+                return false;
+            }
+            PublicKeyCredentialUserEntity entity = relyingParty.authenticate(options, credential);
+            if (entity == null || !Arrays.equals(entity.getId().getBytes(), handle.getUserHandle())) {
+                return false;
+            }
+            Optional<MemberPasskey> row = passkeyRepository.findByCredentialId(credential.getRawId().getBytes());
+            return row.isPresent()
+                    && Objects.equals(row.get().getMemberId(), member.getId())
+                    && !row.get().getCreatedAt().isBefore(totp.getEnabledAt());
+        } catch (RuntimeException e) {
+            log.info("패스키 2단계 검증 실패 (memberId={}, type={})", member.getId(), e.getClass().getName());
+            return false;
         }
     }
 
