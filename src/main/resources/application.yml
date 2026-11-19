@@ -194,9 +194,18 @@ cms:
         methods: [GET, HEAD]
         capacity: 120
         refill-period-seconds: 60
+      # 비밀번호 로그인(무인증 POST) — 계정별 실패 잠금(5회)과 별개로 여러 계정 대입·BCrypt 부하(없는 아이디도 비교 비용)를 IP 단위로 억제한다
+      # (PLAN-password-login-rate-limit.md 결정 1, 이슈 #284). 버스트 20 + 30초에 1회 보충 — 공유 IP에서 약 10명이 동시에 로그인할 수 있다.
+      # 2단계 화면(/admin/login/totp·totp-enrollment)은 비밀번호를 통과한 세션만 오고 오답이 계정 잠금에 합산돼 제외한다(결정 2).
+      # 수용 위험: 같은 IP 뒤의 공격자는 30초에 1건으로 그 IP의 비밀번호 로그인을 계속 막을 수 있다 — 프록시 뒤에서 원 IP 전달(#239) 없이
+      # 배포하면 모든 관리자가 한 버킷을 쓰게 되므로 #239 해결 전에는 실배포하지 않는다(docs/deployment.md).
+      - id: admin-password-login
+        pattern: /admin/login
+        methods: [POST]
+        capacity: 20
+        refill-period-seconds: 600
       # 패스키 단독 로그인(무인증 POST) — 자격 ID·핸들을 아는 요청자는 유효한 서명 없이도 회원 행 잠금까지 오고, 챌린지는 로그인 화면 GET으로 반복
       # 발급되므로 1회용만으로는 빈도가 제한되지 않는다(PLAN-passkey-login.md 결정 6). 버스트 30 + 2초에 1회 보충. 사람의 생체 확인 후 제출은 분당 몇 회다.
-      # 비밀번호 로그인 POST /admin/login에는 규칙이 없다(범위 밖).
       - id: admin-passkey-login
         pattern: /admin/login/passkey
         methods: [POST]
