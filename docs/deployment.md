@@ -295,6 +295,10 @@ MSYS_NO_PATHCONV=1 docker run --rm -v cms_notice_attachments_prod:/target alpine
 
 `cms.rate-limit.*`(전 프로파일 공통값, `application.yml`)이 `/notices/**`·비밀번호 재설정 API를 토큰 버킷으로 방어한다. 상세 설계는 `adversarial-review/plan/PLAN-public-endpoint-rate-limit.md` 참조.
 
+- **관리자 로그인 입구**(2026-11-19, 이슈 #284, `PLAN-password-login-rate-limit.md`): 비밀번호 로그인 `POST /admin/login`은 IP당 **버스트 20회 + 30초에 1회 보충**(`admin-password-login`), 패스키 로그인 `POST /admin/login/passkey`는 30회 + 2초에 1회(`admin-passkey-login`)다. 한도를 넘으면 429 오류 화면이 나오고(입력한 아이디는 보존되지 않는다), 10분 동안 그 IP에서 시도가 없으면 20회가 다시 찬다. 같은 IP(사내망·NAT)에서 관리자 약 10명이 동시에 로그인할 수 있다. 2단계 코드·강제 등록 화면은 제한하지 않는다.
+- **⚠ 프록시 뒤 배포 차단 조건**: 앱은 `127.0.0.1:8080`에만 열려 있어 같은 호스트의 리버스 프록시를 전제로 한다. 원 IP 전달(`server.forward-headers-strategy` + 프록시의 헤더 재작성, 이슈 #239) 없이 프록시 뒤에 두면 모든 요청의 IP가 프록시 주소 하나가 되어 **모든 관리자가 로그인 버킷 20개를 나눠 쓰고, 인터넷의 누구나 없는 아이디로 30초에 1건만 보내 모든 관리자의 비밀번호 로그인을 막을 수 있다.** #239를 해결하기 전에는 실배포하지 않는다.
+- **로그인 굶기기(수용 위험)**: #239를 해결해도 같은 IP 뒤의 공격자(내부자·감염된 사내 PC)는 같은 방식으로 그 IP의 비밀번호 로그인을 막을 수 있다. 계정 잠금은 일어나지 않고, **앱에는 기록이 남지 않는다** — 없는 아이디의 실패는 `LoginFailureService.recordFailure`가 갱신 0행으로 끝내고(로그 없음), 429는 `RateLimitFilter`가 로그 없이 응답한다. 원인 추적은 리버스 프록시의 접근 로그(`POST /admin/login`의 302 `/admin/login-error`·429 응답과 클라이언트 IP·시각)로 해야 하므로 프록시 도입 시 접근 로그를 켜 둔다. 대응: 패스키 로그인(별도 버킷), 다른 네트워크에서 로그인, 최후 수단 `CMS_RATE_LIMIT_ENABLED=false`(재기동, 모든 규칙이 꺼진다).
+
 - **운영 튜닝**: `CMS_RATE_LIMIT_ENABLED`(기본 `true`)로 전체를 켜고 끌 수 있다. 개별 규칙의 한도는 `application.yml`을 수정해야 한다(환경변수 인덱스 오버라이드는 지원하지 않음 — Spring Boot relaxed binding은 리스트 프로퍼티의 환경변수 오버라이드를 신뢰하기 어렵다).
 - **다중 인스턴스 배포 시 한도가 사실상 배가된다** — 각 인스턴스가 독립된 Caffeine 캐시를 가지므로, 로드밸런서 뒤에 인스턴스 N개를 두면 실질 한도는 설정값의 최대 N배가 된다(현재 단일 인스턴스 전제와 일치, `docker-compose.prod.yml` 변경 없이는 발생하지 않는 시나리오).
 - **fail-open 잔여 위험**: 캐시가 포화되는 극단적 상황(대량 IP 회전 공격 등)에서는 개별 IP의 정확한 누적치 보장이 흐트러질 수 있다 — 정확한 유량 계약을 보장하는 게이트웨이가 아니라 "무제한 요청을 값싸게 차단하는 최소 방어"가 목표이기 때문이다. 완전한 정확성이 필요하면 Redis 등 외부 원자적 저장소가 필요하나 이번 범위를 벗어난다.
