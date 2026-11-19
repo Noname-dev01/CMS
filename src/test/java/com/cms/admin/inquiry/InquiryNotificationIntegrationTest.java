@@ -68,6 +68,14 @@ class InquiryNotificationIntegrationTest extends MariaDbContainerSupport {
         return jdbc.queryForObject("SELECT COUNT(*) FROM notification WHERE member_id = ? AND type = 'INQUIRY_RECEIVED'", Integer.class, member.getId());
     }
 
+    /**
+     * 서버 전체에서 {@code max_statement_time} 초과로 끊긴 문장 수. 끊기는 쪽은 앱 풀 커넥션이라 이 연결의 세션 값으로는 볼 수 없어 GLOBAL을 읽는다 —
+     * 시험 JVM당 컨테이너 1개·직렬 실행이라 다른 시험의 문장이 섞이지 않는다.
+     */
+    private long statementTimeouts() {
+        return jdbc.queryForObject("SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_STATUS WHERE VARIABLE_NAME = 'MAX_STATEMENT_TIME_EXCEEDED'", Long.class);
+    }
+
     @Test
     @DisplayName("수신자: ACTIVE ADMIN과 INQUIRY/READ 행이 있는 ACTIVE MANAGER만 — 권한 없음·다른 기능·UPDATE만·비ACTIVE·변형 행은 제외")
     void recipients() {
@@ -107,7 +115,7 @@ class InquiryNotificationIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("대기 상한 (R3-1·R5-1·R6-1): 수신자 회원 행을 서로 다른 트랜잭션이 순차 해제(각 대기 약 0.8초 < 락 대기 1초, 누적 4초 > 문장 상한 3초)해도 문장 전체 상한에서 끊기고 알림은 하나도 남지 않으며 예외는 삼켜진다")
+    @DisplayName("대기 상한 (R3-1·R5-1·R6-1): 수신자 회원 행을 서로 다른 트랜잭션이 순차 해제(각 대기 약 0.8초 < 락 대기 1초, 누적 4초 > 문장 상한 3초)해도 문장 전체 상한에서 끊기고(DB의 max_statement_time 초과 카운터로 확인) 알림은 하나도 남지 않으며 예외는 삼켜진다")
     void lockWaits_areBoundedByStatementTimeout() throws Exception {
         List<Member> admins = new ArrayList<>();
         for (int i = 0; i < 5; i++) {
@@ -139,6 +147,7 @@ class InquiryNotificationIntegrationTest extends MariaDbContainerSupport {
         }
         assertThat(locksHeld.await(20, TimeUnit.SECONDS)).isTrue();
 
+        long timeoutsBefore = statementTimeouts();
         start.countDown();
         long begin = System.nanoTime();
         notifier.notifyReceived();                  // 예외가 새면 시험이 실패한다
@@ -147,7 +156,10 @@ class InquiryNotificationIntegrationTest extends MariaDbContainerSupport {
             holder.join(10_000);
         }
 
-        assertThat(elapsedMillis).as("문장 전체 상한(약 3초)에서 끊겨야 하고 개별 대기만 제한했다면 약 4초가 걸린다").isLessThan(3_700L);
+        // 직접 증거: DB가 이 문장을 max_statement_time 초과로 끊었다. 개별 락 대기 초과(1205)·정상 완료는 이 카운터를 올리지 않는다.
+        // 경과 시간은 부하에 따라 흔들려(전체 시험에서 상한 3초로 끊겨도 4초 이상, 이슈 #287) 3초와 4초를 구분하는 근거로 쓰지 않는다.
+        assertThat(statementTimeouts() - timeoutsBefore).as("문장 전체 상한(max_statement_time)에서 끊긴 문장 수").isEqualTo(1L);
+        assertThat(elapsedMillis).as("기본 락 대기(50초)로 되돌아가는 큰 회귀만 막는 넉넉한 상한").isLessThan(10_000L);
         for (Member admin : admins) {
             assertThat(notifications(admin)).as("끊긴 문장은 일부 행도 남기지 않는다").isZero();
         }
