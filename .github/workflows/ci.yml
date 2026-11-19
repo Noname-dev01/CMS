@@ -77,14 +77,54 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      # Playwright --with-deps가 apt로 받는 폰트 deb를 캐시로 재사용한다(이슈 #283 — 느린 apt 미러에서 폰트 21.9MB에 3분 안팎이 걸렸다).
+      # 캐시는 신뢰하지 않는다: scripts/ci/playwright-apt-cache.sh가 apt 색인의 해시·후보 버전과 대조한 것만 apt가 쓰는 이름으로 넣는다.
+      # 캐시 단계는 최적화일 뿐이라 모두 continue-on-error다 — 실패하면 지금처럼 미러에서 받는다(필수 체크를 떨어뜨리지 않는다).
+      # 계획: adversarial-review/plan/PLAN-ci-playwright-apt-cache.md
+      - name: Compute apt cache key
+        id: apt-key
+        continue-on-error: true
+        run: |
+          . /etc/os-release
+          test -n "${ID:-}" && test -n "${VERSION_ID:-}"
+          echo "prefix=playwright-apt-${ID}-${VERSION_ID}-" >> "$GITHUB_OUTPUT"
+          echo "러너 이미지 ${ImageOS:-?} ${ImageVersion:-?} / $(apt-get --version | head -1) / $(dpkg --version | head -1)"
+
+      - name: Restore apt cache
+        if: steps.apt-key.outputs.prefix != ''
+        uses: actions/cache/restore@v6
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          SEGMENT_DOWNLOAD_TIMEOUT_MINS: 2
+        with:
+          path: .ci-apt-cache
+          key: ${{ steps.apt-key.outputs.prefix }}restore
+          restore-keys: ${{ steps.apt-key.outputs.prefix }}
+
+      - name: Stage cached apt packages
+        timeout-minutes: 5
+        continue-on-error: true
+        run: bash scripts/ci/playwright-apt-cache.sh stage
+
       # 브라우저 시험(Playwright)이 쓰는 Chromium과 시스템 의존성을 미리 설치한다 — 시험 안에서 설치하면 apt 권한 없이 실패할 수 있다.
+      # 시간 제한: 관측 최악(캐시 없음 + 느린 미러) 4분 17초의 두 배 이상. 미러가 멈추면 job 30분 제한 대신 이 단계 이름으로 끝난다.
       - name: Install Playwright browsers
+        timeout-minutes: 10
         run: ./gradlew installPlaywrightBrowsers
+
+      - name: Collect apt packages for cache
+        id: apt-collect
+        timeout-minutes: 2
+        continue-on-error: true
+        run: bash scripts/ci/playwright-apt-cache.sh collect
 
       - name: Run browser tests
         run: ./gradlew test -PbrowserTests=only
         env:
           SPRING_PROFILES_ACTIVE: dev
+          # 시험은 Chromium만 쓴다(BrowserTestSupport) — Playwright.create()가 Firefox·WebKit까지 자동으로 내려받지 않게 한다.
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
 
       - name: Upload browser test report
         uses: actions/upload-artifact@v7
@@ -93,6 +133,16 @@ jobs:
           name: browser-test-report
           path: build/reports/tests/test/
           retention-days: 14
+
+      # 시험까지 성공한 실행만 저장한다(if의 암묵적 success()). 키가 내용 해시라 같은 내용이면 저장을 건너뛰고, 패키지가 갱신되면 새 캐시가 생긴다.
+      - name: Save apt cache
+        if: steps.apt-key.outputs.prefix != '' && steps.apt-collect.outputs.collected != '' && steps.apt-collect.outputs.collected != '0'
+        uses: actions/cache/save@v6
+        timeout-minutes: 3
+        continue-on-error: true
+        with:
+          path: .ci-apt-cache
+          key: ${{ steps.apt-key.outputs.prefix }}${{ hashFiles('.ci-apt-cache/*.deb') }}
 
   # prod 이미지 배포 게이트 (감사 M-06, adversarial-review/plan/PLAN-ci-prod-gates.md).
   # test job과 병렬로 돌며, 스크립트는 scripts/ci/에 있어 로컬(폐기 가능한 Docker 환경)에서도
