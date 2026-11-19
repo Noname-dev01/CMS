@@ -2,6 +2,7 @@ package com.cms.config.auth;
 
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberStatus;
+import com.cms.admin.member.domain.MemberTotp;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.repository.MemberTotpRepository;
@@ -42,14 +43,20 @@ public class LoginFailureService {
     private final Clock clock;
 
     /**
-     * 성공 핸들러의 재확인용 스냅샷 — 인증 완료 직전의 fresh 상태·역할·비밀번호 해시·2단계 사용 여부.
-     * 2단계 사용 여부는 토큰 종류(중간 상태인가)와 대조한다 — 로그인 진행 중 등록·해제가 커밋된 경합을 거부하기 위해서다.
+     * 성공 핸들러의 재확인용 스냅샷 — 인증 완료 직전의 fresh 상태·역할·비밀번호 해시·2단계 등록 시각(없으면 미사용).
+     * 등록 시각은 패스키 로그인 토큰의 등록 세대와 대조한다(PLAN-passkey-login.md 결정 4). 2단계 사용 여부는 토큰 종류(중간 상태인가)와 대조한다 — 로그인 진행 중 등록·해제가 커밋된 경합을 거부하기 위해서다.
      * 해시를 담으므로 toString에서 가린다.
      */
-    public record MemberSnapshot(MemberStatus status, Role role, String passwordHash, boolean totpEnabled) {
+    public record MemberSnapshot(MemberStatus status, Role role, String passwordHash, LocalDateTime totpEnabledAt) {
+
+        /** 2단계 사용 중인가 — {@code member_totp} 행이 있으면 사용 중이다 */
+        public boolean totpEnabled() {
+            return totpEnabledAt != null;
+        }
+
         @Override
         public String toString() {
-            return "MemberSnapshot{status=" + status + ", role=" + role + ", totpEnabled=" + totpEnabled + "}";
+            return "MemberSnapshot{status=" + status + ", role=" + role + ", totpEnabledAt=" + totpEnabledAt + "}";
         }
     }
 
@@ -128,7 +135,8 @@ public class LoginFailureService {
 
     private Optional<MemberSnapshot> snapshot(String userId) {
         return memberRepository.findByUserId(userId)
-                .map(m -> new MemberSnapshot(m.getStatus(), m.getUserType(), m.getPwd(), memberTotpRepository.existsById(m.getId())));
+                .map(m -> new MemberSnapshot(m.getStatus(), m.getUserType(), m.getPwd(),
+                        memberTotpRepository.findById(m.getId()).map(MemberTotp::getEnabledAt).orElse(null)));
     }
 
     /**

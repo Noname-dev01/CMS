@@ -7,6 +7,7 @@ import com.cms.admin.menu.service.MenuService;
 import com.cms.admin.visit.repository.VisitLogRepository;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.InvalidRequestException;
+import com.cms.config.PasskeyLoginTestConfig;
 import com.cms.config.PermissionTestConfig;
 import com.cms.config.SecurityConfig;
 import com.cms.config.ratelimit.RateLimitFilterConfig;
@@ -51,6 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
+        PasskeyLoginTestConfig.class,
         RateLimitFilterConfig.class,
         PasswordResetControllerTest.MockConfig.class,
         GlobalApiExceptionHandler.class

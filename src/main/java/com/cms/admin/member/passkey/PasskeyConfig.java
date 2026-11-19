@@ -41,7 +41,7 @@ public class PasskeyConfig {
                 new PasskeyUserEntityRepository(memberRepository, userRepository, clock),
                 new PasskeyCredentialRepository(userRepository, passkeyRepository, clock),
                 rp, origins);
-        return PasskeyRelyingParty.enabled(operations);
+        return PasskeyRelyingParty.enabled(operations, rpId);
     }
 
     static Set<String> validateOrigins(String rpId, PasskeyProperties properties) {

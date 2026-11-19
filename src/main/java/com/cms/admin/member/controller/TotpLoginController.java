@@ -123,7 +123,8 @@ public class TotpLoginController {
 
         return switch (result.status()) {
             case WRONG_CODE -> "redirect:" + PATH + "?error";
-            case WRONG_PASSKEY -> "redirect:" + PATH + "?passkeyError";
+            // 서명 횟수 역행은 세지 않을 뿐 안내는 같다(PLAN-passkey-login.md 결정 8)
+            case WRONG_PASSKEY, PASSKEY_COUNTER_REJECTED -> "redirect:" + PATH + "?passkeyError";
             case REUSED_CODE -> "redirect:" + PATH + "?reused";
             case LOCKED, REJECTED -> end(request, "redirect:/admin/login-error");
             case SUCCESS -> {

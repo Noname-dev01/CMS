@@ -62,6 +62,8 @@ class PasskeyBrowserTest extends BrowserTestSupport {
     private Member admin;
     private BrowserContext context;
     private Page page;
+    private CDPSession cdp;
+    private String authenticatorId;
 
     private static int freePort() {
         try (ServerSocket socket = new ServerSocket(0)) {
@@ -78,7 +80,7 @@ class PasskeyBrowserTest extends BrowserTestSupport {
         context = newContext();
         page = context.newPage();
         // 가상 인증기: 내장(플랫폼) 인증기, 상주 키·사용자 확인 지원, 확인 자동 승인
-        CDPSession cdp = context.newCDPSession(page);
+        cdp = context.newCDPSession(page);
         cdp.send("WebAuthn.enable");
         JsonObject options = new JsonObject();
         options.addProperty("protocol", "ctap2");
@@ -89,7 +91,27 @@ class PasskeyBrowserTest extends BrowserTestSupport {
         options.addProperty("automaticPresenceSimulation", true);
         JsonObject params = new JsonObject();
         params.add("options", options);
-        cdp.send("WebAuthn.addVirtualAuthenticator", params);
+        authenticatorId = cdp.send("WebAuthn.addVirtualAuthenticator", params).get("authenticatorId").getAsString();
+    }
+
+    /** 가상 인증기를 사용자 확인(UV)을 지원하지 않는 것으로 바꾼다 — 상주 키는 지원한다. */
+    private void replaceWithAuthenticatorWithoutUserVerification() {
+        JsonObject remove = new JsonObject();
+        remove.addProperty("authenticatorId", authenticatorId);
+        cdp.send("WebAuthn.removeVirtualAuthenticator", remove);
+        JsonObject options = new JsonObject();
+        options.addProperty("protocol", "ctap2");
+        options.addProperty("transport", "internal");
+        options.addProperty("hasResidentKey", true);
+        options.addProperty("hasUserVerification", false);
+        options.addProperty("automaticPresenceSimulation", true);
+        JsonObject params = new JsonObject();
+        params.add("options", options);
+        authenticatorId = cdp.send("WebAuthn.addVirtualAuthenticator", params).get("authenticatorId").getAsString();
+    }
+
+    private long storedSignatureCount() {
+        return jdbc.queryForObject("SELECT signature_count FROM member_passkey WHERE member_id = ?", Long.class, admin.getId());
     }
 
     @AfterEach
@@ -176,5 +198,67 @@ class PasskeyBrowserTest extends BrowserTestSupport {
         page.locator("#btnPasskeyAdd").click();
         page.locator("#passkeyAlert:not(.d-none)").waitFor();
         assertThat(PasskeyTestSupport.count(jdbc, admin.getId())).isEqualTo(1);
+    }
+    // ==================== 패스키 단독 로그인 — PLAN-passkey-login.md(이슈 #280) ====================
+
+    @Test
+    @DisplayName("#280 골든 패스: 등록 → 로그아웃 → 로그인 화면 [패스키로 로그인] 한 번(아이디·비밀번호·코드 없음) → 대시보드, 방문 기록 1건")
+    void passwordlessLogin() {
+        loginAsAdmin(page, PORT, admin);
+        registerPasskey("가상 인증기");
+        jdbc.update("DELETE FROM visit_log WHERE visitor_user_id = ?", admin.getUserId());
+
+        context.clearCookies();
+        page.navigate(url("/admin/login"));
+        assertThat(page.locator("input[name=username]").inputValue()).isEmpty();
+        page.locator("#btnPasskeyLogin").click();
+        page.waitForURL(url("/admin"));
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM visit_log WHERE visitor_user_id = ?", Integer.class, admin.getUserId()))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT last_used_at IS NOT NULL FROM member_passkey WHERE member_id = ?", Boolean.class, admin.getId()))
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("#280 F4(리뷰 1-5): 사용자 확인(UV) 없는 실제 서명은 서버가 거부한다 — 브라우저 옵션을 preferred로 바꿔도 세션의 옵션은 required")
+    void signatureWithoutUserVerificationRejected() {
+        replaceWithAuthenticatorWithoutUserVerification();
+        loginAsAdmin(page, PORT, admin);
+        registerPasskey("UV 없는 인증기");
+
+        // UV 없는 인증기는 상주 자격을 credProtect(사용자 확인 선택 + 자격 ID 목록 필요)로 만들어, 빈 allowCredentials로는 응답하지 않는다(실측 —
+        // NotAllowedError). 공격자처럼 클라이언트가 자격 ID를 직접 넣는다 — 서버 옵션의 allowCredentials가 비어 있으면 라이브러리는 목록을 검사하지 않는다.
+        String credentialId = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
+                jdbc.queryForObject("SELECT credential_id FROM member_passkey WHERE member_id = ?", byte[].class, admin.getId()));
+        context.clearCookies();
+        page.navigate(url("/admin/login"));
+        page.evaluate("id => { const f = document.getElementById('passkeyForm');"
+                + " const o = JSON.parse(f.getAttribute('data-options')); o.userVerification = 'preferred';"
+                + " o.allowCredentials = [{ type: 'public-key', id: id }];"
+                + " f.setAttribute('data-options', JSON.stringify(o)); }", credentialId);
+        page.locator("#btnPasskeyLogin").click();
+        page.waitForURL(url("/admin/login?passkeyError"));
+
+        assertThat(page.locator(".alert-danger").textContent()).contains("패스키로 로그인하지 못했습니다");
+        assertThat(jdbc.queryForObject("SELECT failed_attempts FROM member_totp WHERE member_id = ?", Integer.class, admin.getId())).isZero();
+    }
+
+    @Test
+    @DisplayName("#280 결정 8: 저장된 서명 횟수보다 작은 실제 서명(복제 의심)은 거부하고 저장 횟수·실패 횟수를 바꾸지 않는다")
+    void signatureCounterRegressionRejected() {
+        loginAsAdmin(page, PORT, admin);
+        registerPasskey("가상 인증기");
+        jdbc.update("UPDATE member_passkey SET signature_count = 1000000 WHERE member_id = ?", admin.getId());
+
+        context.clearCookies();
+        page.navigate(url("/admin/login"));
+        page.locator("#btnPasskeyLogin").click();
+        page.waitForURL(url("/admin/login?passkeyError"));
+
+        assertThat(storedSignatureCount()).isEqualTo(1000000L);
+        assertThat(jdbc.queryForObject("SELECT failed_attempts FROM member_totp WHERE member_id = ?", Integer.class, admin.getId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT last_used_at IS NULL FROM member_passkey WHERE member_id = ?", Boolean.class, admin.getId()))
+                .isTrue();
     }
 }

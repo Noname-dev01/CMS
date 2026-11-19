@@ -115,6 +115,17 @@ class AdminSidebarAdviceTest {
         public Clock clock() {
             return Clock.systemUTC();
         }
+
+        /** 로그인 화면 컨트롤러(AdminMainController)의 패스키 로그인 옵션 — 목의 기본값은 기능 꺼짐(PLAN-passkey-login.md 결정 2) */
+        @Bean
+        public com.cms.config.auth.PasskeyLoginService passkeyLoginService() {
+            return Mockito.mock(com.cms.config.auth.PasskeyLoginService.class);
+        }
+
+        @Bean
+        public com.cms.admin.member.passkey.PasskeyJson passkeyJson() {
+            return new com.cms.admin.member.passkey.PasskeyJson();
+        }
     }
 
     @ParameterizedTest

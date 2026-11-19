@@ -6,6 +6,9 @@ import com.cms.admin.permission.FeatureKind;
 import com.cms.admin.permission.PermissionAction;
 import com.cms.config.auth.LockingAuthenticationFailureHandler;
 import com.cms.config.auth.LoginSessionMutexFilter;
+import com.cms.config.auth.CustomUserDetailsService;
+import com.cms.config.auth.PasskeyLoginConfigurer;
+import com.cms.config.auth.PasskeyLoginService;
 import com.cms.config.auth.TotpAuthorities;
 import jakarta.servlet.DispatcherType;
 import com.cms.config.auth.VisitLoggingAuthenticationSuccessHandler;
@@ -38,6 +41,8 @@ import org.springframework.security.web.authentication.LoginUrlAuthenticationEnt
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
+
+import java.time.Clock;
 
 @Configuration
 public class SecurityConfig {
@@ -86,7 +91,10 @@ public class SecurityConfig {
                                            LockingAuthenticationFailureHandler failureHandler,
                                            SessionRegistry sessionRegistry,
                                            RateLimitFilter rateLimitFilter,
-                                           AdminPermissionEvaluator permissionEvaluator) throws Exception {
+                                           AdminPermissionEvaluator permissionEvaluator,
+                                           PasskeyLoginService passkeyLoginService,
+                                           CustomUserDetailsService userDetailsService,
+                                           Clock clock) throws Exception {
         http
                 .authorizeHttpRequests((auth) -> {
                     auth
@@ -252,7 +260,11 @@ public class SecurityConfig {
                 // 세션이 있는 폼 로그인을 그 세션의 뮤텍스 안에서 처리한다 — 같은 세션의 두 탭이 서로 다른 계정으로 동시에 로그인해도
                 // 레지스트리 등록·컨텍스트 저장이 섞여 "실제 인증 회원 ≠ 레지스트리 회원"이 되지 않게(그런 세션은 실제 회원의 강제 만료를 피한다,
                 // PLAN-remember-me-removal.md 쟁점 2). 빈이 아니라 서블릿 필터로 자동 등록되지 않는다.
-                .addFilterBefore(new LoginSessionMutexFilter(), UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(new LoginSessionMutexFilter(), UsernamePasswordAuthenticationFilter.class)
+                // 패스키 단독 로그인 POST /admin/login/passkey(PLAN-passkey-login.md 결정 1, 2026-11-19 승인 — 로그인 정책 변경). 폼 로그인과 같은
+                // 세션 전략·컨텍스트 저장소·성공 처리기를 쓰는 처리 필터라 인가 규칙 전에 끝난다(authorizeHttpRequests 무변경). 기능 꺼짐이면 매칭하지 않는다.
+                // http.webAuthn()은 쓰지 않는다 — Spring의 패스키 필터·프로바이더는 성공 처리기 재확인·잠금 계약을 거치지 않는다.
+                .with(new PasskeyLoginConfigurer(passkeyLoginService, userDetailsService, successHandler, clock), configurer -> { });
         return http.build();
     }
 

@@ -75,6 +75,18 @@ class LoginSessionMutexFilterTest {
     }
 
     @Test
+    @DisplayName("F1: 세션이 있는 패스키 단독 로그인 POST도 뮤텍스 안에서 실행한다 — 같은 세션의 다른 계정 로그인과 직렬화(PLAN-passkey-login.md 결정 4)")
+    void passkeyLoginWithSession_runsInsideSessionMutex() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        RecordingChain chain = new RecordingChain(session);
+
+        filter.doFilter(request("POST", PasskeyLoginFilter.PATH, session), new MockHttpServletResponse(), chain);
+
+        assertThat(chain.called).isTrue();
+        assertThat(chain.heldMutex).isTrue();
+    }
+
+    @Test
     @DisplayName("세션이 없는 로그인·GET 로그인 화면·다른 경로의 POST는 감싸지 않고 그대로 통과한다")
     void otherRequests_passThroughUnlocked() throws Exception {
         RecordingChain noSession = new RecordingChain(null);

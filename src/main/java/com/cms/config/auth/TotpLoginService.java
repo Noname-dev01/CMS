@@ -6,6 +6,7 @@ import com.cms.admin.member.domain.MemberTotp;
 import com.cms.admin.member.domain.MemberPasskey;
 import com.cms.admin.member.domain.MemberPasskeyUser;
 import com.cms.admin.member.passkey.PasskeyJson;
+import com.cms.admin.member.passkey.PasskeyCounterRegression;
 import com.cms.admin.member.passkey.PasskeyRelyingParty;
 import com.cms.admin.member.repository.MemberPasskeyRepository;
 import com.cms.admin.member.repository.MemberPasskeyUserRepository;
@@ -46,6 +47,8 @@ public class TotpLoginService {
         WRONG_CODE,
         /** 패스키 검증 실패(서명·챌린지·자격 불일치) — 오답과 같이 센다(PLAN-passkey-second-factor.md 결정 4) */
         WRONG_PASSKEY,
+        /** 패스키 서명 횟수 역행(복제 의심) — 거부하되 세지 않는다(정상 어설션의 도착 순서 역전으로도 생긴다, PLAN-passkey-login.md 결정 8) */
+        PASSKEY_COUNTER_REJECTED,
         /** 이미 쓴 코드 — 실패로 세지 않고 다음 코드를 기다리라고 안내한다 */
         REUSED_CODE,
         /** 이번 실패로 계정이 잠겼다 */
@@ -148,7 +151,11 @@ public class TotpLoginService {
         }
         MemberTotp totp = found.get();
 
-        if (!passkeyMatches(member, handle.get(), totp, options, credentialJson)) {
+        PasskeyCheck check = passkeyMatches(member, handle.get(), totp, options, credentialJson);
+        if (check == PasskeyCheck.COUNTER_REGRESSION) {
+            return Result.of(Status.PASSKEY_COUNTER_REJECTED);
+        }
+        if (check == PasskeyCheck.MISMATCH) {
             if (totp.recordFailureAndCheckThreshold()) {
                 loginFailureService.lockForSecondFactorFailures(member, requestIp, requestUri);
                 return Result.of(Status.LOCKED);
@@ -162,8 +169,10 @@ public class TotpLoginService {
         return new Result(Status.SUCCESS, recoveryCodeRepository.countByMemberIdAndUsedAtIsNull(member.getId()), false);
     }
 
+    private enum PasskeyCheck { MATCH, MISMATCH, COUNTER_REGRESSION }
+
     /** 어설션 검증 + 돌려받은 핸들과 자격 행이 이 회원의 유효한 것인지 직접 대조(allowCredentials 검사에 더한 이중 방어). */
-    private boolean passkeyMatches(Member member, MemberPasskeyUser handle, MemberTotp totp,
+    private PasskeyCheck passkeyMatches(Member member, MemberPasskeyUser handle, MemberTotp totp,
                                    PublicKeyCredentialRequestOptions options, String credentialJson) {
         try {
             PublicKeyCredential<AuthenticatorAssertionResponse> credential = passkeyJson.readAssertion(credentialJson);
@@ -171,19 +180,23 @@ public class TotpLoginService {
             // (WebAuthn 사양: 응답 userHandle은 자격 소유자의 핸들과 같아야 한다. 코드 리뷰 2라운드)
             if (credential.getResponse() != null && credential.getResponse().getUserHandle() != null
                     && !Arrays.equals(credential.getResponse().getUserHandle().getBytes(), handle.getUserHandle())) {
-                return false;
+                return PasskeyCheck.MISMATCH;
             }
             PublicKeyCredentialUserEntity entity = relyingParty.authenticate(options, credential);
             if (entity == null || !Arrays.equals(entity.getId().getBytes(), handle.getUserHandle())) {
-                return false;
+                return PasskeyCheck.MISMATCH;
             }
             Optional<MemberPasskey> row = passkeyRepository.findByCredentialId(credential.getRawId().getBytes());
             return row.isPresent()
                     && Objects.equals(row.get().getMemberId(), member.getId())
-                    && !row.get().getCreatedAt().isBefore(totp.getEnabledAt());
+                    && !row.get().getCreatedAt().isBefore(totp.getEnabledAt()) ? PasskeyCheck.MATCH : PasskeyCheck.MISMATCH;
         } catch (RuntimeException e) {
+            if (PasskeyCounterRegression.matches(e)) {
+                log.warn("패스키 서명 횟수 역행 — 거부(실패로 세지 않음) (memberId={})", member.getId());
+                return PasskeyCheck.COUNTER_REGRESSION;
+            }
             log.info("패스키 2단계 검증 실패 (memberId={}, type={})", member.getId(), e.getClass().getName());
-            return false;
+            return PasskeyCheck.MISMATCH;
         }
     }
 

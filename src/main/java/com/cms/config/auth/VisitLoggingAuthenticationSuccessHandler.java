@@ -45,6 +45,11 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
     /** 2단계 인증 강제 등록 화면(필수 역할의 미등록 회원) */
     public static final String TOTP_ENROLLMENT_PAGE = "/admin/login/totp-enrollment";
 
+    private static final String LOGIN_ERROR = "/admin/login-error";
+
+    /** 패스키 로그인 실패 안내(PLAN-passkey-login.md 결정 5 — 상태별로 나누지 않는 문구 하나) */
+    public static final String PASSKEY_LOGIN_ERROR = "/admin/login?passkeyError";
+
     private final VisitLogRepository visitLogRepository;
     private final LoginFailureService loginFailureService;
     private final NotificationRecorder notificationRecorder;
@@ -63,10 +68,21 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
                                         Authentication authentication) throws ServletException, IOException {
         boolean pending = TotpAuthorities.isPending(authentication);
         boolean enrollmentRequired = TotpAuthorities.isEnrollmentRequired(authentication);
+        boolean passkeyLogin = authentication instanceof PasskeyLoginAuthenticationToken;
         // 첫 작업: 상태·역할·해시·2단계 사용 여부 재확인 — 거부될 인증이 성공 방문으로 기록되면 안 되므로 방문 로그보다 먼저.
         if (!verifyFreshMemberState(authentication, pending, enrollmentRequired)) {
-            rejectAuthentication(request, response);
+            rejectAuthentication(request, response, passkeyLogin ? PASSKEY_LOGIN_ERROR : LOGIN_ERROR);
             return;
+        }
+
+        if (passkeyLogin) {
+            // 패스키 단독 로그인(PLAN-passkey-login.md 결정 4) — 같은 세션에서 코드 화면을 거치다 돌아온 경우의 중간 상태 표지를 지운다
+            HttpSession session = request.getSession(false);
+            if (session != null) {
+                session.removeAttribute(TotpPendingState.SESSION_ATTRIBUTE);
+                session.removeAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE);
+                session.removeAttribute(PasskeyLoginState.SESSION_ATTRIBUTE);
+            }
         }
 
         if (enrollmentRequired) {
@@ -122,12 +138,20 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
                 return false;
             }
 
-            // 로그인 진행 중 2단계 등록·해제·역할 변경이 커밋된 경합 — 토큰 종류와 지금 기대되는 종류가 다르면 거부한다.
-            // (등록 전 스냅샷으로 만든 완전 권한 세션, 해제 뒤에도 남는 중간 상태, 필수 역할의 2단계 없는 완전 권한을 만들지 않는다)
-            boolean expectPending = snapshot.totpEnabled();
-            boolean expectEnrollment = !snapshot.totpEnabled() && TotpAuthorities.isRequired(snapshot.role());
-            if (expectPending != pending || expectEnrollment != enrollmentRequired) {
-                return false;
+            if (authentication instanceof PasskeyLoginAuthenticationToken passkey) {
+                // 패스키 단독 로그인(PLAN-passkey-login.md 결정 4): 패스키 ⇒ TOTP 사용 중, 그리고 검증 때와 같은 등록 세대여야 한다 —
+                // 로그인 진행 중 TOTP 해제(또는 해제 → 재등록)가 커밋되면 거부. 다른 토큰 종류의 판정은 아래 그대로다.
+                if (!passkey.getTotpEnabledAt().equals(snapshot.totpEnabledAt())) {
+                    return false;
+                }
+            } else {
+                // 로그인 진행 중 2단계 등록·해제·역할 변경이 커밋된 경합 — 토큰 종류와 지금 기대되는 종류가 다르면 거부한다.
+                // (등록 전 스냅샷으로 만든 완전 권한 세션, 해제 뒤에도 남는 중간 상태, 필수 역할의 2단계 없는 완전 권한을 만들지 않는다)
+                boolean expectPending = snapshot.totpEnabled();
+                boolean expectEnrollment = !snapshot.totpEnabled() && TotpAuthorities.isRequired(snapshot.role());
+                if (expectPending != pending || expectEnrollment != enrollmentRequired) {
+                    return false;
+                }
             }
 
             // 인증 중 역할 변경 경합 — 낡은 권한(특히 ADMIN)의 세션 생존 차단. 재로그인하면 새 권한으로 정상 로그인.
@@ -159,13 +183,13 @@ public class VisitLoggingAuthenticationSuccessHandler extends SavedRequestAwareA
      * 인증 완료 직전 재확인에서 거부된 로그인을 정리한다 —
      * 이미 등록된 세션 무효화 + SecurityContext 클리어 + 로그인 에러 페이지 리다이렉트.
      */
-    private void rejectAuthentication(HttpServletRequest request, HttpServletResponse response) throws IOException {
+    private void rejectAuthentication(HttpServletRequest request, HttpServletResponse response, String target) throws IOException {
         HttpSession session = request.getSession(false);
         if (session != null) {
             session.invalidate();
         }
         SecurityContextHolder.clearContext();
-        getRedirectStrategy().sendRedirect(request, response, "/admin/login-error");
+        getRedirectStrategy().sendRedirect(request, response, target);
     }
 
     private boolean hasAdminOrManagerRole(Collection<? extends GrantedAuthority> authorities) {

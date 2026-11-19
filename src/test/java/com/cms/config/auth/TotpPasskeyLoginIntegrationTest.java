@@ -3,6 +3,7 @@ package com.cms.config.auth;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.passkey.PasskeyRelyingParty;
+import com.cms.admin.member.passkey.PasskeySignatureCountException;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.repository.MemberTotpRecoveryCodeRepository;
 import com.cms.admin.member.repository.MemberTotpRepository;
@@ -16,6 +17,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import com.webauthn4j.verifier.exception.MaliciousCounterValueException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -315,5 +319,20 @@ class TotpPasskeyLoginIntegrationTest extends MariaDbContainerSupport {
         mockMvc.perform(post(PATH).session(session).with(csrf()).param("code", TotpTestSupport.currentCode(secret, clock)))
                 .andExpect(redirectedUrl("/admin"));
         verify(relyingParty, never()).authenticate(any(), any());
+    }
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"adapter", "library"})
+    @DisplayName("결정 8(PLAN-passkey-login.md): 서명 횟수 역행은 거부하되 실패로 세지 않는다 — 정상 어설션의 도착 순서 역전으로도 생긴다")
+    void signatureCountRegressionRejectedWithoutCounting(String source) throws Exception {
+        RuntimeException regression = source.equals("adapter")
+                ? new PasskeySignatureCountException("역행")
+                : new MaliciousCounterValueException("역행", 5, 5);
+        given(relyingParty.authenticate(any(), any())).willThrow(regression);
+        MockHttpSession session = pendingSession();
+
+        submitPasskey(session, openPage(session), assertionJson(credentialId)).andExpect(redirectedUrl(PATH + "?passkeyError"));
+
+        assertThat(totpFailures()).isZero();
+        mockMvc.perform(get("/admin/api/members/me/totp").session(session)).andExpect(status().isUnauthorized());
     }
 }
