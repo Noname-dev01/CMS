@@ -34,7 +34,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(controllers = AdminMainController.class)
 @Import({
-        AdminMainControllerTest.MockConfig.class
+        AdminMainControllerTest.MockConfig.class,
+        com.cms.config.PasskeyLoginTestConfig.class
 })
 class AdminMainControllerTest {
 

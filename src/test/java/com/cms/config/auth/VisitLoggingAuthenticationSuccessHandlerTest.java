@@ -33,6 +33,9 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     /** 인증 당시 비밀번호 해시 — 정상 경로 스냅샷과 일치시킨다 */
     private static final String AUTH_HASH = "{bcrypt}hash-at-authentication";
 
+    /** 2단계 등록 시각(스냅샷의 사용 중 표지) */
+    private static final java.time.LocalDateTime TOTP_ENABLED_AT = java.time.LocalDateTime.of(2026, 11, 19, 9, 0);
+
     /**
      * UTC 날짜(07-17)와 KST 날짜(07-18)가 갈리는 시각의 고정 Clock —
      * visitAt이 LocalDateTime.now() 직접 호출로 남아 있으면(UTC CI) 날짜 단언이 실패한다.
@@ -75,7 +78,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
         given(auth.getPrincipal()).willReturn(new CustomUserDetails(memberOf(principalRole)));
 
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, principalRole, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, principalRole, AUTH_HASH, null)));
         return auth;
     }
 
@@ -145,7 +148,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_rejected_noNotificationWork() throws Exception {
         Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_MANAGER, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_MANAGER, AUTH_HASH, null)));
 
         handler.onAuthenticationSuccess(requestWithIp("127.0.0.1"), new MockHttpServletResponse(), auth);
 
@@ -311,7 +314,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_freshStatusLocked_rejected() throws Exception {
         Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_MANAGER, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_MANAGER, AUTH_HASH, null)));
 
         assertRejected(auth);
     }
@@ -321,7 +324,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_roleDemotedDuringAuth_rejected() throws Exception {
         Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_USER, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_USER, AUTH_HASH, null)));
 
         assertRejected(auth);
     }
@@ -331,7 +334,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_passwordChangedDuringAuth_rejected() throws Exception {
         Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "{bcrypt}new-hash", false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "{bcrypt}new-hash", null)));
 
         assertRejected(auth);
     }
@@ -353,7 +356,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_pending_redirectsToCodePageWithoutReset() throws Exception {
         Authentication auth = pendingAuth(Role.ROLE_MANAGER);
         given(loginFailureService.checkActive("testUser"))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, true)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, TOTP_ENABLED_AT)));
         MockHttpServletRequest req = requestWithIp("127.0.0.1");
         MockHttpSession session = new MockHttpSession();
         req.setSession(session);
@@ -374,7 +377,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_pendingButDisabledMeanwhile_rejected() throws Exception {
         Authentication auth = pendingAuth(Role.ROLE_ADMIN);
         given(loginFailureService.checkActive("testUser"))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, null)));
 
         assertRejected(auth);
     }
@@ -384,7 +387,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_fullButEnabledMeanwhile_rejected() throws Exception {
         Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, true)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, TOTP_ENABLED_AT)));
 
         assertRejected(auth);
     }
@@ -394,7 +397,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_pendingWithStaleRole_rejected() throws Exception {
         Authentication auth = pendingAuth(Role.ROLE_ADMIN);
         given(loginFailureService.checkActive("testUser"))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, true)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, TOTP_ENABLED_AT)));
 
         assertRejected(auth);
     }
@@ -416,7 +419,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_enrollmentRequired_redirectsToEnrollmentPage() throws Exception {
         Authentication auth = enrollmentRequiredAuth(Role.ROLE_ADMIN);
         given(loginFailureService.checkActive("testUser"))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, null)));
         MockHttpServletRequest req = requestWithIp("127.0.0.1");
         MockHttpSession session = new MockHttpSession();
         req.setSession(session);
@@ -436,7 +439,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_enrollmentRequiredButEnrolledMeanwhile_rejected() throws Exception {
         Authentication auth = enrollmentRequiredAuth(Role.ROLE_ADMIN);
         given(loginFailureService.checkActive("testUser"))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, true)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, TOTP_ENABLED_AT)));
 
         assertRejected(auth);
     }
@@ -446,7 +449,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_enrollmentRequiredButDemotedMeanwhile_rejected() throws Exception {
         Authentication auth = enrollmentRequiredAuth(Role.ROLE_ADMIN);
         given(loginFailureService.checkActive("testUser"))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, null)));
 
         assertRejected(auth);
     }
@@ -464,7 +467,7 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
     void onAuthSuccess_fullManagerPromotedMeanwhile_rejected() throws Exception {
         Authentication auth = authWith("ROLE_MANAGER");
         given(loginFailureService.resetFailuresAndCheckActive(anyString()))
-                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, false)));
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, null)));
 
         assertRejected(auth);
     }
@@ -508,5 +511,84 @@ class VisitLoggingAuthenticationSuccessHandlerTest {
         handler.onAuthenticationSuccess(req, res, auth);
 
         assertThat(res.getRedirectedUrl()).isEqualTo("/admin");
+    }
+    // ==================== 패스키 단독 로그인 — PLAN-passkey-login.md 결정 4 ====================
+
+    /** 패스키 로그인 토큰 — 권한은 원래 역할, 검증 때 읽은 TOTP 등록 시각을 싣는다. */
+    private Authentication passkeyAuth(Role role) {
+        return new PasskeyLoginAuthenticationToken(new CustomUserDetails(memberOf(role), true), TOTP_ENABLED_AT);
+    }
+
+    private MockHttpSession assertPasskeyRejected(Authentication auth) throws Exception {
+        MockHttpServletRequest req = requestWithIp("127.0.0.1");
+        MockHttpSession session = new MockHttpSession();
+        req.setSession(session);
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        handler.onAuthenticationSuccess(req, res, auth);
+
+        assertThat(session.isInvalid()).as("이미 등록된 세션이 무효화되어야 한다").isTrue();
+        assertThat(res.getRedirectedUrl()).isEqualTo("/admin/login?passkeyError");
+        verifyNoInteractions(visitLogRepository);
+        return session;
+    }
+
+    @Test
+    @DisplayName("패스키 토큰 + 같은 TOTP 등록 시각 → 실패 횟수 리셋 경로로 재확인, 방문 기록, 남은 중간 상태 표지 제거, /admin")
+    void onAuthSuccess_passkey_sameGeneration_completesLogin() throws Exception {
+        given(loginFailureService.resetFailuresAndCheckActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, AUTH_HASH, TOTP_ENABLED_AT)));
+        given(visitLogRepository.save(any())).willReturn(mock(VisitLog.class));
+        MockHttpServletRequest req = requestWithIp("127.0.0.1");
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(TotpPendingState.SESSION_ATTRIBUTE, new TotpPendingState(1L, java.time.LocalDateTime.now(FIXED_KST_CLOCK)));
+        session.setAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE, "stale");
+        session.setAttribute(PasskeyLoginState.SESSION_ATTRIBUTE, "stale");
+        req.setSession(session);
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        handler.onAuthenticationSuccess(req, res, passkeyAuth(Role.ROLE_ADMIN));
+
+        assertThat(res.getRedirectedUrl()).isEqualTo("/admin");
+        assertThat(session.isInvalid()).isFalse();
+        assertThat(session.getAttribute(TotpPendingState.SESSION_ATTRIBUTE)).isNull();
+        assertThat(session.getAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE)).isNull();
+        assertThat(session.getAttribute(PasskeyLoginState.SESSION_ATTRIBUTE)).isNull();
+        verify(loginFailureService, never()).checkActive(anyString());
+        verify(visitLogRepository).save(any(VisitLog.class));
+    }
+
+    @Test
+    @DisplayName("F5: 패스키 토큰인데 스냅샷은 2단계 미사용(로그인 중 해제 커밋) → 거부")
+    void onAuthSuccess_passkey_totpDisabledMeanwhile_rejected() throws Exception {
+        given(loginFailureService.resetFailuresAndCheckActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, null)));
+
+        assertPasskeyRejected(passkeyAuth(Role.ROLE_MANAGER));
+    }
+
+    @Test
+    @DisplayName("F5(리뷰 1-2): 패스키 토큰인데 스냅샷의 등록 시각이 다르다(로그인 중 해제 → 재등록 커밋) → 거부")
+    void onAuthSuccess_passkey_totpReenrolledMeanwhile_rejected() throws Exception {
+        given(loginFailureService.resetFailuresAndCheckActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, TOTP_ENABLED_AT.plusSeconds(1))));
+
+        assertPasskeyRejected(passkeyAuth(Role.ROLE_MANAGER));
+    }
+
+    @Test
+    @DisplayName("F5: 패스키 토큰이라도 상태·역할·해시 불일치는 거부")
+    void onAuthSuccess_passkey_staleRoleOrHash_rejected() throws Exception {
+        given(loginFailureService.resetFailuresAndCheckActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, AUTH_HASH, TOTP_ENABLED_AT)));
+        assertPasskeyRejected(passkeyAuth(Role.ROLE_ADMIN));
+
+        given(loginFailureService.resetFailuresAndCheckActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "{bcrypt}new-hash", TOTP_ENABLED_AT)));
+        assertPasskeyRejected(passkeyAuth(Role.ROLE_ADMIN));
+
+        given(loginFailureService.resetFailuresAndCheckActive("testUser"))
+                .willReturn(Optional.of(new MemberSnapshot(MemberStatus.LOCKED, Role.ROLE_ADMIN, AUTH_HASH, TOTP_ENABLED_AT)));
+        assertPasskeyRejected(passkeyAuth(Role.ROLE_ADMIN));
     }
 }

@@ -202,7 +202,7 @@ class LoginFailureServiceTest extends MariaDbContainerSupport {
 
         Optional<MemberSnapshot> snapshot = loginFailureService.resetFailuresAndCheckActive(member.getUserId());
 
-        assertThat(snapshot).hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "encoded", false));
+        assertThat(snapshot).hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_MANAGER, "encoded", null));
         assertThat(reload(member.getId()).getFailedLoginCount()).isZero();
     }
 
@@ -214,15 +214,15 @@ class LoginFailureServiceTest extends MariaDbContainerSupport {
             loginFailureService.recordFailure(member.getUserId(), "127.0.0.1", "/admin/login");
         }
         assertThat(loginFailureService.checkActive(member.getUserId()))
-                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", false));
+                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", null));
 
         memberTotpRepository.saveAndFlush(com.cms.admin.member.domain.MemberTotp.enable(member.getId(), "v1:x", 0, FIXED_NOW));
 
         assertThat(loginFailureService.checkActive(member.getUserId()))
-                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", true));
+                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", FIXED_NOW));
         assertThat(reload(member.getId()).getFailedLoginCount()).isEqualTo(3);
         assertThat(loginFailureService.resetFailuresAndCheckActive(member.getUserId()))
-                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", true));
+                .hasValue(new MemberSnapshot(MemberStatus.ACTIVE, Role.ROLE_ADMIN, "encoded", FIXED_NOW));
     }
 
     @Test

@@ -46,6 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({
         SecurityConfig.class,
         PermissionTestConfig.class,
+        PasskeyLoginTestConfig.class,
         RateLimitFilterConfig.class,
         RateLimitResponseTest.MockConfig.class
 })

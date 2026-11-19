@@ -39,7 +39,10 @@ public class LoginSessionMutexFilter extends OncePerRequestFilter {
             // 2단계 강제 등록 화면 — 대기 발급(GET)·확정(POST)을 같은 세션의 다른 계정 재로그인과 직렬화한다. 인가 판정(지연 로딩되는 컨텍스트 조회)도
             // 이 필터 뒤라 뮤텍스 안에서 일어난다(PLAN-totp-required-admin.md 결정 2)
             PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.GET, VisitLoggingAuthenticationSuccessHandler.TOTP_ENROLLMENT_PAGE),
-            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, VisitLoggingAuthenticationSuccessHandler.TOTP_ENROLLMENT_PAGE));
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, VisitLoggingAuthenticationSuccessHandler.TOTP_ENROLLMENT_PAGE),
+            // 패스키 단독 로그인 — 폼 로그인과 같은 이유(같은 세션의 다른 계정 로그인과 레지스트리 등록·컨텍스트 저장이 섞이지 않게,
+            // PLAN-passkey-login.md 결정 4). 회원 행 잠금은 이 뮤텍스 안에서 잡는다(잠금 순서: 세션 뮤텍스 → 회원 행)
+            PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, PasskeyLoginFilter.PATH));
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

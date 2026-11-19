@@ -3,6 +3,8 @@ package com.cms.admin.member.passkey;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.web.webauthn.api.AuthenticatorAssertionResponse;
+import org.springframework.security.web.webauthn.api.Bytes;
+import org.springframework.security.web.webauthn.api.UserVerificationRequirement;
 import org.springframework.security.web.webauthn.api.CredentialRecord;
 import org.springframework.security.web.webauthn.api.PublicKeyCredential;
 import org.springframework.security.web.webauthn.api.PublicKeyCredentialCreationOptions;
@@ -15,6 +17,9 @@ import org.springframework.security.web.webauthn.management.RelyingPartyAuthenti
 import org.springframework.security.web.webauthn.management.RelyingPartyPublicKey;
 import org.springframework.security.web.webauthn.management.WebAuthnRelyingPartyOperations;
 
+import java.time.Duration;
+import java.util.List;
+
 /**
  * WebAuthn 검증 연산(Spring Security 7.0.7 {@code Webauthn4JRelyingPartyOperations})의 얇은 감싸개 — 기능 꺼짐을 표현하고,
  * 라이브러리가 요구하는 {@code Authentication}을 회원 아이디로 만든다(이름만 쓰인다 — {@code findByUsername}).
@@ -24,18 +29,23 @@ import org.springframework.security.web.webauthn.management.WebAuthnRelyingParty
  */
 public class PasskeyRelyingParty {
 
-    private final WebAuthnRelyingPartyOperations operations;
+    /** 라이브러리 옵션 타임아웃과 같은 5분 */
+    private static final Duration LOGIN_OPTIONS_TIMEOUT = Duration.ofMinutes(5);
 
-    PasskeyRelyingParty(WebAuthnRelyingPartyOperations operations) {
+    private final WebAuthnRelyingPartyOperations operations;
+    private final String rpId;
+
+    PasskeyRelyingParty(WebAuthnRelyingPartyOperations operations, String rpId) {
         this.operations = operations;
+        this.rpId = rpId;
     }
 
-    static PasskeyRelyingParty enabled(WebAuthnRelyingPartyOperations operations) {
-        return new PasskeyRelyingParty(operations);
+    static PasskeyRelyingParty enabled(WebAuthnRelyingPartyOperations operations, String rpId) {
+        return new PasskeyRelyingParty(operations, rpId);
     }
 
     static PasskeyRelyingParty disabled() {
-        return new PasskeyRelyingParty(null);
+        return new PasskeyRelyingParty(null, null);
     }
 
     public boolean isEnabled() {
@@ -58,6 +68,22 @@ public class PasskeyRelyingParty {
     /** 2단계 어설션 옵션 — 그 회원의 유효한 자격만 {@code allowCredentials}에 담긴다. */
     public PublicKeyCredentialRequestOptions requestOptions(String userId) {
         return required().createCredentialRequestOptions(new ImmutablePublicKeyCredentialRequestOptionsRequest(asAuthentication(userId)));
+    }
+
+    /**
+     * 패스키 단독 로그인 옵션(PLAN-passkey-login.md 결정 2) — 사용자를 미리 모르므로 {@code allowCredentials}를 비우고(브라우저가 상주 패스키를 고른다)
+     * 비밀번호를 대신하므로 사용자 확인을 <b>필수</b>로 한다. 라이브러리 옵션은 UV가 {@code PREFERRED} 고정이고 바꾸는 수단이 연산 객체 전역 설정뿐이라
+     * (2단계 옵션까지 바뀐다) 여기서 직접 만든다. DB에 접근하지 않는다. 검증({@link #authenticate})은 이 옵션의 {@code REQUIRED}를 보고 UV를 강제한다.
+     */
+    public PublicKeyCredentialRequestOptions discoverableRequestOptions() {
+        required();
+        return PublicKeyCredentialRequestOptions.builder()
+                .challenge(Bytes.random())
+                .rpId(rpId)
+                .timeout(LOGIN_OPTIONS_TIMEOUT)
+                .userVerification(UserVerificationRequirement.REQUIRED)
+                .allowCredentials(List.of())
+                .build();
     }
 
     /** 어설션 검증(챌린지·origin·rpId·서명·allowCredentials). 성공하면 서명 횟수를 저장하고 자격의 user entity를 돌려준다. */
