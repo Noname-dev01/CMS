@@ -474,6 +474,38 @@ class BaselineSchemaTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("패스키(V18): member_passkey_user는 회원당 1행·핸들 유일, member_passkey는 자격 ID 유일, 둘 다 회원 삭제 시 CASCADE")
+    void passkeyTables() throws Exception {
+        assertThat(rows("SELECT column_name, is_nullable, column_type FROM information_schema.COLUMNS WHERE table_schema = '"
+                + SCHEMA + "' AND table_name = 'member_passkey_user' ORDER BY ordinal_position")).containsExactly(
+                "member_id|NO|bigint(20)", "user_handle|NO|varbinary(64)", "created_at|NO|datetime(6)");
+        assertThat(rows("SELECT column_name, is_nullable, column_type FROM information_schema.COLUMNS WHERE table_schema = '"
+                + SCHEMA + "' AND table_name = 'member_passkey' ORDER BY ordinal_position")).containsExactly(
+                "id|NO|bigint(20)", "member_id|NO|bigint(20)", "credential_id|NO|varbinary(1023)", "public_key|NO|blob",
+                "signature_count|NO|bigint(20)", "uv_initialized|NO|bit(1)", "backup_eligible|NO|bit(1)", "backup_state|NO|bit(1)",
+                "transports|NO|varchar(255)", "attestation_object|NO|blob", "attestation_client_data_json|NO|blob",
+                "label|NO|varchar(50)", "created_at|NO|datetime(6)", "last_used_at|YES|datetime(6)");
+
+        long a = insertMember("baseline_passkey");
+        String user = "INSERT INTO member_passkey_user (member_id, user_handle, created_at) VALUES (%d, %s, NOW(6))";
+        st.executeUpdate(user.formatted(a, "X'01'"));
+        assertThatThrownBy(() -> st.executeUpdate(user.formatted(a, "X'02'"))).as("회원당 1행").isInstanceOf(SQLException.class);
+        long b = insertMember("baseline_passkey_b");
+        assertThatThrownBy(() -> st.executeUpdate(user.formatted(b, "X'01'"))).as("핸들 유일").isInstanceOf(SQLException.class);
+        String key = "INSERT INTO member_passkey (member_id, credential_id, public_key, signature_count, uv_initialized, backup_eligible,"
+                + " backup_state, transports, attestation_object, attestation_client_data_json, label, created_at)"
+                + " VALUES (%d, %s, X'00', 0, 0, 0, 0, '', X'00', X'00', 'k', NOW(6))";
+        st.executeUpdate(key.formatted(a, "X'AA'"));
+        st.executeUpdate(key.formatted(a, "X'AB'"));
+        assertThatThrownBy(() -> st.executeUpdate(key.formatted(b, "X'AA'"))).as("자격 ID 유일").isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> st.executeUpdate(key.formatted(999999L, "X'AC'"))).as("없는 회원").isInstanceOf(SQLException.class);
+
+        st.executeUpdate("DELETE FROM member WHERE id IN (" + a + ", " + b + ")");
+        assertThat(count("SELECT COUNT(*) FROM member_passkey_user WHERE member_id = " + a)).as("CASCADE").isZero();
+        assertThat(count("SELECT COUNT(*) FROM member_passkey WHERE member_id = " + a)).as("CASCADE").isZero();
+    }
+
+    @Test
     @DisplayName("문의: 방문자 IP·User-Agent 컬럼이 없고(개인정보 최소 수집) 모든 컬럼이 NOT NULL이며 body는 text, 인덱스는 PRIMARY와 상태 탭 (status, id)뿐이다")
     void inquiryColumns() throws Exception {
         assertThat(rows("SELECT column_name, is_nullable, column_type FROM information_schema.COLUMNS WHERE table_schema = '" + SCHEMA

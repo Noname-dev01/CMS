@@ -118,6 +118,13 @@ cms:
     encryption-key: ${CMS_TOTP_ENCRYPTION_KEY:}
     previous-encryption-key: ${CMS_TOTP_PREVIOUS_ENCRYPTION_KEY:}
     issuer: CMS
+  # 관리자 패스키(WebAuthn) — 2단계 인증의 대체 수단(PLAN-passkey-second-factor.md 결정 6). rp-id가 비어 있으면 기능이 꺼진다(기본).
+  # 켜면 allowed-origins(쉼표 목록, scheme://host[:port], https만 — localhost는 http 허용)가 1개 이상 필요하고 호스트가 rp-id와 맞아야 한다(아니면 기동 실패).
+  # prod는 도메인·TLS가 정해진 뒤(#238) CMS_PASSKEY_RP_ID·CMS_PASSKEY_ALLOWED_ORIGINS로 켠다(docs/deployment.md "패스키").
+  passkey:
+    rp-id: ${CMS_PASSKEY_RP_ID:}
+    rp-name: CMS 관리자
+    allowed-origins: ${CMS_PASSKEY_ALLOWED_ORIGINS:}
   # 공개 파일 전송(첨부·본문 이미지·배너·팝업 GET)의 동시 상한. 느린 수신자가 Tomcat 스레드를 모두 차지해 관리자 화면까지 멈추는 것을 막는다(PLAN-public-transfer-limit.md).
   # max-total은 server.tomcat.threads.max(기본 200)의 절반 이하여야 기동한다. max-per-ip는 브라우저의 HTTP/1.1 호스트당 연결 6개 기준으로 같은 IP 뒤의 사용자 몇 명을 수용한다 — 프록시 도입 시 재확인(docs/verification/deployment-edge.md).
   public-transfer:
