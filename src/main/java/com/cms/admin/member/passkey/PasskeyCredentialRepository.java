@@ -55,7 +55,16 @@ class PasskeyCredentialRepository implements UserCredentialRepository {
         LocalDateTime now = LocalDateTime.now(clock);
         Optional<MemberPasskey> existing = passkeyRepository.findByCredentialId(record.getCredentialId().getBytes());
         if (existing.isPresent()) {
-            existing.get().recordUse(record.getSignatureCount(), record.isBackupState(), now);
+            MemberPasskey passkey = existing.get();
+            // 라이브러리(7.0.7)는 등록 당시 횟수와만 비교한다 — 저장된 최신 값으로 다시 본다. 둘 다 0이면 횟수를 구현하지 않는 인증기
+            // (WebAuthn L3 §6.1.1). 역행은 복제 의심이지만 정상 어설션의 도착 순서 역전으로도 생기므로 호출자는 실패로 세지 않는다
+            // (PLAN-passkey-login.md 결정 8).
+            long submitted = record.getSignatureCount();
+            long stored = passkey.getSignatureCount();
+            if ((submitted != 0 || stored != 0) && submitted <= stored) {
+                throw new PasskeySignatureCountException("패스키 서명 횟수 역행 (passkeyId=" + passkey.getId() + ")");
+            }
+            passkey.recordUse(submitted, record.isBackupState(), now);
             return;
         }
         MemberPasskeyUser user = userRepository.findByUserHandle(record.getUserEntityUserId().getBytes())
