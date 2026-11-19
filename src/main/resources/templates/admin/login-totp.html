@@ -36,6 +36,27 @@
                         <i class="fas fa-clock mr-2"></i>
                         이미 사용한 코드입니다. 인증 앱에 다음 코드가 나오면 입력하세요.
                     </div>
+                    <div th:if="${param.passkeyError}" class="alert alert-danger text-center mb-3" role="alert" id="passkeyError">
+                        <i class="fas fa-exclamation-circle mr-2"></i>
+                        패스키를 확인하지 못했습니다. 여러 번 실패하면 계정이 잠깁니다.
+                    </div>
+                    <div th:if="${param.passkeyExpired}" class="alert alert-warning text-center mb-3" role="alert" id="passkeyExpired">
+                        <i class="fas fa-clock mr-2"></i>
+                        패스키 확인 요청이 만료됐습니다. 다시 시도하세요.
+                    </div>
+                    <!-- 패스키(PLAN-passkey-second-factor.md 결정 4·7) — 유효한 패스키가 있을 때만. 코드 폼과 따로 제출한다(코드 입력의 required가 막지 않게) -->
+                    <div th:if="${passkeyOptions != null}" id="passkeyBlock" class="mb-3">
+                        <form th:action="@{/admin/login/totp}" method="post" id="passkeyForm" class="user" th:attr="data-options=${passkeyOptions}">
+                            <input type="hidden" name="assertionId" th:value="${passkeyAssertionId}">
+                            <input type="hidden" name="passkeyCredential" id="passkeyCredential" value="">
+                            <button type="button" class="btn btn-outline-primary btn-user btn-block" id="btnPasskeyLogin">
+                                <i class="fas fa-fingerprint mr-2"></i>패스키로 인증
+                            </button>
+                        </form>
+                        <p id="passkeyClientError" class="small text-danger text-center mt-2 mb-0 d-none">
+                            패스키를 사용하지 못했습니다. 다시 시도하거나 인증 코드를 입력하세요.</p>
+                        <p class="small text-muted text-center mt-3 mb-0">또는 인증 코드 입력</p>
+                    </div>
                     <form th:action="@{/admin/login/totp}" method="post" class="user">
                         <div class="form-group">
                             <label for="totpCode" class="sr-only">인증 코드</label>
@@ -57,6 +78,10 @@
     </div>
 </div>
 
+<th:block th:if="${passkeyOptions != null}">
+    <script src="/js/admin/passkey-codec.js"></script>
+    <script src="/js/admin/passkey-login.js"></script>
+</th:block>
 </body>
 
 </html>

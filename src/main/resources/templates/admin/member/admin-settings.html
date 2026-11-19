@@ -156,6 +156,34 @@
                                 </div>
                             </div>
                         </div>
+
+                        <!-- 패스키 — 2단계 인증의 대체 수단(PLAN-passkey-second-factor.md 결정 5·7). 서버 기능이 꺼져 있으면 카드 전체를 숨긴다 -->
+                        <div class="card shadow mb-4 d-none" id="passkeyCard">
+                            <div class="card-header py-3">
+                                <h6 class="m-0 font-weight-bold text-primary">패스키</h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="passkeyAlert" class="alert alert-danger d-none" role="alert"></div>
+                                <div id="passkeySuccess" class="alert alert-success d-none" role="alert"></div>
+                                <p class="small text-muted">패스키를 등록하면 로그인할 때 인증 앱 코드 대신 이 기기의 지문·얼굴 인식·화면 잠금으로
+                                    2단계 인증을 할 수 있습니다. 2단계 인증을 끄면 등록한 패스키도 함께 삭제됩니다.</p>
+                                <p id="passkeyNeedTotp" class="small d-none">패스키를 추가하려면 먼저 위에서 2단계 인증(인증 앱)을 켜세요.</p>
+                                <p id="passkeyUnsupported" class="small text-danger d-none">이 브라우저는 패스키를 지원하지 않습니다.</p>
+                                <ul id="passkeyList" class="list-group mb-3"></ul>
+                                <p id="passkeyEmpty" class="small text-muted d-none">등록한 패스키가 없습니다.</p>
+                                <form id="passkeyAddForm" class="d-none" novalidate>
+                                    <div class="form-group">
+                                        <label for="passkeyLabel">패스키 이름</label>
+                                        <input type="text" class="form-control" id="passkeyLabel" maxlength="50" placeholder="예: 업무용 노트북">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="passkeyPassword">현재 비밀번호</label>
+                                        <input type="password" class="form-control" id="passkeyPassword" autocomplete="current-password">
+                                    </div>
+                                    <button type="submit" class="btn btn-primary" id="btnPasskeyAdd">패스키 추가</button>
+                                </form>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -283,6 +311,9 @@
     });
 </script>
 
+<script src="/js/admin/passkey-codec.js"></script>
+<script src="/js/admin/passkey-settings.js"></script>
+
 <script>
     // 2단계 인증 카드 — 서버 값은 모두 textContent로만 넣는다(HTML로 해석하지 않는다).
     (function () {
@@ -342,6 +373,8 @@
                 } else {
                     show("totpOff");
                 }
+                // 패스키 카드가 2단계 사용 여부를 다시 읽는다(끄면 패스키도 함께 지워진다 — passkey-settings.js)
+                document.dispatchEvent(new CustomEvent("cms:totp-status"));
                 if (new URLSearchParams(window.location.search).has("recoveryCodeUsed")) {
                     el("totpNotice").textContent = "복구 코드로 로그인했습니다. 남은 복구 코드는 " + status.remainingRecoveryCodes
                         + "개입니다. 인증 앱을 잃었다면 2단계 인증을 끄고 새 휴대폰으로 다시 등록하세요."
