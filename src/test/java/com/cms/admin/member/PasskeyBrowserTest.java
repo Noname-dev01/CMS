@@ -13,9 +13,11 @@ import com.microsoft.playwright.APIRequestContext;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.CDPSession;
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.FormData;
 import com.microsoft.playwright.options.RequestOptions;
+import com.microsoft.playwright.options.WaitForSelectorState;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -453,7 +455,7 @@ class PasskeyBrowserTest extends BrowserTestSupport {
     }
 
     @Test
-    @DisplayName("#285 F4: 조건부 UI를 지원하는 브라우저에서도 2단계 코드 화면은 조건부 요청 0회(같은 설정의 로그인 화면은 1회) / 2단계 화면 BFCache 복원은 새 챌린지")
+    @DisplayName("#285 F4: 조건부 UI를 지원하는 브라우저에서도 2단계 코드 화면은 조건부 요청 0회(같은 설정의 로그인 화면은 1회) / 2단계 화면 BFCache 복원은 화면을 다시 불러 서버의 현재 대기를 받는다(#293 — 젊은 대기는 재사용이라 assertionId는 같다)")
     void secondFactorScreenDoesNotStartConditional() {
         // 지원 판정은 실제(true), 조건부 요청은 붙잡아 둔다 — 화면 제한이 빠지면 2단계 화면에서도 호출이 1회 생긴다(코드 리뷰 1라운드)
         PasskeyRequestHarness.install(page, PasskeyRequestHarness.HOLD, PasskeyRequestHarness.HOLD, "real");
@@ -471,24 +473,37 @@ class PasskeyBrowserTest extends BrowserTestSupport {
 
         String assertionId = page.locator("#passkeyForm input[name=assertionId]").inputValue();
         restoreFromBackForwardCache();
-        assertThat(page.locator("#passkeyForm input[name=assertionId]").inputValue()).isNotEqualTo(assertionId);
+        assertReloaded();
+        assertThat(page.locator("#passkeyForm input[name=assertionId]").inputValue()).isEqualTo(assertionId);
     }
 
     @Test
-    @DisplayName("#285 F9: 로그인 화면이 BFCache에서 복원(pageshow persisted)되면 새로 받아 챌린지(loginId)가 바뀐다")
+    @DisplayName("#285 F9: 로그인 화면이 BFCache에서 복원(pageshow persisted)되면 화면을 다시 불러 서버의 현재 챌린지를 받는다(#293 — 젊은 챌린지는 재사용이라 loginId는 같다)")
     void restoredLoginPageReloads() {
         // 미지원 경로 — 자동 제출 없이 화면에 머문다
         PasskeyRequestHarness.install(page, PasskeyRequestHarness.REAL, PasskeyRequestHarness.HOLD, PasskeyRequestHarness.UNAVAILABLE);
         page.navigate(url("/admin/login"));
         String loginId = page.locator("#passkeyForm input[name=loginId]").inputValue();
         restoreFromBackForwardCache();
-        assertThat(page.locator("#passkeyForm input[name=loginId]").inputValue()).isNotEqualTo(loginId);
+        assertReloaded();
+        assertThat(page.locator("#passkeyForm input[name=loginId]").inputValue()).isEqualTo(loginId);
     }
 
-    /** Playwright는 BFCache를 끄므로(공식 문서 Navigations) 복원 이벤트를 합성해 보내고, 그 결과인 새 화면 로드를 기다린다. */
+    /**
+     * Playwright는 BFCache를 끄므로(공식 문서 Navigations) 복원 이벤트를 합성해 보내고, 그 결과인 새 화면 로드를 기다린다.
+     * 복원 전 문서에 표지 속성을 심어 두어 {@link #assertReloaded()}가 실제 재로드(새 문서 — 클라이언트 상태 초기화)를 확인한다 — 서버가 젊은 챌린지를
+     * 재사용하면 식별자는 그대로라 식별자 변화로는 재로드를 증명할 수 없다(#293 F7). 응답 도착 시점에는 옛 문서가 아직 살아 있을 수 있어
+     * {@code evaluate}가 화면 이동과 겹치므로, 확인은 화면 이동을 넘어 재시도하는 locator 대기로 한다.
+     */
     private void restoreFromBackForwardCache() {
+        page.evaluate("() => document.body.setAttribute('data-before-restore', '')");
         page.waitForResponse(response -> response.request().isNavigationRequest(),
                 () -> PasskeyRequestHarness.later(page, "window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))"));
         page.waitForLoadState();
+    }
+
+    private void assertReloaded() {
+        page.locator("body[data-before-restore]").waitFor(new Locator.WaitForOptions()
+                .setState(WaitForSelectorState.DETACHED));
     }
 }

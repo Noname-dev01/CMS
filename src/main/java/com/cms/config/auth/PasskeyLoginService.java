@@ -61,12 +61,22 @@ public class PasskeyLoginService {
         return relyingParty.isEnabled();
     }
 
-    /** 로그인 화면 GET의 챌린지 — 기능 꺼짐이면 빈 값(화면에 버튼 없음). DB 접근 없음. */
-    public Optional<PasskeyLoginState> start() {
+    /**
+     * 로그인 화면 GET의 챌린지 — 기능 꺼짐이면 빈 값(화면에 버튼 없음). 세션의 현재 챌린지가 남은 수명 하한 이상이면 <b>그 객체를 그대로</b>
+     * 돌려주고(같은 세션의 탭들이 나눠 쓴다 — PLAN-passkey-challenge-stale-tab.md 결정 1), 아니면 새로 발급한다. DB 접근 없음.
+     * 호출자는 새로 발급된 값(넘긴 값과 다른 객체)일 때만 세션에 쓴다(결정 3 — 재사용 값을 다시 쓰면 그사이 소비된 챌린지가 되살아난다).
+     *
+     * @param current 세션의 현재 챌린지(없으면 null)
+     */
+    public Optional<PasskeyLoginState> resumeOrStart(PasskeyLoginState current) {
         if (!relyingParty.isEnabled()) {
             return Optional.empty();
         }
-        return Optional.of(new PasskeyLoginState(UUID.randomUUID().toString(), relyingParty.discoverableRequestOptions(), LocalDateTime.now(clock)));
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (current != null && current.isReusable(now)) {
+            return Optional.of(current);
+        }
+        return Optional.of(new PasskeyLoginState(UUID.randomUUID().toString(), relyingParty.discoverableRequestOptions(), now));
     }
 
     /**

@@ -116,13 +116,21 @@ public class TotpLoginService {
     }
 
     /**
-     * 코드 화면 GET의 패스키 어설션 대기 — 기능이 켜져 있고 그 회원에게 유효한 패스키가 있을 때만 만든다(없으면 빈 값 — 화면에 버튼 없음).
-     * 옵션의 {@code allowCredentials}는 그 회원의 유효한 자격뿐이다(라이브러리 → 저장소 어댑터). 쓰기가 없어 행 잠금을 잡지 않는다.
+     * 코드 화면 GET의 패스키 어설션 대기 — 기능이 켜져 있고 그 회원에게 유효한 패스키가 있을 때만 준다(없으면 빈 값 — 화면에 버튼 없음).
+     * 이 판정이 재사용보다 먼저다. 세션의 현재 대기가 같은 회원이고 남은 수명 하한 이상이면 <b>그 객체를 그대로</b> 돌려주고(같은 회원의 탭들이
+     * 나눠 쓴다 — PLAN-passkey-challenge-stale-tab.md 결정 1·4), 아니면 새로 만든다. 호출자는 새로 만든 값(넘긴 값과 다른 객체)일 때만 세션에 쓴다(결정 3).
+     * 옵션의 {@code allowCredentials}는 발급 시점 그 회원의 유효한 자격뿐이다(라이브러리 → 저장소 어댑터 — 재사용 대기는 그 뒤 추가된 자격을 담지 않는다).
+     * 쓰기가 없어 행 잠금을 잡지 않는다.
+     *
+     * @param current 세션의 현재 대기(없으면 null)
      */
     @Transactional(readOnly = true)
-    public Optional<PasskeyAssertionState> startPasskeyAssertion(CustomUserDetails principal) {
+    public Optional<PasskeyAssertionState> resumeOrStartPasskeyAssertion(CustomUserDetails principal, PasskeyAssertionState current) {
         if (!relyingParty.isEnabled() || passkeyRepository.countValidByMemberId(principal.getId()) == 0) {
             return Optional.empty();
+        }
+        if (current != null && current.isReusableFor(principal.getId(), LocalDateTime.now(clock))) {
+            return Optional.of(current);
         }
         PublicKeyCredentialRequestOptions options = relyingParty.requestOptions(principal.getUsername());
         if (options.getAllowCredentials() == null || options.getAllowCredentials().isEmpty()) {

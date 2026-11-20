@@ -41,10 +41,14 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -53,6 +57,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -221,28 +226,173 @@ class PasskeyLoginIntegrationTest extends MariaDbContainerSupport {
         assertNotLoggedIn(session);
     }
 
+    /** 세션 챌린지를 같은 옵션·loginId로 두고 발급 시각만 지금에서 {@code age}만큼 앞으로 옮긴다. */
+    private PasskeyLoginState age(MockHttpSession session, Duration age) {
+        PasskeyLoginState state = currentState(session);
+        PasskeyLoginState aged = new PasskeyLoginState(state.loginId(), state.options(), LocalDateTime.now(clock).minus(age));
+        session.setAttribute(PasskeyLoginState.SESSION_ATTRIBUTE, aged);
+        return aged;
+    }
+
+    private static PasskeyLoginState currentState(MockHttpSession session) {
+        return (PasskeyLoginState) session.getAttribute(PasskeyLoginState.SESSION_ATTRIBUTE);
+    }
+
+    /** 재사용 하한(2분 30초)보다 1초 더 늙힌 나이 — GET이 새로 발급한다 */
+    private static final Duration BELOW_REUSE = PasskeyLoginState.TTL.minus(PasskeyLoginState.REUSE_MIN_REMAINING).plusSeconds(1);
+
     @Test
-    @DisplayName("F3: 화면을 두 번 열면(다른 탭) 첫 loginId는 만료 — 검증 없음")
-    void replacedChallengeExpired() throws Exception {
+    @DisplayName("#293 F1·F4: 같은 세션에서 화면을 다시 열면(다른 탭·만료 안내) 같은 챌린지를 재사용 — 세션 상태는 같은 객체(옵션·발급 시각 그대로)")
+    void reopenReusesChallenge() throws Exception {
         MockHttpSession session = new MockHttpSession();
         String first = openLoginPage(session);
-        openLoginPage(session);
+        PasskeyLoginState state = currentState(session);
 
+        assertThat(openLoginPage(session)).isEqualTo(first);
+        assertThat(currentState(session)).isSameAs(state);
+        assertThat(mockMvc.perform(get(LOGIN + "?passkeyExpired").session(session)).andReturn()
+                .getModelAndView().getModel().get("passkeyLoginId")).isEqualTo(first);
+        assertThat(currentState(session)).isSameAs(state);
+    }
+
+    @Test
+    @DisplayName("#293 F1·F2: 두 탭이 같은 챌린지 — 한 탭 성공 뒤 다른 탭 제출은 passkeyExpired(1회용), 검증 1회")
+    void sharedChallengeSingleUse() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String tabA = openLoginPage(session);
+        String tabB = openLoginPage(session);
+
+        submit(session, tabB, json()).andExpect(redirectedUrl("/admin"));
+        assertThat(currentState(session)).isNull();
+        submit(session, tabA, json()).andExpect(redirectedUrl(EXPIRED));
+        verify(relyingParty, times(1)).authenticate(any(), any());
+    }
+
+    @Test
+    @DisplayName("#293 F3·F4: 남은 수명이 하한 아래면 GET이 새로 발급 — loginId·챌린지 바이트가 바뀌고 발급 시각은 지금, 옛 loginId 제출은 만료(검증 없음)")
+    void lowRemainingChallengeReplaced() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String first = openLoginPage(session);
+        PasskeyLoginState aged = age(session, BELOW_REUSE);
+        LocalDateTime before = LocalDateTime.now(clock);
+
+        String second = openLoginPage(session);
+
+        PasskeyLoginState replaced = currentState(session);
+        assertThat(second).isNotEqualTo(first);
+        assertThat(replaced.options().getChallenge().getBytes()).isNotEqualTo(aged.options().getChallenge().getBytes());
+        assertThat(replaced.issuedAt()).isAfterOrEqualTo(before);
         submit(session, first, json()).andExpect(redirectedUrl(EXPIRED));
         verify(relyingParty, never()).authenticate(any(), any());
     }
 
     @Test
-    @DisplayName("#285 F8(수용 동작 고정): 옛 탭 제출이 최신 탭의 챌린지까지 지운다 — 꺼내기가 loginId 대조보다 먼저라 최신 탭 제출도 passkeyExpired, 둘 다 검증 없음")
-    void staleTabSubmitConsumesLatestChallenge() throws Exception {
+    @DisplayName("#293 F1(이슈 증상, 기존 #285 F8 수용 동작을 대체): 옛 탭 제출은 만료 안내 → 그 안내 GET이 최신 챌린지를 재사용 → 최신 탭 제출은 검증되어 로그인")
+    void staleTabConvergesOnLatestChallenge() throws Exception {
         MockHttpSession session = new MockHttpSession();
         String oldTab = openLoginPage(session);
+        age(session, BELOW_REUSE);
         String latestTab = openLoginPage(session);
+        PasskeyLoginState latest = currentState(session);
+        assertThat(latestTab).isNotEqualTo(oldTab);
 
         submit(session, oldTab, json()).andExpect(redirectedUrl(EXPIRED));
-        submit(session, latestTab, json()).andExpect(redirectedUrl(EXPIRED));
+        assertThat(currentState(session)).isSameAs(latest);
+        // 브라우저가 따라가는 만료 안내 GET — 옛 탭의 화면도 최신 챌린지를 받는다
+        assertThat(mockMvc.perform(get(EXPIRED).session(session)).andReturn()
+                .getModelAndView().getModel().get("passkeyLoginId")).isEqualTo(latestTab);
         verify(relyingParty, never()).authenticate(any(), any());
-        assertNotLoggedIn(session);
+
+        submit(session, latestTab, json()).andExpect(redirectedUrl("/admin"));
+        ArgumentCaptor<PublicKeyCredentialRequestOptions> options = ArgumentCaptor.forClass(PublicKeyCredentialRequestOptions.class);
+        verify(relyingParty, times(1)).authenticate(options.capture(), any());
+        assertThat(options.getValue()).isSameAs(latest.options());
+        assertThat(currentState(session)).isNull();
+    }
+
+    @Test
+    @DisplayName("#293 F4(성공 기준 4): 맞지 않는 loginId 반복·누락 제출은 모두 만료, 검증 없음, 세션 챌린지는 같은 객체로 남고 맞는 제출은 검증된다")
+    void mismatchedSubmitsKeepChallenge() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String loginId = openLoginPage(session);
+        PasskeyLoginState state = currentState(session);
+
+        for (int i = 0; i < 3; i++) {
+            submit(session, "wrong-" + i, json()).andExpect(redirectedUrl(EXPIRED));
+        }
+        mockMvc.perform(post(PATH).session(session).with(csrf()).param("passkeyCredential", json())).andExpect(redirectedUrl(EXPIRED));
+        verify(relyingParty, never()).authenticate(any(), any());
+        assertThat(currentState(session)).isSameAs(state);
+
+        submit(session, loginId, json()).andExpect(redirectedUrl("/admin"));
+        verify(relyingParty, times(1)).authenticate(any(), any());
+    }
+
+    @Test
+    @DisplayName("#293 F3: 5분 지난 챌린지는 틀린 loginId 제출에서도 지운다 — 다음 GET은 새 챌린지")
+    void staleChallengeRemovedOnMismatch() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String loginId = openLoginPage(session);
+        age(session, PasskeyLoginState.TTL.plusSeconds(1));
+
+        submit(session, "wrong", json()).andExpect(redirectedUrl(EXPIRED));
+
+        assertThat(currentState(session)).isNull();
+        assertThat(openLoginPage(session)).isNotEqualTo(loginId);
+        verify(relyingParty, never()).authenticate(any(), any());
+    }
+
+    @Test
+    @DisplayName("#293 F8: 발급 4분(재사용 하한은 넘었지만 5분 이내) 챌린지를 중간 GET 없이 제출 → 그 옵션으로 검증 1회·로그인·상태 제거")
+    void challengeValidUntilFiveMinutes() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String loginId = openLoginPage(session);
+        PasskeyLoginState aged = age(session, Duration.ofMinutes(4));
+
+        submit(session, loginId, json()).andExpect(redirectedUrl("/admin"));
+
+        ArgumentCaptor<PublicKeyCredentialRequestOptions> options = ArgumentCaptor.forClass(PublicKeyCredentialRequestOptions.class);
+        verify(relyingParty, times(1)).authenticate(options.capture(), any());
+        assertThat(options.getValue()).isSameAs(aged.options());
+        assertThat(currentState(session)).isNull();
+    }
+
+    @Test
+    @DisplayName("#293 F6: 재사용을 결정한 GET이 멈춘 사이 제출이 챌린지를 소비(검증 실패)해도 GET이 되살리지 않는다 — 같은 loginId 재제출은 만료, 검증 누적 1회")
+    void reuseDoesNotResurrectConsumedChallenge() throws Exception {
+        given(relyingParty.authenticate(any(), any())).willThrow(new IllegalArgumentException("서명 불일치"));
+        MockHttpSession session = new MockHttpSession();
+        String loginId = openLoginPage(session);
+
+        CountDownLatch decided = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            Object result = invocation.callRealMethod();
+            decided.countDown();
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            return result;
+        }).when(passkeyLoginService).resumeOrStart(any());
+        AtomicReference<Object> reopened = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread reopen = new Thread(() -> {
+            try {
+                reopened.set(mockMvc.perform(get(LOGIN).session(session)).andReturn().getModelAndView().getModel().get("passkeyLoginId"));
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        reopen.start();
+        assertThat(decided.await(10, TimeUnit.SECONDS)).isTrue();
+
+        submit(session, loginId, json()).andExpect(redirectedUrl(ERROR));
+        release.countDown();
+        reopen.join(10_000);
+        assertThat(failure.get()).isNull();
+        assertThat(reopened.get()).isEqualTo(loginId); // GET은 재사용 갈래였다
+
+        assertThat(currentState(session)).isNull();
+        submit(session, loginId, json()).andExpect(redirectedUrl(EXPIRED));
+        verify(relyingParty, times(1)).authenticate(any(), any());
     }
 
     @Test

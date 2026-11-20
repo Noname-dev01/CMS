@@ -57,12 +57,17 @@ public class TotpLoginController {
     @GetMapping(PATH)
     @PreAuthorize("hasAuthority('TOTP_PENDING')")
     public String page(Authentication authentication, HttpServletRequest request, Model model) {
-        // 패스키 어설션 대기(PLAN-passkey-second-factor.md 결정 4) — GET마다 대체, 패스키가 없으면 지운다(버튼 없음)
+        // 패스키 어설션 대기(PLAN-passkey-second-factor.md 결정 4) — 남은 수명이 충분한 같은 회원의 대기는 재사용(같은 회원의 탭들이 나눠 쓴다),
+        // 패스키가 없으면 지운다(버튼 없음). 새로 만든 것만 세션에 쓴다 — 이 GET은 세션 뮤텍스 밖이라 재사용 값을 다시 쓰면 그사이 제출이 소비한
+        // 대기가 되살아난다(PLAN-passkey-challenge-stale-tab.md 결정 1·3)
         HttpSession session = request.getSession(false);
         if (session != null && authentication.getPrincipal() instanceof CustomUserDetails principal) {
             try {
-                totpLoginService.startPasskeyAssertion(principal).ifPresentOrElse(state -> {
-                    session.setAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE, state);
+                PasskeyAssertionState current = session.getAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE) instanceof PasskeyAssertionState found ? found : null;
+                totpLoginService.resumeOrStartPasskeyAssertion(principal, current).ifPresentOrElse(state -> {
+                    if (state != current) {
+                        session.setAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE, state);
+                    }
                     model.addAttribute("passkeyAssertionId", state.assertionId());
                     model.addAttribute("passkeyOptions", passkeyJson.write(state.options()));
                 }, () -> session.removeAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE));
@@ -102,13 +107,10 @@ public class TotpLoginController {
         boolean passkey = passkeyCredential != null && !passkeyCredential.isBlank();
         PasskeyAssertionState assertion = null;
         if (passkey) {
-            // 1회용 — 꺼내며 지운다. 회원·폼의 assertionId·5분이 맞지 않으면 검증 전에 만료(카운트 없음, 리뷰 2-1)
-            Object stored = session.getAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE);
-            session.removeAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE);
-            if (!(stored instanceof PasskeyAssertionState found) || !found.matches(principal.getId(), assertionId, LocalDateTime.now(clock))) {
+            assertion = takeAssertion(session, principal.getId(), assertionId, LocalDateTime.now(clock));
+            if (assertion == null) {
                 return "redirect:" + PATH + "?passkeyExpired";
             }
-            assertion = found;
         }
 
         Result result;
@@ -138,6 +140,28 @@ public class TotpLoginController {
                 yield result.usedRecoveryCode() ? "redirect:/admin/member/settings?recoveryCodeUsed" : "redirect:/admin";
             }
         };
+    }
+
+    /**
+     * 세션의 어설션 대기를 판정한 뒤 판정에 따라 지운다(PLAN-passkey-challenge-stale-tab.md 결정 2·4). 회원·폼의 {@code assertionId}가 맞고 만료 전이면
+     * 꺼내며 지운다 — <b>검증에 도달하는 유일한 갈래이고 검증 전에 지우므로 1회용이다</b>. 만료·다른 회원·쓸 수 없는 값이면 지우고 null,
+     * {@code assertionId}만 다르면(같은 회원의 다른 탭의 옛 화면) 지우지 않고 null — 만료 안내 GET이 그것을 재사용해 탭들이 한 대기로 모인다.
+     * null이면 검증 전에 만료(카운트 없음, 리뷰 2-1). 제출끼리는 세션 뮤텍스 안이다.
+     */
+    private static PasskeyAssertionState takeAssertion(HttpSession session, Long memberId, String assertionId, LocalDateTime now) {
+        Object stored = session.getAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE);
+        if (!(stored instanceof PasskeyAssertionState state)) {
+            session.removeAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE);
+            return null;
+        }
+        if (state.matches(memberId, assertionId, now)) {
+            session.removeAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE);
+            return state;
+        }
+        if (state.isExpired(now) || !Objects.equals(state.memberId(), memberId)) {
+            session.removeAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE);
+        }
+        return null;
     }
 
     /** 세션을 끝내고(있으면 무효화) 지정한 곳으로 보낸다. */
