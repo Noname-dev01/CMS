@@ -19,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import com.webauthn4j.verifier.exception.MaliciousCounterValueException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -31,19 +32,26 @@ import org.springframework.security.web.webauthn.api.ImmutablePublicKeyCredentia
 import org.springframework.security.web.webauthn.api.PublicKeyCredentialDescriptor;
 import org.springframework.security.web.webauthn.api.PublicKeyCredentialRequestOptions;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestBuilders.formLogin;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -65,6 +73,7 @@ class TotpPasskeyLoginIntegrationTest extends MariaDbContainerSupport {
     private static final String PATH = "/admin/login/totp";
 
     @MockitoBean PasskeyRelyingParty relyingParty;
+    @MockitoSpyBean TotpLoginService totpLoginService;
 
     @Autowired MockMvc mockMvc;
     @Autowired MemberRepository memberRepository;
@@ -247,18 +256,173 @@ class TotpPasskeyLoginIntegrationTest extends MariaDbContainerSupport {
         assertThat(totpFailures()).isEqualTo(1);
     }
 
+    private static PasskeyAssertionState currentState(MockHttpSession session) {
+        return (PasskeyAssertionState) session.getAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE);
+    }
+
+    /** 세션 대기를 같은 옵션·식별자·회원으로 두고 발급 시각만 지금에서 {@code age}만큼 앞으로 옮긴다. */
+    private PasskeyAssertionState age(MockHttpSession session, Duration age) {
+        PasskeyAssertionState state = currentState(session);
+        PasskeyAssertionState aged = new PasskeyAssertionState(state.assertionId(), state.memberId(), state.options(), LocalDateTime.now(clock).minus(age));
+        session.setAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE, aged);
+        return aged;
+    }
+
+    /** 재사용 하한(2분 30초)보다 1초 더 늙힌 나이 — GET이 새로 발급한다 */
+    private static final Duration BELOW_REUSE = PasskeyAssertionState.TTL.minus(PasskeyAssertionState.REUSE_MIN_REMAINING).plusSeconds(1);
+
     @Test
-    @DisplayName("F3(리뷰 2-1): GET 두 번 뒤 첫 assertionId로 제출 → ?passkeyExpired, failed_attempts 불변·검증 호출 없음")
+    @DisplayName("F3(리뷰 2-1, #293 F4로 갱신): 남은 수명이 하한 아래면 GET이 새로 발급(식별자·챌린지 바이트 변경, 발급 시각 지금) — 첫 assertionId 제출은 ?passkeyExpired, failed_attempts 불변·검증 호출 없음")
     void replacedAssertionExpiresWithoutCount() throws Exception {
         authenticatorReturns(handle);
         MockHttpSession session = pendingSession();
         String first = openPage(session);
+        PasskeyAssertionState aged = age(session, BELOW_REUSE);
+        LocalDateTime before = LocalDateTime.now(clock);
         String second = openPage(session);
         assertThat(second).isNotEqualTo(first);
+        assertThat(currentState(session).options().getChallenge().getBytes()).isNotEqualTo(aged.options().getChallenge().getBytes());
+        assertThat(currentState(session).issuedAt()).isAfterOrEqualTo(before);
 
         submitPasskey(session, first, assertionJson(credentialId)).andExpect(redirectedUrl(PATH + "?passkeyExpired"));
         assertThat(totpFailures()).isZero();
         verify(relyingParty, never()).authenticate(any(), any());
+    }
+
+    @Test
+    @DisplayName("#293 F1·F4: 같은 회원이 코드 화면을 다시 열면(다른 탭·만료 안내) 같은 대기를 재사용 — 세션 상태는 같은 객체")
+    void reopenReusesAssertion() throws Exception {
+        MockHttpSession session = pendingSession();
+        String first = openPage(session);
+        PasskeyAssertionState state = currentState(session);
+
+        assertThat(openPage(session)).isEqualTo(first);
+        assertThat(mockMvc.perform(get(PATH + "?passkeyExpired").session(session)).andReturn()
+                .getModelAndView().getModel().get("passkeyAssertionId")).isEqualTo(first);
+        assertThat(currentState(session)).isSameAs(state);
+    }
+
+    @Test
+    @DisplayName("#293 F1(이슈 증상): 옛 탭 제출은 ?passkeyExpired(카운트 없음) → 그 안내 GET이 최신 대기를 재사용 → 최신 탭 제출이 검증되어 /admin")
+    void staleTabConvergesOnLatestAssertion() throws Exception {
+        authenticatorReturns(handle);
+        MockHttpSession session = pendingSession();
+        String oldTab = openPage(session);
+        age(session, BELOW_REUSE);
+        String latestTab = openPage(session);
+        PasskeyAssertionState latest = currentState(session);
+        assertThat(latestTab).isNotEqualTo(oldTab);
+
+        submitPasskey(session, oldTab, assertionJson(credentialId)).andExpect(redirectedUrl(PATH + "?passkeyExpired"));
+        assertThat(currentState(session)).isSameAs(latest);
+        assertThat(mockMvc.perform(get(PATH + "?passkeyExpired").session(session)).andReturn()
+                .getModelAndView().getModel().get("passkeyAssertionId")).isEqualTo(latestTab);
+        assertThat(totpFailures()).isZero();
+        verify(relyingParty, never()).authenticate(any(), any());
+
+        submitPasskey(session, latestTab, assertionJson(credentialId)).andExpect(redirectedUrl("/admin"));
+        ArgumentCaptor<PublicKeyCredentialRequestOptions> options = ArgumentCaptor.forClass(PublicKeyCredentialRequestOptions.class);
+        verify(relyingParty, times(1)).authenticate(options.capture(), any());
+        assertThat(options.getValue()).isSameAs(latest.options());
+    }
+
+    @Test
+    @DisplayName("#293 F3: 5분 지난 대기는 틀린 assertionId 제출에서도 지운다 — 다음 GET은 새 대기")
+    void staleAssertionRemovedOnMismatch() throws Exception {
+        MockHttpSession session = pendingSession();
+        String assertionId = openPage(session);
+        age(session, PasskeyAssertionState.TTL.plusSeconds(1));
+
+        submitPasskey(session, "wrong", assertionJson(credentialId)).andExpect(redirectedUrl(PATH + "?passkeyExpired"));
+
+        assertThat(currentState(session)).isNull();
+        assertThat(openPage(session)).isNotEqualTo(assertionId);
+        verify(relyingParty, never()).authenticate(any(), any());
+    }
+
+    @Test
+    @DisplayName("#293 F8: 발급 4분 대기를 중간 GET 없이 제출 → 그 옵션으로 검증 1회·/admin")
+    void assertionValidUntilFiveMinutes() throws Exception {
+        authenticatorReturns(handle);
+        MockHttpSession session = pendingSession(); // 대기 상태(TotpPendingState)는 지금 만들어 5분 대기 만료가 먼저 오지 않는다
+        String assertionId = openPage(session);
+        PasskeyAssertionState aged = age(session, Duration.ofMinutes(4));
+
+        submitPasskey(session, assertionId, assertionJson(credentialId)).andExpect(redirectedUrl("/admin"));
+
+        ArgumentCaptor<PublicKeyCredentialRequestOptions> options = ArgumentCaptor.forClass(PublicKeyCredentialRequestOptions.class);
+        verify(relyingParty, times(1)).authenticate(options.capture(), any());
+        assertThat(options.getValue()).isSameAs(aged.options());
+    }
+
+    @Test
+    @DisplayName("#293 F5: 다른 회원의 대기는 GET이 재사용하지 않고(새 assertionId) 제출이 지운다(검증 없음)")
+    void otherMemberAssertionNeitherReusedNorKept() throws Exception {
+        Member other = newMember(Role.ROLE_MANAGER);
+        MockHttpSession session = pendingSession();
+        openPage(session);
+        PasskeyAssertionState state = currentState(session);
+        PasskeyAssertionState foreign = new PasskeyAssertionState("foreign", other.getId(), state.options(), LocalDateTime.now(clock));
+
+        session.setAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE, foreign);
+        assertThat(openPage(session)).isNotEqualTo("foreign");
+        assertThat(currentState(session).memberId()).isEqualTo(member.getId());
+
+        session.setAttribute(PasskeyAssertionState.SESSION_ATTRIBUTE, foreign);
+        submitPasskey(session, "foreign", assertionJson(credentialId)).andExpect(redirectedUrl(PATH + "?passkeyExpired"));
+        assertThat(currentState(session)).isNull();
+        verify(relyingParty, never()).authenticate(any(), any());
+    }
+
+    @Test
+    @DisplayName("#293 F5: 유효한 대기가 있어도 그사이 패스키가 모두 사라졌으면 GET은 버튼을 그리지 않고 대기를 지운다(재사용보다 존재 판정이 먼저)")
+    void noPasskeyBeatsReuse() throws Exception {
+        MockHttpSession session = pendingSession();
+        openPage(session);
+        jdbc.update("DELETE FROM member_passkey WHERE member_id = ?", member.getId());
+
+        mockMvc.perform(get(PATH).session(session)).andExpect(status().isOk())
+                .andExpect(model().attributeDoesNotExist("passkeyOptions"));
+        assertThat(currentState(session)).isNull();
+    }
+
+    @Test
+    @DisplayName("#293 F6: 재사용을 결정한 GET이 멈춘 사이 제출이 대기를 소비(검증 실패)해도 GET이 되살리지 않는다 — 같은 assertionId 재제출은 만료, 검증 누적 1회")
+    void reuseDoesNotResurrectConsumedAssertion() throws Exception {
+        given(relyingParty.authenticate(any(), any())).willThrow(new IllegalArgumentException("bad signature"));
+        MockHttpSession session = pendingSession();
+        String assertionId = openPage(session);
+
+        CountDownLatch decided = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            Object result = invocation.callRealMethod();
+            decided.countDown();
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            return result;
+        }).when(totpLoginService).resumeOrStartPasskeyAssertion(any(), any());
+        AtomicReference<Object> reopened = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread reopen = new Thread(() -> {
+            try {
+                reopened.set(mockMvc.perform(get(PATH).session(session)).andReturn().getModelAndView().getModel().get("passkeyAssertionId"));
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        reopen.start();
+        assertThat(decided.await(10, TimeUnit.SECONDS)).isTrue();
+
+        submitPasskey(session, assertionId, assertionJson(credentialId)).andExpect(redirectedUrl(PATH + "?passkeyError"));
+        release.countDown();
+        reopen.join(10_000);
+        assertThat(failure.get()).isNull();
+        assertThat(reopened.get()).isEqualTo(assertionId); // GET은 재사용 갈래였다
+
+        assertThat(currentState(session)).isNull();
+        submitPasskey(session, assertionId, assertionJson(credentialId)).andExpect(redirectedUrl(PATH + "?passkeyExpired"));
+        verify(relyingParty, times(1)).authenticate(any(), any());
+        assertThat(totpFailures()).isEqualTo(1);
     }
 
     @Test

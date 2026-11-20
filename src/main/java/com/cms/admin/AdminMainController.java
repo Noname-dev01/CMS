@@ -67,14 +67,19 @@ public class AdminMainController {
     }
 
     /**
-     * 로그인 화면 — 패스키 기능이 켜져 있으면 패스키 로그인 챌린지를 세션에 두고(GET마다 대체) 옵션을 화면에 그린다(PLAN-passkey-login.md 결정 2).
+     * 로그인 화면 — 패스키 기능이 켜져 있으면 패스키 로그인 챌린지를 세션에 두고 옵션을 화면에 그린다(PLAN-passkey-login.md 결정 2).
+     * 남은 수명이 충분한 세션 챌린지는 재사용하고(같은 세션의 탭들이 나눠 쓴다), <b>새로 발급한 것만 세션에 쓴다</b> — 이 GET은 세션 뮤텍스 밖이라
+     * 재사용 값을 다시 쓰면 그사이 제출이 소비한 챌린지가 되살아난다(PLAN-passkey-challenge-stale-tab.md 결정 1·3).
      * 옵션을 못 만들어도 비밀번호 로그인은 그대로 쓸 수 있어야 한다.
      */
     private String loginPage(Model model, HttpServletRequest request) {
         HttpSession session = request.getSession();
         try {
-            passkeyLoginService.start().ifPresentOrElse(state -> {
-                session.setAttribute(PasskeyLoginState.SESSION_ATTRIBUTE, state);
+            PasskeyLoginState current = session.getAttribute(PasskeyLoginState.SESSION_ATTRIBUTE) instanceof PasskeyLoginState found ? found : null;
+            passkeyLoginService.resumeOrStart(current).ifPresentOrElse(state -> {
+                if (state != current) {
+                    session.setAttribute(PasskeyLoginState.SESSION_ATTRIBUTE, state);
+                }
                 model.addAttribute("passkeyLoginId", state.loginId());
                 model.addAttribute("passkeyOptions", passkeyJson.write(state.options()));
             }, () -> session.removeAttribute(PasskeyLoginState.SESSION_ATTRIBUTE));

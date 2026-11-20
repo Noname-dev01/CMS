@@ -202,7 +202,7 @@ class AdminMainControllerTest {
         PublicKeyCredentialRequestOptions options = PublicKeyCredentialRequestOptions.builder()
                 .challenge(Bytes.random()).rpId("localhost").timeout(Duration.ofMinutes(5))
                 .userVerification(UserVerificationRequirement.REQUIRED).allowCredentials(List.of()).build();
-        given(passkeyLoginService.start()).willReturn(Optional.of(new PasskeyLoginState("login-1", options, LocalDateTime.now())));
+        given(passkeyLoginService.resumeOrStart(any())).willReturn(Optional.of(new PasskeyLoginState("login-1", options, LocalDateTime.now())));
 
         mockMvc.perform(get("/admin/login"))
                 .andExpect(status().isOk())
@@ -214,7 +214,7 @@ class AdminMainControllerTest {
     @DisplayName("#285 F5: 패스키 꺼짐이면 아이디 입력에 webauthn 토큰도 조건부 표지도 없다(기존 HTML 그대로)")
     @WithMockUser
     void login_passkeyDisabled_noConditionalUiAttributes() throws Exception {
-        given(passkeyLoginService.start()).willReturn(Optional.empty());
+        given(passkeyLoginService.resumeOrStart(any())).willReturn(Optional.empty());
 
         mockMvc.perform(get("/admin/login"))
                 .andExpect(status().isOk())
