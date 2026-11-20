@@ -47,6 +47,12 @@ public class RateLimitConfigValidator {
                             "cms.rate-limit.rules[" + rule.getId() + "]에 허용되지 않는 method입니다: " + method);
                 }
             }
+            // 로그인 화면 302는 POST 전용 — GET·HEAD가 섞이면 이동한 GET /admin/login이 같은 규칙에 다시 걸려 루프가 될 수 있다
+            // (PLAN-login-rate-limit-notice.md 결정 2)
+            if (rule.isLoginRedirect() && !rule.getMethods().equals(Set.of(HttpMethod.POST.name()))) {
+                throw new IllegalStateException(
+                        "cms.rate-limit.rules[" + rule.getId() + "]: login-redirect는 methods가 POST뿐인 규칙에만 쓸 수 있습니다: " + rule.getMethods());
+            }
         }
     }
 }

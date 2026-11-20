@@ -80,6 +80,20 @@ public class RateLimitProperties {
         /** true면 로그인한(익명이 아닌) 요청은 이 규칙의 버킷을 쓰지 않고 통과한다. 기본 false. */
         private boolean exemptAuthenticated;
 
+        /**
+         * true면 한도 초과 응답이 429 화면이 아니라 로그인 화면 302({@code /admin/login?rateLimited})다 — 로그인 입구 전용(이슈 #288,
+         * PLAN-login-rate-limit-notice.md 결정 2). 이동한 GET이 같은 규칙에 다시 걸리지 않도록 POST 전용 규칙에만 허용한다(검증기). 기본 false.
+         */
+        private boolean loginRedirect;
+
+        public boolean isLoginRedirect() {
+            return loginRedirect;
+        }
+
+        public void setLoginRedirect(boolean loginRedirect) {
+            this.loginRedirect = loginRedirect;
+        }
+
         public boolean isExemptAuthenticated() {
             return exemptAuthenticated;
         }

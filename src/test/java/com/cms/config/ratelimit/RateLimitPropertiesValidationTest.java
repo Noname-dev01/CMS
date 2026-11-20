@@ -110,4 +110,33 @@ class RateLimitPropertiesValidationTest {
                         "cms.rate-limit.rules[0].refill-period-seconds=60")
                 .run(context -> assertThat(context).hasFailed());
     }
+
+    @Test
+    void loginRedirectOnPostOnlyRule_startsSuccessfully() {
+        contextRunner
+                .withPropertyValues(loginRedirectRule("POST"))
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    /** 로그인 화면 302는 POST 전용 — GET이 섞이면 이동한 GET /admin/login이 같은 규칙에 다시 걸려 루프가 될 수 있다(PLAN-login-rate-limit-notice.md F2). */
+    @Test
+    void loginRedirectOnRuleWithGet_failsToStart() {
+        contextRunner
+                .withPropertyValues(loginRedirectRule("GET,POST"))
+                .run(context -> assertThat(context).hasFailed());
+        contextRunner
+                .withPropertyValues(loginRedirectRule("GET"))
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    private static String[] loginRedirectRule(String methods) {
+        return new String[]{
+                "cms.rate-limit.enabled=true",
+                "cms.rate-limit.rules[0].id=login",
+                "cms.rate-limit.rules[0].pattern=/admin/login",
+                "cms.rate-limit.rules[0].methods=" + methods,
+                "cms.rate-limit.rules[0].capacity=10",
+                "cms.rate-limit.rules[0].refill-period-seconds=60",
+                "cms.rate-limit.rules[0].login-redirect=true"};
+    }
 }

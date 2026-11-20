@@ -46,8 +46,8 @@ public class CustomErrorController implements ErrorController {
             modelAndView.addObject("timestamp", new java.util.Date());
             modelAndView.addObject("path", requestURI);
         } else if (statusCode != null && statusCode == 429) {
-            // 레이트리밋 초과(RateLimitFilter의 sendError(429)) — 429가 걸리는 경로는 전부
-            // 무인증 공개 경로(/notices/**)라 admin 전용 429는 두지 않는다.
+            // 레이트리밋 초과(RateLimitFilter의 sendError(429)) — 관리자 로그인 입구는 429가 아니라 로그인 화면 302라
+            // (login-redirect, PLAN-login-rate-limit-notice.md) 여기 오지 않는다. admin 전용 429는 두지 않는다.
             modelAndView.setViewName("error/429");
             modelAndView.addObject("timestamp", new java.util.Date());
             modelAndView.addObject("path", requestURI);

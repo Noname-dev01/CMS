@@ -164,6 +164,13 @@ class SitePublicRateLimitConventionTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("실제 설정에서 로그인 화면 302(login-redirect)는 두 로그인 입구 규칙뿐이다 (PLAN-login-rate-limit-notice.md F4)")
+    void onlyLoginEntryRulesRedirectToLogin() {
+        List<String> redirect = limiter.rules().stream().filter(RateLimitRule::loginRedirect).map(RateLimitRule::id).toList();
+        assertThat(redirect).containsExactlyInAnyOrder("admin-password-login", "admin-passkey-login");
+    }
+
+    @Test
     @DisplayName("content-image 한도를 소진한 IP도 로그인(ADMIN·MANAGER) 요청은 429가 아니고 익명은 429다")
     void contentImageBucket_exhaustedForAnonymousButNotForLoggedIn() throws Exception {
         String ip = "10.98.2.1";

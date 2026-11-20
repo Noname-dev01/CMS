@@ -1,6 +1,7 @@
 package com.cms.config.auth;
 
 import com.cms.admin.member.passkey.PasskeyRelyingParty;
+import com.cms.config.ratelimit.RateLimitFilter;
 import com.cms.config.ratelimit.Ticker;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
@@ -43,6 +44,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @TestPropertySource(properties = "cms.rate-limit.enabled=true")
 class PasskeyLoginRateLimitIntegrationTest extends MariaDbContainerSupport {
 
+    /** 한도 초과는 로그인 화면 안내로 302(이슈 #288, PLAN-login-rate-limit-notice.md 결정 1) — 공용 429 화면이 아니다. */
+    private static final String RATE_LIMITED = RateLimitFilter.LOGIN_RATE_LIMITED_PATH;
+
     private static final String PATH = "/admin/login/passkey";
 
     private final AtomicLong nanos = new AtomicLong(1_000_000_000L);
@@ -68,7 +72,7 @@ class PasskeyLoginRateLimitIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("같은 IP의 패스키 로그인 POST는 버스트 30회 뒤 429 — 그 요청은 식별·검증까지 가지 않는다. 2초 뒤 1회 보충, 로그인 화면·비밀번호 로그인은 영향 없음")
+    @DisplayName("같은 IP의 패스키 로그인 POST는 버스트 30회 뒤 로그인 화면 302(?rateLimited) — 그 요청은 식별·검증까지 가지 않는다. 2초 뒤 1회 보충, 로그인 화면·비밀번호 로그인은 영향 없음")
     void burstThenRefill() throws Exception {
         MockHttpSession session = new MockHttpSession();
         for (int i = 0; i < 30; i++) {
@@ -79,7 +83,7 @@ class PasskeyLoginRateLimitIntegrationTest extends MariaDbContainerSupport {
 
         String loginId = openLoginPage(session);
         mockMvc.perform(post(PATH).session(session).with(csrf()).param("loginId", loginId).param("passkeyCredential", "{}"))
-                .andExpect(status().isTooManyRequests());
+                .andExpect(redirectedUrl(RATE_LIMITED));
         verify(passkeyLoginService, never()).identify(any());
 
         mockMvc.perform(post("/admin/login").with(csrf()).param("username", "nobody").param("password", "wrong"))
@@ -91,6 +95,6 @@ class PasskeyLoginRateLimitIntegrationTest extends MariaDbContainerSupport {
                 .andExpect(redirectedUrl("/admin/login?passkeyError"));
         verify(passkeyLoginService, times(1)).identify(any());
         mockMvc.perform(post(PATH).session(session).with(csrf()).param("loginId", "x").param("passkeyCredential", "{}"))
-                .andExpect(status().isTooManyRequests());
+                .andExpect(redirectedUrl(RATE_LIMITED));
     }
 }

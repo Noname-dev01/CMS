@@ -1008,6 +1008,26 @@ mockMvc.perform(get("/notices").with(from("10.10.10.1"))).andExpect(status().isO
 
 **검증**: `PasswordResetControllerTest`에 `@TestPropertySource`를 추가한 뒤 CSRF-레이트리밋 순서 검증 테스트(운영 설정 `capacity=5` 그대로 사용)가 안정적으로 통과함을 확인. 관련 코드: `com.cms.admin.member.controller.PasswordResetControllerTest`.
 
+### MockMvc로 값 없는 쿼리(`?rateLimited`)를 보내면 `@RequestParam`이 null이라 화면 안내 분기를 타지 않는다 — 실제 Tomcat은 빈 문자열 (2026-11-20, 이슈 #288)
+
+#### 오류 메시지
+
+```
+java.lang.AssertionError: Model attribute 'error' expected:<로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.> but was:<null>
+```
+
+`mockMvc.perform(get("/admin/login?rateLimited"))`로 로그인 화면 안내(`AdminMainController.login`의 `@RequestParam(required = false) String rateLimited` → `!= null`)를 단언했는데 모델에 문구가 없었다. 같은 컨트롤러·같은 방식인 `?passkeyError`는 실제 브라우저 시험(`PasskeyBrowserTest`)에서 잘 동작한다.
+
+#### 원인
+
+spring-test 7.0.9의 `AbstractMockHttpServletRequestBuilder`는 URL 쿼리를 `UriComponentsBuilder.fromUri(...).build().getQueryParams()`로 나누는데, 값 없는 쿼리 `rateLimited`의 값은 **null**이다. `lambda$addRequestParams$1`은 값이 null이면 디코딩만 건너뛰고 null 그대로 `MockHttpServletRequest.addParameter(name, String[])`에 넣는다(javap로 바이트코드 확인 — 캐시에 소스 jar가 없다). 그래서 `getParameter("rateLimited")`가 null이고 `@RequestParam`도 null이 된다. 실제 Tomcat 11은 같은 쿼리를 **빈 문자열 `""`**로 넘긴다(dev 서버 실기에서 `?rateLimited` 이동 후 안내가 그려짐을 확인). 즉 시험 도구와 컨테이너의 차이이고 컨트롤러 버그가 아니다.
+
+#### 해결 방법
+
+MockMvc 시험은 컨테이너와 같은 값을 명시해 보낸다: `get("/admin/login").param("rateLimited", "")`. 값 없는 쿼리 표지를 쓰는 화면(`?passkeyError`·`?passkeyExpired`·`?totpExpired`·`?rateLimited` 등)을 MockMvc로 시험할 때 같은 함정이 있다. 쿼리 그대로의 실제 동작은 실서버(Playwright·`RANDOM_PORT`) 시험이나 실기로 확인한다.
+
+**검증**: `PasswordLoginRateLimitIntegrationTest.burstThenRefill`이 `.param("rateLimited", "")`로 통과, 실기(Playwright MCP)에서 `POST /admin/login` 한도 초과 → `Location: http://localhost:8080/admin/login?rateLimited` → 안내 문구 표시. 상세는 `adversarial-review/plan/PLAN-login-rate-limit-notice.md` "이슈".
+
 ### 메뉴 일반 수정과 비활성화가 같은 행에서 겹치면 방금 커밋된 비활성화가 되돌아간다 (감사 M-04, 2026-09-27)
 
 #### 오류 메시지

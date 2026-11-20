@@ -9,6 +9,7 @@ import com.cms.admin.member.repository.MemberTotpRepository;
 import com.cms.admin.member.service.TotpEnrollment;
 import com.cms.admin.member.totp.TotpCodeVerifier;
 import com.cms.admin.member.totp.TotpSecretCipher;
+import com.cms.config.ratelimit.RateLimitFilter;
 import com.cms.config.ratelimit.Ticker;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
@@ -53,6 +54,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
@@ -67,6 +69,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @TestPropertySource(properties = "cms.rate-limit.enabled=true")
 class PasswordLoginRateLimitIntegrationTest extends MariaDbContainerSupport {
+
+    /** 한도 초과는 로그인 화면 안내로 302(이슈 #288, PLAN-login-rate-limit-notice.md 결정 1) — 공용 429 화면이 아니다. */
+    private static final String RATE_LIMITED = RateLimitFilter.LOGIN_RATE_LIMITED_PATH;
 
     private static final int BURST = 20;
     private static final String PASSWORD = "password-login-rate-limit";
@@ -143,22 +148,31 @@ class PasswordLoginRateLimitIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("F1: 같은 IP의 비밀번호 로그인은 20회까지 인증까지 가고 21번째는 429 — 그 요청은 인증 프로바이더를 부르지 않는다. 30초 뒤 1건 보충")
+    @DisplayName("F1: 같은 IP의 비밀번호 로그인은 20회까지 인증까지 가고 21번째는 로그인 화면 302(?rateLimited) — 그 요청은 인증 프로바이더를 부르지 않는다. 30초 뒤 1건 보충")
     void burstThenRefill() throws Exception {
         String ip = "203.0.113.1";
         exhaust(ip);
         verify(provider, times(BURST)).authenticate(any());
 
-        mockMvc.perform(login(ip, "nobody", "wrong")).andExpect(status().isTooManyRequests());
+        mockMvc.perform(login(ip, "nobody", "wrong"))
+                .andExpect(redirectedUrl(RATE_LIMITED))
+                .andExpect(header().doesNotExist("Retry-After"));
         verify(provider, times(BURST)).authenticate(any());
+        // F5: 이동한 로그인 화면이 안내를 그린다(같은 IP — GET /admin/login에는 규칙이 없어 다시 걸리지 않는다)
+        // 값 없는 쿼리(?rateLimited)를 Tomcat은 빈 문자열로, MockMvc(spring-test 7.0.9)는 null 값으로 넣어 @RequestParam이 null이 된다 —
+        // 컨테이너와 같은 값으로 보낸다. 실제 쿼리 그대로의 동작은 Playwright 실기로 확인(PLAN-login-rate-limit-notice.md "이슈")
+        mockMvc.perform(get("/admin/login").param("rateLimited", "").with(fromIp(ip)))
+                .andExpect(status().isOk())
+                .andExpect(view().name("admin/login"))
+                .andExpect(model().attribute("error", "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요."));
 
         nanos.addAndGet(Duration.ofSeconds(29).toNanos());
-        mockMvc.perform(login(ip, "nobody", "wrong")).andExpect(status().isTooManyRequests());
+        mockMvc.perform(login(ip, "nobody", "wrong")).andExpect(redirectedUrl(RATE_LIMITED));
 
         nanos.addAndGet(Duration.ofSeconds(1).toNanos());
         mockMvc.perform(login(ip, "nobody", "wrong")).andExpect(redirectedUrl("/admin/login-error"));
         verify(provider, times(BURST + 1)).authenticate(any());
-        mockMvc.perform(login(ip, "nobody", "wrong")).andExpect(status().isTooManyRequests());
+        mockMvc.perform(login(ip, "nobody", "wrong")).andExpect(redirectedUrl(RATE_LIMITED));
         verify(provider, times(BURST + 1)).authenticate(any());
     }
 
@@ -189,7 +203,7 @@ class PasswordLoginRateLimitIntegrationTest extends MariaDbContainerSupport {
         for (int i = 0; i < BURST - 2; i++) {
             mockMvc.perform(login(ip, "nobody-" + i, "wrong")).andExpect(redirectedUrl("/admin/login-error"));
         }
-        mockMvc.perform(login(ip, "nobody", "wrong")).andExpect(status().isTooManyRequests());
+        mockMvc.perform(login(ip, "nobody", "wrong")).andExpect(redirectedUrl(RATE_LIMITED));
 
         mockMvc.perform(get("/admin/login").with(fromIp(ip))).andExpect(status().isOk()).andExpect(view().name("admin/login"));
 
@@ -221,13 +235,13 @@ class PasswordLoginRateLimitIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("F4: 한도를 비운 IP는 경로 변형으로도 인증까지 가지 못한다 — 쿼리는 같은 규칙(429), 끝 슬래시·대소문자는 로그인 처리 밖(302), 비정규 경로는 방화벽 400")
+    @DisplayName("F4: 한도를 비운 IP는 경로 변형으로도 인증까지 가지 못한다 — 쿼리는 같은 규칙(?rateLimited 302), 끝 슬래시·대소문자는 로그인 처리 밖(302), 비정규 경로는 방화벽 400")
     void pathVariantsDoNotBypass() throws Exception {
         String ip = "203.0.113.4";
         exhaust(ip);
 
         mockMvc.perform(post("/admin/login?x=1").with(csrf()).with(fromIp(ip)).param("username", "nobody").param("password", "wrong"))
-                .andExpect(status().isTooManyRequests());
+                .andExpect(redirectedUrl(RATE_LIMITED));
         mockMvc.perform(post("/admin/login/").with(csrf()).with(fromIp(ip)).param("username", "nobody").param("password", "wrong"))
                 .andExpect(redirectedUrl("/admin/login"));
         // URI 객체로 넘긴다 — 문자열이면 MockMvc가 %를 다시 인코딩하고(%252F) "//admin"을 호스트로 읽는다(측정으로 확인)

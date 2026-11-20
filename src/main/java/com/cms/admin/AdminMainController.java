@@ -40,7 +40,8 @@ public class AdminMainController {
     public String login(Model model, HttpServletRequest request,
                         @RequestParam(name = "totpExpired", required = false) String totpExpired,
                         @RequestParam(name = "passkeyError", required = false) String passkeyError,
-                        @RequestParam(name = "passkeyExpired", required = false) String passkeyExpired) {
+                        @RequestParam(name = "passkeyExpired", required = false) String passkeyExpired,
+                        @RequestParam(name = "rateLimited", required = false) String rateLimited) {
         // 2단계 인증 대기(5분)가 지나 세션을 끝낸 경우(PLAN-totp-two-factor.md 결정 2)
         if (totpExpired != null) {
             model.addAttribute("error", "인증 시간이 지났습니다. 다시 로그인해 주세요.");
@@ -51,6 +52,10 @@ public class AdminMainController {
         }
         if (passkeyExpired != null) {
             model.addAttribute("error", "패스키 인증 시간이 지났습니다. 다시 시도해 주세요.");
+        }
+        // 로그인 입구(비밀번호·패스키) 레이트리밋 초과 — RateLimitFilter가 이리로 302한다(PLAN-login-rate-limit-notice.md 결정 4)
+        if (rateLimited != null) {
+            model.addAttribute("error", "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.");
         }
         return loginPage(model, request);
     }
