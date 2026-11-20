@@ -1,6 +1,6 @@
 # PLAN — CI browser-test의 Playwright 폰트(apt) 설치 시간 편차 줄이기 (이슈 #283)
 
-> 상태: v5 (적대적 리뷰 5라운드 ship) · 구현·검증 완료(2026-11-20, §9) · 브랜치 `chore/ci-playwright-apt-cache` · 출처: `PLAN-passkey-login.md` "후속"
+> 상태: v5 (적대적 리뷰 5라운드 ship) · 구현·검증 완료(2026-11-20, §9) · **완료 (2026-11-20 · #291 `0880bb6`)** · 브랜치 `chore/ci-playwright-apt-cache` · 출처: `PLAN-passkey-login.md` "후속"
 
 ## 1. Context
 
