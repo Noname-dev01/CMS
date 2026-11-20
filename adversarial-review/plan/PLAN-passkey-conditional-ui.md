@@ -1,6 +1,6 @@
 # PLAN — 로그인 화면 패스키 조건부 UI(아이디 칸 자동 완성) (이슈 #285)
 
-- 상태: v4 (2026-11-20) — 계획 리뷰 4라운드 ship, 사용자 승인(2026-11-20), 구현·검증 완료, 머지 #294 `f45d1a8` — 결과는 문서 끝 "구현·검증 결과"
+- 상태: v4 (2026-11-20) — 계획 리뷰 4라운드 ship, 사용자 승인(2026-11-20), 구현·검증 완료, 머지 #294 `f45d1a8` — 결과는 문서 끝 "구현·검증 결과". 수용 위험 R3(다른 탭 챌린지)은 #293(`PLAN-passkey-challenge-stale-tab.md`)이 해소
 - 이슈: #285. 선행 #280(`PLAN-passkey-login.md`, #286 머지 `5d18cd5`) — 로그인 화면 [패스키로 로그인] 버튼과 `POST /admin/login/passkey` 처리 필터가 이미 있다. 그 계획의 결정 7·§7이 조건부 UI를 범위 밖으로 남겼다.
 - 위험 변경: **인증(로그인 입구의 브라우저 쪽 흐름 — 같은 챌린지를 두 브라우저 요청이 나눠 씀)**. 서버 코드·URL 인가 규칙·레이트리밋·스키마·의존성·설정 키 변경 **없음**.
 - 바뀌는 파일(예정): `templates/admin/login.html`, `static/js/admin/passkey-login.js`, `static/js/admin/passkey-codec.js`, 시험 `PasskeyBrowserTest`·`AdminMainControllerTest`·`PasskeyLoginIntegrationTest`(기존 서버 동작 고정 1건), 문서 `com.cms.config`의 `CLAUDE.md`.

@@ -1580,3 +1580,40 @@ is not a supported stylesheet MIME type, and strict MIME checking is enabled.
 
 - 레지스트리 만료(`expireNow`)는 "다음 요청부터" 효과가 난다. 본인 세션을 끊는 요청이 HTML을 응답하면 그 화면의 하위 리소스가 첫 피해자가 된다. JSON 응답(보안 설정의 등록 API)은 화면이 이미 그려져 있어 드러나지 않는다.
 - "나중에 다시 요청해 보기"는 첫 요청의 부작용(세션 무효화)을 거친 상태를 보므로 이런 결함을 놓친다. 문제가 된 요청 자체를 관측한다.
+
+### 브라우저 시험: 화면 이동을 기다린 뒤 `page.evaluate`가 "Execution context was destroyed"로 실패
+
+#### 오류 메시지
+
+```
+com.microsoft.playwright.PlaywrightException: Error {
+  message='Execution context was destroyed, most likely because of a navigation
+```
+
+#### 원인
+
+2026-11-20 #293 작업 중 `PasskeyBrowserTest`의 BFCache 복원 도우미(`restoreFromBackForwardCache`)에서 발생했다. 이 도우미는 `page.waitForResponse(내비게이션 요청, 복원 이벤트 발생)` 뒤 `page.waitForLoadState()`를 호출하는데, 두 대기 모두 **새 문서가 실행 컨텍스트를 갖기 전에** 끝날 수 있다.
+
+- `waitForResponse`는 내비게이션 **응답이 도착한 순간** 돌아온다.
+- `waitForLoadState()`(기본 `load`)는 그 시점에 아직 살아 있는 **옛 문서**가 이미 load 상태라 바로 통과한다.
+
+그래서 바로 이어서 부른 `page.evaluate`가 옛 문서에서 시작했다가 화면 교체와 겹쳐 실패했다(간헐). 기존 단언은 `page.locator(...).inputValue()`라 locator가 화면 이동을 넘어 다시 찾아 주어 드러나지 않았다.
+
+#### 해결 방법
+
+화면 이동 직후의 확인은 `evaluate`가 아니라 **locator 대기**로 한다. 이동 전 문서에 표지 속성을 심고, 새 문서에서 그 속성이 사라지기를 기다리면 "실제로 다시 불렸다"는 증거도 된다.
+
+```java
+page.evaluate("() => document.body.setAttribute('data-before-restore', '')"); // 이동 전
+// ... 이동 유발 ...
+page.locator("body[data-before-restore]").waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.DETACHED));
+```
+
+```bash
+./gradlew cleanTest test --tests 'com.cms.admin.member.PasskeyBrowserTest' -PbrowserTests=only
+```
+
+#### 교훈
+
+- `waitForResponse`·`waitForLoadState`는 "새 문서가 준비됐다"를 보장하지 않는다. 이동 뒤의 첫 조회는 자동 재시도하는 locator(`waitFor`·`inputValue`·`expect`)로 한다.
+- 식별자가 바뀌었는지로 재로드를 증명하던 시험은, 서버가 같은 값을 다시 주게 되면(#293 챌린지 재사용) 증명력을 잃는다. 문서 단위 표지로 확인한다.
