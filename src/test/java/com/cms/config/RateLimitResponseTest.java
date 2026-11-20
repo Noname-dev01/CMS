@@ -32,6 +32,8 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -63,7 +65,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "cms.rate-limit.rules[1].pattern=/main/notices/rl-response-test/page",
         "cms.rate-limit.rules[1].methods=GET",
         "cms.rate-limit.rules[1].capacity=1",
-        "cms.rate-limit.rules[1].refill-period-seconds=60"
+        "cms.rate-limit.rules[1].refill-period-seconds=60",
+        // 로그인 화면 302 규칙(PLAN-login-rate-limit-notice.md) — API 경로에 붙은 것은 JSON 429가 이겨야 한다(F6)
+        "cms.rate-limit.rules[2].id=api-login-redirect-rule",
+        "cms.rate-limit.rules[2].pattern=/admin/api/rl-response-login",
+        "cms.rate-limit.rules[2].methods=POST",
+        "cms.rate-limit.rules[2].capacity=1",
+        "cms.rate-limit.rules[2].refill-period-seconds=60",
+        "cms.rate-limit.rules[2].login-redirect=true",
+        "cms.rate-limit.rules[3].id=login-redirect-rule",
+        "cms.rate-limit.rules[3].pattern=/main/notices/rl-response-test/login",
+        "cms.rate-limit.rules[3].methods=POST",
+        "cms.rate-limit.rules[3].capacity=1",
+        "cms.rate-limit.rules[3].refill-period-seconds=60",
+        "cms.rate-limit.rules[3].login-redirect=true"
 })
 class RateLimitResponseTest {
 
@@ -132,7 +147,42 @@ class RateLimitResponseTest {
     void nonApiPath_exceedsLimit_sendsError() throws Exception {
         RequestPostProcessor ip = from("20.20.20.2");
         mockMvc.perform(get("/main/notices/rl-response-test/page").with(ip)).andExpect(status().isOk());
-        mockMvc.perform(get("/main/notices/rl-response-test/page").with(ip)).andExpect(status().isTooManyRequests());
+        mockMvc.perform(get("/main/notices/rl-response-test/page").with(ip))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", org.hamcrest.Matchers.matchesPattern("[0-9]+")))
+                .andExpect(header().doesNotExist("Location"));
+    }
+
+    @Test
+    @DisplayName("login-redirect 규칙은 초과 시 로그인 화면으로 302(?rateLimited) — Retry-After 없음, 컨텍스트 경로 포함 (PLAN-login-rate-limit-notice.md 결정 1·3, F1)")
+    void loginRedirectRule_exceedsLimit_redirectsToLoginPage() throws Exception {
+        RequestPostProcessor ip = from("20.20.20.3");
+        mockMvc.perform(post("/main/notices/rl-response-test/login").with(csrf()).with(ip))
+                .andExpect(header().doesNotExist("Retry-After"));
+        mockMvc.perform(post("/main/notices/rl-response-test/login").with(csrf()).with(ip))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/admin/login?rateLimited"))
+                .andExpect(header().doesNotExist("Retry-After"));
+
+        RequestPostProcessor other = from("20.20.20.4");
+        mockMvc.perform(post("/ctx/main/notices/rl-response-test/login").contextPath("/ctx").with(csrf()).with(other));
+        mockMvc.perform(post("/ctx/main/notices/rl-response-test/login").contextPath("/ctx").with(csrf()).with(other))
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/ctx/admin/login?rateLimited"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("API 경로 규칙에 login-redirect가 붙어도 JSON 429가 이긴다 — fetch 호출자는 HTML 리다이렉트를 받지 않는다 (F6)")
+    void loginRedirectOnApiPath_stillReturnsJson429() throws Exception {
+        RequestPostProcessor ip = from("20.20.20.5");
+        mockMvc.perform(post("/admin/api/rl-response-login").with(csrf()).with(ip));
+        mockMvc.perform(post("/admin/api/rl-response-login").with(csrf()).with(ip))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("RATE_LIMITED"))
+                .andExpect(header().exists("Retry-After"))
+                .andExpect(header().doesNotExist("Location"));
     }
 }
 

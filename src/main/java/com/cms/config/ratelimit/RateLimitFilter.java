@@ -35,6 +35,9 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** {@code login-redirect} 규칙의 한도 초과 이동 위치 — 설정으로 바꾸지 않는다(결정 2: 임의 URL 표면을 만들지 않는다). */
+    public static final String LOGIN_RATE_LIMITED_PATH = "/admin/login?rateLimited";
+
     private final RateLimitProperties properties;
     private final TokenBucketRateLimiter limiter;
 
@@ -70,7 +73,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        reject(request, response, decision);
+        reject(request, response, matched, decision);
     }
 
     /** 로그인 사용자인가 — 2단계 중간 상태(비밀번호만 통과)는 아니다(PLAN-totp-two-factor.md 결정 3). */
@@ -88,18 +91,24 @@ public class RateLimitFilter extends OncePerRequestFilter {
         return null;
     }
 
-    private void reject(HttpServletRequest request, HttpServletResponse response, RateLimitDecision decision)
+    private void reject(HttpServletRequest request, HttpServletResponse response, RateLimitRule rule, RateLimitDecision decision)
             throws IOException {
-        response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
-
+        // 분기 순서가 계약이다: API(JSON 429) → 로그인 입구(302) → 그 밖(429 화면). API를 먼저 봐야 플래그가 API 규칙에 잘못 붙어도
+        // fetch 호출자가 HTML 리다이렉트를 받지 않는다(PLAN-login-rate-limit-notice.md 결정 3, F6).
         if (API_MATCHER.matches(request)) {
+            response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
             ApiErrorResponse body = ApiErrorResponse.of(
                     request.getRequestURI(), "RATE_LIMITED", "요청이 너무 많습니다. 잠시 후 다시 시도해주세요.");
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");
             response.getWriter().write(MAPPER.writeValueAsString(body));
+        } else if (rule.loginRedirect()) {
+            // 로그인 입구(비밀번호·패스키) — 공용 429 화면 대신 로그인 화면 안내(이슈 #288, 결정 1). Retry-After는 붙이지 않는다:
+            // 3xx에서는 "리다이렉트를 따르기 전 대기"라는 다른 뜻이다(RFC 9110 §10.2.3). 인증 처리 필터보다 앞이라 인증 시도는 없다.
+            response.sendRedirect(request.getContextPath() + LOGIN_RATE_LIMITED_PATH);
         } else {
+            response.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
             // sendError + 필터 종료 → 컨테이너 ERROR 재디스패치 → CustomErrorController → error/429.html.
             response.sendError(HttpStatus.TOO_MANY_REQUESTS.value());
         }

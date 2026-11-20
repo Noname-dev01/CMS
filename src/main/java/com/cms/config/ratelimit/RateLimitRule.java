@@ -20,6 +20,7 @@ public record RateLimitRule(
         Set<HttpMethod> methods,
         int capacity,
         Duration refillPeriod,
-        boolean exemptAuthenticated
+        boolean exemptAuthenticated,
+        boolean loginRedirect
 ) {
 }
