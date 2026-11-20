@@ -59,13 +59,31 @@
         };
     }
 
-    /** 인증: 서버 옵션 → navigator.credentials.get → 서버가 받는 JSON 객체 */
-    async function get(options) {
+    /**
+     * 조건부 UI(자동 완성)를 쓸 수 있는가 — 판정 함수가 없거나 예외면 false (PLAN-passkey-conditional-ui.md 결정 4)
+     */
+    async function conditionalAvailable() {
+        const credentialType = global.PublicKeyCredential;
+        if (!credentialType || typeof credentialType.isConditionalMediationAvailable !== "function") {
+            return false;
+        }
+        try {
+            return (await credentialType.isConditionalMediationAvailable()) === true;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    /**
+     * 인증: 서버 옵션 → navigator.credentials.get → 서버가 받는 JSON 객체.
+     * request(선택)는 {mediation, signal} — 조건부 요청과 그 취소에 쓴다(결정 4). 생략하면 기존과 같은 모달 요청이다.
+     */
+    async function get(options, request) {
         const publicKey = Object.assign({}, options, {
             challenge: decode(options.challenge),
             allowCredentials: decodeDescriptors(options.allowCredentials)
         });
-        const credential = await global.navigator.credentials.get({ publicKey: publicKey });
+        const credential = await global.navigator.credentials.get(Object.assign({}, request || {}, { publicKey: publicKey }));
         const response = credential.response;
         return {
             id: credential.id,
@@ -82,5 +100,5 @@
         };
     }
 
-    global.CmsPasskey = { supported: supported, create: create, get: get };
+    global.CmsPasskey = { supported: supported, conditionalAvailable: conditionalAvailable, create: create, get: get };
 })(window);

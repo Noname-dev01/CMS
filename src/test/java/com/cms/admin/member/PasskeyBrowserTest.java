@@ -5,6 +5,7 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.support.BrowserTestSupport;
 import com.cms.support.CmsTestApplication;
+import com.cms.support.PasskeyRequestHarness;
 import com.cms.support.PasskeyTestSupport;
 import com.cms.support.TestMembers;
 import com.google.gson.JsonObject;
@@ -30,6 +31,7 @@ import java.io.UncheckedIOException;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -209,8 +211,12 @@ class PasskeyBrowserTest extends BrowserTestSupport {
         jdbc.update("DELETE FROM visit_log WHERE visitor_user_id = ?", admin.getUserId());
 
         context.clearCookies();
+        // 조건부 UI 미지원 브라우저 경로(#285 성공 기준 2) — 버튼만 쓴다
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.REAL, PasskeyRequestHarness.REAL, PasskeyRequestHarness.UNAVAILABLE);
         page.navigate(url("/admin/login"));
         assertThat(page.locator("input[name=username]").inputValue()).isEmpty();
+        awaitRequestBarrier(page);
+        assertThat(PasskeyRequestHarness.conditionalCalls(page)).isZero();
         page.locator("#btnPasskeyLogin").click();
         page.waitForURL(url("/admin"));
 
@@ -232,6 +238,7 @@ class PasskeyBrowserTest extends BrowserTestSupport {
         String credentialId = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(
                 jdbc.queryForObject("SELECT credential_id FROM member_passkey WHERE member_id = ?", byte[].class, admin.getId()));
         context.clearCookies();
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.REAL, PasskeyRequestHarness.REAL, PasskeyRequestHarness.UNAVAILABLE);
         page.navigate(url("/admin/login"));
         page.evaluate("id => { const f = document.getElementById('passkeyForm');"
                 + " const o = JSON.parse(f.getAttribute('data-options')); o.userVerification = 'preferred';"
@@ -252,6 +259,7 @@ class PasskeyBrowserTest extends BrowserTestSupport {
         jdbc.update("UPDATE member_passkey SET signature_count = 1000000 WHERE member_id = ?", admin.getId());
 
         context.clearCookies();
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.REAL, PasskeyRequestHarness.REAL, PasskeyRequestHarness.UNAVAILABLE);
         page.navigate(url("/admin/login"));
         page.locator("#btnPasskeyLogin").click();
         page.waitForURL(url("/admin/login?passkeyError"));
@@ -260,5 +268,227 @@ class PasskeyBrowserTest extends BrowserTestSupport {
         assertThat(jdbc.queryForObject("SELECT failed_attempts FROM member_totp WHERE member_id = ?", Integer.class, admin.getId())).isZero();
         assertThat(jdbc.queryForObject("SELECT last_used_at IS NULL FROM member_passkey WHERE member_id = ?", Boolean.class, admin.getId()))
                 .isTrue();
+    }
+
+    // ==================== 조건부 UI(아이디 칸 자동 완성) — PLAN-passkey-conditional-ui.md(이슈 #285) ====================
+
+    private static final String PASSKEY_POST = "/admin/login/passkey";
+    private static final String PASSWORD_POST = "/admin/login";
+
+    /** 이 페이지가 보내는 POST 요청의 경로(화면 이동 후에도 계속 센다) */
+    private List<String> recordPosts() {
+        List<String> posts = new CopyOnWriteArrayList<>();
+        page.onRequest(request -> {
+            if ("POST".equals(request.method())) {
+                posts.add(URI.create(request.url()).getPath());
+            }
+        });
+        return posts;
+    }
+
+    private static long count(List<String> posts, String path) {
+        return posts.stream().filter(path::equals).count();
+    }
+
+    private void awaitEvent(String event) {
+        page.waitForFunction("e => window.__pk.events.includes(e)", event);
+    }
+
+    @Test
+    @DisplayName("#285 성공 기준 1: 자격이 있는 가상 인증기면 로그인 화면 진입만으로(클릭 없음) 조건부 요청이 성공해 대시보드 — 조건부 1회·signal 전달·패스키 POST 1회")
+    void conditionalAutofillLogin() {
+        loginAsAdmin(page, PORT, admin);
+        registerPasskey("가상 인증기");
+        context.clearCookies();
+        System.out.println("[#285] 시험 Chromium 버전: " + context.browser().version());
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.REAL, PasskeyRequestHarness.REAL, "real", true);
+        List<String> posts = recordPosts();
+
+        page.navigate(url("/admin/login"));
+        awaitEvent("submit:passkeyForm");
+
+        assertThat(PasskeyRequestHarness.events(page)).containsSubsequence("conditional-start", "conditional-settled", "submit:passkeyForm")
+                .doesNotContain("conditional-start-without-signal", "modal-start");
+        assertThat(PasskeyRequestHarness.conditionalCalls(page)).isEqualTo(1);
+        PasskeyRequestHarness.later(page, "window.__pk.releaseSubmit()");
+        page.waitForURL(url("/admin"));
+        assertThat(count(posts, PASSKEY_POST)).isEqualTo(1);
+        assertThat(count(posts, PASSWORD_POST)).isZero();
+    }
+
+    @Test
+    @DisplayName("#285 F1: 버튼은 대기 중인 조건부 요청을 실제 signal로 취소하고, 그 요청이 끝난 뒤에 모달을 시작한다")
+    void buttonAbortsConditionalBeforeModal() {
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.HOLD, PasskeyRequestHarness.HOLD, "real");
+        page.navigate(url("/admin/login"));
+        page.waitForFunction("() => window.__pk.conditionalCalls === 1");
+
+        page.locator("#btnPasskeyLogin").click();
+        page.waitForFunction("() => window.__pk.modalCalls === 1");
+
+        assertThat(PasskeyRequestHarness.events(page))
+                .containsExactly("conditional-start", "conditional-signal-aborted", "conditional-settled", "modal-start");
+    }
+
+    @Test
+    @DisplayName("#285 F2: 조건부 요청이 바로 실패해도(가상 인증기·자격 없음과 같은 즉시 거부) 안내도 재시작도 없다 — 바쁜 반복 없음")
+    void conditionalFailureDoesNotRestart() {
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.REJECT, PasskeyRequestHarness.HOLD, "real");
+        page.navigate(url("/admin/login"));
+        page.waitForFunction("() => window.__pk.events.includes('conditional-settled')");
+        awaitRequestBarrier(page);
+
+        assertThat(PasskeyRequestHarness.conditionalCalls(page)).isEqualTo(1);
+        assertThat(page.locator("#passkeyClientError").isVisible()).isFalse();
+        assertThat(page.locator("#btnPasskeyLogin").isEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("#285 F3: 버튼(모달) 실패 → 안내 문구·버튼 재활성, 조건부 요청은 정확히 1회 다시 시작")
+    void modalFailureRestartsConditionalOnce() {
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.HOLD, PasskeyRequestHarness.REJECT, "real");
+        page.navigate(url("/admin/login"));
+        page.waitForFunction("() => window.__pk.conditionalCalls === 1");
+
+        page.locator("#btnPasskeyLogin").click();
+        page.locator("#passkeyClientError:not(.d-none)").waitFor();
+        page.waitForFunction("() => window.__pk.conditionalCalls === 2");
+        awaitRequestBarrier(page);
+
+        assertThat(PasskeyRequestHarness.conditionalCalls(page)).isEqualTo(2);
+        assertThat(PasskeyRequestHarness.modalCalls(page)).isEqualTo(1);
+        assertThat(page.locator("#btnPasskeyLogin").isEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("#285 F6ⓐ: 지원 판정이 끝나기 전에 버튼을 누르면, 판정이 늦게 true로 끝나도 조건부 요청을 시작하지 않는다(대기 요청은 하나)")
+    void lateAvailabilityAfterButtonDoesNotStartConditional() {
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.HOLD, PasskeyRequestHarness.HOLD, PasskeyRequestHarness.HOLD);
+        page.navigate(url("/admin/login"));
+        page.waitForFunction("() => typeof window.__pk.availRelease === 'function'");
+
+        page.locator("#btnPasskeyLogin").click();
+        page.waitForFunction("() => window.__pk.modalCalls === 1");
+        page.evaluate("() => window.__pk.availRelease(true)");
+        awaitRequestBarrier(page);
+
+        assertThat(PasskeyRequestHarness.conditionalCalls(page)).isZero();
+    }
+
+    @Test
+    @DisplayName("#285 F6ⓑ-1: 조건부 성공(제출)이 먼저 끝난 뒤의 버튼 클릭은 무시 — 모달 0회, 패스키 POST 1회")
+    void buttonAfterConditionalSubmitIgnored() {
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.RESOLVE_NOW, PasskeyRequestHarness.HOLD, "real", true);
+
+        page.navigate(url("/admin/login"));
+        awaitEvent("submit:passkeyForm");
+        page.locator("#btnPasskeyLogin").click();
+        awaitRequestBarrier(page);
+
+        assertThat(PasskeyRequestHarness.modalCalls(page)).isZero();
+        assertThat(PasskeyRequestHarness.submits(page, "passkeyForm")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("#285 F6ⓑ-2: 버튼이 취소하는 순간 조건부 요청이 성공해도 그 결과는 버리고 모달로 로그인 — 모달 결과 전 POST 0회, 뒤에 1회")
+    void conditionalSuccessDuringAbortDiscarded() {
+        loginAsAdmin(page, PORT, admin);
+        registerPasskey("가상 인증기");
+        context.clearCookies();
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.RESOLVE_ON_ABORT, PasskeyRequestHarness.HOLD, "real");
+        List<String> posts = recordPosts();
+        page.navigate(url("/admin/login"));
+        page.waitForFunction("() => window.__pk.conditionalCalls === 1");
+
+        page.locator("#btnPasskeyLogin").click();
+        page.waitForFunction("() => window.__pk.modalCalls === 1");
+        awaitRequestBarrier(page);
+        assertThat(count(posts, PASSKEY_POST)).isZero();
+        assertThat(PasskeyRequestHarness.events(page))
+                .containsExactly("conditional-start", "conditional-signal-aborted", "conditional-settled", "modal-start");
+
+        PasskeyRequestHarness.later(page, "window.__pk.releaseModal()");
+        page.waitForURL(url("/admin"));
+        assertThat(count(posts, PASSKEY_POST)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("#285 F7: 비밀번호 폼을 낸 뒤 늦게 온 조건부 성공은 버린다 — 비밀번호 POST 1회, 패스키 POST 0회")
+    void conditionalSuccessAfterPasswordSubmitDiscarded() {
+        // 비밀번호 제출이 조건부 요청을 취소하는 순간 그 요청이 성공 값으로 끝난다(늦게 온 성공)
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.RESOLVE_ON_ABORT, PasskeyRequestHarness.HOLD, "real", true);
+        page.navigate(url("/admin/login"));
+        page.waitForFunction("() => window.__pk.conditionalCalls === 1");
+        List<String> posts = recordPosts();
+
+        page.locator("input[name=username]").fill(admin.getUserId());
+        page.locator("input[name=password]").fill(TEST_PASSWORD);
+        page.locator("#loginForm button[type=submit]").click();
+        awaitEvent("conditional-settled");
+        awaitRequestBarrier(page);
+
+        assertThat(PasskeyRequestHarness.events(page)).containsSubsequence("conditional-signal-aborted", "conditional-settled");
+        assertThat(PasskeyRequestHarness.submits(page, "loginForm")).isEqualTo(1);
+        assertThat(PasskeyRequestHarness.submits(page, "passkeyForm")).isZero();
+        PasskeyRequestHarness.later(page, "window.__pk.releaseSubmit()");
+        page.waitForURL(url("/admin/login/totp"));
+        assertThat(count(posts, PASSWORD_POST)).isEqualTo(1);
+        assertThat(count(posts, PASSKEY_POST)).isZero();
+    }
+
+    @Test
+    @DisplayName("#285 F7 역순: 조건부 성공으로 패스키 제출이 나간 뒤에는 비밀번호 폼 제출이 막힌다 — 비밀번호 POST 0회")
+    void passwordSubmitBlockedAfterConditionalSubmit() {
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.RESOLVE_NOW, PasskeyRequestHarness.HOLD, "real", true);
+
+        page.navigate(url("/admin/login"));
+        awaitEvent("submit:passkeyForm");
+        page.locator("input[name=username]").fill(admin.getUserId());
+        page.locator("input[name=password]").fill(TEST_PASSWORD);
+        page.locator("#loginForm button[type=submit]").click();
+        awaitEvent("submit-blocked:loginForm");
+
+        assertThat(PasskeyRequestHarness.submits(page, "loginForm")).isZero();
+        assertThat(PasskeyRequestHarness.submits(page, "passkeyForm")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("#285 F4: 조건부 UI를 지원하는 브라우저에서도 2단계 코드 화면은 조건부 요청 0회(같은 설정의 로그인 화면은 1회) / 2단계 화면 BFCache 복원은 새 챌린지")
+    void secondFactorScreenDoesNotStartConditional() {
+        // 지원 판정은 실제(true), 조건부 요청은 붙잡아 둔다 — 화면 제한이 빠지면 2단계 화면에서도 호출이 1회 생긴다(코드 리뷰 1라운드)
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.HOLD, PasskeyRequestHarness.HOLD, "real");
+        page.navigate(url("/admin/login"));
+        page.waitForFunction("() => window.__pk.conditionalCalls === 1"); // 양성 대조: 같은 설정의 로그인 화면은 시작한다
+
+        loginAsAdmin(page, PORT, admin);
+        registerPasskey("가상 인증기");
+        context.clearCookies();
+        passwordOnly();
+        page.navigate(url("/admin/login/totp"));
+        page.locator("#btnPasskeyLogin").waitFor();
+        awaitRequestBarrier(page);
+        assertThat(PasskeyRequestHarness.conditionalCalls(page)).isZero();
+
+        String assertionId = page.locator("#passkeyForm input[name=assertionId]").inputValue();
+        restoreFromBackForwardCache();
+        assertThat(page.locator("#passkeyForm input[name=assertionId]").inputValue()).isNotEqualTo(assertionId);
+    }
+
+    @Test
+    @DisplayName("#285 F9: 로그인 화면이 BFCache에서 복원(pageshow persisted)되면 새로 받아 챌린지(loginId)가 바뀐다")
+    void restoredLoginPageReloads() {
+        // 미지원 경로 — 자동 제출 없이 화면에 머문다
+        PasskeyRequestHarness.install(page, PasskeyRequestHarness.REAL, PasskeyRequestHarness.HOLD, PasskeyRequestHarness.UNAVAILABLE);
+        page.navigate(url("/admin/login"));
+        String loginId = page.locator("#passkeyForm input[name=loginId]").inputValue();
+        restoreFromBackForwardCache();
+        assertThat(page.locator("#passkeyForm input[name=loginId]").inputValue()).isNotEqualTo(loginId);
+    }
+
+    /** Playwright는 BFCache를 끄므로(공식 문서 Navigations) 복원 이벤트를 합성해 보내고, 그 결과인 새 화면 로드를 기다린다. */
+    private void restoreFromBackForwardCache() {
+        page.waitForResponse(response -> response.request().isNavigationRequest(),
+                () -> PasskeyRequestHarness.later(page, "window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))"));
+        page.waitForLoadState();
     }
 }

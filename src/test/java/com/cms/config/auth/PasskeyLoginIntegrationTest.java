@@ -233,6 +233,19 @@ class PasskeyLoginIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
+    @DisplayName("#285 F8(수용 동작 고정): 옛 탭 제출이 최신 탭의 챌린지까지 지운다 — 꺼내기가 loginId 대조보다 먼저라 최신 탭 제출도 passkeyExpired, 둘 다 검증 없음")
+    void staleTabSubmitConsumesLatestChallenge() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String oldTab = openLoginPage(session);
+        String latestTab = openLoginPage(session);
+
+        submit(session, oldTab, json()).andExpect(redirectedUrl(EXPIRED));
+        submit(session, latestTab, json()).andExpect(redirectedUrl(EXPIRED));
+        verify(relyingParty, never()).authenticate(any(), any());
+        assertNotLoggedIn(session);
+    }
+
+    @Test
     @DisplayName("F3: 발급 5분 초과 → passkeyExpired, 검증 없음")
     void staleChallengeExpired() throws Exception {
         MockHttpSession session = new MockHttpSession();

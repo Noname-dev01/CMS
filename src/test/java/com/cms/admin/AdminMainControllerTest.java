@@ -8,7 +8,16 @@ import com.cms.admin.dashboard.service.DashboardService;
 import com.cms.admin.menu.dto.response.SidebarMenuResponse;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.config.auth.AdminSecurityService;
+import com.cms.config.auth.PasskeyLoginService;
+import com.cms.config.auth.PasskeyLoginState;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.security.web.webauthn.api.Bytes;
+import org.springframework.security.web.webauthn.api.PublicKeyCredentialRequestOptions;
+import org.springframework.security.web.webauthn.api.UserVerificationRequirement;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -54,9 +63,12 @@ class AdminMainControllerTest {
     @Autowired
     MenuService menuService;
 
+    @Autowired
+    PasskeyLoginService passkeyLoginService;
+
     @BeforeEach
     void setUp() {
-        reset(dashboardService, contentStatsService, adminSecurityService, menuService);
+        reset(dashboardService, contentStatsService, adminSecurityService, menuService, passkeyLoginService);
         // AdminViewAdvice가 com.cms.admin 전체에 적용되므로 기본 스텁이 필요하다.
         given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
         given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
@@ -179,6 +191,36 @@ class AdminMainControllerTest {
         mockMvc.perform(get("/admin"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("콘텐츠 현황을 불러올 수 없습니다")));
+    }
+
+    // ==================== 로그인 화면 패스키 조건부 UI — PLAN-passkey-conditional-ui.md(이슈 #285) F5 ====================
+
+    @Test
+    @DisplayName("#285 F5: 패스키 켜짐이면 아이디 입력에 autocomplete=\"username webauthn\", 패스키 폼에 조건부 표지가 그려진다")
+    @WithMockUser
+    void login_passkeyEnabled_rendersConditionalUiAttributes() throws Exception {
+        PublicKeyCredentialRequestOptions options = PublicKeyCredentialRequestOptions.builder()
+                .challenge(Bytes.random()).rpId("localhost").timeout(Duration.ofMinutes(5))
+                .userVerification(UserVerificationRequirement.REQUIRED).allowCredentials(List.of()).build();
+        given(passkeyLoginService.start()).willReturn(Optional.of(new PasskeyLoginState("login-1", options, LocalDateTime.now())));
+
+        mockMvc.perform(get("/admin/login"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("autocomplete=\"username webauthn\"")))
+                .andExpect(content().string(containsString("data-conditional=\"true\"")));
+    }
+
+    @Test
+    @DisplayName("#285 F5: 패스키 꺼짐이면 아이디 입력에 webauthn 토큰도 조건부 표지도 없다(기존 HTML 그대로)")
+    @WithMockUser
+    void login_passkeyDisabled_noConditionalUiAttributes() throws Exception {
+        given(passkeyLoginService.start()).willReturn(Optional.empty());
+
+        mockMvc.perform(get("/admin/login"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("name=\"username\"")))
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("webauthn"))))
+                .andExpect(content().string(org.hamcrest.Matchers.not(containsString("data-conditional=\"true\""))));
     }
 
     @Test
