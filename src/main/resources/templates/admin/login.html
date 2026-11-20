@@ -43,7 +43,7 @@
                                     <i class="fas fa-exclamation-circle mr-2"></i>
                                     [[${error}]]
                                 </div>
-                                <form th:action="@{/admin/login}" method="post" class="user">
+                                <form th:action="@{/admin/login}" method="post" class="user" id="loginForm">
                                     <div class="form-group">
                                         <div class="input-group">
                                             <div class="input-group-prepend">
@@ -53,6 +53,7 @@
                                             </div>
                                             <input type="text" name="username" class="form-control form-control-user"
                                                    id="exampleInputEmail" aria-describedby="emailHelp"
+                                                   th:autocomplete="${passkeyOptions != null} ? 'username webauthn'"
                                                    placeholder="아이디를 입력하세요">
                                         </div>
                                     </div>
@@ -71,10 +72,11 @@
                                         로그인
                                     </button>
                                 </form>
-                                <!-- 패스키 단독 로그인(PLAN-passkey-login.md 결정 7) — 기능이 켜져 있을 때만. 비밀번호 폼과 따로 제출한다 -->
+                                <!-- 패스키 단독 로그인(PLAN-passkey-login.md 결정 7) — 기능이 켜져 있을 때만. 비밀번호 폼과 따로 제출한다.
+                                     data-conditional: 아이디 칸 자동 완성(조건부 UI)도 쓴다(PLAN-passkey-conditional-ui.md 결정 3 — 2단계 화면에는 없다) -->
                                 <div th:if="${passkeyOptions != null}" id="passkeyBlock" class="mt-3">
                                     <p class="small text-muted text-center mb-2">또는</p>
-                                    <form th:action="@{/admin/login/passkey}" method="post" id="passkeyForm" class="user" th:attr="data-options=${passkeyOptions}">
+                                    <form th:action="@{/admin/login/passkey}" method="post" id="passkeyForm" class="user" data-conditional="true" th:attr="data-options=${passkeyOptions}">
                                         <input type="hidden" name="loginId" th:value="${passkeyLoginId}">
                                         <input type="hidden" name="passkeyCredential" id="passkeyCredential" value="">
                                         <button type="button" class="btn btn-outline-primary btn-user btn-block" id="btnPasskeyLogin">
