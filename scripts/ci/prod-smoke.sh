@@ -22,6 +22,13 @@ ci_ok "health 200"
 [ "$(ci_http_code "$CI_BASE_URL/admin/login")" = "200" ] || ci_fail "/admin/login이 200이 아닙니다."
 ci_ok "/admin/login 200"
 
+# 관리자 React 번들이 이미지(jar)에 들어갔다 — Docker 빌더에서 Gradle이 Node를 내려받아 만든다(PLAN-react-admin-faq.md S3·F1).
+bundle_headers=$(curl --silent --output /dev/null --dump-header - --connect-timeout 3 --max-time 10 "$CI_BASE_URL/js/admin-react/faq-manage.js") \
+  || ci_fail "curl 전송 실패: /js/admin-react/faq-manage.js"
+grep -qE '^HTTP/[0-9.]+ 200' <<<"$(head -1 <<<"$bundle_headers" | tr -d '\r')" || ci_fail "/js/admin-react/faq-manage.js가 200이 아닙니다."
+grep -qiE '^content-type:.*javascript' <<<"$bundle_headers" || ci_fail "/js/admin-react/faq-manage.js의 Content-Type이 JavaScript가 아닙니다."
+ci_ok "관리자 React 번들 200·JavaScript"
+
 # Actuator 비공개(대표 3경로): 무인증은 302이고 Location이 /admin/login일 때만 통과한다.
 # 200·403·5xx·전송 실패(000)는 전부 실패 — "200이 아님"만으로는 서버 오류도 통과해 버린다.
 ACTUATOR_PATHS=(/actuator/env /actuator/beans /actuator/metrics)
