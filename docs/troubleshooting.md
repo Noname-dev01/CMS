@@ -1617,3 +1617,26 @@ page.locator("body[data-before-restore]").waitFor(new Locator.WaitForOptions().s
 
 - `waitForResponse`·`waitForLoadState`는 "새 문서가 준비됐다"를 보장하지 않는다. 이동 뒤의 첫 조회는 자동 재시도하는 locator(`waitFor`·`inputValue`·`expect`)로 한다.
 - 식별자가 바뀌었는지로 재로드를 증명하던 시험은, 서버가 같은 값을 다시 주게 되면(#293 챌린지 재사용) 증명력을 잃는다. 문서 단위 표지로 확인한다.
+
+### 화면 JS를 React로 옮겼더니 브라우저 시험의 fetch 가로채기가 상세 조회를 놓친다 — GET 요청에 `method`를 실었다
+
+#### 오류 메시지
+
+```
+com.microsoft.playwright.TimeoutError: Timeout 15000ms exceeded.
+    at ...FaqModalBrowserTest.waitModalState(FaqModalBrowserTest.java:115)
+```
+
+`FaqModalBrowserTest`의 `immediateDetailFailureClosesTheModalAndKeepsTheNotice`·`detailFailureWhileModalShowingClosesThroughPendingClose`(모달이 닫히지 않음)와 `closingWhileLoadingDetailDoesNotLockOrClobber`(`releaseHeldResponse`가 붙잡은 응답이 없음).
+
+#### 원인
+
+2026-11-22 FAQ 관리 화면을 React로 옮기면서(`adversarial-review/plan/PLAN-react-admin-faq.md`) 새 API 클라이언트가 GET에도 `fetch(url, { method: 'GET', headers })`를 보냈다. 브라우저 시험의 fetch 가로채기(`BrowserTestSupport.holdFirstResponse`·`failDetailWhenModalShows`, 시험 안의 즉시 404 스텁)는 **"`options.method`가 없으면 GET"**으로 상세 조회를 식별한다 — 옛 인라인 스크립트가 `fetch(url, { headers })`로 불렀기 때문이다. 그래서 실패 주입·응답 붙잡기가 일어나지 않고 실제 응답이 그대로 와서, 시험이 기다리는 상태에 도달하지 않았다. 서버 동작은 같아(fetch 기본값이 GET) 비브라우저 시험으로는 드러나지 않는다.
+
+#### 해결 방법
+
+GET은 `method`를 싣지 않는다(`frontend/src/api/http.ts` — `method === 'GET' ? { headers } : { method, headers }`), `http.test.ts`가 요청 모양(`{ headers: { Accept } }`)을 고정한다. 화면 구현을 바꿀 때는 DOM 계약(id·클래스·`data-*`)뿐 아니라 **요청 모양**(메서드·헤더 유무)도 시험이 기대는 계약으로 본다. 같은 작업에서 `#faqModal`의 `data-state="closed"` 초기값이 빠져(옛 마크업에 있었다) `draftBlocksOpeningTheModal`이 `null`을 읽은 것도 같은 종류다.
+
+```bash
+./gradlew test -PbrowserTests=only --tests 'com.cms.admin.faq.*'
+```
