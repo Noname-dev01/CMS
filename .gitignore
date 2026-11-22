@@ -45,6 +45,9 @@ out/
 ### CI apt 캐시 (scripts/ci/playwright-apt-cache.sh) ###
 .ci-apt-cache/
 
+### 관리자 React 아일랜드(frontend/) — 의존성 설치물. 번들 산출물은 build/frontend(위 build/ 규칙) ###
+/frontend/node_modules/
+
 ### QueryDSL Generated ###
 src/main/generated/
 
