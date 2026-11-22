@@ -8,6 +8,7 @@ import com.cms.support.BrowserTestSupport;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.TestMembers;
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Route;
 import com.microsoft.playwright.options.SelectOption;
@@ -334,7 +335,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         page.fill("#faqQuestion", "고치는 중");
 
         jdbc.update("DELETE FROM faq WHERE id = ?", b);      // 다른 관리자가 지웠다
-        page.evaluate("() => reload()");                     // 목록 재조회가 지금 도착한 것과 같다
+        page.evaluate("() => document.getElementById('btnReload').click()");   // 목록 재조회가 지금 도착한 것과 같다(모달 백드롭이 버튼을 가려 프로그램 클릭)
 
         waitForText("modalAlert", "삭제되었거나");
         assertThat(page.inputValue("#faqQuestion")).as("입력이 그대로 남는다").isEqualTo("고치는 중");
@@ -488,7 +489,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         typeAnswer("새 답변");
 
         jdbc.update("DELETE FROM faq_category WHERE id = ?", temp);   // 다른 관리자가 지웠다
-        page.evaluate("() => reload()");
+        page.evaluate("() => document.getElementById('btnReload').click()");   // 모달 백드롭이 버튼을 가려 프로그램 클릭
         page.waitForFunction("() => document.querySelectorAll('#faqCategory option[data-missing=\"true\"]').length === 1");
         assertThat(page.inputValue("#faqCategory")).as("다른 카테고리가 자동 선택되지 않는다").isEqualTo(String.valueOf(temp));
 
@@ -734,5 +735,45 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         waitForText("pageSuccess", "카테고리를 삭제했습니다");
         waitModalState("closed");
         assertThat(dialogMessages).as("카테고리 삭제 확인 한 번 더").hasSize(2);
+    }
+
+    @Test
+    @DisplayName("카테고리 이름·질문의 HTML은 글자 그대로 보이고 요소로 해석되지 않는다(React 화면 — PLAN-react-admin-faq.md F4)")
+    void userInputIsRenderedAsText() {
+        long tagged = category("<b>굵게</b>", 2);
+        faq(tagged, "<img src=x onerror=\"window.__xss=1\">질문", 0);
+        open(admin);
+
+        Locator name = page.locator(".faq-cat[data-cat-id='" + tagged + "'] .faq-cat-name");
+        assertThat(name.textContent()).isEqualTo("<b>굵게</b>");
+        assertThat(name.locator("b").count()).as("b 요소가 생기지 않는다").isZero();
+        Locator question = page.locator(".faq-cat[data-cat-id='" + tagged + "'] .faq-row-question");
+        assertThat(question.textContent()).startsWith("<img");
+        assertThat(question.locator("img").count()).as("img 요소가 생기지 않는다").isZero();
+        assertThat(page.evaluate("() => window.__xss === undefined")).isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("모달을 여러 번 열고 닫아도 편집기 툴바는 하나이고, 미저장 확인은 닫을 때 한 번만 뜬다(이벤트 중복 없음 — PLAN-react-admin-faq.md 수명주기 계약)")
+    void repeatedOpenCloseKeepsOneEditorAndOneConfirmation() {
+        trackDialogs();
+        open(admin);
+        for (int i = 0; i < 3; i++) {
+            openCategoryModal();
+            page.click("#btnModalClose");
+            waitModalState("closed");
+            openFaqModal();
+            page.click("#btnModalClose");
+            waitModalState("closed");
+        }
+        assertThat(page.locator("#faqModal .ql-toolbar").count()).as("편집기 툴바").isEqualTo(1);
+        assertThat(dialogMessages).as("입력 없이 닫으면 확인하지 않는다").isEmpty();
+
+        openFaqModal();
+        typeAnswer("답변");
+        acceptDialogs.set(true);
+        page.click("#btnModalClose");
+        waitModalState("closed");
+        assertThat(dialogMessages).as("hide 처리가 한 번만 등록돼 확인도 한 번").hasSize(1);
     }
 }

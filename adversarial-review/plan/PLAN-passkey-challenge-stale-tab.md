@@ -1,6 +1,6 @@
 # PLAN — 패스키 챌린지를 탭끼리 나눠 쓰기: 화면 GET 재사용 + 식별자가 맞을 때만 지우기 (이슈 #293)
 
-- 상태: v8 (2026-11-20) — 계획 리뷰 7라운드 ship(6·7라운드 서버 설계 결함 없음), 사용자 승인(2026-11-20), 구현·검증 완료(PR 전) — 결과는 문서 끝 "구현·검증 결과"
+- 상태: v8 (2026-11-20) — 계획 리뷰 7라운드 ship(6·7라운드 서버 설계 결함 없음), 사용자 승인(2026-11-20), 구현·검증 완료, 머지 #295 `8c56223` — 결과는 문서 끝 "구현·검증 결과"
 - 이슈: #293. 출처 `PLAN-passkey-conditional-ui.md` S10·결정 5·R3(#285에서 수용 위험으로 고정), `PLAN-passkey-login.md` 결정 2, `PLAN-passkey-second-factor.md` 결정 4·리뷰 2-1. 재사용 방식의 선례 `PLAN-totp-enrollment-reuse.md`(#277 — 강제 등록 화면 GET이 유효한 등록 대기를 재사용).
 - 위험 변경: **인증(로그인 입구의 패스키 챌린지 발급·1회용 소비 — 패스키 단독 로그인 화면·필터, 2단계 코드 화면)**. URL 인가 규칙·레이트리밋·스키마·의존성·설정 키·템플릿·JS 변경 **없음**.
 - 바뀌는 파일(예정): `config/auth/PasskeyLoginState.java`·`PasskeyAssertionState.java`·`PasskeyLoginService.java`·`PasskeyLoginFilter.java`·`TotpLoginService.java`, `admin/AdminMainController.java`, `admin/member/controller/TotpLoginController.java`, 시험 `PasskeyLoginIntegrationTest`·`TotpPasskeyLoginIntegrationTest`·`AdminMainControllerTest`·`PasskeyBrowserTest`(BFCache 복원 단언 2건) + 신규 단위 시험 `PasskeyLoginStateTest`·`PasskeyAssertionStateTest`, 문서 `com.cms.config`의 `CLAUDE.md`·`com.cms.admin.member`의 `CLAUDE.md`.

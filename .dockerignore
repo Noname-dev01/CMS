@@ -6,6 +6,8 @@
 build/
 out/
 .gradle/
+# 빌더가 package-lock.json으로 npm ci를 다시 한다 — 호스트(Windows)의 설치물·네이티브 바이너리를 넣지 않는다
+frontend/node_modules/
 .idea/
 data/
 /*.png
