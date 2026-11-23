@@ -74,12 +74,12 @@ class SiteMenuScreenBrowserTest extends BrowserTestSupport {
         page.navigate("http://localhost:" + port + "/admin/menu/manage");
         // 첫 트리가 그려지고 셀렉트가 풀릴 때까지(초기에는 전환 중 잠금)
         page.waitForFunction("() => !document.getElementById('siteSelect').disabled"
-                + " && document.querySelectorAll('#menuTree .jstree-anchor').length > 0");
+                + " && document.querySelectorAll('#menuTree .menu-node-label').length > 0");
     }
 
     private void selectSiteAndWaitTree(long siteId, String firstMenuText) {
         page.selectOption("#siteSelect", String.valueOf(siteId));
-        page.waitForFunction("text => Array.from(document.querySelectorAll('#menuTree .jstree-anchor'))"
+        page.waitForFunction("text => Array.from(document.querySelectorAll('#menuTree .menu-node-label'))"
                 + ".some(a => a.textContent.trim() === text) && !document.getElementById('siteSelect').disabled", firstMenuText);
     }
 
@@ -95,7 +95,7 @@ class SiteMenuScreenBrowserTest extends BrowserTestSupport {
         page.fill("#menuName", "SMB_s-1");
         page.fill("#menuUrl", "/faq");
         page.click("#btnSave");
-        page.waitForFunction("() => Array.from(document.querySelectorAll('#menuTree .jstree-anchor')).some(a => a.textContent.trim() === 'SMB_s-1')");
+        page.waitForFunction("() => Array.from(document.querySelectorAll('#menuTree .menu-node-label')).some(a => a.textContent.trim() === 'SMB_s-1')");
 
         // 저장·재조회가 끝난 뒤 셀렉트가 풀려야 한다(풀리지 않으면 시간 초과로 실패)
         page.waitForFunction("() => !document.getElementById('siteSelect').disabled");
@@ -131,7 +131,7 @@ class SiteMenuScreenBrowserTest extends BrowserTestSupport {
         jdbc.update("DELETE FROM site WHERE id = ?", siteId);
         page.reload();
         page.waitForFunction("() => !document.getElementById('siteSelect').disabled"
-                + " && document.querySelectorAll('#menuTree .jstree-anchor').length > 0");
+                + " && document.querySelectorAll('#menuTree .menu-node-label').length > 0");
 
         assertThat(page.inputValue("#siteSelect")).isEqualTo("1");
     }

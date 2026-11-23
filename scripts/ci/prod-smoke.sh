@@ -23,11 +23,22 @@ ci_ok "health 200"
 ci_ok "/admin/login 200"
 
 # 관리자 React 번들이 이미지(jar)에 들어갔다 — Docker 빌더에서 Gradle이 Node를 내려받아 만든다(PLAN-react-admin-faq.md S3·F1).
-bundle_headers=$(curl --silent --output /dev/null --dump-header - --connect-timeout 3 --max-time 10 "$CI_BASE_URL/js/admin-react/faq-manage.js") \
-  || ci_fail "curl 전송 실패: /js/admin-react/faq-manage.js"
-grep -qE '^HTTP/[0-9.]+ 200' <<<"$(head -1 <<<"$bundle_headers" | tr -d '\r')" || ci_fail "/js/admin-react/faq-manage.js가 200이 아닙니다."
-grep -qiE '^content-type:.*javascript' <<<"$bundle_headers" || ci_fail "/js/admin-react/faq-manage.js의 Content-Type이 JavaScript가 아닙니다."
-ci_ok "관리자 React 번들 200·JavaScript"
+# 진입점과 진입점이 직접 import하는 공유 청크를 본다(PLAN-react-admin-menu.md F1 — 청크 사이의 재귀는 MenuReactPageIntegrationTest가 본다).
+check_bundle() {
+  local path="/js/admin-react/$1" headers
+  headers=$(curl --silent --output /dev/null --dump-header - --connect-timeout 3 --max-time 10 "$CI_BASE_URL$path") \
+    || ci_fail "curl 전송 실패: $path"
+  grep -qE '^HTTP/[0-9.]+ 200' <<<"$(head -1 <<<"$headers" | tr -d '\r')" || ci_fail "${path}가 200이 아닙니다."
+  grep -qiE '^content-type:.*javascript' <<<"$headers" || ci_fail "${path}의 Content-Type이 JavaScript가 아닙니다."
+}
+for entry in faq-manage.js menu-manage.js; do
+  check_bundle "$entry"
+  entry_source=$(curl --silent --fail --connect-timeout 3 --max-time 10 "$CI_BASE_URL/js/admin-react/$entry") || ci_fail "curl 전송 실패: ${entry} 본문"
+  chunks=$(grep -oE 'chunks/[A-Za-z0-9_.-]+\.js' <<<"$entry_source" | sort -u || true)
+  [ -n "$chunks" ] || ci_fail "${entry}에서 공유 청크 import를 찾지 못했습니다."
+  while read -r chunk; do check_bundle "$chunk"; done <<<"$chunks"
+done
+ci_ok "관리자 React 번들·공유 청크 200·JavaScript"
 
 # Actuator 비공개(대표 3경로): 무인증은 302이고 Location이 /admin/login일 때만 통과한다.
 # 200·403·5xx·전송 실패(000)는 전부 실패 — "200이 아님"만으로는 서버 오류도 통과해 버린다.
