@@ -79,7 +79,7 @@ PR을 열면 GitHub Actions(`ci.yml`)가 세 job을 병렬로 실행한다.
 - `browser-test`: `./gradlew test -PbrowserTests=only` — 브라우저 E2E 시험(`BrowserTestSupport` 상속 클래스, `@Tag("browser")`)만. Playwright 설치(약 2분)도 이 job만 한다(2026-10-22 분리 — 한 job일 때 약 7분이던 PR 대기를 줄인다)
 - `prod-smoke`: prod 이미지 빌드·기동·보안 응답 검증, 백업·복구 왕복, 이미지 취약점 스캔(상세: `docs/deployment.md` "CI 배포 게이트")
 
-CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고).
+CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고). 일반 변경은 로컬 전체 시험 없이 이 CI가 전체 시험을 맡으므로(루트 `CLAUDE.md` 작업 방식 4항), CI가 실패한 채로 머지하지 않는다.
 
 ---
 
@@ -89,6 +89,7 @@ CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고
 
 - Require a pull request before merging
 - Require status checks to pass → `test`, `browser-test`, `prod-smoke` (CI job 이름) — `prod-smoke`는 이 설정으로 머지 차단 게이트로 작동한다(2026-09-29 등록됨 — 실패한 PR은 머지할 수 없다). `browser-test`(2026-10-22 분리)도 등록해야 브라우저 시험 실패가 머지를 막는다
+- Require branches to be up to date before merging(`strict`, 2026-11-23): 최신 `master`를 반영한 상태로 CI를 통과해야 머지할 수 있다. 다른 PR이 먼저 머지되면 `master`를 반영하고 CI를 다시 통과시킨다 — PR 화면의 [Update branch]를 쓰면 원격 브랜치가 앞서므로 로컬에서 pull한다. Dependabot PR에도 적용된다
 - Include administrators (관리자도 규칙 적용)
 
 ---

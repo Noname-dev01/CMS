@@ -87,7 +87,7 @@
 | 75 | ✅ **완료 (2026-11-20 · #295 `8c56223`)** [PLAN-passkey-challenge-stale-tab.md](PLAN-passkey-challenge-stale-tab.md) — 패스키 챌린지를 같은 세션의 탭들이 나눠 쓰기: 로그인·코드 화면 GET이 남은 수명 2분 30초 이상인 챌린지를 재사용(새로 발급한 값만 세션에 씀 — 소비된 챌린지 되살림 방지), 제출은 식별자 일치만 검증 전에 꺼내 지우고 만료·다른 회원은 지우고 식별자만 다르면 남김 (이슈 #293, 계획 리뷰 7라운드 ship, 변이 15건 검출) | security | #294 | 승인 완료 (2026-11-20, 로그인 입구 챌린지 발급·소비 규칙 — URL 인가 규칙·스키마·의존성·설정 키·화면 무변경) |
 | 76 | ✅ **완료 (2026-11-22 · #301 `877dc69`)** [PLAN-react-admin-faq.md](PLAN-react-admin-faq.md) — 관리자 화면 React + TypeScript 점진 도입 1단계: Vite·React·TS 빌드를 Gradle(Node 플러그인)·Docker·CI에 통합하고 FAQ 관리 화면을 React 아일랜드로 전환(동작·DOM 계약 유지, 인라인 스크립트 0) | feat | 없음 | 승인 완료 (2026-11-22, 새 의존성 — Gradle Node 플러그인·npm 패키지 9종, npm 버전 규칙 신설. 스키마·인가 정책 무변경) |
 | 77 | ✅ **완료 (2026-11-23 · #304 `503a5d4`)** [PLAN-react-admin-menu.md](PLAN-react-admin-menu.md) — 관리자 React 2단계: 메뉴 편집 화면을 React로 전환(트리·드래그 직접 구현 — 포인터 이벤트, jstree·CDN 제거, 인라인 스크립트 0)하고 진입점이 둘이 되며 생긴 공유 청크 정책을 정함 | feat | 76 | 승인 완료 (2026-11-23, 드래그 방식 변경. 새 의존성·스키마·인가 정책·서버 코드 무변경) |
-| 78 | 🔄 **구현·검증 완료, PR 전 (2026-11-23)** [PLAN-react-admin-posts.md](PLAN-react-admin-posts.md) — 관리자 React 3단계: 게시글 관리 화면을 React로 전환(TanStack Query를 조회에 도입, 본문 HTML 출력 예외 1곳) (이슈 #297) | feat | 77 | 승인 완료 (2026-11-23, 새 의존성 `@tanstack/react-query`·HTML 해석 금지 예외 1곳. 스키마·인가 정책·서버 코드 무변경) |
+| 78 | ✅ **완료 (2026-11-23 · #307 `7596c61`)** [PLAN-react-admin-posts.md](PLAN-react-admin-posts.md) — 관리자 React 3단계: 게시글 관리 화면을 React로 전환(TanStack Query를 조회에 도입, 본문 HTML 출력 예외 1곳) (이슈 #297) | feat | 77 | 승인 완료 (2026-11-23, 새 의존성 `@tanstack/react-query`·HTML 해석 금지 예외 1곳. 스키마·인가 정책·서버 코드 무변경) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
