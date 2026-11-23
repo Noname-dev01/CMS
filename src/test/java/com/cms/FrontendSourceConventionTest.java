@@ -21,7 +21,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <ul>
  *   <li>사용자 입력을 HTML로 해석하는 길을 만들지 않는다 — {@code dangerouslySetInnerHTML}, {@code innerHTML}·{@code outerHTML} 대입,
  *       {@code insertAdjacentHTML}, {@code eval(}, {@code new Function(} 금지. 본문 HTML은 공용 편집기({@code NoticeEditor.setHtml})로만 넘긴다
- *       (sanitizer 허용 목록과 1:1인 기존 경로).</li>
+ *       (sanitizer 허용 목록과 1:1인 기존 경로). <b>예외는 한 곳뿐이다</b>(PLAN-react-admin-posts.md 결정 1): 서버가 출력 시 sanitizer를 거친 게시글 본문을
+ *       그리는 {@code ServerHtml.tsx}의 {@code dangerouslySetInnerHTML} 1회이고, 그 컴포넌트는 {@code PostView.tsx}에서 {@code detail.content}에만
+ *       쓴다 — 파일·횟수·쓰는 곳을 모두 고정해 다른 값으로 번지지 않게 한다.</li>
  *   <li>CSS·이미지·폰트를 import하지 않는다 — Vite가 별도 산출물을 만들고 템플릿이 그 링크를 따로 출력해야 한다. 스타일은 템플릿이 맡는다.</li>
  *   <li>동적 {@code import()}를 쓰지 않는다 — 진입점이 여럿이라 공유 청크가 생기는데, 정적 import만 쓰면 페이지를 읽을 때 모두 내려받아 떠 있는
  *       화면이 배포 뒤 사라진 청크를 찾는 일이 없다(PLAN-react-admin-menu.md 결정 4).</li>
@@ -31,6 +33,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class FrontendSourceConventionTest {
 
     private static final Path FRONTEND_SOURCE = Paths.get("frontend", "src");
+
+    /** HTML 해석이 허용된 유일한 파일과, 그 컴포넌트를 쓰는 유일한 자리. */
+    private static final String SERVER_HTML_FILE = "admin/shared/ServerHtml.tsx";
+    private static final String SERVER_HTML_USER = "admin/post/PostView.tsx";
+    private static final Pattern DANGEROUS_HTML = Pattern.compile("dangerouslySetInnerHTML");
+    private static final Pattern SERVER_HTML_NAME = Pattern.compile("\\bServerHtml\\b");
+    private static final Pattern SERVER_HTML_USE = Pattern.compile("<ServerHtml\\b[^>]*\\bhtml=\\{detail\\.content\\}[^>]*/>");
+    private static final Pattern SERVER_HTML_IMPORT = Pattern.compile("import \\{ ServerHtml } from '\\.\\./shared/ServerHtml'");
 
     private static final List<Pattern> FORBIDDEN = List.of(
             Pattern.compile("dangerouslySetInnerHTML"),
@@ -49,11 +59,15 @@ class FrontendSourceConventionTest {
         List<String> violations = new ArrayList<>();
         try (Stream<Path> files = Files.walk(FRONTEND_SOURCE)) {
             for (Path file : (Iterable<Path>) files.filter(p -> p.toString().matches(".*\\.(ts|tsx)$"))::iterator) {
-                for (String violation : findViolations(Files.readString(file))) {
+                String name = FRONTEND_SOURCE.relativize(file).toString().replace('\\', '/');
+                for (String violation : findViolations(name, Files.readString(file))) {
                     violations.add(file + " → " + violation);
                 }
             }
         }
+        assertThat(count(DANGEROUS_HTML, Files.readString(FRONTEND_SOURCE.resolve(SERVER_HTML_FILE)))).as("예외 파일의 HTML 해석은 정확히 1회").isEqualTo(1);
+        String user = Files.readString(FRONTEND_SOURCE.resolve(SERVER_HTML_USER));
+        assertThat(count(SERVER_HTML_USE, user)).as("ServerHtml은 detail.content에 1번만 쓴다").isEqualTo(1);
         assertThat(violations).as("금지 패턴 — 클래스 주석의 규약 참조").isEmpty();
     }
 
@@ -77,9 +91,47 @@ class FrontendSourceConventionTest {
         assertThat(findViolations("import type { View } from './FaqManage'")).isEmpty();
     }
 
+    @Test
+    @DisplayName("검사 자체 회귀: HTML 해석 예외는 파일·횟수·쓰는 곳이 모두 맞을 때만 통과한다")
+    void serverHtmlExceptionIsNarrow() {
+        String once = "<div dangerouslySetInnerHTML={{ __html: html }} />";
+        assertThat(findViolations(SERVER_HTML_FILE, once)).isEmpty();
+        assertThat(findViolations(SERVER_HTML_FILE, once + once)).as("2회").isNotEmpty();
+        assertThat(findViolations(SERVER_HTML_FILE, once + "el.innerHTML = x")).as("다른 방식").isNotEmpty();
+        assertThat(findViolations("admin/post/PostList.tsx", once)).as("다른 파일").isNotEmpty();
+
+        String use = "import { ServerHtml } from '../shared/ServerHtml'\n<ServerHtml id=\"v\" html={detail.content} />";
+        assertThat(findViolations(SERVER_HTML_USER, use)).isEmpty();
+        assertThat(findViolations(SERVER_HTML_USER, use.replace("detail.content", "detail.title"))).as("다른 값").isNotEmpty();
+        assertThat(findViolations(SERVER_HTML_USER, use + "<ServerHtml html={detail.content} />")).as("두 번째 사용").isNotEmpty();
+        assertThat(findViolations(SERVER_HTML_USER, use + "const Alias = ServerHtml")).as("별칭").isNotEmpty();
+        assertThat(findViolations("admin/faq/FaqModal.tsx", use)).as("다른 화면").isNotEmpty();
+    }
+
+    private static long count(Pattern pattern, String source) {
+        return pattern.matcher(source).results().count();
+    }
+
     private static List<String> findViolations(String source) {
+        return findViolations("admin/any.tsx", source);
+    }
+
+    private static List<String> findViolations(String name, String source) {
         List<String> found = new ArrayList<>();
+        if (name.equals(SERVER_HTML_USER)) {
+            // import 1 + 사용 1 = 이름이 나오는 횟수 전부. 파일에 이름이 없으면(쓰지 않으면) 위반이 아니다
+            long names = count(SERVER_HTML_NAME, source);
+            boolean exact = names == 3 && count(SERVER_HTML_IMPORT, source) == 1 && count(SERVER_HTML_USE, source) == 1;   // import 줄에는 이름과 경로로 두 번 나온다
+            if (names > 0 && !exact) {
+                found.add("ServerHtml은 detail.content에 한 번만 쓴다");
+            }
+        } else if (!name.equals(SERVER_HTML_FILE) && count(SERVER_HTML_NAME, source) > 0) {
+            found.add("ServerHtml은 " + SERVER_HTML_USER + "에서만 쓴다");
+        }
         for (Pattern pattern : FORBIDDEN) {
+            if (name.equals(SERVER_HTML_FILE) && pattern.pattern().equals(DANGEROUS_HTML.pattern()) && count(pattern, source) == 1) {
+                continue;
+            }
             Matcher matcher = pattern.matcher(source);
             while (matcher.find()) {
                 found.add(matcher.group().strip());

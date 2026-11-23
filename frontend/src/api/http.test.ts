@@ -116,9 +116,51 @@ describe('createHttpClient', () => {
 
     expect(result).toEqual({ kind: 'http', status: 409, ok: false, body: { message: '충돌' }, bodyError: false })
   })
+
+  it('form은 Content-Type을 정하지 않고(브라우저가 boundary를 붙인다) CSRF 헤더만 싣는다', async () => {
+    const { calls, fetchFn } = stubFetch(() => new Response(null, { status: 201 }))
+    const http = createHttpClient(() => ({ header: 'X-CSRF-TOKEN', token: 't' }), () => fetchFn)
+    const form = new FormData()
+
+    await http.request('/x', { method: 'POST', form, skipSuccessBody: true })
+
+    expect(calls[0].init).toEqual({ method: 'POST', headers: { 'X-CSRF-TOKEN': 't' }, body: form })
+  })
+
+  it('signal을 넘기면 fetch에 전달하고, 취소는 네트워크 실패로 돌려준다', async () => {
+    const controller = new AbortController()
+    const { calls, fetchFn } = stubFetch((call) => new Promise((_resolve, reject) => {
+      call.init.signal?.addEventListener('abort', () => reject(new DOMException('취소', 'AbortError')))
+    }))
+    const http = createHttpClient(noCsrf, () => fetchFn)
+
+    const pending = http.request('/x', { signal: controller.signal })
+    controller.abort()
+
+    expect(await pending).toEqual({ kind: 'network' })
+    expect(calls[0].init).toEqual({ headers: { Accept: 'application/json' }, signal: controller.signal })
+  })
+
+  it('skipForbiddenBody면 403 본문이 끝나지 않아도 바로 돌려준다', async () => {
+    const { fetchFn } = stubFetch(() => new Response(new ReadableStream(), { status: 403 }))
+    const http = createHttpClient(noCsrf, () => fetchFn)
+
+    expect(await http.request('/x', { skipForbiddenBody: true })).toEqual({ kind: 'http', status: 403, ok: false, body: null, bodyError: false })
+  })
+
+  it('skipForbiddenBody가 없으면 403 본문을 그대로 읽는다', async () => {
+    const { fetchFn } = stubFetch(() => new Response('{"message":"x"}', { status: 403 }))
+    const http = createHttpClient(noCsrf, () => fetchFn)
+
+    expect(await http.request('/x')).toEqual({ kind: 'http', status: 403, ok: false, body: { message: 'x' }, bodyError: false })
+  })
 })
 
 describe('errorMessage', () => {
+  it('403 문구를 화면이 정할 수 있다', () => {
+    expect(errorMessage({ kind: 'http', status: 403, ok: false, body: null, bodyError: false }, '기본', '새로고침하세요')).toBe('새로고침하세요')
+  })
+
   it('403은 서버 메시지 대신 고정 한국어 문구다(메서드 보안 403의 message는 영문)', () => {
     expect(errorMessage({ kind: 'http', status: 403, ok: false, body: { message: 'Access Denied' }, bodyError: false }, '기본'))
       .toBe('이 작업을 수행할 권한이 없습니다.')

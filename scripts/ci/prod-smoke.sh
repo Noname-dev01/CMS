@@ -31,7 +31,7 @@ check_bundle() {
   grep -qE '^HTTP/[0-9.]+ 200' <<<"$(head -1 <<<"$headers" | tr -d '\r')" || ci_fail "${path}가 200이 아닙니다."
   grep -qiE '^content-type:.*javascript' <<<"$headers" || ci_fail "${path}의 Content-Type이 JavaScript가 아닙니다."
 }
-for entry in faq-manage.js menu-manage.js; do
+for entry in faq-manage.js menu-manage.js post-manage.js; do
   check_bundle "$entry"
   entry_source=$(curl --silent --fail --connect-timeout 3 --max-time 10 "$CI_BASE_URL/js/admin-react/$entry") || ci_fail "curl 전송 실패: ${entry} 본문"
   chunks=$(grep -oE 'chunks/[A-Za-z0-9_.-]+\.js' <<<"$entry_source" | sort -u || true)
