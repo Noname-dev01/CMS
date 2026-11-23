@@ -33,8 +33,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 /**
- * 메뉴 관리 화면의 React 아일랜드 연결과 공유 청크(PLAN-react-admin-menu.md S3·S4·F1). 진입점이 둘이라 공용 모듈이 해시 이름 청크가 되고, 청크 하나라도
- * 빠지면 두 화면이 모두 조용히 빈다 — 진입점에서 시작해 정적 import를 끝까지 따라가며 모두 응답되는지 본다.
+ * 메뉴 관리 화면의 React 아일랜드 연결과 공유 청크(PLAN-react-admin-menu.md S3·S4·F1). 진입점이 여럿이라 공용 모듈이 해시 이름 청크가 되고, 청크 하나라도
+ * 빠지면 React 화면이 모두 조용히 빈다 — 진입점에서 시작해 정적 import를 끝까지 따라가며 모두 응답되는지 본다.
  */
 @SpringBootTest(classes = CmsTestApplication.class)
 @AutoConfigureMockMvc
@@ -69,10 +69,10 @@ class MenuReactPageIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("두 진입점과 거기서 이어지는 모든 공유 청크가 로그인 없이 JavaScript로 응답된다")
-    void everyModuleOfBothEntriesIsServed() throws Exception {
+    @DisplayName("모든 진입점과 거기서 이어지는 모든 공유 청크가 로그인 없이 JavaScript로 응답된다")
+    void everyModuleOfAllEntriesIsServed() throws Exception {
         Set<String> seen = new LinkedHashSet<>();
-        Deque<String> queue = new ArrayDeque<>(List.of(BASE + "faq-manage.js", BASE + "menu-manage.js"));
+        Deque<String> queue = new ArrayDeque<>(List.of(BASE + "faq-manage.js", BASE + "menu-manage.js", BASE + "post-manage.js"));
         while (!queue.isEmpty()) {
             String path = queue.poll();
             if (!seen.add(path)) {
@@ -85,7 +85,7 @@ class MenuReactPageIntegrationTest extends MariaDbContainerSupport {
                 queue.add(URI.create(path).resolve(specifier).getPath());
             }
         }
-        assertThat(seen).as("진입점 둘은 React를 공유한다").anyMatch(path -> path.startsWith(BASE + "chunks/"));
+        assertThat(seen).as("진입점들은 React를 공유한다").anyMatch(path -> path.startsWith(BASE + "chunks/"));
     }
 
     @Test

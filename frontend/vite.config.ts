@@ -18,6 +18,7 @@ export default defineConfig({
       input: {
         'faq-manage': 'src/admin/faq/main.tsx',
         'menu-manage': 'src/admin/menu/main.tsx',
+        'post-manage': 'src/admin/post/main.tsx',
       },
       output: {
         entryFileNames: '[name].js',
