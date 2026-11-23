@@ -266,6 +266,15 @@
         #menuTabPanel .menu-node-label.is-selected { background-color: #eaecf4; }
         /* 라벨을 끌면 스크롤이 아니라 드래그다(터치 포함). 스크롤은 라벨 밖에서 한다. */
         #menuTabPanel .menu-node-label.is-draggable { cursor: grab; touch-action: none; -webkit-user-select: none; user-select: none; }
+        /* 선택한 행의 이동 버튼. 막힌 방향은 포커스를 유지하려고 disabled 대신 aria-disabled를 쓴다. */
+        /* 이름이 길면 이름을 짓누르지 않고 버튼이 다음 줄로 내려간다 */
+        #menuTabPanel .menu-node-row { flex-wrap: wrap; }
+        #menuTabPanel .menu-node-label { max-width: calc(100% - 24px); }
+        #menuTabPanel .menu-move-buttons { flex: none; margin-left: 4px; white-space: nowrap; }
+        #menuTabPanel .menu-move-btn { min-width: 26px; min-height: 26px; padding: 0; border: 1px solid #d1d3e2; border-radius: .2rem; background-color: #fff; color: #4e73df; font-size: .75rem; line-height: 1; }
+        #menuTabPanel .menu-move-btn + .menu-move-btn { margin-left: 2px; }
+        #menuTabPanel .menu-move-btn[aria-disabled="true"] { color: #b7b9cc; cursor: not-allowed; }
+        #menuTabPanel .menu-move-btn:focus-visible { outline: 2px solid #224abe; outline-offset: 1px; }
         /* 비활성 메뉴는 회색으로만 구분하고 선택은 그대로 가능하게 둔다 */
         #menuTabPanel .menu-node-label.menu-inactive,
         #menuTabPanel .menu-node-label.menu-inactive i { color: #b0b3b8; }

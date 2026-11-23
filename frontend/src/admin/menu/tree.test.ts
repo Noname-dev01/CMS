@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MenuTreeNode } from '../../api/menu'
-import { buildStructureRequest, canMove, countDraftChanges, findNode, indexBase, moveNode, toNodes, type DropPosition, type MenuNode } from './tree'
+import { buildStructureRequest, canMove, countDraftChanges, findNode, indexBase, moveNode, moveSummary, stepTarget, toNodes, type DropPosition, type MenuNode, type MoveStep } from './tree'
 
 /** 서버 트리 노드. 최상위·레거시 행은 서버 JSON(non_null)에서 upMenuNo·ord 키가 생략된다. */
 function server(menuNo: number, children: MenuTreeNode[] = [], data: Partial<MenuTreeNode['data']> = {}): MenuTreeNode {
@@ -93,6 +93,50 @@ describe('moveNode', () => {
     const before = JSON.stringify(nodes)
     move(nodes, 2, 5, 'inside')
     expect(JSON.stringify(nodes)).toBe(before)
+  })
+})
+
+describe('stepTarget — 버튼 이동의 한 걸음', () => {
+  const step = (nodes: MenuNode[], menuNo: number, direction: MoveStep) => {
+    const target = stepTarget(nodes, menuNo, direction)
+    return target && shape(move(nodes, menuNo, target.menuNo, target.position))
+  }
+
+  it('위·아래는 같은 부모 안에서 한 칸이고 끝에서는 갈 곳이 없다', () => {
+    expect(step(flat(3), 2, 'up')).toEqual([2, 1, 3])
+    expect(step(flat(3), 2, 'down')).toEqual([1, 3, 2])
+    expect(step(flat(3), 1, 'up')).toBeNull()
+    expect(step(flat(3), 3, 'down')).toBeNull()
+  })
+
+  it('밖으로는 상위 메뉴의 바로 다음 자리이고 최상위는 갈 곳이 없다', () => {
+    expect(step(toNodes(TREE), 2, 'out')).toEqual([1, [2, [3]], 4, 5])
+    expect(step(toNodes(TREE), 3, 'out')).toEqual([[1, [2, 3]], 4, 5])
+    expect(step(toNodes(TREE), 4, 'out')).toBeNull()
+  })
+
+  it('안으로는 바로 위 형제의 마지막 자식이고 첫 형제는 갈 곳이 없다', () => {
+    expect(step(toNodes(TREE), 4, 'in')).toEqual([[1, [[2, [3]], 4]], 5])
+    expect(step(toNodes(TREE), 1, 'in')).toBeNull()
+  })
+
+  it('4단이 되는 안으로 이동과 4단이 남는 밖으로 이동은 거부한다', () => {
+    const nodes = toNodes([server(1), server(2, [server(3, [server(4)])])])
+    expect(step(nodes, 2, 'in')).toBeNull()
+    const deep = toNodes([server(1, [server(2, [server(3, [server(4, [server(5)])])])])])
+    expect(step(deep, 3, 'out')).toBeNull()
+  })
+
+  it('없는 메뉴는 갈 곳이 없다', () => {
+    expect(stepTarget(flat(2), 99, 'up')).toBeNull()
+  })
+})
+
+describe('moveSummary', () => {
+  it('상위 메뉴와 그 안의 순서를 말한다', () => {
+    expect(moveSummary(flat(3), 2)).toBe('m2: 최상위 2번째로 이동(전체 3개)')
+    expect(moveSummary(toNodes(TREE), 3)).toBe('m3: m2 아래 1번째로 이동(전체 1개)')
+    expect(moveSummary(flat(1), 99)).toBe('')
   })
 })
 

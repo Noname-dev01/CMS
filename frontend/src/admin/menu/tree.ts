@@ -22,6 +22,13 @@ export interface BaseEntry {
 
 export type BaseStructure = ReadonlyMap<number, BaseEntry>
 export type DropPosition = 'before' | 'after' | 'inside'
+/** 버튼 이동 한 걸음: 같은 부모 안 위·아래, 상위 메뉴 밖으로, 바로 위 형제 안으로 */
+export type MoveStep = 'up' | 'down' | 'out' | 'in'
+
+export interface MoveTarget {
+  menuNo: number
+  position: DropPosition
+}
 
 export function toNodes(server: MenuTreeNode[]): MenuNode[] {
   return server.map((node) => ({
@@ -63,6 +70,10 @@ function locate(nodes: MenuNode[], menuNo: number, parentNo: number | null = nul
 
 export function findNode(nodes: MenuNode[], menuNo: number): MenuNode | null {
   return locate(nodes, menuNo)?.node ?? null
+}
+
+function siblingsIn(nodes: MenuNode[], parentNo: number | null): MenuNode[] {
+  return parentNo === null ? nodes : findNode(nodes, parentNo)?.children ?? []
 }
 
 function height(node: MenuNode): number {
@@ -112,6 +123,26 @@ export function moveNode(nodes: MenuNode[], menuNo: number, targetNo: number, po
   const moved = insert(remove(nodes, menuNo), source.node, targetNo, position)
   const after = locate(moved, menuNo)
   return after?.parentNo === source.parentNo && after.index === source.index ? nodes : moved
+}
+
+/** 버튼 이동의 놓을 자리. 갈 곳이 없거나 드래그와 같은 규칙(moveNode → canMove)이 거부하면 null. */
+export function stepTarget(nodes: MenuNode[], menuNo: number, step: MoveStep): MoveTarget | null {
+  const source = locate(nodes, menuNo)
+  if (!source) return null
+  const siblings = siblingsIn(nodes, source.parentNo)
+  const anchorNo = step === 'out' ? source.parentNo : siblings[source.index + (step === 'down' ? 1 : -1)]?.menuNo ?? null
+  if (anchorNo === null) return null
+  const position: DropPosition = step === 'up' ? 'before' : step === 'in' ? 'inside' : 'after'
+  return moveNode(nodes, menuNo, anchorNo, position) === nodes ? null : { menuNo: anchorNo, position }
+}
+
+/** 이동 결과 안내(live region). */
+export function moveSummary(nodes: MenuNode[], menuNo: number): string {
+  const moved = locate(nodes, menuNo)
+  if (!moved) return ''
+  const parent = moved.parentNo === null ? null : findNode(nodes, moved.parentNo)
+  const total = siblingsIn(nodes, moved.parentNo).length
+  return `${moved.node.name}: ${parent === null ? '최상위' : parent.name + ' 아래'} ${moved.index + 1}번째로 이동(전체 ${total}개)`
 }
 
 interface FlatEntry {
