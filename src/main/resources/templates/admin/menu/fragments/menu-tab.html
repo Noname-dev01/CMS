@@ -59,7 +59,8 @@
         #menuTabPanel .form-container .card-header,
         #permanentDeleteModal .form-container .card-header,
         #iconPickerModal .form-container .card-header {
-            background: linear-gradient(to right, #1cc88a, #13855c);
+            /* 흰 제목과의 대비 4.5:1 이상(밝은 #1cc88a에서 시작하면 2.17:1이라 읽기 어렵다) */
+            background: linear-gradient(to right, #13855c, #0f6848);
             border-bottom: none;
         }
         #menuTabPanel .card-header h6,
@@ -69,11 +70,6 @@
             font-size: 1rem;
             font-weight: 700;
             color: white;
-        }
-        #menuTabPanel .form-container .card-header h6,
-        #permanentDeleteModal .form-container .card-header h6,
-        #iconPickerModal .form-container .card-header h6 {
-            color: #1cc88a;
         }
         #menuTabPanel .card-body,
         #permanentDeleteModal .card-body,
@@ -247,29 +243,10 @@
         #menuTabPanel .icon-grid .icon-item span,
         #permanentDeleteModal .icon-grid .icon-item span,
         #iconPickerModal .icon-grid .icon-item span { font-size: .65rem; word-break: break-all; text-align: center; }
-        #menuTabPanel .custom-control,
-        #permanentDeleteModal .custom-control,
-        #iconPickerModal .custom-control {
-            padding-left: 2rem;
-        }
         #menuTabPanel .custom-control-label,
         #permanentDeleteModal .custom-control-label,
         #iconPickerModal .custom-control-label {
             color: #5a5c69;
-        }
-        #menuTabPanel .custom-switch .custom-control-label::before,
-        #permanentDeleteModal .custom-switch .custom-control-label::before,
-        #iconPickerModal .custom-switch .custom-control-label::before {
-            height: 1.25rem;
-            width: 2.5rem;
-            border-radius: 0.625rem;
-        }
-        #menuTabPanel .custom-switch .custom-control-label::after,
-        #permanentDeleteModal .custom-switch .custom-control-label::after,
-        #iconPickerModal .custom-switch .custom-control-label::after {
-            height: calc(1.25rem - 4px);
-            width: calc(1.25rem - 4px);
-            border-radius: calc(1.25rem - 4px);
         }
         #menuTabPanel .form-mode-label,
         #permanentDeleteModal .form-mode-label,
