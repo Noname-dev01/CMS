@@ -1618,6 +1618,20 @@ page.locator("body[data-before-restore]").waitFor(new Locator.WaitForOptions().s
 - `waitForResponse`·`waitForLoadState`는 "새 문서가 준비됐다"를 보장하지 않는다. 이동 뒤의 첫 조회는 자동 재시도하는 locator(`waitFor`·`inputValue`·`expect`)로 한다.
 - 식별자가 바뀌었는지로 재로드를 증명하던 시험은, 서버가 같은 값을 다시 주게 되면(#293 챌린지 재사용) 증명력을 잃는다. 문서 단위 표지로 확인한다.
 
+### Playwright 로케이터에 `Pattern.quote`로 만든 정규식을 주면 아무것도 찾지 못한다
+
+#### 오류 메시지
+
+`locator.filter(setHasText(Pattern.compile("^\\s*" + Pattern.quote(name) + "\\s*$")))`가 화면에 보이는 요소도 찾지 못하고 15초 뒤 시간 초과가 났다. 오류에는 "waiting for locator … to be visible"만 나와 화면 문제처럼 보인다.
+
+#### 원인
+
+2026-11-23 메뉴 편집 화면 시험(`MenuStructureScreenBrowserTest`)에서 겪었다. Playwright Java는 `Pattern`의 원문을 브라우저의 JS 정규식으로 넘긴다. `Pattern.quote`가 만드는 `\Q…\E`는 Java에만 있는 문법이라 JS에서는 글자 `Q`·`E`로 읽혀 일치하지 않는다(`new RegExp("\\QSMT_A\\E").test("SMT_A")` → `false`로 확인).
+
+#### 해결 방법
+
+메타 문자를 직접 이스케이프한다(`text.replaceAll("[\\\\^$.|?*+()\\[\\]{}]", "\\\\$0")`). 정규식이 필요 없으면 문자열 인자를 쓴다(부분 일치·공백 정규화).
+
 ### 화면 JS를 React로 옮겼더니 브라우저 시험의 fetch 가로채기가 상세 조회를 놓친다 — GET 요청에 `method`를 실었다
 
 #### 오류 메시지
