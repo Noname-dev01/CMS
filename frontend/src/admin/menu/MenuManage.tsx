@@ -15,7 +15,7 @@ import { IconPickerModal, PermanentDeleteModal } from './MenuModals'
 import { MenuForm } from './MenuForm'
 import { MenuTree } from './MenuTree'
 import { allowsExternal, menuUrlError } from './menuUrl'
-import { buildStructureRequest, countDraftChanges, findNode, indexBase, MAX_DEPTH, moveNode, toNodes, type BaseStructure, type DropPosition, type MenuNode } from './tree'
+import { buildStructureRequest, countDraftChanges, findNode, indexBase, MAX_DEPTH, moveNode, moveSummary, toNodes, type BaseStructure, type DropPosition, type MenuNode } from './tree'
 
 /** 관리자 사이트 ID(시드 id=1) — 기억한 사이트가 사라졌을 때 돌아갈 곳. 서버 Site.ADMIN_SITE_ID와 같다. */
 const ADMIN_SITE_ID = 1
@@ -59,6 +59,8 @@ interface View {
   treeError: string | null
   treeWarning: string | null
   treeSuccess: string | null
+  /** 마지막 이동 결과(화면 낭독기용 live region) */
+  moveStatus: string
   formError: string | null
   reloading: boolean
   iconKeyword: string
@@ -88,6 +90,7 @@ const INITIAL: View = {
   treeError: null,
   treeWarning: null,
   treeSuccess: null,
+  moveStatus: '',
   formError: null,
   reloading: false,
   iconKeyword: '',
@@ -95,6 +98,9 @@ const INITIAL: View = {
   deleteInput: '',
   deleteError: null,
 }
+
+/** 이동 안내를 늦추는 시간. 옮긴 버튼에 포커스를 되돌리며 읽는 소리가 안내를 덮지 않게 한다(웹 가이드 drag-and-drop). */
+const ANNOUNCE_DELAY = 500
 
 const NO_TREE_ALERTS = { treeError: null, treeWarning: null, treeSuccess: null }
 
@@ -147,6 +153,15 @@ export function MenuManage({ menuApi, siteApi, modalContainer }: Props) {
   const deleteInput = useRef<HTMLInputElement>(null)
   const iconModal = useRef<HTMLDivElement>(null)
 
+  const announceTimer = useRef(0)
+
+  /** 비운 뒤 늦게 채운다. 빈 문구는 대기 중인 안내까지 지운다. */
+  const announceMove = (text: string) => {
+    window.clearTimeout(announceTimer.current)
+    update({ moveStatus: '' })
+    if (text !== '') announceTimer.current = window.setTimeout(() => update({ moveStatus: text }), ANNOUNCE_DELAY)
+  }
+
   const draftCount = () => countDraftChanges(viewRef.current.base, viewRef.current.nodes)
   const canDrag = () => viewRef.current.treeScope === 'all' && !viewRef.current.busy
   const modal = (el: HTMLDivElement | null, command: 'show' | 'hide') => {
@@ -166,6 +181,7 @@ export function MenuManage({ menuApi, siteApi, modalContainer }: Props) {
     const seq = ++loadSeq.current
     selectSeq.current++
     update({ treeScope: null, ...NO_TREE_ALERTS })
+    announceMove('')
     const includeInactive = viewRef.current.includeInactive
     const read = readBody<MenuTreeNode[]>(await menuApi.getTree(site.id, includeInactive),
       '메뉴 트리 조회에 실패했습니다.', '메뉴 트리 조회 중 오류가 발생했습니다.')
@@ -265,7 +281,9 @@ export function MenuManage({ menuApi, siteApi, modalContainer }: Props) {
 
   const onMove = (menuNo: number, targetNo: number, position: DropPosition) => {
     const nodes = moveNode(viewRef.current.nodes, menuNo, targetNo, position)
-    if (nodes !== viewRef.current.nodes) update({ nodes, ...NO_TREE_ALERTS })
+    if (nodes === viewRef.current.nodes) return
+    update({ nodes, ...NO_TREE_ALERTS })
+    announceMove(moveSummary(nodes, menuNo))
   }
 
   const onApply = async () => {
@@ -493,7 +511,7 @@ export function MenuManage({ menuApi, siteApi, modalContainer }: Props) {
       ? '반영 대기 중인 구조 변경이 있습니다. [반영] 또는 [취소]한 뒤 메뉴 정보를 수정할 수 있습니다.'
       : view.modeLabel
   const hint = view.treeScope === 'all'
-    ? '메뉴를 드래그해 순서를 바꾸거나 다른 상위 메뉴 안으로 옮긴 뒤 [반영]을 눌러야 저장됩니다(최대 ' + MAX_DEPTH + '단, 하위 메뉴는 함께 이동합니다).'
+    ? '메뉴를 드래그해 순서를 바꾸거나 다른 상위 메뉴 안으로 옮긴 뒤 [반영]을 눌러야 저장됩니다(최대 ' + MAX_DEPTH + '단, 하위 메뉴는 함께 이동합니다). 메뉴를 선택하면 나오는 이동 버튼으로도 옮길 수 있습니다.'
     : view.treeScope === 'active'
       ? '구조 편집(드래그)은 비활성 메뉴까지 보여야 하므로 "비활성 포함"을 켜면 사용할 수 있습니다.'
       : ''
@@ -548,6 +566,8 @@ export function MenuManage({ menuApi, siteApi, modalContainer }: Props) {
                   </div>
                 </div>
                 <small id="treeHint" className={'form-text text-muted mb-2' + (hint === '' ? ' d-none' : '')}>{hint}</small>
+                {/* 트리는 다시 읽을 때 새로 마운트되므로 안내 영역은 밖에 둔다 */}
+                <div id="treeMoveStatus" className="sr-only" role="status" aria-live="polite">{view.moveStatus}</div>
                 <MenuTree
                   key={view.treeVersion}
                   nodes={view.nodes}

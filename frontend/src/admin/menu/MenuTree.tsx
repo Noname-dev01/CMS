@@ -1,13 +1,13 @@
 /**
- * 메뉴 트리와 포인터 드래그(PLAN-react-admin-menu.md 결정 1). 드래그는 초안만 바꾸고 서버를 호출하지 않는다.
+ * 메뉴 트리와 이동(포인터 드래그 — PLAN-react-admin-menu.md 결정 1, 선택한 행의 이동 버튼 — 이슈 #302). 이동은 초안만 바꾸고 서버를 호출하지 않는다.
  *
  * - 포인터 하나만 소유하고(dragReducer) 캡처를 쓰지 않는다 — 누른 뒤 window 리스너로 받고 대상은 좌표로 찾는다.
  * - 표시(mark)와 놓은 결과가 같도록 놓을 때는 마지막에 표시한 대상을 쓴다. 스크롤되면(자동·휠) 마지막 좌표로 다시 계산한다.
  * - 트리가 교체되면 부모가 key를 바꿔 다시 마운트한다(접힘 상태 초기화 + 진행 중 드래그 취소).
  */
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { dragReducer, dropPosition, IDLE, type DragInput, type DragState } from './dragState'
-import { findNode, moveNode, type DropPosition, type MenuNode } from './tree'
+import { findNode, moveNode, stepTarget, type DropPosition, type MenuNode, type MoveStep, type MoveTarget } from './tree'
 
 /** 스크롤 영역의 보이는 위·아래 가장자리에서 이 거리 안이면 자동 스크롤한다. */
 const EDGE = 40
@@ -34,10 +34,12 @@ function scrollAt(tree: HTMLElement | null, y: number): boolean {
   })
 }
 
-interface Mark {
-  menuNo: number
-  position: DropPosition
-}
+const MOVE_BUTTONS: { step: MoveStep; label: string; icon: string }[] = [
+  { step: 'up', label: '위로', icon: 'fa-arrow-up' },
+  { step: 'down', label: '아래로', icon: 'fa-arrow-down' },
+  { step: 'out', label: '상위 메뉴 밖으로', icon: 'fa-arrow-left' },
+  { step: 'in', label: '바로 위 메뉴 안으로', icon: 'fa-arrow-right' },
+]
 
 interface Props {
   nodes: MenuNode[]
@@ -53,22 +55,24 @@ interface Props {
 export function MenuTree(props: Props) {
   const { nodes, selected, draggable } = props
   const [collapsed, setCollapsed] = useState<ReadonlySet<number>>(new Set())
-  const [mark, setMark] = useState<Mark | null>(null)
+  const [mark, setMark] = useState<MoveTarget | null>(null)
   const [draggingNo, setDraggingNo] = useState<number | null>(null)
 
   const root = useRef<HTMLDivElement>(null)
   const ghost = useRef<HTMLDivElement>(null)
   const drag = useRef<DragState>(IDLE)
-  const markRef = useRef<Mark | null>(null)
+  const markRef = useRef<MoveTarget | null>(null)
   const frame = useRef(0)
   const detach = useRef<(() => void) | null>(null)
   // 드래그가 끝난 자리의 click이 선택으로 이어지지 않게 한다(다음 pointerdown에서 푼다)
   const suppressClick = useRef(false)
+  // 이동을 그린 뒤 포커스를 둘 자리(step이 null이면 드래그 — 라벨)
+  const refocus = useRef<{ menuNo: number; step: MoveStep | null } | null>(null)
   // window 리스너가 렌더링 시점 값을 붙잡지 않도록 최신 props를 ref로 읽는다
   const latest = useRef(props)
   latest.current = props
 
-  const showMark = (next: Mark | null) => {
+  const showMark = (next: MoveTarget | null) => {
     const current = markRef.current
     if (current?.menuNo === next?.menuNo && current?.position === next?.position) return
     markRef.current = next
@@ -83,7 +87,7 @@ export function MenuTree(props: Props) {
       return
     }
     const rect = row.getBoundingClientRect()
-    const next: Mark = { menuNo: Number(row.dataset.menuNo), position: dropPosition(rect.top, rect.height, state.y) }
+    const next: MoveTarget = { menuNo: Number(row.dataset.menuNo), position: dropPosition(rect.top, rect.height, state.y) }
     const tree = latest.current.nodes
     showMark(moveNode(tree, state.menuNo, next.menuNo, next.position) === tree ? null : next)
   }
@@ -106,6 +110,39 @@ export function MenuTree(props: Props) {
     setDraggingNo(null)
   }
 
+  const commitMove = (menuNo: number, target: MoveTarget, step: MoveStep | null) => {
+    if (target.position === 'inside') {
+      // 접힌 메뉴 안으로 옮기면 펼친다 — 옮긴 메뉴와 포커스가 화면에서 사라지지 않게 한다
+      setCollapsed((current) => {
+        const next = new Set(current)
+        return next.delete(target.menuNo) ? next : current
+      })
+    }
+    refocus.current = { menuNo, step }
+    latest.current.onMove(menuNo, target.menuNo, target.position)
+  }
+
+  const onMoveButton = (menuNo: number, step: MoveStep) => {
+    const target = latest.current.canDrag() ? stepTarget(latest.current.nodes, menuNo, step) : null
+    if (target) commitMove(menuNo, target, step)
+  }
+
+  // 부모가 바뀌면 행이 새로 만들어지고 형제 순서가 바뀌면 DOM이 옮겨져 포커스를 잃을 수 있다.
+  // 버튼은 같은 버튼으로, 드래그는 포커스를 잃었을 때만 라벨로 되돌린다.
+  useLayoutEffect(() => {
+    const focus = refocus.current
+    refocus.current = null
+    if (!focus) return
+    const row = root.current?.querySelector<HTMLElement>(`.menu-node-row[data-menu-no="${focus.menuNo}"]`)
+    if (!row) return
+    if (focus.step === null) {
+      if (document.activeElement === document.body) row.querySelector<HTMLElement>('.menu-node-label')?.focus({ preventScroll: true })
+      return
+    }
+    row.scrollIntoView({ block: 'nearest' })
+    row.querySelector<HTMLElement>(`.menu-move-btn[data-step="${focus.step}"]`)?.focus({ preventScroll: true })
+  }, [nodes])
+
   const dispatch = (input: DragInput) => {
     const before = drag.current
     const next = dragReducer(before, input)
@@ -115,7 +152,7 @@ export function MenuTree(props: Props) {
       const target = markRef.current
       finish()
       if (input.type === 'up' && before.phase === 'dragging' && target && latest.current.canDrag()) {
-        latest.current.onMove(before.menuNo, target.menuNo, target.position)
+        commitMove(before.menuNo, target, null)
       }
       return
     }
@@ -223,6 +260,18 @@ export function MenuTree(props: Props) {
                 <i className="fas fa-folder" aria-hidden="true" />
                 <span>{node.name}</span>
               </button>
+              {draggable && selected === node.menuNo ? (
+                <span className="menu-move-buttons">
+                  {/* disabled로 만들면 끝에 닿는 순간 포커스를 잃으므로 aria-disabled로 알리고 눌러도 무시한다 */}
+                  {MOVE_BUTTONS.map(({ step, label, icon }) => (
+                    <button key={step} type="button" className="menu-move-btn" data-step={step} title={label}
+                      aria-label={node.name + ' ' + label} aria-disabled={stepTarget(nodes, node.menuNo, step) === null}
+                      onClick={() => onMoveButton(node.menuNo, step)}>
+                      <i className={'fas fa-fw ' + icon} aria-hidden="true" />
+                    </button>
+                  ))}
+                </span>
+              ) : null}
             </div>
             {node.children.length > 0 && open ? renderNodes(node.children) : null}
           </li>

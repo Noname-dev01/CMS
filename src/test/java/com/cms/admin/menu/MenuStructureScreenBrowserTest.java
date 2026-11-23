@@ -305,6 +305,141 @@ class MenuStructureScreenBrowserTest extends BrowserTestSupport {
         assertThat(treeNames()).containsExactly("SMT_A", "SMT_B");
     }
 
+    // ── 버튼 이동(키보드)과 이동 안내 ───────────────────────────────────
+
+    private Locator moveButton(String step) {
+        return page.locator("#menuTree .menu-move-btn[data-step='" + step + "']");
+    }
+
+    /** 이동 버튼에 포커스를 두고 Enter를 누른다(마우스를 쓰지 않는다). */
+    private void pressMove(String step) {
+        moveButton(step).focus();
+        page.keyboard().press("Enter");
+    }
+
+    /** 포커스가 {@code name} 메뉴 행의 {@code step} 버튼에 있다. */
+    private void assertFocusOnMove(String name, String step) {
+        assertThat(page.evaluate("() => { const el = document.activeElement; const row = el.closest('.menu-node-row');"
+                + " return row && [row.querySelector('.menu-node-label').textContent.trim(), el.dataset.step].join('|'); }"))
+                .isEqualTo(name + "|" + step);
+    }
+
+    private void awaitMoveStatus(String text) {
+        page.waitForFunction("text => document.getElementById('treeMoveStatus').textContent === text", text);
+    }
+
+    @Test
+    @DisplayName("키보드만으로 선택해 다른 상위 메뉴로 옮기고 순서를 바꿔 반영한다 — 안내가 읽히고 포커스는 옮긴 메뉴에 남는다")
+    void keyboardMovesAcrossParentsAndApplies() {
+        long a = insertMenu("SMT_A", null, 0);
+        long a1 = insertMenu("SMT_A1", a, 0);
+        long b = insertMenu("SMT_B", null, 1);
+        openOnSite(siteId, "SMT_A");
+        assertThat(page.getAttribute("#treeMoveStatus", "aria-live")).isEqualTo("polite");
+        assertThat(page.locator(".menu-move-btn").count()).as("선택 전에는 버튼이 없다").isZero();
+
+        treeLabel("SMT_B").focus();
+        page.keyboard().press("Enter");
+        page.waitForFunction("() => document.getElementById('formModeLabel').textContent === '메뉴 수정: SMT_B'");
+        page.keyboard().press("Tab");
+        assertFocusOnMove("SMT_B", "up");
+        page.keyboard().press("Tab");
+        page.keyboard().press("Tab");
+        page.keyboard().press("Tab");
+        assertFocusOnMove("SMT_B", "in");
+        assertThat(moveButton("in").getAttribute("aria-label")).isEqualTo("SMT_B 바로 위 메뉴 안으로");
+
+        page.keyboard().press("Enter");
+        assertThat(treeNames()).containsExactly("SMT_A", "SMT_A1", "SMT_B");
+        assertFocusOnMove("SMT_B", "in");
+        awaitMoveStatus("SMT_B: SMT_A 아래 2번째로 이동(전체 2개)");
+
+        pressMove("up");
+        assertThat(treeNames()).containsExactly("SMT_A", "SMT_B", "SMT_A1");
+        assertFocusOnMove("SMT_B", "up");
+        awaitMoveStatus("SMT_B: SMT_A 아래 1번째로 이동(전체 2개)");
+        assertThat(draftStatus()).isEqualTo(DRAFT_ONE);
+
+        page.locator("#btnApply").focus();
+        page.keyboard().press("Enter");
+        page.waitForFunction("() => document.getElementById('treeSuccess').textContent === '메뉴 구조를 반영했습니다(1건 이동).'");
+        assertThat(upMenuNo(b)).isEqualTo(a);
+        assertThat(jdbc.queryForList("SELECT menu_no FROM menu WHERE up_menu_no = ? ORDER BY ord", Long.class, a)).containsExactly(b, a1);
+    }
+
+    @Test
+    @DisplayName("접힌 메뉴 안으로 옮기면 그 메뉴를 펼치고, 부모가 바뀌는 이동을 되풀이해도 포커스가 남는다")
+    void moveIntoCollapsedParentExpandsAndKeepsFocus() {
+        long a = insertMenu("SMT_A", null, 0);
+        insertMenu("SMT_A1", a, 0);
+        insertMenu("SMT_B", null, 1);
+        openOnSite(siteId, "SMT_A");
+        selectMenu("SMT_B");
+        page.locator("#menuTree .menu-node-toggle[aria-expanded]").click();
+        assertThat(treeNames()).containsExactly("SMT_A", "SMT_B");
+
+        pressMove("in");
+        assertThat(treeNames()).containsExactly("SMT_A", "SMT_A1", "SMT_B");
+        assertFocusOnMove("SMT_B", "in");
+
+        pressMove("out");
+        assertFocusOnMove("SMT_B", "out");
+        awaitMoveStatus("SMT_B: 최상위 2번째로 이동(전체 2개)");
+        assertThat(draftStatus()).as("원래 자리로 돌아왔다").isEqualTo(NO_DRAFT);
+    }
+
+    @Test
+    @DisplayName("갈 곳이 없거나 4단이 되는 버튼은 aria-disabled이고 눌러도 초안·안내가 바뀌지 않으며 포커스가 남는다")
+    void impossibleMovesDoNothingAndKeepFocus() {
+        long p = insertMenu("SMT_P", null, 0);
+        long q = insertMenu("SMT_Q", p, 0);
+        insertMenu("SMT_R", q, 0);
+        insertMenu("SMT_X", null, 1);
+        openOnSite(siteId, "SMT_P");
+        selectMenu("SMT_P");
+        for (String step : List.of("up", "out", "in")) {
+            assertThat(moveButton(step).getAttribute("aria-disabled")).as(step).isEqualTo("true");
+            pressMove(step);
+            assertFocusOnMove("SMT_P", step);
+        }
+        assertThat(draftStatus()).isEqualTo(NO_DRAFT);
+        assertThat(moveButton("down").getAttribute("aria-disabled")).isEqualTo("false");
+
+        // 맨 끝에 닿아 막힌 순간에도 포커스를 잃지 않고, 3단 서브트리는 다른 메뉴 안으로 못 들어간다
+        pressMove("down");
+        assertFocusOnMove("SMT_P", "down");
+        assertThat(moveButton("down").getAttribute("aria-disabled")).isEqualTo("true");
+        assertThat(moveButton("in").getAttribute("aria-disabled")).as("4단").isEqualTo("true");
+        awaitMoveStatus("SMT_P: 최상위 2번째로 이동(전체 2개)");
+        pressMove("in");
+        assertFocusOnMove("SMT_P", "in");
+        assertThat(treeNames()).containsExactly("SMT_X", "SMT_P", "SMT_Q", "SMT_R");
+        assertThat(page.textContent("#treeMoveStatus")).as("막힌 이동은 안내를 바꾸지 않는다")
+                .isEqualTo("SMT_P: 최상위 2번째로 이동(전체 2개)");
+    }
+
+    @Test
+    @DisplayName("드래그 이동도 안내하고 포커스를 옮긴 메뉴에 남긴다 — 취소하면 안내를 비우고, '비활성 포함'을 끄면 버튼이 없다")
+    void dragAnnouncesAndCancelClears() {
+        insertMenu("SMT_A", null, 0);
+        insertMenu("SMT_B", null, 1);
+        openOnSite(siteId, "SMT_A");
+
+        moveMenu("SMT_B", "SMT_A", Position.INSIDE);
+        assertThat(page.evaluate("() => document.activeElement.textContent.trim()")).isEqualTo("SMT_B");
+        awaitMoveStatus("SMT_B: SMT_A 아래 1번째로 이동(전체 1개)");
+
+        page.click("#btnCancel");
+        awaitMoveStatus("");
+        page.waitForFunction("() => document.getElementById('draftStatus').textContent.trim() === '변경 없음'");
+
+        page.uncheck("#includeInactiveToggle", new Page.UncheckOptions().setForce(true));
+        page.waitForFunction("() => document.getElementById('treeHint').textContent.includes('\"비활성 포함\"을 켜면')");
+        treeLabel("SMT_B").waitFor();
+        selectMenu("SMT_B");
+        assertThat(page.locator(".menu-move-btn").count()).isZero();
+    }
+
     // ── 포인터 드래그(새 화면) ─────────────────────────────────────────
 
     private void insertManyMenus() {
