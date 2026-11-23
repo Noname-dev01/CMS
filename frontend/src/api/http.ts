@@ -21,8 +21,14 @@ export type CsrfProvider = () => CsrfToken | null
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   json?: unknown
+  /** 파일 업로드(multipart). Content-Type은 브라우저가 boundary와 함께 정하므로 싣지 않는다. json과 함께 쓰지 않는다. */
+  form?: FormData
+  /** 취소 신호 — 취소되면 { kind: 'network' }로 끝난다(취소한 쪽이 결과를 버린다). */
+  signal?: AbortSignal
   /** 2xx면 본문을 읽지 않고 헤더만으로 성공을 돌려준다(본문이 필요 없는 쓰기 — 본문 전송이 멈춰도 화면이 잠기지 않는다). */
   skipSuccessBody?: boolean
+  /** 403이면 본문을 읽지 않는다(화면이 고정 문구만 쓴다 — 본문 전송이 멈춰도 안내가 늦지 않는다). */
+  skipForbiddenBody?: boolean
 }
 
 export interface HttpClient {
@@ -54,6 +60,12 @@ export function createHttpClient(csrf: CsrfProvider, fetchFn: () => typeof fetch
       if (options.json !== undefined) {
         init.body = JSON.stringify(options.json)
       }
+      if (options.form !== undefined) {
+        init.body = options.form
+      }
+      if (options.signal !== undefined) {
+        init.signal = options.signal
+      }
 
       let response: Response
       try {
@@ -67,6 +79,9 @@ export function createHttpClient(csrf: CsrfProvider, fetchFn: () => typeof fetch
       if (options.skipSuccessBody && response.ok) {
         return { kind: 'http', status: response.status, ok: true, body: null, bodyError: false }
       }
+      if (options.skipForbiddenBody && response.status === 403) {
+        return { kind: 'http', status: 403, ok: false, body: null, bodyError: false }
+      }
       try {
         const body: unknown = await response.json()
         return { kind: 'http', status: response.status, ok: response.ok, body, bodyError: false }
@@ -77,10 +92,10 @@ export function createHttpClient(csrf: CsrfProvider, fetchFn: () => typeof fetch
   }
 }
 
-/** 실패 응답의 사용자 문구. 403은 메서드 보안 메시지가 영문이라 고정 문구를 쓴다. */
-export function errorMessage(result: HttpResponse, fallback: string): string {
+/** 실패 응답의 사용자 문구. 403은 메서드 보안 메시지가 영문이라 고정 문구를 쓴다(화면이 바꿀 수 있다). */
+export function errorMessage(result: HttpResponse, fallback: string, forbidden = '이 작업을 수행할 권한이 없습니다.'): string {
   if (result.status === 403) {
-    return '이 작업을 수행할 권한이 없습니다.'
+    return forbidden
   }
   const body = result.body
   if (body !== null && typeof body === 'object' && 'message' in body && typeof body.message === 'string' && body.message !== '') {
