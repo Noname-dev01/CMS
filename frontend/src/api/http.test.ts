@@ -85,6 +85,37 @@ describe('createHttpClient', () => {
 
     expect(replaced.calls.map((c) => c.url)).toEqual(['/b'])
   })
+
+  it('PATCH도 쓰기 요청이다 — CSRF 헤더와 JSON 본문을 싣는다', async () => {
+    const { calls, fetchFn } = stubFetch(() => new Response('{}', { status: 200 }))
+    const http = createHttpClient(() => ({ header: 'X-CSRF-TOKEN', token: 't' }), () => fetchFn)
+
+    await http.request('/x', { method: 'PATCH', json: { useYn: false } })
+
+    expect(calls[0].init).toEqual({
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': 't' },
+      body: '{"useYn":false}',
+    })
+  })
+
+  it('skipSuccessBody면 2xx 본문이 끝나지 않아도 헤더만으로 성공을 돌려준다', async () => {
+    const { fetchFn } = stubFetch(() => new Response(new ReadableStream(), { status: 201 }))
+    const http = createHttpClient(noCsrf, () => fetchFn)
+
+    const result = await http.request('/x', { method: 'POST', json: {}, skipSuccessBody: true })
+
+    expect(result).toEqual({ kind: 'http', status: 201, ok: true, body: null, bodyError: false })
+  })
+
+  it('skipSuccessBody여도 실패 응답은 본문을 읽는다(오류 문구)', async () => {
+    const { fetchFn } = stubFetch(() => new Response('{"message":"충돌"}', { status: 409 }))
+    const http = createHttpClient(noCsrf, () => fetchFn)
+
+    const result = await http.request('/x', { method: 'PUT', json: {}, skipSuccessBody: true })
+
+    expect(result).toEqual({ kind: 'http', status: 409, ok: false, body: { message: '충돌' }, bodyError: false })
+  })
 })
 
 describe('errorMessage', () => {

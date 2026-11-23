@@ -117,25 +117,20 @@ class ContentManagePageIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("ADMIN 메뉴 화면: 200(302 아님), 메뉴 패널·jstree·모달 2개(패널 밖), 새로고침 안내가 있고 정적 페이지·사이트 마크업은 없다")
+    @DisplayName("ADMIN 메뉴 화면: 200(302 아님), React 마운트 지점(패널 안)·모달 마운트 지점(패널 밖)만 있고 정적 페이지·사이트 마크업은 없다")
     void adminMenuScreen_hasMenuPanelOnly() throws Exception {
         String html = html(MENU, admin);
         Document doc = Jsoup.parse(html);
 
         assertThat(doc.select("h1").text()).isEqualTo("메뉴 관리");
         assertThat(doc.getElementById("menuTabPanel")).isNotNull();
-        assertThat(doc.getElementById("menuTree")).isNotNull();
-        assertThat(doc.getElementById("siteSelect")).as("편집할 사이트 선택").isNotNull();
-        assertThat(doc.getElementById("contentReloadNotice")).isNotNull();
-        assertThat(doc.getElementById("contentReloadNow")).isNotNull();
+        assertThat(doc.selectFirst("#menuTabPanel #menuManageRoot")).as("CSS 스코프(#menuTabPanel) 안의 마운트 지점").isNotNull();
         assertThat(doc.getElementById("contentTabs")).isNull();
         assertThat(doc.getElementById("pagesTabPanel")).isNull();
         assertThat(doc.getElementById("siteTabPanel")).isNull();
-        for (String modalId : List.of("permanentDeleteModal", "iconPickerModal")) {
-            assertThat(doc.getElementById(modalId)).as(modalId).isNotNull();
-            assertThat(doc.selectFirst("#menuTabPanel #" + modalId)).as(modalId + "는 패널 밖").isNull();
-        }
-        assertThat(html).contains("jstree.min.js").contains("content:menu-applied")
+        assertThat(doc.getElementById("menuModalRoot")).as("모달 마운트 지점").isNotNull();
+        assertThat(doc.getElementById("menuModalRoot").parents()).extracting(Element::id).as("모달은 #wrapper 밖").doesNotContain("wrapper");
+        assertThat(html).doesNotContain("jstree").doesNotContain("cdnjs")
                 .doesNotContain("/admin/api/site-pages").doesNotContain("ContentScreen")
                 .doesNotContain("content:menu-applying").doesNotContain("content:sites-changed");
         assertNoDuplicateIds(doc);
@@ -160,7 +155,7 @@ class ContentManagePageIntegrationTest extends MariaDbContainerSupport {
     }
 
     @Test
-    @DisplayName("스크립트 배치 순서: 의존성(jQuery·jstree·Quill·notice-editor) 뒤에 각 화면의 조각 스크립트가 온다")
+    @DisplayName("스크립트 배치 순서: 의존성(jQuery·Quill·notice-editor) 뒤에 각 화면의 조각 스크립트가 온다")
     void scriptsComeAfterDependencies() throws Exception {
         String page = html(PAGE, admin);
         int jquery = page.indexOf("/vendor/jquery/jquery.min.js");
@@ -175,11 +170,11 @@ class ContentManagePageIntegrationTest extends MariaDbContainerSupport {
 
         String menu = html(MENU, admin);
         int menuJquery = menu.indexOf("/vendor/jquery/jquery.min.js");
-        int jstree = menu.indexOf("jstree.min.js");
-        int menuScript = menu.indexOf("$(document).ready(function ()");
-        assertThat(List.of(menuJquery, jstree, menuScript)).doesNotContain(-1);
-        assertThat(menuJquery).isLessThan(jstree);
-        assertThat(jstree).isLessThan(menuScript);
+        int menuBootstrap = menu.indexOf("/vendor/bootstrap/js/bootstrap.bundle.min.js");
+        int menuScript = menu.indexOf("/js/admin-react/menu-manage.js");
+        assertThat(List.of(menuJquery, menuBootstrap, menuScript)).doesNotContain(-1);
+        assertThat(menuJquery).isLessThan(menuBootstrap);
+        assertThat(menuBootstrap).isLessThan(menuScript);
 
         String site = html(SITE, admin);
         int siteJquery = site.indexOf("/vendor/jquery/jquery.min.js");

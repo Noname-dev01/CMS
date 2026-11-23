@@ -23,6 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code insertAdjacentHTML}, {@code eval(}, {@code new Function(} 금지. 본문 HTML은 공용 편집기({@code NoticeEditor.setHtml})로만 넘긴다
  *       (sanitizer 허용 목록과 1:1인 기존 경로).</li>
  *   <li>CSS·이미지·폰트를 import하지 않는다 — Vite가 별도 산출물을 만들고 템플릿이 그 링크를 따로 출력해야 한다. 스타일은 템플릿이 맡는다.</li>
+ *   <li>동적 {@code import()}를 쓰지 않는다 — 진입점이 여럿이라 공유 청크가 생기는데, 정적 import만 쓰면 페이지를 읽을 때 모두 내려받아 떠 있는
+ *       화면이 배포 뒤 사라진 청크를 찾는 일이 없다(PLAN-react-admin-menu.md 결정 4).</li>
  * </ul>
  * 한계: 문자열 조합으로 우회한 호출(예: {@code el["inner" + "HTML"]})과 의존 패키지 내부는 검사하지 않는다 — 리뷰에서 확인한다.
  */
@@ -36,6 +38,7 @@ class FrontendSourceConventionTest {
             Pattern.compile("insertAdjacentHTML"),
             Pattern.compile("\\beval\\s*\\("),
             Pattern.compile("\\bnew\\s+Function\\s*\\("),
+            Pattern.compile("\\bimport\\s*\\("),
             Pattern.compile("^\\s*import\\s+(?:[^'\"]*\\s+from\\s+)?['\"][^'\"]+\\.(css|scss|sass|less|png|jpe?g|gif|svg|webp|woff2?|ttf)(\\?[^'\"]*)?['\"]",
                     Pattern.MULTILINE));
 
@@ -64,6 +67,7 @@ class FrontendSourceConventionTest {
         assertThat(findViolations("eval(code)")).isNotEmpty();
         assertThat(findViolations("const f = new Function('a', body)")).isNotEmpty();
         assertThat(findViolations("import './faq.css'")).isNotEmpty();
+        assertThat(findViolations("const m = await import('./Lazy')")).isNotEmpty();
         assertThat(findViolations("import logo from '../img/logo.svg?url'")).isNotEmpty();
 
         assertThat(findViolations("<span>{category.name}</span>")).isEmpty();
