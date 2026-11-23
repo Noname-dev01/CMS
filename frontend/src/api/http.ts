@@ -19,8 +19,10 @@ export interface CsrfToken {
 export type CsrfProvider = () => CsrfToken | null
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   json?: unknown
+  /** 2xx면 본문을 읽지 않고 헤더만으로 성공을 돌려준다(본문이 필요 없는 쓰기 — 본문 전송이 멈춰도 화면이 잠기지 않는다). */
+  skipSuccessBody?: boolean
 }
 
 export interface HttpClient {
@@ -61,6 +63,9 @@ export function createHttpClient(csrf: CsrfProvider, fetchFn: () => typeof fetch
       }
       if (response.status === 204) {
         return { kind: 'http', status: 204, ok: true, body: null, bodyError: false }
+      }
+      if (options.skipSuccessBody && response.ok) {
+        return { kind: 'http', status: response.status, ok: true, body: null, bodyError: false }
       }
       try {
         const body: unknown = await response.json()
