@@ -2,7 +2,7 @@
 # 이미지 대신 JDK 이미지 + ./gradlew를 쓴다(PLAN-prod-profile.md 결정 9) — gradle:8.7-jdk17의
 # 시스템 Gradle 8.7은 저장소가 실제로 쓰는 버전과 달라 로컬·CI와 다른 빌드 도구로
 # 배포 이미지가 만들어지는 불일치가 있었다.
-FROM eclipse-temurin:21-jdk@sha256:ebfbb18d11ff163ee83b21258acf12248af48d22a0fdfdc68fa1a1516c05976a AS builder
+FROM eclipse-temurin:21-jdk@sha256:8ad118b146aa92da815b576441acd6b42b38236797ad0b6edc8c200b85bb0734 AS builder
 WORKDIR /workspace
 COPY gradlew gradlew.bat ./
 COPY gradle gradle
@@ -13,7 +13,7 @@ RUN ./gradlew --version --no-daemon
 COPY . .
 RUN ./gradlew clean bootJar --no-daemon
 
-FROM eclipse-temurin:21-jre-noble@sha256:0d57a8e90c2bb844c5a8e1b2b71e11eff06dad7edcfd803cd21ed4ae203b2515
+FROM eclipse-temurin:21-jre-noble@sha256:ac595159aa2209f07a2331efa8a8ce4278b77a7b76a9365a0f173786d5067a9e
 WORKDIR /app
 
 # 첨부파일 저장 디렉터리를 appuser 전환 전에 만들고 소유권을 넘긴다 — 안 하면 named volume
