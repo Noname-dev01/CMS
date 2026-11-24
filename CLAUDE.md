@@ -43,6 +43,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 브랜치 접두사: `feat/` · `fix/` · `refactor/` · `security/` · `test/` · `chore/` + kebab-case
 - 작업 완료 시 PR → CI(`.github/workflows/ci.yml`) 통과(`./gradlew test`) → Squash merge → 브랜치 삭제
 - 상세 규칙: `docs/branching.md` 참고
+- PR을 만들 때 머지 예약(auto-merge) 자격과 절차는 `docs/development-workflow.md` "머지 예약"을 따른다(기본은 사용자가 직접 머지)
 
 ## 빌드 및 실행 명령어
 
