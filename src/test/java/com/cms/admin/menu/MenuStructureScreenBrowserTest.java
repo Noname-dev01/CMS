@@ -146,6 +146,11 @@ class MenuStructureScreenBrowserTest extends BrowserTestSupport {
         page.waitForFunction("name => document.getElementById('formModeLabel').textContent === '메뉴 수정: ' + name", name);
     }
 
+    /** [반영] 성공은 문서를 다시 읽는다 — 새 문서에서 React가 그리기 전에는 요소가 없으므로 {@code ?.}로 읽어 기다린다(없으면 대기가 예외로 끝난다). */
+    private void awaitAppliedAfterReload() {
+        page.waitForFunction("() => document.getElementById('treeSuccess')?.textContent === '메뉴 구조를 반영했습니다(1건 이동).'");
+    }
+
     private String draftStatus() {
         return page.textContent("#draftStatus").strip();
     }
@@ -229,7 +234,7 @@ class MenuStructureScreenBrowserTest extends BrowserTestSupport {
         assertThat(second.get("baseOrd").asInt()).isEqualTo(1);
         assertThat(second.get("upMenuNo").asLong()).isEqualTo(a);
 
-        page.waitForFunction("() => document.getElementById('treeSuccess').textContent === '메뉴 구조를 반영했습니다(1건 이동).'");
+        awaitAppliedAfterReload();
         assertThat(upMenuNo(b)).isEqualTo(a);
         assertThat(draftStatus()).isEqualTo(NO_DRAFT);
     }
@@ -362,7 +367,7 @@ class MenuStructureScreenBrowserTest extends BrowserTestSupport {
 
         page.locator("#btnApply").focus();
         page.keyboard().press("Enter");
-        page.waitForFunction("() => document.getElementById('treeSuccess').textContent === '메뉴 구조를 반영했습니다(1건 이동).'");
+        awaitAppliedAfterReload();
         assertThat(upMenuNo(b)).isEqualTo(a);
         assertThat(jdbc.queryForList("SELECT menu_no FROM menu WHERE up_menu_no = ? ORDER BY ord", Long.class, a)).containsExactly(b, a1);
     }
@@ -576,7 +581,7 @@ class MenuStructureScreenBrowserTest extends BrowserTestSupport {
 
         page.waitForFunction("() => document.getElementById('draftStatus').textContent.includes('1건')");
         page.click("#btnApply");
-        page.waitForFunction("() => document.getElementById('treeSuccess').textContent.includes('1건 이동')");
+        awaitAppliedAfterReload();
         assertThat(jdbc.queryForObject("SELECT p.menu_name FROM menu c JOIN menu p ON p.menu_no = c.up_menu_no WHERE c.menu_name = 'SMT_B'", String.class))
                 .isEqualTo("SMT_A");
     }

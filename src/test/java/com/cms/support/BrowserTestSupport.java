@@ -13,6 +13,7 @@ import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.Route;
 import com.microsoft.playwright.options.FormData;
 import com.microsoft.playwright.options.RequestOptions;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,6 +60,8 @@ public abstract class BrowserTestSupport extends MariaDbContainerSupport {
 
     private static final Pattern CSRF_INPUT = Pattern.compile("name=\"_csrf\"\\s+value=\"([^\"]+)\"|value=\"([^\"]+)\"\\s+name=\"_csrf\"");
 
+    private static final Pattern GOOGLE_FONTS = Pattern.compile("^https://fonts\\.(googleapis|gstatic)\\.com/");
+
     private static final AtomicInteger BARRIER_SEQ = new AtomicInteger();
 
     @Autowired private MemberTotpRepository memberTotpRepository;
@@ -100,6 +103,8 @@ public abstract class BrowserTestSupport extends MariaDbContainerSupport {
         BrowserContext context = browser().newContext(options);
         context.setDefaultTimeout(15_000);
         context.addInitScript(NO_TRANSITIONS_SCRIPT);
+        // 외부 글꼴은 시험 대상이 아니다 — 시험마다 캐시가 빈 컨텍스트라 매번 내려받아 느리고 외부 네트워크에 기댄다(빈 스타일로 응답해 콘솔 오류를 만들지 않는다)
+        context.route(GOOGLE_FONTS, route -> route.fulfill(new Route.FulfillOptions().setStatus(200).setContentType("text/css").setBody("")));
         return context;
     }
 
