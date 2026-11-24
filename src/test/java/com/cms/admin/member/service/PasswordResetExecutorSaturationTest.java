@@ -188,6 +188,10 @@ class PasswordResetExecutorSaturationTest {
         verify(mailSender, timeout(10_000).times(4)).send(any(SimpleMailMessage.class));
         verify(memberRepository, times(1)).clearResetTokenIfMatches(anyLong(), anyString());
 
+        // "발송 성공" 로그는 send가 반환한 뒤 메일 스레드가 남긴다 — 스레드가 끝나야 목록을 읽는 동안 바뀌지 않는다
+        executor.getThreadPoolExecutor().shutdown();
+        assertThat(executor.getThreadPoolExecutor().awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+
         // 로그에 이메일 원문·토큰 해시·링크가 없다 (거부 로그는 memberId·예외 타입만)
         List<String> messages = logAppender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
         assertThat(messages).anyMatch(m -> m.contains("발송 제출 실패") && m.contains("memberId=5")

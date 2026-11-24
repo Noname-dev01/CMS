@@ -92,6 +92,8 @@ CI가 **통과한 PR만 master에 머지**한다 (브랜치 보호 규칙 참고
 - Require branches to be up to date before merging(`strict`, 2026-11-23): 최신 `master`를 반영한 상태로 CI를 통과해야 머지할 수 있다. 다른 PR이 먼저 머지되면 `master`를 반영하고 CI를 다시 통과시킨다 — PR 화면의 [Update branch]를 쓰면 원격 브랜치가 앞서므로 로컬에서 pull한다. Dependabot PR에도 적용된다
 - Include administrators (관리자도 규칙 적용)
 
+저장소 설정 `Settings → General → Pull Requests`의 **Allow auto-merge**도 켠다(2026-11-24). 필수 체크와 `strict`를 통과해야 머지되는 것은 같고, 예약 규칙은 `docs/development-workflow.md` "머지 예약"을 따른다. auto-merge는 `master`를 자동으로 반영하지 않는다.
+
 ---
 
 ## IntelliJ IDEA로 GitHub Flow 수행
