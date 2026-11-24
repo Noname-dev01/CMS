@@ -32,7 +32,7 @@ public abstract class MariaDbContainerSupport {
     @ServiceConnection
     protected static final MariaDBContainer MARIA_DB =
             new MariaDBContainer(
-                    DockerImageName.parse("mariadb@sha256:7d829180b5b2a9ba74f6242876ab401a0d7dd338a807e522ef92bc9698760f20")
+                    DockerImageName.parse("mariadb@sha256:e5fe75b2b9de0eb9f6f9a4d9c97272fb3a7480e389ccd487a786bab2a12cc0d7")
                             .asCompatibleSubstituteFor("mariadb"))
                     // 기본 max_connections(151)는 캐시된 스프링 컨텍스트마다 쥐는 Hikari 풀(최대 10)의 합이 넘기 쉽다 — 컨텍스트가 하나 늘어난 변경
                     // (게시글 예약 게시의 MutableClock 컨텍스트, 2026-10-11)이 전체 실행에서만 "Too many connections"를 내 LockWaitObserverTest 5건을

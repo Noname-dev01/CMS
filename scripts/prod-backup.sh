@@ -110,13 +110,13 @@ echo "⏳ 첨부·프로필 파일 볼륨 압축 중..." >&2
 # 경로인데 host 경로로 잘못 치환되면 tar가 존재하지 않는 host 경로를 열려다 실패한다
 # (구현 단계 실측 발견 — docker run으로 직접 넘기는 인자에만 영향, sh -c '...'로
 # 감싼 스크립트 안에 등장하는 경로 문자열은 영향받지 않는다).
-MSYS_NO_PATHCONV=1 docker run --rm -v "$FILES_VOLUME:/source:ro" mariadb:10.11@sha256:7d829180b5b2a9ba74f6242876ab401a0d7dd338a807e522ef92bc9698760f20 \
+MSYS_NO_PATHCONV=1 docker run --rm -v "$FILES_VOLUME:/source:ro" mariadb:10.11@sha256:e5fe75b2b9de0eb9f6f9a4d9c97272fb3a7480e389ccd487a786bab2a12cc0d7 \
   tar czf - --numeric-owner --exclude='.restore-staging' -C /source . > "$dir/files.tar.gz"
 
 {
   echo "backup_time_kst=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S %Z')"
   echo "git_commit=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse HEAD 2>/dev/null || echo unknown)"
-  echo "db_image=mariadb:10.11@sha256:7d829180b5b2a9ba74f6242876ab401a0d7dd338a807e522ef92bc9698760f20"
+  echo "db_image=mariadb:10.11@sha256:e5fe75b2b9de0eb9f6f9a4d9c97272fb3a7480e389ccd487a786bab2a12cc0d7"
   echo "mariadb_version=$mariadb_version"
   echo "database=$db_name"
   echo "flyway_max_version=$flyway_max_version"
