@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * FAQ 관리 화면의 항목(카테고리·FAQ) 등록·수정 모달(PLAN-admin-form-modal-faq.md)을 <b>실제 브라우저</b>로 고정한다 — MockMvc는 화면 JS·Bootstrap 모달을 재현하지 못한다.
+ * FAQ 관리 화면의 항목(카테고리·FAQ) 등록·수정 모달(PLAN-admin-form-modal-faq.md)을 <b>실제 브라우저</b>로 고정한다 — MockMvc는 화면 JS·네이티브 {@code <dialog>}를 재현하지 못한다(PLAN-dialog-faq-modal.md).
  * 순서 편집(드래그·▲▼·[반영])은 {@code FaqAdminOrderBrowserTest}가 맡고, 이 시험은 모달 고유 동작만 본다:
  * 닫기 정책·브라우저 검증·등록/삭제 뒤 닫힘·409 모달 유지와 입력 보존·재조회 지연·사라진 항목·사라진 카테고리 선택·상세 실패/조회 중 닫기·권한·순서 초안과의 상호 배제·
  * 미저장 입력이 있으면 ×·[닫기]가 확인을 거치고(PLAN-admin-form-dirty-close.md) 변경이 없거나 프로그램이 닫을 때는 확인창이 뜨지 않는다.
@@ -116,6 +116,21 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         page.waitForFunction("s => document.getElementById('faqModal').dataset.state === s", state);
     }
 
+    /** 네이티브 모달로 열려 있다({@code open} 속성만으로 연 비모달 대화상자는 {@code :modal}이 아니다). */
+    private void assertModalShown(String description) {
+        assertThat(page.evaluate("() => document.getElementById('faqModal').matches('dialog:modal')")).as(description).isEqualTo(true);
+    }
+
+    private void pressEscape(int times) {
+        for (int i = 0; i < times; i++) {
+            page.keyboard().press("Escape");
+        }
+    }
+
+    private boolean focusIsOnModalContainer() {
+        return (Boolean) page.evaluate("() => document.activeElement === document.querySelector('#faqModal .modal-content')");
+    }
+
     private void openCategoryModal() {
         page.click("#btnCatNew");
         waitModalState("open");
@@ -187,12 +202,17 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         trackDialogs();
         open(admin);
         openCategoryModal();
-        countHidePrevented(page, "#faqModal");
+        page.evaluate("() => { const d = document.getElementById('faqModal'); window.__esc = 0; window.__backdrop = 0;"
+                + " document.addEventListener('keydown', e => { if (e.key === 'Escape') { window.__esc++; } }, true);"
+                + " d.addEventListener('click', e => { if (e.target === d) { window.__backdrop++; } }); }");
 
-        page.keyboard().press("Escape");
+        // cancel을 막는 것만으로는 연속 ESC의 두 번째를 막지 못한다(PLAN-dialog-faq-modal.md P1) — 여러 번 누른다
+        pressEscape(3);
         page.mouse().click(5, 5);
-        assertHidePrevented(page, 2);                          // 두 입력이 모두 Bootstrap에 닿아 거부됐다(양성 증거, 동기 발생)
-        assertThat(page.locator("#faqModal.show").count()).as("ESC·배경 클릭으로는 닫히지 않는다").isEqualTo(1);
+        assertThat(page.evaluate("() => [window.__esc, window.__backdrop].join()")).as("ESC·배경 클릭이 모두 닿았다(양성 증거)").isEqualTo("3,1");
+        assertModalShown("ESC·배경 클릭으로는 닫히지 않는다");
+        // 다른 방어(keydown 차단)가 ESC를 먼저 막아 동작만으로는 이 속성의 제거를 잡지 못한다
+        assertThat(page.evaluate("() => document.getElementById('faqModal').closedBy")).isEqualTo("none");
 
         page.click("#btnModalCloseX");
         waitModalState("closed");
@@ -223,7 +243,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         assertThat(page.evaluate("() => document.activeElement && document.activeElement.id")).isEqualTo("faqQuestion");
         awaitRequestBarrier(page);
         assertThat(writes.get()).as("검증에 걸려 쓰기 요청이 나가지 않았다").isZero();
-        assertThat(page.locator("#faqModal.show").count()).isEqualTo(1);
+        assertModalShown("모달이 유지된다");
         assertThat(dialogMessages).as("빈 폼은 확인 없이 닫혔다").isEmpty();
     }
 
@@ -273,7 +293,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         page.click("#btnCatSave");
 
         waitForText("modalAlert", "입력한 내용은 그대로");
-        assertThat(page.locator("#faqModal.show").count()).as("409여도 모달은 유지된다").isEqualTo(1);
+        assertModalShown("409여도 모달은 유지된다");
         assertThat(page.inputValue("#catName")).as("입력이 보존된다").isEqualTo("내 수정");
         assertThat(jdbc.queryForObject("SELECT name FROM faq_category WHERE id = ?", String.class, c1)).isEqualTo("카테고리1");
         waitUntilIdle();
@@ -343,22 +363,19 @@ class FaqModalBrowserTest extends BrowserTestSupport {
     }
 
     @Test
-    @DisplayName("상세 조회가 즉시 404로 실패해도(열림 전환 중) 모달이 결국 닫히고, 재조회가 끝난 뒤에도 페이지 상단 안내가 남는다")
+    @DisplayName("상세 조회가 즉시 404로 실패해도(연 직후) 모달이 닫히고, 재조회가 끝난 뒤에도 페이지 상단 안내가 남는다")
     void immediateDetailFailureClosesTheModalAndKeepsTheNotice() {
         trackDialogs();
         open(admin);
-        restoreModalTransitions(page);                       // 이 시험은 열림 전환 중의 응답이 조건이다 — 기본으로 꺼 둔 전환을 되살린다
-        // 상세 조회(GET /admin/api/faqs/{id})가 열림 전환(약 300ms)보다 훨씬 빨리 404로 끝나도록 즉시 해결되는 응답으로 바꾼다 —
-        // 서버 왕복은 전환이 끝난 뒤에 도착할 수 있어 "전환 중 hide() 무시"를 결정적으로 재현하지 못한다.
-        // json()도 즉시 해결되게 덮어써, 클릭부터 closeModal()까지가 마이크로태스크만으로 끝나 열림 전환 앞 구간(배경막 단계)에 고정되게 한다 —
-        // 네이티브 본문 소비는 완료 시점이 보장되지 않는다(PLAN-modal-shown-race-test.md R1-1).
+        // 상세 조회(GET /admin/api/faqs/{id})를 즉시 해결되는 404로 바꾸고 json()도 즉시 해결되게 덮어써, 클릭부터 closeModal()까지가
+        // 마이크로태스크만으로 끝나게 한다 — showModal() 직후, 첫 화면이 그려지기 전에 닫는 구간이다.
         page.evaluate("() => { const orig = window.fetch; window.fetch = function (url, options) {"
                 + " if (!(/\\/admin\\/api\\/faqs\\/\\d+$/.test(String(url)) && !(options && options.method))) { return orig(url, options); }"
                 + " const r = new Response('{}', { status: 404 }); r.json = () => Promise.resolve({}); return Promise.resolve(r); }; }");
 
         page.click(".faq-row[data-faq-id='" + a + "'] .faq-row-question");
-        // 모달 요소의 "숨김" 대기는 쓰지 않는다 — 열림 전환 초기에는 요소가 아직 display:none이라 닫히지 않았는데도 바로 통과한다.
-        waitModalState("closed");                            // 전환 중 hide()가 무시되면 open에서 멈춰 시간 초과로 실패한다
+        waitForText("pageAlert", "불러오지 못했습니다");
+        waitModalState("closed");
         waitForText("pageAlert", "불러오지 못했습니다");
         waitUntilIdle();                                     // 404 뒤 재조회까지 끝났다 — 재조회의 안내 정리는 busy 해제와 같은 동기 연속이다
         assertThat(page.locator("#pageAlert").isVisible()).as("재조회가 안내를 지우지 않았다").isTrue();
@@ -366,20 +383,198 @@ class FaqModalBrowserTest extends BrowserTestSupport {
     }
 
     @Test
-    @DisplayName("모달이 표시된 뒤·shown 전에 상세 조회가 404로 실패해도 미뤄 둔 닫기(pendingClose)로 모달이 닫히고, 재조회가 끝난 뒤에도 안내가 남는다")
-    void detailFailureWhileModalShowingClosesThroughPendingClose() {
+    @DisplayName("열림 페이드가 진행되는 중에 상세 조회가 404로 실패하면 페이드가 끝나기를 기다리지 않고 닫히고, 재조회가 끝난 뒤에도 안내가 남는다")
+    void detailFailureDuringFadeInClosesTheModal() {
         trackDialogs();
         open(admin);
-        restoreModalTransitions(page);                       // 이 시험은 실제 전환 시간(약 300ms) 중의 응답이 조건이다
-        failDetailWhenModalShows(page, "/admin/api/faqs/\\d+$", "#faqModal");
+        // 페이드를 60초로 늘려 응답을 넘기고 닫는 동안 실행 중임을 보장한다(animationstart는 늦게 전달될 수 있다 — PLAN-dialog-faq-modal.md F3)
+        page.addStyleTag(new Page.AddStyleTagOptions().setContent("#faqModal { animation-duration: 60s !important; }"));
+        page.evaluate("() => { const d = document.getElementById('faqModal'); const st = window.__fade = { delivered: null, closes: [] };"
+                + " const running = () => d.getAnimations().some(a => a.playState === 'running');"
+                + " const close = HTMLDialogElement.prototype.close;"
+                + " HTMLDialogElement.prototype.close = function () { if (this === d) { st.closes.push(running()); } return close.apply(this, arguments); };"
+                + " let release = null; const orig = window.fetch;"
+                + " d.addEventListener('animationstart', () => { st.delivered = running(); release(); }, { once: true });"
+                + " window.fetch = function (url, options) {"
+                + "   if (!(/\\/admin\\/api\\/faqs\\/\\d+$/.test(String(url)) && !(options && options.method))) { return orig(url, options); }"
+                + "   return new Promise(resolve => { release = () => { const r = new Response('{}', { status: 404 }); r.json = () => Promise.resolve({}); resolve(r); }; }); }; }");
 
         page.click(".faq-row[data-faq-id='" + a + "'] .faq-row-question");
-        waitModalState("closed");                            // 직접 hide()를 부르면 Bootstrap이 무시해 open에 멈춘다 — 시간 초과로 실패
+        waitModalState("closed");
         waitForText("pageAlert", "불러오지 못했습니다");
         waitUntilIdle();
+        assertThat(page.evaluate("() => JSON.stringify(window.__fade)")).as("페이드 중에 응답이 넘어갔고 close()도 페이드 중에 한 번 불렸다")
+                .isEqualTo("{\"delivered\":true,\"closes\":[true]}");
         assertThat(page.locator("#pageAlert").isVisible()).as("재조회가 안내를 지우지 않았다").isTrue();
         assertThat(dialogMessages).as("프로그램이 닫는 경로(상세 조회 실패)는 미저장 확인을 거치지 않는다").isEmpty();
-        assertClosedThroughPendingClose(page);
+    }
+
+    @Test
+    @DisplayName("closedby가 없는 브라우저를 흉내 내도 연속 ESC로 닫히지 않고(저장 중 포커스를 잃은 동안 포함), 키보드가 아닌 닫기 요청도 취소한다")
+    void escapeIsBlockedWithoutClosedBy() {
+        AtomicReference<Route> held = new AtomicReference<>();
+        page.route("**/admin/api/faq-categories", held::set);
+        open(admin);
+        openCategoryModal();
+        page.evaluate("() => document.getElementById('faqModal').removeAttribute('closedby')");   // 최신 Chromium의 기본값 경로다 — 구형 엔진의 재현은 아니다
+        page.fill("#catName", "esc-category");
+
+        pressEscape(3);
+        assertModalShown("closedby 없이도 연속 ESC로 닫히지 않는다");
+        assertThat(page.evaluate("() => document.getElementById('faqModal').dispatchEvent(new Event('cancel', { cancelable: true }))"))
+                .as("취소할 수 있는 닫기 요청은 취소한다(preventDefault면 dispatchEvent가 false)").isEqualTo(false);
+
+        page.press("#catName", "Enter");                     // 저장 — 폼이 잠기며 포커스를 쥔 입력이 비활성화된다
+        page.waitForCondition(() -> held.get() != null);
+        page.waitForFunction("() => document.getElementById('catFieldset').disabled && document.activeElement === document.body");
+        pressEscape(3);
+        assertModalShown("포커스가 body에 있어도 ESC로 닫히지 않는다");
+
+        held.get().resume();
+        waitModalState("closed");
+    }
+
+    @Test
+    @DisplayName("닫히는 중(close 이벤트 전)에는 다시 열 수 없고, 닫힌 뒤 다시 연 폼을 늦은 close가 지우지 않는다")
+    void reopeningWaitsForTheCloseEvent() {
+        trackDialogs();
+        open(admin);
+        openCategoryModal();
+
+        Object right = page.evaluate("() => { const d = document.getElementById('faqModal');"
+                + " document.getElementById('btnModalClose').click(); const closed = !d.open;"
+                + " document.getElementById('btnCatNew').click(); return [closed, d.open, d.dataset.state].join(); }");
+        assertThat(right).as("close()는 즉시 닫지만 close 이벤트 전이라 다시 열지 않는다").isEqualTo("true,false,closing");
+
+        waitModalState("closed");
+        openCategoryEdit(c1);
+        page.evaluate("() => new Promise(done => requestAnimationFrame(() => setTimeout(done, 0)))");
+        assertModalShown("다시 연 모달이 유지된다");
+        assertThat(page.inputValue("#catName")).as("늦은 close가 새 폼을 지우지 않았다").isEqualTo("카테고리1");
+    }
+
+    @Test
+    @DisplayName("버튼으로 열고 저장 없이 닫으면 그 버튼으로 포커스가 돌아온다")
+    void closingRestoresFocusToTheOpener() {
+        open(admin);
+        openCategoryModal();
+        page.focus("#btnModalClose");
+        page.keyboard().press("Enter");
+        waitModalState("closed");
+        assertThat(page.evaluate("() => document.activeElement.id")).isEqualTo("btnCatNew");
+    }
+
+    @Test
+    @DisplayName("취소·저장 성공·상세 실패로 닫을 때 aria-hidden 포커스 경고가 없다(#298)")
+    void closingLeavesNoAriaHiddenWarning() {
+        context.newCDPSession(page).send("Accessibility.enable");   // 헤드리스는 접근성 트리가 꺼져 있어 이 경고를 검사하지 않는다(켜야 전환 전 코드에서 경고가 난다)
+        List<String> warnings = new CopyOnWriteArrayList<>();
+        page.onConsoleMessage(message -> {
+            if (message.text().contains("aria-hidden")) {
+                warnings.add(message.text());
+            }
+        });
+        open(admin);
+
+        openCategoryModal();
+        page.focus("#btnModalClose");
+        page.keyboard().press("Enter");
+        waitModalState("closed");
+
+        openCategoryModal();
+        page.fill("#catName", "warning-category");
+        page.click("#btnCatSave");
+        waitModalState("closed");
+        waitForText("pageSuccess", "카테고리를 등록했습니다");
+        waitUntilIdle();
+
+        page.route("**/admin/api/faqs/" + a, route -> route.fulfill(new Route.FulfillOptions().setStatus(404).setContentType("application/json").setBody("{}")));
+        page.click(".faq-row[data-faq-id='" + a + "'] .faq-row-question");
+        waitForText("pageAlert", "불러오지 못했습니다");
+        waitModalState("closed");
+        page.evaluate("() => new Promise(done => requestAnimationFrame(() => setTimeout(done, 0)))");
+
+        assertThat(warnings).as("aria-hidden 포커스 경고").isEmpty();
+    }
+
+    @Test
+    @DisplayName("열면 포커스가 모달 컨테이너에 있고(첫 열기·재열기·FAQ), Enter를 누른 채 열어도 닫히거나 저장하지 않으며, Tab이 배경으로 나가지 않는다")
+    void initialFocusStaysInTheModalContainer() {
+        AtomicInteger writes = new AtomicInteger();
+        page.onRequest(request -> {
+            if (request.url().contains("/admin/api/faq") && !"GET".equals(request.method())) {
+                writes.incrementAndGet();
+            }
+        });
+        open(admin);
+
+        page.focus("#btnCatNew");
+        for (int i = 0; i < 4; i++) {
+            page.keyboard().down("Enter");                   // 두 번째부터는 키 반복이다
+        }
+        page.keyboard().up("Enter");
+        assertModalShown("Enter를 누른 채 열어도 닫히지 않는다");
+        assertThat(focusIsOnModalContainer()).as("첫 열기").isTrue();
+        // Chromium은 tabindex=-1만 있어도 컨테이너에 포커스하지만 표준의 기본값은 Tab으로 갈 수 있는 첫 요소(×)다 — 동작만으로는 이 속성의 제거를 잡지 못한다
+        assertThat(page.evaluate("() => document.querySelector('#faqModal .modal-content').hasAttribute('autofocus')")).isEqualTo(true);
+        awaitRequestBarrier(page);
+        assertThat(writes.get()).as("저장 요청이 나가지 않았다").isZero();
+
+        boolean visitedClose = false;
+        for (int i = 0; i < 20; i++) {
+            page.keyboard().press(i < 10 ? "Tab" : "Shift+Tab");
+            assertThat(page.evaluate("() => document.activeElement === document.body || document.getElementById('faqModal').contains(document.activeElement)"))
+                    .as("Tab 이동 %d: 배경 요소에 닿지 않는다", i).isEqualTo(true);
+            visitedClose |= "btnModalClose".equals(page.evaluate("() => document.activeElement.id"));
+        }
+        assertThat(visitedClose).as("Tab이 실제로 모달 안을 돌았다(양성 증거)").isTrue();
+
+        page.click("#btnModalClose");
+        waitModalState("closed");
+        openCategoryModal();
+        assertThat(focusIsOnModalContainer()).as("재열기").isTrue();
+        page.click("#btnModalClose");
+        waitModalState("closed");
+
+        holdFirstResponse(page, "/admin/api/faqs/" + a + "$");
+        page.click(".faq-row[data-faq-id='" + a + "'] .faq-row-question");
+        waitModalState("open");
+        assertThat(focusIsOnModalContainer()).as("FAQ 상세 조회 중").isTrue();
+        releaseHeldResponse(page);
+        page.waitForFunction("() => !document.getElementById('faqFieldset').disabled");
+        assertThat(focusIsOnModalContainer()).as("상세가 채워진 뒤").isTrue();
+    }
+
+    @Test
+    @DisplayName("열려 있는 동안 배경은 스크롤되지 않고, 화면보다 긴 모달은 끝까지 스크롤되며, 닫아도 페이지 스크롤 위치가 남는다")
+    void backgroundDoesNotScrollWhileOpen() {
+        for (int i = 2; i < 25; i++) {
+            category("카테고리" + (i + 1), i);
+        }
+        open(admin);
+        page.setViewportSize(1000, 400);
+        page.evaluate("() => { window.scrollTo(0, 300); document.getElementById('btnFaqNew').click(); }");
+        waitModalState("open");
+        assertThat(page.evaluate("() => window.scrollY")).as("페이지가 스크롤된 상태에서 열었다").isEqualTo(300);
+        assertThat(page.evaluate("() => document.getElementById('faqModal').scrollTop")).as("긴 모달도 맨 위에서 열린다(초기 포커스가 스크롤하지 않는다)").isEqualTo(0);
+
+        page.mouse().move(500, 100);
+        page.mouse().wheel(0, 5000);
+        page.waitForFunction("() => { const d = document.getElementById('faqModal'); return d.scrollTop > 0 && d.scrollTop + d.clientHeight >= d.scrollHeight - 1; }");
+        assertThat(page.evaluate("() => { const r = document.getElementById('btnFaqSave').getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; }"))
+                .as("푸터 버튼까지 닿는다").isEqualTo(true);
+
+        page.evaluate("() => { window.__wheel = 0; window.addEventListener('wheel', () => { window.__wheel++; }, { passive: true }); }");
+        page.mouse().wheel(0, 500);                          // 모달 끝에서 더 굴린다 — 페이지로 넘어가면 안 된다
+        page.waitForFunction("() => window.__wheel > 0");
+        page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 0))))");
+        assertThat(page.evaluate("() => window.scrollY")).as("배경이 스크롤되지 않았다").isEqualTo(300);
+        assertThat(page.evaluate("() => getComputedStyle(document.documentElement).overflowY")).isEqualTo("hidden");
+
+        page.click("#btnModalClose");
+        waitModalState("closed");
+        assertThat(page.evaluate("() => window.scrollY")).as("닫은 뒤 위치 유지").isEqualTo(300);
+        assertThat(page.evaluate("() => document.body.style.paddingRight")).as("폭 보정이 남지 않는다").isEqualTo("");
     }
 
     @Test
@@ -525,7 +720,7 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         // confirm()은 닫기 처리 안에서 동기적으로 뜨고 핸들러가 취소할 때까지 클릭이 끝나지 않는다 — 확인창이 세어진 시점에 취소 결과는 확정돼 있다
         waitDialogs(1);
         assertThat(dialogMessages.get(0)).contains("저장하지 않은 변경이 있습니다");
-        assertThat(page.locator("#faqModal.show").count()).as("취소하면 모달이 유지된다").isEqualTo(1);
+        assertModalShown("취소하면 모달이 유지된다");
         assertThat(page.inputValue("#catName")).as("입력이 보존된다").isEqualTo("typed-category");
         page.click("#btnModalCloseX");                       // × 도 같은 확인을 거친다
         waitDialogs(2);
@@ -774,6 +969,6 @@ class FaqModalBrowserTest extends BrowserTestSupport {
         acceptDialogs.set(true);
         page.click("#btnModalClose");
         waitModalState("closed");
-        assertThat(dialogMessages).as("hide 처리가 한 번만 등록돼 확인도 한 번").hasSize(1);
+        assertThat(dialogMessages).as("닫기 처리가 한 번이라 확인도 한 번").hasSize(1);
     }
 }

@@ -1632,6 +1632,39 @@ page.locator("body[data-before-restore]").waitFor(new Locator.WaitForOptions().s
 
 메타 문자를 직접 이스케이프한다(`text.replaceAll("[\\\\^$.|?*+()\\[\\]{}]", "\\\\$0")`). 정규식이 필요 없으면 문자열 인자를 쓴다(부분 일치·공백 정규화).
 
+### 브라우저 시험에서 "Blocked aria-hidden" 콘솔 경고가 잡히지 않아 결함이 있어도 통과한다 (2026-11-25, 이슈 #298)
+
+#### 오류 메시지
+
+오류 없음 — 경고를 세는 시험이 Bootstrap 모달(화면 있는 브라우저에서는 닫을 때마다 경고가 나는 코드)에서도 통과했다.
+
+```
+Blocked aria-hidden on an element because its descendant retained focus.
+```
+
+#### 원인
+
+헤드리스 Chromium(Playwright 1.65.1) 시험 환경에서는 이 경고가 나오지 않았고, CDP `Accessibility.enable` 하나만 더하자 같은 코드에서 났다. 접근성 트리가 켜져 있지 않아 검사가 돌지 않은 것으로 본다(브라우저 소스로 확인하지는 않았다). 화면 있는 Chromium에서는 켜지 않아도 났다.
+
+#### 해결 방법
+
+경고를 세기 전에 `context.newCDPSession(page).send("Accessibility.enable")`을 부른다(`FaqModalBrowserTest.closingLeavesNoAriaHiddenWarning`). "경고 0"을 단언하는 시험은 결함이 있는 코드에서 실패하는지 먼저 확인한다.
+
+### 네이티브 `<dialog>`를 열면 긴 모달이 아래로 스크롤되고 오른쪽에 빈 띠가 남는다 (2026-11-25, 이슈 #298)
+
+#### 오류 메시지
+
+오류 없음 — 자동 시험은 통과하고 스크린샷에서만 보였다(Chromium에서 위 여백 28px이 잘림, 오른쪽 15px이 어두워지지 않음).
+
+#### 원인
+
+- `showModal()`의 초기 포커스가 화면보다 긴 컨테이너를 화면 안으로 스크롤한다(실측 `scrollTop` 28).
+- 배경 스크롤을 잠그며 준 `scrollbar-gutter: stable`이 top layer의 `<dialog>`와 배경막에도 빈 자리를 남긴다(실측 dialog 폭 1265 / 화면 1280).
+
+#### 해결 방법
+
+연 직후 `scrollTop = 0`으로 되돌리고, gutter 대신 스크롤바 폭만큼 `body`에 `padding-right`를 준 뒤 닫을 때 지운다. WebKit에서는 되돌린 뒤에도 조금 스크롤된 채 열린다(모양만, 미해결).
+
 ### 화면 JS를 React로 옮겼더니 브라우저 시험의 fetch 가로채기가 상세 조회를 놓친다 — GET 요청에 `method`를 실었다
 
 #### 오류 메시지

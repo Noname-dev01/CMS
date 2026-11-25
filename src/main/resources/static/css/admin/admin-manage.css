@@ -163,6 +163,43 @@
     gap: 1rem;
 }
 
+/* 네이티브 <dialog> 모달(PLAN-dialog-faq-modal.md) — Bootstrap의 .modal 배치를 재사용하고 브라우저 기본 모양만 지운다.
+   <dialog class="modal admin-dialog"> 안에 .modal-dialog > .modal-content를 그대로 둔다. 닫힘 효과는 두지 않는다. */
+dialog.admin-dialog {
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: inherit;
+    background: transparent;
+}
+
+dialog.admin-dialog[open] {
+    display: block;
+    overflow-x: hidden;
+    overflow-y: auto;
+    animation: admin-dialog-in 0.15s ease-out;
+}
+
+dialog.admin-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+html:has(dialog.admin-dialog[open]) {
+    overflow: hidden;
+}
+
+@keyframes admin-dialog-in {
+    from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    dialog.admin-dialog[open] {
+        animation: none;
+    }
+}
+
 .admin-detail-modal .modal-content {
     border: 0;
     border-radius: 1rem;
