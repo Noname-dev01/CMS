@@ -4,7 +4,7 @@
  *
  * 상태 원칙(PLAN-react-admin-faq.md 결정 6):
  * - 화면에 그리는 상태는 view(useState)에 두고, 이벤트 핸들러가 즉시 최신 값을 읽도록 같은 값을 viewRef에 동기적으로 반영한다(update()).
- * - 같은 실행 흐름에서 즉시 읽혀야 하는 전환 정보(세대·모달 상태·forceClose·pendingClose·미저장 기준값)는 ref에만 둔다.
+ * - 같은 실행 흐름에서 즉시 읽혀야 하는 전환 정보(세대·모달 상태·미저장 기준값)는 ref에만 둔다.
  * - 편집기·모달 같은 외부 부수 효과는 핸들러가 세대를 확인한 뒤에만 실행한다(늦은 응답은 화면 상태에 닿기 전에 버린다).
  */
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
@@ -33,7 +33,7 @@ import {
 const UNKNOWN_RESULT_MESSAGE =
   '저장 여부를 확인할 수 없습니다. 모달을 닫고 [새로고침]으로 목록을 다시 불러온 뒤 반영되었는지 직접 확인하세요. 입력은 닫으면 사라지니 필요하면 복사해 두세요.'
 
-export type ModalState = 'closed' | 'opening' | 'open' | 'closing'
+export type ModalState = 'closed' | 'open' | 'closing'
 export type ModalMode = 'category' | 'faq'
 
 export interface View {
@@ -118,13 +118,11 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
   const loadSeq = useRef(0)
   const detailSeq = useRef(0)
   const modalState = useRef<ModalState>('closed')
-  const pendingClose = useRef(false)
-  const forceClose = useRef(false)
   const baseline = useRef<Baseline | null>(null)
   const categoryBase = useRef<{ id: number; version: number } | null>(null)
   const faqBase = useRef<{ id: number; categoryId: number } | null>(null)
   const dragState = useRef<DragState | null>(null)
-  const modalEl = useRef<HTMLDivElement>(null)
+  const modalEl = useRef<HTMLDialogElement>(null)
   const editorHost = useRef<HTMLDivElement>(null)
   const editor = useRef<NoticeEditorInstance | null>(null)
 
@@ -133,7 +131,7 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
   const dirty = () => isDirty(viewRef.current.server, viewRef.current.order)
   const locked = () => interactionLocked(viewRef.current)
   const formIsLocked = () => formLocked(viewRef.current, dirty())
-  const modalIsShowing = () => modalState.current === 'opening' || modalState.current === 'open'
+  const modalIsShowing = () => modalState.current === 'open'
   const hasCategory = (id: number) => viewRef.current.server?.categories.some((c) => c.id === id) ?? false
   const findFaq = (id: number) => {
     for (const c of viewRef.current.server?.categories ?? []) {
@@ -158,7 +156,7 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
   const setModalState = (state: ModalState) => {
     modalState.current = state
     if (modalEl.current) {
-      modalEl.current.dataset.state = state   // 브라우저 시험이 열림 전환 완료를 읽는다 — React prop이 아니라 직접 둔다(C6)
+      modalEl.current.dataset.state = state   // 브라우저 시험이 읽는다 — React prop이 아니라 직접 둔다
     }
     update({ modalState: state })
   }
@@ -368,21 +366,22 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
 
   /** 모드·폼을 DOM에 반영한 뒤(flushSync) 모달을 연다. 새로 여는 동작은 모달이 완전히 닫혀 있을 때만 호출한다(호출자가 가드한다). */
   const openModal = (mode: ModalMode, patch: Partial<View>) => {
-    forceClose.current = false
     flushSync(() => update({ ...patch, modalMode: mode }))
-    setModalState('opening')
-    if (modalEl.current) {
-      $(modalEl.current).modal('show')
-    }
+    const el = modalEl.current
+    if (!el) return
+    // 배경 스크롤을 잠그면(admin-manage.css) 스크롤바가 사라져 본문 폭이 변한다 — 그 폭만큼 채운다(scrollbar-gutter는 dialog와 배경막에도 빈 자리를 남긴다).
+    const scrollbar = window.innerWidth - document.documentElement.clientWidth
+    document.body.style.paddingRight = scrollbar > 0 ? scrollbar + 'px' : ''
+    el.showModal()   // 동기로 열린다 — 이 직후의 closeModal()도 무시되지 않는다
+    el.scrollTop = 0   // 초기 포커스가 화면보다 긴 모달을 아래로 스크롤한다
+    setModalState('open')
   }
 
+  /** 확인 없이 닫는다. close 이벤트는 나중에 오므로 그때까지 closing이다(다시 열기는 closed에서만). */
   const closeModal = () => {
-    forceClose.current = true
-    if (modalState.current === 'open' && modalEl.current) {
-      $(modalEl.current).modal('hide')
-    } else if (modalState.current === 'opening') {
-      pendingClose.current = true   // 열림 전환 중의 hide()는 무시되므로 shown 이후에 닫는다
-    }
+    if (modalState.current !== 'open') return
+    setModalState('closing')
+    modalEl.current?.close()
   }
 
   const isFormDirty = () => {
@@ -405,43 +404,31 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
     return { editingFaq: null, faqTitle: '새 FAQ', faqForm: { ...viewRef.current.faqForm, question: '', useYn: true } }
   }
 
-  // 핸들러가 렌더링 시점 값을 캡처하지 않도록 최신 함수를 ref로 넘긴다(Bootstrap 이벤트는 한 번만 등록한다).
-  const modalHandlers = useRef({ onShown: () => {}, onHide: (_event: BootstrapModalEvent) => {}, onHidden: () => {} })
-  modalHandlers.current = {
-    onShown: () => {
-      setModalState('open')
-      if (pendingClose.current && modalEl.current) {
-        pendingClose.current = false
-        $(modalEl.current).modal('hide')
-      }
-    },
-    // ×·[닫기]로 닫을 때 미저장 입력이 있으면 확인한다. 취소하면 닫힘을 막는다.
-    onHide: (event) => {
-      if (!forceClose.current && isFormDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 닫으시겠습니까?')) {
-        event.preventDefault()
-        return
-      }
-      setModalState('closing')
-    },
-    onHidden: () => {
-      setModalState('closed')
-      pendingClose.current = false
-      forceClose.current = false
-      baseline.current = null
-      // 상세 조회 중에 닫아도 세대를 올리고 loadingDetail을 풀어, 늦게 온 응답이 새 폼을 덮지 못하고 다음 수정 진입이 막히지 않는다.
-      detailSeq.current++
-      update({ modalAlert: null, loadingDetail: false, ...resetCategoryForm(), ...resetFaqForm() })
-    },
+  // ×·[닫기]로 닫을 때 미저장 입력이 있으면 확인한다. 취소하면 닫지 않는다.
+  const requestClose = () => {
+    if (isFormDirty() && !window.confirm('저장하지 않은 변경이 있습니다. 버리고 닫으시겠습니까?')) return
+    closeModal()
   }
 
+  const onModalClosed = () => {
+    document.body.style.paddingRight = ''
+    setModalState('closed')
+    baseline.current = null
+    // 상세 조회 중에 닫아도 세대를 올리고 loadingDetail을 풀어, 늦게 온 응답이 새 폼을 덮지 못하고 다음 수정 진입이 막히지 않는다.
+    detailSeq.current++
+    update({ modalAlert: null, loadingDetail: false, ...resetCategoryForm(), ...resetFaqForm() })
+  }
+
+  // closedby를 모르는 브라우저에서 ESC를 연속으로 누르면 cancel 취소만으로는 닫힌다 — keydown을 막으면 닫기 요청이 처리되지 않는다.
+  // 저장 중에는 포커스를 쥔 입력이 비활성화돼 키 이벤트 대상이 body가 되므로 document에서 듣는다.
   useEffect(() => {
-    const el = modalEl.current
-    if (!el) return
-    const target = $(el)
-    target.on('shown.bs.modal.faqReact', () => modalHandlers.current.onShown())
-    target.on('hide.bs.modal.faqReact', (event) => modalHandlers.current.onHide(event))
-    target.on('hidden.bs.modal.faqReact', () => modalHandlers.current.onHidden())
-    return () => target.off('.faqReact')
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && modalState.current !== 'closed') {
+        event.preventDefault()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
   // 편집기는 한 번만 만든다(파괴 API가 없고 페이지 수명과 같다). 호스트는 React가 자식을 관리하지 않는 빈 요소다 —
@@ -706,6 +693,8 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
           onFaqSubmit={(event) => void onFaqSubmit(event)}
           onCategoryDelete={() => void onCategoryDelete()}
           onFaqDelete={() => void onFaqDelete()}
+          onRequestClose={requestClose}
+          onClosed={onModalClosed}
         />,
         modalContainer,
       )}

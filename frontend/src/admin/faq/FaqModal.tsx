@@ -1,9 +1,9 @@
 /**
- * 카테고리·FAQ 등록·수정 모달(한 모달에 두 폼, 한 번에 하나만 보인다). Bootstrap 4 jQuery 모달이 #faqModal의 class·style·aria-hidden을
- * 직접 바꾸므로 그 속성들은 마운트 때 한 번 정해지는 정적 값만 둔다(PLAN-react-admin-faq.md C6). data-state는 FaqManage가 직접 쓴다.
+ * 카테고리·FAQ 등록·수정 모달(한 모달에 두 폼, 한 번에 하나만 보인다). 네이티브 <dialog>이고 여닫기는 FaqManage가 showModal()·close()로 한다
+ * (PLAN-dialog-faq-modal.md). open 속성은 브라우저가, data-state는 FaqManage가 직접 쓴다. 모양은 Bootstrap의 .modal 배치 + .admin-dialog(admin-manage.css).
  * 모달·두 폼·편집기 호스트는 항상 마운트하고 모드 전환은 d-none으로만 한다(수명주기 계약).
  */
-import type { FormEvent, RefObject } from 'react'
+import { useEffect, useRef, type FormEvent, type RefObject } from 'react'
 import { scopeOptions, type ScopeSite } from '../shared/siteScope'
 import type { View } from './FaqManage'
 import { categoryOptions, type CategoryForm, type FaqForm } from './state'
@@ -11,7 +11,7 @@ import { categoryOptions, type CategoryForm, type FaqForm } from './state'
 interface Props {
   view: View
   sites: ScopeSite[]
-  modalRef: RefObject<HTMLDivElement | null>
+  modalRef: RefObject<HTMLDialogElement | null>
   editorHostRef: RefObject<HTMLDivElement | null>
   formLocked: boolean
   canCreate: boolean
@@ -23,6 +23,10 @@ interface Props {
   onFaqSubmit: (event: FormEvent) => void
   onCategoryDelete: () => void
   onFaqDelete: () => void
+  /** ×·[닫기] — 미저장 입력이 있으면 확인한다 */
+  onRequestClose: () => void
+  /** 브라우저가 닫은 뒤(close 이벤트) */
+  onClosed: () => void
 }
 
 const hidden = (hide: boolean) => (hide ? ' d-none' : '')
@@ -32,25 +36,28 @@ export function FaqModal(props: Props) {
   const category = view.modalMode === 'category'
   const editingCategory = view.editingCategoryId !== null
   const editingFaq = view.editingFaq !== null
-  const showing = view.modalState === 'opening' || view.modalState === 'open'
+  const showing = view.modalState === 'open'
   const faqCategoryOptions = view.server ? categoryOptions(view.server, view.faqForm.categoryId, showing && !category) : []
 
+  // 초기 포커스를 × 대신 컨테이너에 둔다(Enter를 누른 채 열 때 키 반복이 ×를 누르지 않게). React의 autoFocus prop은 속성을 남기지 않아 직접 쓴다.
+  const content = useRef<HTMLDivElement>(null)
+  useEffect(() => content.current?.setAttribute('autofocus', ''), [])
+
   return (
-    <div
+    <dialog
       ref={props.modalRef}
-      className="modal fade admin-detail-modal"
+      className="modal admin-dialog admin-detail-modal"
       id="faqModal"
-      tabIndex={-1}
-      role="dialog"
       aria-labelledby="catFormTitle faqFormTitle"
-      aria-hidden="true"
-      data-backdrop="static"
-      data-keyboard="false"
+      // ESC·배경 클릭으로 닫히지 않는다(입력 보호). closedby를 모르는 브라우저는 FaqManage의 keydown 차단과 아래 onCancel이 막는다.
+      closedby="none"
+      onCancel={(event) => event.preventDefault()}
+      onClose={props.onClosed}
       // 처음 값만 React가 쓴다(prop이 바뀌지 않아 다시 쓰지 않는다). 이후 전환은 FaqManage.setModalState가 직접 쓴다.
       data-state="closed"
     >
       <div className="modal-dialog modal-lg modal-dialog-centered" role="document">
-        <div className="modal-content">
+        <div className="modal-content" ref={content} tabIndex={-1}>
           <div className="modal-header">
             <div className="detail-hero">
               <div className="detail-hero-copy">
@@ -58,7 +65,7 @@ export function FaqModal(props: Props) {
                 <h5 className={'modal-title' + hidden(category)} id="faqFormTitle">{view.faqTitle}</h5>
               </div>
             </div>
-            <button type="button" className="close" data-dismiss="modal" aria-label="Close" id="btnModalCloseX" disabled={view.writing}>
+            <button type="button" className="close" aria-label="Close" id="btnModalCloseX" disabled={view.writing} onClick={props.onRequestClose}>
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
@@ -126,12 +133,12 @@ export function FaqModal(props: Props) {
           <div className="modal-footer">
             <button type="button" className={'btn btn-danger mr-auto' + hidden(!category || !editingCategory || !props.canDelete)} id="btnCatDelete" onClick={props.onCategoryDelete}>삭제</button>
             <button type="button" className={'btn btn-danger mr-auto' + hidden(category || !editingFaq || !props.canDelete)} id="btnFaqDelete" onClick={props.onFaqDelete}>삭제</button>
-            <button type="button" className="btn btn-secondary" data-dismiss="modal" id="btnModalClose" disabled={view.writing}>닫기</button>
+            <button type="button" className="btn btn-secondary" id="btnModalClose" disabled={view.writing} onClick={props.onRequestClose}>닫기</button>
             <button type="submit" className={'btn btn-primary' + hidden(!category || (editingCategory ? !props.canUpdate : !props.canCreate))} id="btnCatSave" form="catForm">{editingCategory ? '저장' : '등록'}</button>
             <button type="submit" className={'btn btn-primary' + hidden(category || (editingFaq ? !props.canUpdate : !props.canCreate))} id="btnFaqSave" form="faqForm">{editingFaq ? '저장' : '등록'}</button>
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }
