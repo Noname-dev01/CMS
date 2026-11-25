@@ -318,6 +318,8 @@ class PostCoverImageApiIntegrationTest extends MariaDbContainerSupport {
         long boardId = createBoard(null);
         long goodImage = uploadImage(boardId, png(32, 16));
         long badImage = uploadImage(boardId, png(900, 900));
+        // 아래에서 storage_key를 덮어쓰면 cleanUp이 업로드 원본을 찾지 못해 디스크에 남으므로 먼저 지운다.
+        fileStorage.delete(jdbc.queryForObject("SELECT storage_key FROM content_image WHERE id = ?", String.class, badImage));
         byte[] original = png(900, 900);
         String brokenKey = fileStorage.store(Arrays.copyOf(original, original.length / 2), "image.png");
         jdbc.update("UPDATE content_image SET storage_key = ? WHERE id = ?", brokenKey, badImage);
