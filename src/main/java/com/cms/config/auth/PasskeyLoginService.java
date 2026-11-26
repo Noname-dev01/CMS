@@ -3,7 +3,6 @@ package com.cms.config.auth;
 import com.cms.admin.member.domain.Member;
 import com.cms.admin.member.domain.MemberPasskey;
 import com.cms.admin.member.domain.MemberPasskeyUser;
-import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.MemberTotp;
 import com.cms.admin.member.passkey.PasskeyCounterRegression;
 import com.cms.admin.member.passkey.PasskeyJson;
@@ -14,7 +13,6 @@ import com.cms.admin.member.repository.MemberRepository;
 import com.cms.admin.member.repository.MemberTotpRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.web.webauthn.api.AuthenticatorAssertionResponse;
 import org.springframework.security.web.webauthn.api.PublicKeyCredential;
 import org.springframework.security.web.webauthn.api.PublicKeyCredentialRequestOptions;
@@ -109,7 +107,7 @@ public class PasskeyLoginService {
     public Optional<LocalDateTime> verify(CustomUserDetails principal, PublicKeyCredentialRequestOptions options,
                                           PublicKeyCredential<AuthenticatorAssertionResponse> credential) {
         Optional<Member> locked = memberRepository.findByIdForUpdate(principal.getId());
-        if (locked.isEmpty() || !matchesLogin(locked.get(), principal)) {
+        if (locked.isEmpty() || !principal.matchesCurrent(locked.get())) {
             return Optional.empty();
         }
         Member member = locked.get();
@@ -144,15 +142,5 @@ public class PasskeyLoginService {
         return row.isPresent()
                 && Objects.equals(row.get().getMemberId(), member.getId())
                 && !row.get().getCreatedAt().isBefore(totp.getEnabledAt());
-    }
-
-    /** 상태 로딩 때의 principal과 지금 행이 같은 상태인가 — ACTIVE·같은 역할·같은 비밀번호 해시(2단계 판정과 같은 규칙). */
-    private static boolean matchesLogin(Member member, CustomUserDetails principal) {
-        if (member.getStatus() != MemberStatus.ACTIVE) {
-            return false;
-        }
-        String principalRole = principal.getAuthorities().stream().map(GrantedAuthority::getAuthority).findFirst().orElse(null);
-        return member.getUserType().name().equals(principalRole)
-                && Objects.equals(member.getPwd(), principal.getPassword());
     }
 }

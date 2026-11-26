@@ -1,7 +1,6 @@
 package com.cms.config.auth;
 
 import com.cms.admin.member.domain.Member;
-import com.cms.admin.member.domain.MemberStatus;
 import com.cms.admin.member.domain.MemberTotp;
 import com.cms.admin.member.domain.MemberPasskey;
 import com.cms.admin.member.domain.MemberPasskeyUser;
@@ -17,7 +16,6 @@ import com.cms.admin.member.service.TotpCredentialChecker;
 import com.cms.admin.member.service.TotpCredentialChecker.Outcome;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.web.webauthn.api.AuthenticatorAssertionResponse;
 import org.springframework.security.web.webauthn.api.PublicKeyCredential;
 import org.springframework.security.web.webauthn.api.PublicKeyCredentialRequestOptions;
@@ -77,7 +75,7 @@ public class TotpLoginService {
     @Transactional
     public Result verify(CustomUserDetails principal, String code, String requestIp, String requestUri) {
         Optional<Member> locked = memberRepository.findByIdForUpdate(principal.getId());
-        if (locked.isEmpty() || !matchesLogin(locked.get(), principal)) {
+        if (locked.isEmpty() || !principal.matchesCurrent(locked.get())) {
             return Result.of(Status.REJECTED);
         }
         Member member = locked.get();
@@ -147,7 +145,7 @@ public class TotpLoginService {
     public Result verifyPasskey(CustomUserDetails principal, PublicKeyCredentialRequestOptions options, String credentialJson,
                                 String requestIp, String requestUri) {
         Optional<Member> locked = memberRepository.findByIdForUpdate(principal.getId());
-        if (locked.isEmpty() || !matchesLogin(locked.get(), principal)) {
+        if (locked.isEmpty() || !principal.matchesCurrent(locked.get())) {
             return Result.of(Status.REJECTED);
         }
         Member member = locked.get();
@@ -206,15 +204,5 @@ public class TotpLoginService {
             log.info("패스키 2단계 검증 실패 (memberId={}, type={})", member.getId(), e.getClass().getName());
             return PasskeyCheck.MISMATCH;
         }
-    }
-
-    /** 로그인(비밀번호 단계) 때의 principal과 지금 행이 같은 상태인가 — ACTIVE·같은 역할·같은 비밀번호 해시. */
-    private static boolean matchesLogin(Member member, CustomUserDetails principal) {
-        if (member.getStatus() != MemberStatus.ACTIVE) {
-            return false;
-        }
-        String principalRole = principal.getAuthorities().stream().map(GrantedAuthority::getAuthority).findFirst().orElse(null);
-        return member.getUserType().name().equals(principalRole)
-                && Objects.equals(member.getPwd(), principal.getPassword());
     }
 }

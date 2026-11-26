@@ -9,6 +9,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 
 @Getter
 public class CustomUserDetails implements UserDetails {
@@ -51,6 +52,20 @@ public class CustomUserDetails implements UserDetails {
 
     public Member getMember(){
         return member;
+    }
+
+    /**
+     * 로그인(비밀번호 단계·패스키 식별) 때의 이 principal과 지금 회원 행이 같은 상태인가 — ACTIVE·같은 역할·같은 비밀번호 해시.
+     * 2단계 판정({@code TotpLoginService})과 패스키 단독 로그인({@code PasskeyLoginService})이 회원 행 잠금 뒤 재확인에 쓴다
+     * (두 곳에 있던 같은 비교식을 옮겼다 — PLAN-solid-small-cleanup.md 결정 3).
+     */
+    public boolean matchesCurrent(Member current) {
+        if (current.getStatus() != MemberStatus.ACTIVE) {
+            return false;
+        }
+        String principalRole = getAuthorities().stream().map(GrantedAuthority::getAuthority).findFirst().orElse(null);
+        return current.getUserType().name().equals(principalRole)
+                && Objects.equals(current.getPwd(), getPassword());
     }
 
     @Override
