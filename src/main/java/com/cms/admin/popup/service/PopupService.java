@@ -3,6 +3,7 @@ package com.cms.admin.popup.service;
 import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.domain.ContentImageRef;
 import com.cms.admin.contentimage.repository.ContentImageRefRepository;
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
@@ -255,9 +256,7 @@ public class PopupService {
             throw new ResourceNotFoundException("이미지가 없는 팝업입니다.");
         }
         try {
-            byte[] content = image.isRootNamespace()
-                    ? fileStorage.load(image.storageKey())
-                    : fileStorage.load(image.storageKey(), image.namespace());
+            byte[] content = ContentImageFiles.load(fileStorage, image.storageKey(), image.namespace());
             return new PopupImageDownload(image.contentType(), content);
         } catch (StorageFileNotFoundException e) {
             throw new ResourceNotFoundException("팝업 이미지 파일을 찾을 수 없습니다.");

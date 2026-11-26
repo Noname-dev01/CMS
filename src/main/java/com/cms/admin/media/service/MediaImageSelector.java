@@ -2,6 +2,7 @@ package com.cms.admin.media.service;
 
 import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.repository.ContentImageRepository;
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
@@ -47,9 +48,7 @@ public class MediaImageSelector {
         }
         byte[] content;
         try {
-            content = image.isRootNamespace()
-                    ? fileStorage.load(image.getStorageKey())
-                    : fileStorage.load(image.getStorageKey(), image.getNamespace());
+            content = ContentImageFiles.load(fileStorage, image.getStorageKey(), image.getNamespace());
         } catch (StorageFileNotFoundException e) {
             throw new ResourceNotFoundException("이미지 파일을 찾을 수 없습니다.");
         }

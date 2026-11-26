@@ -196,4 +196,18 @@ class PublicContentImageThumbIntegrationTest extends MariaDbContainerSupport {
         // 원본은 영향이 없다
         mockMvc.perform(get("/content-images/{id}", imageId)).andExpect(status().isOk());
     }
+
+    @Test
+    @DisplayName("공개 글이 참조하는 이미지의 원본(루트 영역) 파일만 없으면 GET·HEAD 모두 404다 — 저장소 불일치를 500으로 드러내지 않는다")
+    void missingRootOriginalFile() throws Exception {
+        long boardId = board();
+        long imageId = imagePublishedBy(boardId, png(40, 30), true);
+        // 파일을 지우기 전에는 공개 판정을 통과한다 — 아래 404가 "공개되지 않음"이 아니라 "파일 없음" 때문임을 보인다
+        mockMvc.perform(get("/content-images/{id}", imageId)).andExpect(status().isOk());
+        String key = jdbc.queryForObject("SELECT storage_key FROM content_image WHERE id = ?", String.class, imageId);
+        fileStorage.delete(key);
+
+        mockMvc.perform(get("/content-images/{id}", imageId)).andExpect(status().isNotFound());
+        mockMvc.perform(head("/content-images/{id}", imageId)).andExpect(status().isNotFound());
+    }
 }

@@ -13,8 +13,4 @@ public record MediaImageInfo(Long imageId, String storageKey, String namespace, 
         return new MediaImageInfo(image.getId(), image.getStorageKey(), image.getNamespace(), image.getContentType(),
                 image.getFileSize(), image.getOriginalName());
     }
-
-    public boolean isRootNamespace() {
-        return namespace == null || namespace.isEmpty();
-    }
 }
