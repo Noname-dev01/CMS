@@ -12,6 +12,7 @@ import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.dto.response.ProfileImageContent;
 import com.cms.admin.member.service.AdminMemberService;
+import com.cms.admin.member.service.MemberProfileImageService;
 import com.cms.admin.menu.service.MenuService;
 import com.cms.common.api.GlobalApiExceptionHandler;
 import com.cms.common.exception.ConflictException;
@@ -76,11 +77,14 @@ class AdminMemberControllerTest {
     AdminMemberService adminMemberService;
 
     @Autowired
+    MemberProfileImageService memberProfileImageService;
+
+    @Autowired
     AdminSecurityService adminSecurityService;
 
     @BeforeEach
     void setUp() {
-        reset(adminMemberService, adminSecurityService);
+        reset(adminMemberService, memberProfileImageService, adminSecurityService);
         given(adminSecurityService.getCurrentAdminName()).willReturn("관리자");
         given(adminSecurityService.getCurrentAdminProfileImageUrl()).willReturn(null);
         // "me" 엔드포인트의 requireCurrentAdminId() 기본 스텁 — 각 테스트에서 null로 오버라이드 가능
@@ -92,6 +96,11 @@ class AdminMemberControllerTest {
         @Bean
         public AdminMemberService adminMemberService() {
             return Mockito.mock(AdminMemberService.class);
+        }
+
+        @Bean
+        public MemberProfileImageService memberProfileImageService() {
+            return Mockito.mock(MemberProfileImageService.class);
         }
 
         @Bean
@@ -990,7 +999,7 @@ class AdminMemberControllerTest {
     @DisplayName("기본 프로필 이미지 선택 성공 (PUT JSON)")
     @WithMockUser(roles = "ADMIN")
     void applyDefaultProfileImage_success() throws Exception {
-        given(adminMemberService.applyDefaultProfileImage(anyLong(), anyString())).willReturn(adminMemberResponse());
+        given(memberProfileImageService.applyDefaultProfileImage(anyLong(), anyString())).willReturn(adminMemberResponse());
 
         mockMvc.perform(put("/admin/api/members/me/profile-image")
                         .with(csrf())
@@ -1000,8 +1009,8 @@ class AdminMemberControllerTest {
                 .andExpect(jsonPath("$.userId").value("admin01"));
 
         // 서비스 성공 후 refresh가 호출되어야 한다
-        InOrder inOrder = Mockito.inOrder(adminMemberService, adminSecurityService);
-        inOrder.verify(adminMemberService).applyDefaultProfileImage(1L, "profile-1");
+        InOrder inOrder = Mockito.inOrder(memberProfileImageService, adminSecurityService);
+        inOrder.verify(memberProfileImageService).applyDefaultProfileImage(1L, "profile-1");
         inOrder.verify(adminSecurityService).refreshAuthentication(1L);
     }
 
@@ -1026,8 +1035,8 @@ class AdminMemberControllerTest {
                 .andExpect(status().isNoContent());
 
         // 서비스 성공 후 refresh가 호출되어야 한다
-        InOrder inOrder = Mockito.inOrder(adminMemberService, adminSecurityService);
-        inOrder.verify(adminMemberService).resetMyProfileImage(1L);
+        InOrder inOrder = Mockito.inOrder(memberProfileImageService, adminSecurityService);
+        inOrder.verify(memberProfileImageService).resetMyProfileImage(1L);
         inOrder.verify(adminSecurityService).refreshAuthentication(1L);
     }
 
@@ -1169,7 +1178,7 @@ class AdminMemberControllerTest {
     @DisplayName("내 프로필 이미지 다운로드 성공 — 바이트 본문 + 정확한 헤더")
     @WithMockUser(roles = "ADMIN")
     void getMyProfileImageContent_success() throws Exception {
-        given(adminMemberService.getMyProfileImageContent(1L))
+        given(memberProfileImageService.getMyProfileImageContent(1L))
                 .willReturn(new ProfileImageContent(new byte[]{1, 2, 3}, "image/png"));
 
         mockMvc.perform(get("/admin/api/members/me/profile-image"))
@@ -1185,7 +1194,7 @@ class AdminMemberControllerTest {
     @DisplayName("MANAGER도 자기 자신 프로필 이미지 다운로드(GET /members/me/profile-image) 가능하다")
     @WithMockUser(roles = "MANAGER")
     void getMyProfileImageContent_manager_ok() throws Exception {
-        given(adminMemberService.getMyProfileImageContent(1L))
+        given(memberProfileImageService.getMyProfileImageContent(1L))
                 .willReturn(new ProfileImageContent(new byte[]{1}, "image/png"));
 
         mockMvc.perform(get("/admin/api/members/me/profile-image"))
@@ -1203,7 +1212,7 @@ class AdminMemberControllerTest {
     @DisplayName("업로드된 이미지가 없으면 404")
     @WithMockUser(roles = "ADMIN")
     void getMyProfileImageContent_notFound() throws Exception {
-        given(adminMemberService.getMyProfileImageContent(1L))
+        given(memberProfileImageService.getMyProfileImageContent(1L))
                 .willThrow(new ResourceNotFoundException("프로필 이미지를 찾을 수 없습니다."));
 
         mockMvc.perform(get("/admin/api/members/me/profile-image"))
@@ -1214,7 +1223,7 @@ class AdminMemberControllerTest {
     @DisplayName("ADMIN은 타 관리자 프로필 이미지 다운로드(GET /members/{id}/profile-image) 가능하다")
     @WithMockUser(roles = "ADMIN")
     void getProfileImageContent_admin_ok() throws Exception {
-        given(adminMemberService.getProfileImageContent(2L))
+        given(memberProfileImageService.getProfileImageContent(2L))
                 .willReturn(new ProfileImageContent(new byte[]{5, 6}, "image/jpeg"));
 
         mockMvc.perform(get("/admin/api/members/2/profile-image"))
@@ -1230,7 +1239,7 @@ class AdminMemberControllerTest {
         mockMvc.perform(get("/admin/api/members/2/profile-image"))
                 .andExpect(status().isForbidden());
 
-        verifyNoInteractions(adminMemberService);
+        verifyNoInteractions(memberProfileImageService);
     }
 
     @Test

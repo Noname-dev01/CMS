@@ -144,7 +144,7 @@ public class Member {
 
     /**
      * 정적 프리셋 이미지로 변경한다. {@code presetUrl}이 실제로 허용된 프리셋 값인지의 정책
-     * 판단은 서비스(AdminMemberService.applyDefaultProfileImage)가 이미 마친 뒤 호출된다 —
+     * 판단은 서비스(MemberProfileImageService.applyDefaultProfileImage)가 이미 마친 뒤 호출된다 —
      * 엔티티는 non-blank 여부만 구조적으로 방어한다.
      *
      * @param now 앱 Clock 기준 현재 시각

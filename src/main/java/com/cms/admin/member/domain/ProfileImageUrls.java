@@ -6,7 +6,7 @@ import java.security.NoSuchAlgorithmException;
 
 /**
  * {@code Member.profileImageUrl}(원값)을 브라우저가 실제로 쓸 수 있는 src 문자열로 변환한다.
- * {@code AdminMemberService.toResponse()}(REST 응답)와 {@code AdminSecurityService}(탑바,
+ * {@code AdminMemberResponse.from()}(REST 응답)와 {@code AdminSecurityService}(탑바,
  * com.cms.config.auth 패키지 — SecurityContext에 캐시된 Member 엔티티를 직접 읽는 완전히 다른
  * 코드 경로)가 둘 다 이 변환이 필요해 공유 유틸로 추출했다
  * (adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 4).
