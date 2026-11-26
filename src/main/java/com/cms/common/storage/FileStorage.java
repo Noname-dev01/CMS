@@ -2,7 +2,7 @@ package com.cms.common.storage;
 
 /**
  * 실파일 저장 추상화. 첫 구현체는 로컬 디스크({@link LocalDiskFileStorage})이며,
- * 향후 원격 스토리지(S3 등)로 교체하더라도 이 인터페이스의 소비자(NoticeAttachmentService 등)는
+ * 향후 원격 스토리지(S3 등)로 교체하더라도 이 인터페이스의 소비자(PostAttachmentService 등)는
  * 변경할 필요가 없다.
  *
  * <p>파일당 상한이 10MB로 작아 저장·admin 다운로드·프로필 이미지는 byte[] 기반으로 설계했다
@@ -56,35 +56,23 @@ public interface FileStorage {
      * 접두어를 포함하지 않음), 이후 {@link #load(String, String)}/{@link #delete(String, String)}에
      * **반드시 저장 시 사용한 것과 같은 namespace**를 함께 넘겨야 한다.
      *
-     * <p>기본 구현은 네임스페이스를 지원하지 않는 구현체를 위한 안전한 실패다 — 조용히
-     * 네임스페이스를 무시한 채 루트에 저장하면 격리가 소리 없이 깨지므로, 재정의하지 않은
-     * 구현체는 즉시 예외로 실패한다(adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 2).
-     *
-     * @throws UnsupportedOperationException 이 구현체가 네임스페이스를 지원하지 않는 경우
+     * <p>모든 구현체는 네임스페이스 격리를 제공해야 한다 — 네임스페이스를 무시한 채 루트에 저장하면 격리가 소리 없이 깨진다
+     * (adversarial-review/plan/PLAN-profile-image-storage.md 쟁점 2). 그래서 네임스페이스 메서드는 기본 구현 없이 추상 메서드로 두어
+     * 지원하지 않는 구현체가 실행 중 예외가 아니라 컴파일 단계에서 드러나게 한다(PLAN-solid-small-cleanup.md 결정 5).
      */
-    default String store(byte[] content, String originalFilename, String namespace) {
-        throw new UnsupportedOperationException("이 FileStorage 구현체는 네임스페이스를 지원하지 않습니다.");
-    }
+    String store(byte[] content, String originalFilename, String namespace);
 
     /**
      * {@code namespace} 영역에서 storageKey에 해당하는 파일을 읽는다. 다른 네임스페이스나
      * 네임스페이스 없이 저장된 파일은(물리적으로 다른 위치이므로) 이 메서드로 읽을 수 없다.
-     *
-     * @throws UnsupportedOperationException 이 구현체가 네임스페이스를 지원하지 않는 경우
      */
-    default byte[] load(String storageKey, String namespace) {
-        throw new UnsupportedOperationException("이 FileStorage 구현체는 네임스페이스를 지원하지 않습니다.");
-    }
+    byte[] load(String storageKey, String namespace);
 
     /**
      * {@code namespace} 영역에서 storageKey에 해당하는 파일을 삭제한다. {@link #delete(String)}와
      * 동일하게 파일이 없으면 no-op이다.
-     *
-     * @throws UnsupportedOperationException 이 구현체가 네임스페이스를 지원하지 않는 경우
      */
-    default void delete(String storageKey, String namespace) {
-        throw new UnsupportedOperationException("이 FileStorage 구현체는 네임스페이스를 지원하지 않습니다.");
-    }
+    void delete(String storageKey, String namespace);
 
     /**
      * {@code namespace} 영역의 파일을 전량 메모리에 올리지 않고 스트림으로 연다(무인증 공개 이미지처럼 요청당 힙 점유를 피해야 하는
@@ -92,9 +80,6 @@ public interface FileStorage {
      * {@link #open(String)}과 같은 경로 검증·최종 링크 거부를 적용한다(PLAN-public-home-banner.md R3-1).
      *
      * @throws StorageFileNotFoundException  파일이 존재하지 않는 경우
-     * @throws UnsupportedOperationException 이 구현체가 네임스페이스를 지원하지 않는 경우
      */
-    default StoredFileStream open(String storageKey, String namespace) {
-        throw new UnsupportedOperationException("이 FileStorage 구현체는 네임스페이스를 지원하지 않습니다.");
-    }
+    StoredFileStream open(String storageKey, String namespace);
 }
