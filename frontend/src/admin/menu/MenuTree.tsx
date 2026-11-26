@@ -6,33 +6,10 @@
  * - 트리가 교체되면 부모가 key를 바꿔 다시 마운트한다(접힘 상태 초기화 + 진행 중 드래그 취소).
  */
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { dragReducer, dropPosition, IDLE, type DragInput, type DragState } from './dragState'
+import { scrollAt } from '../shared/dragScroll'
+import { dragReducer, IDLE, type DragInput, type DragState } from '../shared/dragState'
+import { dropPosition } from './dropPosition'
 import { findNode, moveNode, stepTarget, type DropPosition, type MenuNode, type MoveStep, type MoveTarget } from './tree'
-
-/** 스크롤 영역의 보이는 위·아래 가장자리에서 이 거리 안이면 자동 스크롤한다. */
-const EDGE = 40
-const SCROLL_STEP = 8
-
-/**
- * 포인터가 가장자리에 있는 스크롤 영역을 안쪽부터 한 걸음 움직인다. 움직였으면 true. 이 화면에서 실제로 스크롤되는 것은 트리 상자가 아니라
- * #content-wrapper와 문서다(상자의 부모 높이가 auto라 상자는 내용만큼 커진다).
- */
-function scrollAt(tree: HTMLElement | null, y: number): boolean {
-  const areas: Element[] = []
-  for (let el = tree?.parentElement ?? null; el; el = el.parentElement) {
-    if (el === document.scrollingElement || /auto|scroll/.test(getComputedStyle(el).overflowY)) areas.push(el)
-  }
-  return areas.some((area) => {
-    const rect = area.getBoundingClientRect()
-    const isDocument = area === document.scrollingElement
-    const top = isDocument ? 0 : Math.max(0, rect.top)
-    const bottom = isDocument ? window.innerHeight : Math.min(window.innerHeight, rect.bottom)
-    const step = y < top + EDGE ? -SCROLL_STEP : y > bottom - EDGE ? SCROLL_STEP : 0
-    const before = area.scrollTop
-    area.scrollTop += step
-    return area.scrollTop !== before
-  })
-}
 
 const MOVE_BUTTONS: { step: MoveStep; label: string; icon: string }[] = [
   { step: 'up', label: '위로', icon: 'fa-arrow-up' },
@@ -60,7 +37,7 @@ export function MenuTree(props: Props) {
 
   const root = useRef<HTMLDivElement>(null)
   const ghost = useRef<HTMLDivElement>(null)
-  const drag = useRef<DragState>(IDLE)
+  const drag = useRef<DragState<number>>(IDLE)
   const markRef = useRef<MoveTarget | null>(null)
   const frame = useRef(0)
   const detach = useRef<(() => void) | null>(null)
@@ -80,7 +57,7 @@ export function MenuTree(props: Props) {
   }
 
   /** 좌표 아래의 행에서 놓을 수 있는 위치를 찾는다. 허용되지 않거나 자리가 그대로면 표시가 없다. */
-  const updateMark = (state: Extract<DragState, { phase: 'dragging' }>) => {
+  const updateMark = (state: Extract<DragState<number>, { phase: 'dragging' }>) => {
     const row = document.elementFromPoint(state.x, state.y)?.closest<HTMLElement>('.menu-node-row') ?? null
     if (!row || !root.current?.contains(row)) {
       showMark(null)
@@ -89,7 +66,7 @@ export function MenuTree(props: Props) {
     const rect = row.getBoundingClientRect()
     const next: MoveTarget = { menuNo: Number(row.dataset.menuNo), position: dropPosition(rect.top, rect.height, state.y) }
     const tree = latest.current.nodes
-    showMark(moveNode(tree, state.menuNo, next.menuNo, next.position) === tree ? null : next)
+    showMark(moveNode(tree, state.item, next.menuNo, next.position) === tree ? null : next)
   }
 
   const autoScroll = () => {
@@ -143,7 +120,7 @@ export function MenuTree(props: Props) {
     row.querySelector<HTMLElement>(`.menu-move-btn[data-step="${focus.step}"]`)?.focus({ preventScroll: true })
   }, [nodes])
 
-  const dispatch = (input: DragInput) => {
+  const dispatch = (input: DragInput<number>) => {
     const before = drag.current
     const next = dragReducer(before, input)
     if (next === before) return
@@ -152,7 +129,7 @@ export function MenuTree(props: Props) {
       const target = markRef.current
       finish()
       if (input.type === 'up' && before.phase === 'dragging' && target && latest.current.canDrag()) {
-        commitMove(before.menuNo, target, null)
+        commitMove(before.item, target, null)
       }
       return
     }
@@ -160,7 +137,7 @@ export function MenuTree(props: Props) {
       if (before.phase !== 'dragging') {
         suppressClick.current = true
         document.documentElement.classList.add('menu-dragging')
-        setDraggingNo(next.menuNo)
+        setDraggingNo(next.item)
       }
       if (ghost.current) {
         ghost.current.style.transform = `translate(${next.x + 12}px, ${next.y + 12}px)`
@@ -208,10 +185,10 @@ export function MenuTree(props: Props) {
     if (!latest.current.canDrag()) return
     dispatch({
       type: 'down', pointerId: event.pointerId, pointerType: event.pointerType, button: event.button,
-      menuNo, x: event.clientX, y: event.clientY,
+      item: menuNo, x: event.clientX, y: event.clientY,
     })
     // 전이가 거부되면(오른쪽 버튼 등) 리스너를 달지 않는다
-    if ((drag.current as DragState).phase === 'pending') attach()
+    if ((drag.current as DragState<number>).phase === 'pending') attach()
   }
 
   const onClick = (event: MouseEvent, menuNo: number) => {
