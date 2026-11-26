@@ -6,9 +6,15 @@ import com.cms.admin.member.repository.MemberRepository;
 import com.cms.support.BrowserTestSupport;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.TestMembers;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.CDPSession;
+import com.microsoft.playwright.Mouse;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Route;
+import com.microsoft.playwright.options.BoundingBox;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,7 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * FAQ 관리 화면의 순서 편집 JS를 <b>실제 브라우저</b>로 고정한다(PLAN-faq.md 쟁점 13). 네이티브 드래그·▲▼가 서버를 호출하지 않는 초안만 바꾸고,
+ * FAQ 관리 화면의 순서 편집 JS를 <b>실제 브라우저</b>로 고정한다(PLAN-faq.md 쟁점 13). 포인터 드래그(마우스·터치)·▲▼가 서버를 호출하지 않는 초안만 바꾸고,
  * [순서 반영]·[취소]·낡은 화면 409·요청 중 잠금(R3-1)·상세 로딩 중 폼 잠금(R4-2)·쓰기 성공 뒤 재조회 실패 복구(R4-1)가 계획대로 동작하는지 본다.
  * 서버 규칙은 {@code FaqApiIntegrationTest}가 맡는다.
  */
@@ -200,6 +206,9 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         // 다른 카테고리의 FAQ 행으로는 놓을 수 없다
         page.dragAndDrop(handle(a), row(x));
         assertThat(draftBarVisible()).as("카테고리 간 FAQ 이동 드롭은 무시").isFalse();
+        // 대상과 순서가 다른 항목이어야 "같은 순번으로 옮기는" 회귀도 드러난다
+        page.dragAndDrop(handle(d), row(x));
+        assertThat(draftBarVisible()).as("카테고리 간 FAQ 이동 드롭은 무시(순번이 다른 항목)").isFalse();
         assertThat(viewFaqOrder(c1)).containsExactly(a, b, d);
 
         page.dragAndDrop(".faq-cat[data-cat-id='" + c2 + "'] .faq-cat-head .faq-handle", ".faq-cat[data-cat-id='" + c1 + "']");
@@ -424,5 +433,230 @@ class FaqAdminOrderBrowserTest extends BrowserTestSupport {
         page.click("#btnReload");
         page.waitForFunction("() => !document.getElementById('catFieldset').disabled");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM faq_category", Integer.class)).as("재전송 없이 복구").isEqualTo(before);
+    }
+
+    // ── 이동 안내·포커스(이슈 #300) ────────────────────────────────────
+
+    private String moveButton(long faqId, String direction) {
+        return row(faqId) + " button[aria-label='FAQ " + direction + "']";
+    }
+
+    private void awaitMoveStatus(String text) {
+        page.waitForFunction("text => document.getElementById('orderMoveStatus')?.textContent === text", text);
+    }
+
+    private void assertFocusOn(String selector) {
+        assertThat(page.evaluate("s => document.activeElement === document.querySelector(s)", selector)).as("포커스: " + selector).isEqualTo(true);
+    }
+
+    @Test
+    @DisplayName("▲▼·드래그로 옮기면 위치를 polite live region으로 안내하고, 취소·반영하면 안내를 비운다")
+    void movesAreAnnounced_andClearedOnCancelAndApply() {
+        openManage();
+        assertThat(page.locator("#orderMoveStatus").count()).isEqualTo(1);
+        assertThat(page.getAttribute("#orderMoveStatus", "aria-live")).isEqualTo("polite");
+
+        page.click(moveButton(a, "아래로"));
+        awaitMoveStatus("질문A: 3개 중 2번째로 이동");
+        page.click("#btnCancelOrder");
+        awaitMoveStatus("");
+
+        page.click(".faq-cat[data-cat-id='" + c2 + "'] button[aria-label='카테고리 위로']");
+        awaitMoveStatus("카테고리2: 2개 중 1번째로 이동");
+
+        page.dragAndDrop(handle(a), row(d));
+        awaitMoveStatus("질문A: 3개 중 3번째로 이동");
+
+        page.click("#btnApplyOrder");
+        waitForSuccess("순서를 반영했습니다");
+        waitUntilIdle();
+        awaitMoveStatus("");
+    }
+
+    @Test
+    @DisplayName("키보드로 끝까지 옮겨도 포커스가 같은 버튼에 남고, 끝에 닿은 버튼은 눌러도 초안·안내가 바뀌지 않는다")
+    void keyboardMoveKeepsFocus_evenAtTheEnd() {
+        openManage();
+        page.locator(moveButton(a, "아래로")).focus();
+
+        page.keyboard().press("Enter");
+        assertThat(viewFaqOrder(c1)).containsExactly(b, a, d);
+        assertFocusOn(moveButton(a, "아래로"));
+
+        page.keyboard().press("Enter");
+        assertThat(viewFaqOrder(c1)).containsExactly(b, d, a);
+        assertFocusOn(moveButton(a, "아래로"));
+        assertThat(page.getAttribute(moveButton(a, "아래로"), "aria-disabled")).isEqualTo("true");
+        awaitMoveStatus("질문A: 3개 중 3번째로 이동");
+
+        page.keyboard().press("Enter");
+        assertThat(viewFaqOrder(c1)).containsExactly(b, d, a);
+        assertFocusOn(moveButton(a, "아래로"));
+        assertThat(page.textContent("#orderMoveStatus")).isEqualTo("질문A: 3개 중 3번째로 이동");
+
+        // 위로 옮길 때도 포커스가 남는다
+        page.locator(moveButton(a, "위로")).focus();
+        page.keyboard().press("Enter");
+        assertFocusOn(moveButton(a, "위로"));
+
+        String categoryUp = ".faq-cat[data-cat-id='" + c2 + "'] button[aria-label='카테고리 위로']";
+        page.locator(categoryUp).focus();
+        page.keyboard().press("Enter");
+        assertThat(viewCategoryOrder()).containsExactly(c2, c1);
+        assertFocusOn(categoryUp);
+    }
+
+    @Test
+    @DisplayName("키보드로 계속 옮겨 화면 밖으로 나가도 옮긴 행이 보이고 포커스가 남는다")
+    void keyboardMoveKeepsRowInView() {
+        insertManyFaqs();
+        openManage();
+        page.locator(moveButton(a, "아래로")).focus();
+        for (int n = 0; n < 30; n++) {
+            page.keyboard().press("Enter");
+        }
+        assertThat(viewFaqOrder(c1).indexOf(a)).isEqualTo(30);
+        assertFocusOn(moveButton(a, "아래로"));
+        assertThat(page.evaluate("s => { const r = document.querySelector(s).getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }", row(a)))
+                .as("옮긴 행이 화면 안에 있다").isEqualTo(true);
+    }
+
+    // ── 포인터 드래그(이슈 #300) ───────────────────────────────────────
+
+    private static final String SCROLL_TOP = "() => document.scrollingElement.scrollTop + document.getElementById('content-wrapper').scrollTop";
+
+    private void insertManyFaqs() {
+        for (int n = 3; n < 60; n++) {
+            faq(c1, "질문%02d".formatted(n), n);
+        }
+    }
+
+    /** 손잡이를 마우스로 잡아 화면 아래 가장자리에 멈춘다(자동 스크롤 구간). */
+    private void dragToBottomEdge(long faqId) {
+        BoundingBox box = page.locator(handle(faqId)).boundingBox();
+        page.mouse().move(box.x + box.width / 2, box.y + box.height / 2);
+        page.mouse().down();
+        page.mouse().move(box.x + 60, page.viewportSize().height - 15, new Mouse.MoveOptions().setSteps(5));
+    }
+
+    private void assertScrollStopped() {
+        Object before = page.evaluate(SCROLL_TOP);
+        page.evaluate("() => new Promise(done => { let n = 5; const tick = () => (--n ? requestAnimationFrame(tick) : done()); requestAnimationFrame(tick); })");
+        assertThat(page.evaluate(SCROLL_TOP)).as("자동 스크롤이 멈췄다").isEqualTo(before);
+    }
+
+    private static void touch(CDPSession cdp, String type, Double x, Double y) {
+        JsonArray points = new JsonArray();
+        if (x != null) {
+            JsonObject point = new JsonObject();
+            point.addProperty("x", x);
+            point.addProperty("y", y);
+            points.add(point);
+        }
+        JsonObject params = new JsonObject();
+        params.addProperty("type", type);
+        params.add("touchPoints", points);
+        cdp.send("Input.dispatchTouchEvent", params);
+    }
+
+    private Object touchAction(long faqId) {
+        return page.evaluate("s => getComputedStyle(document.querySelector(s)).touchAction", handle(faqId));
+    }
+
+    @Test
+    @DisplayName("실제 터치 포인터(CDP)로 손잡이를 끌면 순서 초안이 되고 반영하면 저장된다")
+    void touchDragMakesDraft_thenApply() {
+        context.close();
+        context = newContext(new Browser.NewContextOptions().setHasTouch(true));
+        page = context.newPage();
+        loginAsAdmin(page, port, admin);
+        openManage();
+
+        BoundingBox from = page.locator(handle(a)).boundingBox();
+        BoundingBox to = page.locator(row(d)).boundingBox();
+        double x = from.x + from.width / 2;
+        double startY = from.y + from.height / 2;
+        double endY = to.y + to.height / 2;
+        CDPSession cdp = context.newCDPSession(page);
+        touch(cdp, "touchStart", x, startY);
+        for (int step = 1; step <= 5; step++) {
+            touch(cdp, "touchMove", x + 2 * step, startY + (endY - startY) * step / 5.0);
+        }
+        touch(cdp, "touchEnd", null, null);
+
+        awaitMoveStatus("질문A: 3개 중 3번째로 이동");
+        assertThat(viewFaqOrder(c1)).containsExactly(b, d, a);
+        page.click("#btnApplyOrder");
+        waitForSuccess("순서를 반영했습니다");
+        waitUntilIdle();
+        assertThat(dbFaqOrder(c1)).containsExactly(b, d, a);
+    }
+
+    @Test
+    @DisplayName("자동 스크롤하는 동안에도 표시된 행과 놓은 결과가 같고, Escape·창 비활성화로 취소하면 초안이 없고 스크롤이 멈춘다")
+    void autoScrollKeepsMarkAndResultInSync_andCancels() {
+        insertManyFaqs();
+        openManage();
+        // 앱의 pointerup 처리보다 먼저 표시된 행과 포인터 아래의 실제 행을 기록한다
+        page.evaluate("() => window.addEventListener('pointerup', e => { const marked = document.querySelector('.faq-drop-before, .faq-drop-after');"
+                + " const under = document.elementFromPoint(e.clientX, e.clientY).closest('.faq-row');"
+                + " window.__mark = marked && { id: marked.dataset.faqId, under: under && under.dataset.faqId }; }, true)");
+
+        dragToBottomEdge(a);
+        page.waitForFunction(SCROLL_TOP + " > 100");
+        page.mouse().up();
+
+        assertThat(page.evaluate("() => window.__mark")).as("놓는 순간 표시된 행").isNotNull();
+        long target = Long.parseLong((String) page.evaluate("() => window.__mark.id"));
+        assertThat(page.evaluate("() => window.__mark.under")).as("표시된 행은 지금 포인터 아래의 행이다").isEqualTo(String.valueOf(target));
+        List<Long> order = viewFaqOrder(c1);
+        assertThat(order.indexOf(a)).as("끌어 내리면 대상 바로 뒤").isEqualTo(order.indexOf(target) + 1);
+
+        page.click("#btnCancelOrder");
+        for (boolean escape : new boolean[]{true, false}) {
+            page.evaluate("() => { document.scrollingElement.scrollTop = 0; document.getElementById('content-wrapper').scrollTop = 0; }");
+            dragToBottomEdge(a);
+            page.waitForFunction(SCROLL_TOP + " > 50");
+            if (escape) {
+                page.keyboard().press("Escape");
+            } else {
+                page.evaluate("() => window.dispatchEvent(new Event('blur'))");
+            }
+            assertScrollStopped();
+            assertThat(page.isVisible(".faq-drag-ghost")).isFalse();
+            page.mouse().up();
+            assertThat(draftBarVisible()).as("취소한 드래그는 초안을 만들지 않는다").isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("드래그하는 도중 목록이 잠기면(순서 반영 요청) 드래그가 취소되고, 잠긴 손잡이는 터치 스크롤을 막지 않는다")
+    void lockDuringDragCancelsIt() {
+        AtomicReference<Route> held = new AtomicReference<>();
+        page.route("**/admin/api/faqs/order", held::set);
+        openManage();
+        page.click(moveButton(a, "아래로"));
+        assertThat(touchAction(d)).isEqualTo("none");
+
+        BoundingBox from = page.locator(handle(d)).boundingBox();
+        BoundingBox to = page.locator(row(b)).boundingBox();
+        page.mouse().move(from.x + from.width / 2, from.y + from.height / 2);
+        page.mouse().down();
+        page.mouse().move(from.x + 40, to.y + to.height / 2, new Mouse.MoveOptions().setSteps(5));
+        assertThat(page.isVisible(".faq-drag-ghost")).isTrue();
+        page.locator("#btnApplyOrder").focus();
+        page.keyboard().press("Enter");
+        page.waitForCondition(() -> held.get() != null);
+
+        // 취소는 잠금을 그린 뒤의 효과에서 일어나 요청 관측보다 한 태스크 늦을 수 있다
+        page.waitForFunction("() => document.querySelector('.faq-drag-ghost').classList.contains('d-none')");
+        assertThat(touchAction(d)).isEqualTo("auto");
+        page.mouse().up();
+        assertThat(viewFaqOrder(c1)).containsExactly(b, a, d);
+
+        held.get().resume();
+        waitForSuccess("순서를 반영했습니다");
+        waitUntilIdle();
+        assertThat(dbFaqOrder(c1)).containsExactly(b, a, d);
     }
 }

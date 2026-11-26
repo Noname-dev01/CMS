@@ -10,6 +10,19 @@ export interface OrderGroup {
   faqIds: number[]
 }
 
+/** 순서를 바꾸는 대상. 위치가 아니라 ID로 가리킨다(끄는 동안 목록이 바뀔 수 있다). */
+export interface OrderItem {
+  kind: 'category' | 'faq'
+  id: number
+}
+
+/** 초안에서의 위치. cat은 카테고리 자신 또는 FAQ가 속한 카테고리 ID, index는 형제 안의 순서다. */
+export interface ItemLocation {
+  cat: number
+  index: number
+  total: number
+}
+
 export interface LockFlags {
   busy: boolean
   loadingDetail: boolean
@@ -73,6 +86,29 @@ export function moveFaq(order: OrderGroup[], categoryId: number, from: number, t
   const next = order.slice()
   next[index] = { id: group.id, faqIds: move(group.faqIds, from, to) }
   return next
+}
+
+export function locate(order: OrderGroup[], item: OrderItem): ItemLocation | null {
+  if (item.kind === 'category') {
+    const index = order.findIndex((g) => g.id === item.id)
+    return index < 0 ? null : { cat: item.id, index, total: order.length }
+  }
+  for (const group of order) {
+    const index = group.faqIds.indexOf(item.id)
+    if (index >= 0) return { cat: group.id, index, total: group.faqIds.length }
+  }
+  return null
+}
+
+export function itemName(tree: FaqTree, item: OrderItem): string {
+  if (item.kind === 'category') return tree.categories.find((c) => c.id === item.id)?.name ?? ''
+  return tree.categories.flatMap((c) => c.faqs).find((f) => f.id === item.id)?.question ?? ''
+}
+
+/** 화면 낭독기에 읽어 줄 이동 결과. 없는 항목이면 빈 문자열이다. */
+export function moveSummary(tree: FaqTree, order: OrderGroup[], item: OrderItem): string {
+  const at = locate(order, item)
+  return at === null ? '' : itemName(tree, item) + ': ' + at.total + '개 중 ' + (at.index + 1) + '번째로 이동'
 }
 
 /** 드래그·▲▼·순서 반영 등 목록 조작이 막히는 상태. */

@@ -20,11 +20,25 @@
     .faq-row { display: flex; align-items: center; padding: 0.4rem 0.75rem; border-top: 1px solid #eaecf4; }
     .faq-row-question { flex: 1; cursor: pointer; overflow-wrap: anywhere; }
     .faq-row.is-editing, .faq-cat.is-editing > .faq-cat-head { background: #e8efff; }
-    .faq-handle { cursor: grab; color: #858796; padding: 0 0.5rem; user-select: none; }
+    .faq-handle { cursor: grab; color: #858796; padding: 0 0.5rem; -webkit-user-select: none; user-select: none; }
+    /* 쓸 수 있는 손잡이를 끌면 스크롤이 아니라 드래그다(터치 포함). 스크롤은 손잡이 밖에서 한다. */
+    .faq-handle[aria-disabled="false"] { touch-action: none; }
     .faq-handle[aria-disabled="true"] { cursor: not-allowed; opacity: 0.4; }
     .faq-move-btn { padding: 0 0.4rem; line-height: 1.4; }
-    .faq-drop-before { box-shadow: inset 0 3px 0 0 #4e73df; }
-    .faq-drop-after { box-shadow: inset 0 -3px 0 0 #4e73df; }
+    .faq-move-btn[aria-disabled="true"] { opacity: 0.65; cursor: not-allowed; }
+    .faq-row.faq-drop-before { box-shadow: inset 0 3px 0 0 #4e73df; }
+    .faq-row.faq-drop-after { box-shadow: inset 0 -3px 0 0 #4e73df; }
+    /* 카드의 안쪽 그림자는 머리글·행 배경에 가려진다 — 자식 위에 겹치는 선으로 그린다 */
+    .faq-cat { position: relative; }
+    .faq-cat.faq-drop-before::before, .faq-cat.faq-drop-after::after {
+        content: ""; position: absolute; left: 0; right: 0; height: 3px; background: #4e73df; z-index: 1; pointer-events: none;
+    }
+    .faq-cat.faq-drop-before::before { top: 0; border-radius: 0.35rem 0.35rem 0 0; }
+    .faq-cat.faq-drop-after::after { bottom: 0; border-radius: 0 0 0.35rem 0.35rem; }
+    .faq-row.is-dragging, .faq-cat.is-dragging { opacity: 0.5; }
+    .faq-drag-ghost { position: fixed; top: 0; left: 0; z-index: 1080; max-width: 300px; padding: 2px 8px; border-radius: 0.2rem; background: #4e73df; color: #fff;
+        font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+    html.faq-dragging, html.faq-dragging * { cursor: grabbing !important; }
     .faq-empty-cat { padding: 0.5rem 0.75rem; color: #858796; border-top: 1px solid #eaecf4; font-size: 0.9rem; }
     .faq-editor .ql-editor { min-height: 200px; font-size: 1rem; }
 </style>
