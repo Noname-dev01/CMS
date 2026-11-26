@@ -89,6 +89,7 @@
 | 77 | ✅ **완료 (2026-11-23 · #304 `503a5d4`)** [PLAN-react-admin-menu.md](PLAN-react-admin-menu.md) — 관리자 React 2단계: 메뉴 편집 화면을 React로 전환(트리·드래그 직접 구현 — 포인터 이벤트, jstree·CDN 제거, 인라인 스크립트 0)하고 진입점이 둘이 되며 생긴 공유 청크 정책을 정함 | feat | 76 | 승인 완료 (2026-11-23, 드래그 방식 변경. 새 의존성·스키마·인가 정책·서버 코드 무변경) |
 | 78 | ✅ **완료 (2026-11-23 · #307 `7596c61`)** [PLAN-react-admin-posts.md](PLAN-react-admin-posts.md) — 관리자 React 3단계: 게시글 관리 화면을 React로 전환(TanStack Query를 조회에 도입, 본문 HTML 출력 예외 1곳) (이슈 #297) | feat | 77 | 승인 완료 (2026-11-23, 새 의존성 `@tanstack/react-query`·HTML 해석 금지 예외 1곳. 스키마·인가 정책·서버 코드 무변경) |
 | 79 | ✅ **완료 (2026-11-25 · #323 `cbf4983`)** [PLAN-dialog-faq-modal.md](PLAN-dialog-faq-modal.md) — 관리자 모달을 네이티브 `<dialog>`로 전환 1단계: FAQ 관리 모달(ESC·배경 닫기 세 겹 차단, `aria-hidden` 포커스 경고 해소, 공용 규칙·`.admin-dialog` CSS) (이슈 #298, 나머지 17개는 이슈에서 계속) | refactor | 76 | 승인 완료 (2026-11-25) |
+| 80 | 🔄 **구현·실기·코드 리뷰 완료 (2026-11-26), PR 머지 대기** [PLAN-solid-small-cleanup.md](PLAN-solid-small-cleanup.md) — SOLID 검토 1번 작은 정리: 본문 이미지 루트/네임스페이스 읽기 8곳을 `ContentImageFiles`로, 2단계·패스키 재확인을 `CustomUserDetails.matchesCurrent`로, KST 상수를 `common.time.AppTimeZone`으로(common → config 의존 제거), `FileStorage` 네임스페이스 메서드 추상화(LSP) | refactor | — | 승인 완료 (2026-11-26) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
