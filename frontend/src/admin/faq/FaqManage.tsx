@@ -7,13 +7,13 @@
  * - 같은 실행 흐름에서 즉시 읽혀야 하는 전환 정보(세대·모달 상태·미저장 기준값)는 ref에만 둔다.
  * - 편집기·모달 같은 외부 부수 효과는 핸들러가 세대를 확인한 뒤에만 실행한다(늦은 응답은 화면 상태에 닿기 전에 버린다).
  */
-import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import type { FaqApi, FaqDetail, FaqTree } from '../../api/faq'
 import { errorMessage, type HttpResult } from '../../api/http'
 import { COMMON, preserveScope, scopeValue, type ScopeSite } from '../shared/siteScope'
 import { FaqModal } from './FaqModal'
-import { FaqTreeView, type DropMark } from './FaqTreeView'
+import { FaqTreeView } from './FaqTreeView'
 import {
   categorySnapshot,
   classifyWrite,
@@ -21,17 +21,23 @@ import {
   formLocked,
   interactionLocked,
   isDirty,
+  locate,
   moveCategory,
   moveFaq,
+  moveSummary,
   resolveCategorySelection,
   serverOrder,
   type CategoryForm,
   type FaqForm,
   type OrderGroup,
+  type OrderItem,
 } from './state'
 
 const UNKNOWN_RESULT_MESSAGE =
   '저장 여부를 확인할 수 없습니다. 모달을 닫고 [새로고침]으로 목록을 다시 불러온 뒤 반영되었는지 직접 확인하세요. 입력은 닫으면 사라지니 필요하면 복사해 두세요.'
+
+/** 이동 안내를 늦추는 시간. 옮긴 버튼에 포커스를 되돌리며 읽는 소리가 안내를 덮지 않게 한다(메뉴 편집 화면과 같다). */
+const ANNOUNCE_DELAY = 500
 
 export type ModalState = 'closed' | 'open' | 'closing'
 export type ModalMode = 'category' | 'faq'
@@ -56,7 +62,7 @@ export interface View {
   editingFaq: FaqDetail | null
   faqTitle: string
   faqForm: FaqForm
-  dropMark: DropMark | null
+  moveStatus: string
 }
 
 const EMPTY_CATEGORY: CategoryForm = { name: '', useYn: true, siteScope: COMMON }
@@ -81,11 +87,10 @@ const INITIAL: View = {
   editingFaq: null,
   faqTitle: '새 FAQ',
   faqForm: { categoryId: '', question: '', useYn: true },
-  dropMark: null,
+  moveStatus: '',
 }
 
 type Baseline = { kind: 'category'; value: string } | { kind: 'faq'; value: string }
-type DragState = { kind: 'category' | 'faq'; cat: number; index: number }
 type WriteResult = { ok: boolean; status?: number }
 
 export interface FaqManageProps {
@@ -121,7 +126,7 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
   const baseline = useRef<Baseline | null>(null)
   const categoryBase = useRef<{ id: number; version: number } | null>(null)
   const faqBase = useRef<{ id: number; categoryId: number } | null>(null)
-  const dragState = useRef<DragState | null>(null)
+  const announceTimer = useRef(0)
   const modalEl = useRef<HTMLDialogElement>(null)
   const editorHost = useRef<HTMLDivElement>(null)
   const editor = useRef<NoticeEditorInstance | null>(null)
@@ -164,6 +169,7 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
   // ===================== 서버 상태 읽기 =====================
 
   const setServer = (tree: FaqTree) => {
+    announceMove('')
     const v = viewRef.current
     const preserve = modalIsShowing() && v.modalMode === 'faq'
     update({
@@ -272,14 +278,24 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
     update({ order: next })
   }
 
-  const onMoveCategory = (from: number, to: number) => {
-    if (locked() || !canUpdate) return
-    setOrder(moveCategory(viewRef.current.order, from, to))
+  /** 비운 뒤 늦게 채운다. 빈 문구는 대기 중인 안내까지 지운다. */
+  const announceMove = (text: string) => {
+    window.clearTimeout(announceTimer.current)
+    update({ moveStatus: '' })
+    if (text !== '') announceTimer.current = window.setTimeout(() => update({ moveStatus: text }), ANNOUNCE_DELAY)
   }
 
-  const onMoveFaq = (categoryId: number, from: number, to: number) => {
-    if (locked() || !canUpdate) return
-    setOrder(moveFaq(viewRef.current.order, categoryId, from, to))
+  const canMove = () => canUpdate && !locked()
+
+  /** 초안에서 item을 형제 중 to번째로 옮긴다(▲▼·드래그 공용). 막힌 이동이면 아무것도 하지 않는다. */
+  const onMove = (item: OrderItem, to: number) => {
+    const { server, order } = viewRef.current
+    const at = locate(order, item)
+    if (!canMove() || !server || !at) return
+    const next = item.kind === 'category' ? moveCategory(order, at.index, to) : moveFaq(order, at.cat, at.index, to)
+    if (next === order) return
+    setOrder(next)
+    announceMove(moveSummary(server, next, item))
   }
 
   const onCancelOrder = () => {
@@ -287,6 +303,7 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
     if (v.busy || !v.server) return
     loadSeq.current++
     update({ order: serverOrder(v.server) })
+    announceMove('')
   }
 
   const onApplyOrder = async () => {
@@ -295,71 +312,6 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
     const body = { version: v.server.version, categories: v.order }
     await write(() => api.saveOrder(body), '순서를 반영했습니다.')
     // 400(구조 위반)이면 초안은 남겨 고치거나 취소할 수 있게 한다(409는 write()가 최신 목록으로 되돌렸다)
-  }
-
-  // ===================== 네이티브 드래그 =====================
-
-  const setDropMark = (mark: DropMark | null) => {
-    const current = viewRef.current.dropMark
-    if (current === mark || (current && mark && current.kind === mark.kind && current.cat === mark.cat && current.index === mark.index && current.position === mark.position)) {
-      return
-    }
-    update({ dropMark: mark })
-  }
-
-  const dropTarget = (event: DragEvent): HTMLElement | null => {
-    const state = dragState.current
-    if (!state || locked()) return null
-    const target = (event.target as HTMLElement).closest?.<HTMLElement>(`[data-drop="${state.kind}"]`) ?? null
-    if (!target) return null
-    if (state.kind === 'faq' && Number(target.dataset.cat) !== state.cat) {
-      return null   // FAQ는 같은 카테고리 안에서만 끈다
-    }
-    return target
-  }
-
-  const onDragStart = (event: DragEvent) => {
-    const handle = (event.target as HTMLElement).closest?.<HTMLElement>('[data-handle]') ?? null
-    if (!handle || locked() || !canUpdate) {
-      event.preventDefault()
-      return
-    }
-    dragState.current = { kind: handle.dataset.handle as 'category' | 'faq', cat: Number(handle.dataset.cat), index: Number(handle.dataset.index) }
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', 'faq-order')   // Firefox는 데이터가 없으면 드래그를 시작하지 않는다
-  }
-
-  const onDragOver = (event: DragEvent) => {
-    const target = dropTarget(event)
-    const state = dragState.current
-    if (!target || !state) {
-      setDropMark(null)
-      return
-    }
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    const index = Number(target.dataset.index)
-    setDropMark({ kind: state.kind, cat: state.kind === 'faq' ? state.cat : Number(target.dataset.catId), index, position: index < state.index ? 'before' : 'after' })
-  }
-
-  const onDrop = (event: DragEvent) => {
-    const target = dropTarget(event)
-    setDropMark(null)
-    const state = dragState.current
-    if (!target || !state) return
-    event.preventDefault()
-    dragState.current = null
-    const to = Number(target.dataset.index)
-    if (state.kind === 'category') {
-      onMoveCategory(state.index, to)
-    } else {
-      onMoveFaq(state.cat, state.index, to)
-    }
-  }
-
-  const onDragEnd = () => {
-    dragState.current = null
-    setDropMark(null)
   }
 
   // ===================== 모달 =====================
@@ -602,6 +554,8 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [])
 
+  useEffect(() => () => window.clearTimeout(announceTimer.current), [])
+
   const initialized = useRef(false)
   useEffect(() => {
     if (initialized.current) return
@@ -658,6 +612,8 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
                   <button type="button" className="btn btn-sm btn-outline-secondary" id="btnCancelOrder" disabled={view.busy} onClick={onCancelOrder}>취소</button>
                 </span>
               </div>
+              {/* 목록 밖에 항상 그려 둔다 — 다시 만들어지면 안내가 읽히지 않는다 */}
+              <div id="orderMoveStatus" className="sr-only" role="status" aria-live="polite">{view.moveStatus}</div>
               <FaqTreeView
                 view={view}
                 sites={sites}
@@ -665,12 +621,8 @@ export function FaqManage({ api, permissions, sites, modalContainer }: FaqManage
                 interactionLocked={viewInteractionLocked}
                 onCategoryClick={startCategoryEdit}
                 onFaqClick={(id) => void startFaqEdit(id)}
-                onMoveCategory={onMoveCategory}
-                onMoveFaq={onMoveFaq}
-                onDragStart={onDragStart}
-                onDragOver={onDragOver}
-                onDrop={onDrop}
-                onDragEnd={onDragEnd}
+                canMove={canMove}
+                onMove={onMove}
               />
             </div>
           </div>

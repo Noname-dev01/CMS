@@ -9,7 +9,9 @@ import {
   interactionLocked,
   isDirty,
   moveCategory,
+  locate,
   moveFaq,
+  moveSummary,
   resolveCategorySelection,
   serverOrder,
 } from './state'
@@ -132,5 +134,29 @@ describe('미저장 판정 기준값', () => {
       .toBe(categorySnapshot({ name: 'a', useYn: true, siteScope: 'COMMON' }))
     expect(faqSnapshot({ categoryId: '10', question: 'q', useYn: true }))
       .not.toBe(faqSnapshot({ categoryId: '10', question: 'q', useYn: false }))
+  })
+})
+
+describe('이동 대상 찾기와 안내 문구', () => {
+  const named = {
+    version: 1,
+    categories: [
+      { id: 1, name: '카테고리1', faqs: [{ id: 11, question: '질문A' }, { id: 12, question: '질문B' }] },
+      { id: 2, name: '카테고리2', faqs: [{ id: 21, question: '질문X' }] },
+    ],
+  } as unknown as FaqTree
+  const order = [{ id: 2, faqIds: [21] }, { id: 1, faqIds: [12, 11] }]
+
+  it('초안에서의 위치를 ID로 찾는다', () => {
+    expect(locate(order, { kind: 'category', id: 1 })).toEqual({ cat: 1, index: 1, total: 2 })
+    expect(locate(order, { kind: 'faq', id: 11 })).toEqual({ cat: 1, index: 1, total: 2 })
+    expect(locate(order, { kind: 'faq', id: 99 })).toBeNull()
+    expect(locate(order, { kind: 'category', id: 11 })).toBeNull()
+  })
+
+  it('이름과 초안에서의 순서를 읽고, 없는 항목이면 비운다', () => {
+    expect(moveSummary(named, order, { kind: 'category', id: 1 })).toBe('카테고리1: 2개 중 2번째로 이동')
+    expect(moveSummary(named, order, { kind: 'faq', id: 12 })).toBe('질문B: 2개 중 1번째로 이동')
+    expect(moveSummary(named, order, { kind: 'faq', id: 99 })).toBe('')
   })
 })
