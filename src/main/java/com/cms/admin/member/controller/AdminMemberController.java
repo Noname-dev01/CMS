@@ -11,6 +11,7 @@ import com.cms.admin.member.dto.response.AdminMemberResponse;
 import com.cms.admin.member.dto.response.AdminSignupResponse;
 import com.cms.admin.member.dto.response.ProfileImageContent;
 import com.cms.admin.member.service.AdminMemberService;
+import com.cms.admin.member.service.MemberProfileImageService;
 import com.cms.config.auth.AdminSecurityService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -38,6 +39,7 @@ import java.net.URI;
 public class AdminMemberController {
 
     private final AdminMemberService adminMemberService;
+    private final MemberProfileImageService memberProfileImageService;
     private final AdminSecurityService adminSecurityService;
 
     @Operation(summary = "관리자 계정 생성", description = "생성 가능한 userType: ROLE_ADMIN, ROLE_MANAGER")
@@ -80,7 +82,7 @@ public class AdminMemberController {
     @GetMapping("members/{id}/profile-image")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<byte[]> getProfileImageContent(@PathVariable Long id) {
-        return profileImageResponse(adminMemberService.getProfileImageContent(id));
+        return profileImageResponse(memberProfileImageService.getProfileImageContent(id));
     }
 
     @Operation(summary = "타 관리자 계정 수정",
@@ -128,7 +130,7 @@ public class AdminMemberController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> updateMyProfileImage(@RequestPart("file") MultipartFile file) {
         Long adminId = requireCurrentAdminId();
-        AdminMemberResponse response = adminMemberService.updateMyProfileImage(adminId, file);
+        AdminMemberResponse response = memberProfileImageService.updateMyProfileImage(adminId, file);
         // 자기수정 성공 후 반드시 refresh해야 상단바 이름·프로필 이미지가 즉시 갱신된다.
         adminSecurityService.refreshAuthentication(adminId);
         return ResponseEntity.ok(response);
@@ -139,7 +141,7 @@ public class AdminMemberController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<AdminMemberResponse> applyDefaultProfileImage(@Valid @RequestBody ProfileImagePresetRequest request) {
         Long adminId = requireCurrentAdminId();
-        AdminMemberResponse response = adminMemberService.applyDefaultProfileImage(adminId, request.getPreset());
+        AdminMemberResponse response = memberProfileImageService.applyDefaultProfileImage(adminId, request.getPreset());
         // 자기수정 성공 후 반드시 refresh해야 상단바 이름·프로필 이미지가 즉시 갱신된다.
         adminSecurityService.refreshAuthentication(adminId);
         return ResponseEntity.ok(response);
@@ -150,7 +152,7 @@ public class AdminMemberController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<Void> resetMyProfileImage() {
         Long adminId = requireCurrentAdminId();
-        adminMemberService.resetMyProfileImage(adminId);
+        memberProfileImageService.resetMyProfileImage(adminId);
         // 자기수정 성공 후 반드시 refresh해야 상단바 이름·프로필 이미지가 즉시 갱신된다.
         adminSecurityService.refreshAuthentication(adminId);
         return ResponseEntity.noContent().build();
@@ -163,7 +165,7 @@ public class AdminMemberController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<byte[]> getMyProfileImageContent() {
         Long adminId = requireCurrentAdminId();
-        return profileImageResponse(adminMemberService.getMyProfileImageContent(adminId));
+        return profileImageResponse(memberProfileImageService.getMyProfileImageContent(adminId));
     }
 
     @Operation(summary = "내 비밀번호 변경")
