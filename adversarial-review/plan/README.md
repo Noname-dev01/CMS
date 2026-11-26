@@ -90,6 +90,7 @@
 | 78 | ✅ **완료 (2026-11-23 · #307 `7596c61`)** [PLAN-react-admin-posts.md](PLAN-react-admin-posts.md) — 관리자 React 3단계: 게시글 관리 화면을 React로 전환(TanStack Query를 조회에 도입, 본문 HTML 출력 예외 1곳) (이슈 #297) | feat | 77 | 승인 완료 (2026-11-23, 새 의존성 `@tanstack/react-query`·HTML 해석 금지 예외 1곳. 스키마·인가 정책·서버 코드 무변경) |
 | 79 | ✅ **완료 (2026-11-25 · #323 `cbf4983`)** [PLAN-dialog-faq-modal.md](PLAN-dialog-faq-modal.md) — 관리자 모달을 네이티브 `<dialog>`로 전환 1단계: FAQ 관리 모달(ESC·배경 닫기 세 겹 차단, `aria-hidden` 포커스 경고 해소, 공용 규칙·`.admin-dialog` CSS) (이슈 #298, 나머지 17개는 이슈에서 계속) | refactor | 76 | 승인 완료 (2026-11-25) |
 | 80 | ✅ **완료 (2026-11-26 · #331 `e7f2f4b`)** [PLAN-solid-small-cleanup.md](PLAN-solid-small-cleanup.md) — SOLID 검토 1번 작은 정리: 본문 이미지 루트/네임스페이스 읽기 8곳을 `ContentImageFiles`로, 2단계·패스키 재확인을 `CustomUserDetails.matchesCurrent`로, KST 상수를 `common.time.AppTimeZone`으로(common → config 의존 제거), `FileStorage` 네임스페이스 메서드 추상화(LSP) | refactor | — | 승인 완료 (2026-11-26) |
+| 81 | 🔄 **구현·실기·코드 리뷰 완료 (2026-11-26), PR 머지 대기** [PLAN-member-profile-image-service.md](PLAN-member-profile-image-service.md) — SOLID 검토 2번: `AdminMemberService`의 프로필 이미지 업로드·프리셋·초기화·다운로드를 `MemberProfileImageService`로 분리(동작 보존 — 잠금·파일 정리 시점 그대로), 응답 변환을 `AdminMemberResponse.from`으로, 실제 트랜잭션 통합 시험 추가 | refactor | — | 승인 완료 (2026-11-26) |
 
 ## 공통 규칙 (모든 계획에 적용)
 
