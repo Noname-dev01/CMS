@@ -104,6 +104,27 @@
 | 로컬 전체 시험(브라우저 제외 + 브라우저)이 15분 초과(2026-11-23 실측 10~12분) | 메모리·CPU를 재고 제한 검토 |
 | 메모리 부족 오류, 시험용 DB 기동 실패, PC가 눈에 띄게 느려짐 | 겹친 실행을 줄이고 사용자에게 보고 |
 
+### 팀장·팀원 운영 (2026-11-26)
+
+여러 작업을 한꺼번에 돌릴 때 메인 체크아웃 세션 하나가 **팀장**이 되어 worktree를 만들고 그 안에 **팀원** 세션을 띄워 맡긴다. 기계 장치는 Orca `orchestration` 스킬이 원본이고(명령은 Orca 1.4.277 `--help`로 확인), 여기에는 CMS에서 더할 규칙만 둔다.
+
+- **역할**: 팀장은 배정·조율·사용자 창구만 한다 — 코드를 고치지 않고 메인 체크아웃에서 브랜치를 만들거나 바꾸지 않는다. 팀장 자신이 문서 등을 직접 고쳐야 하면 자기 worktree를 따로 만들어 들어간다. 팀원은 **worktree 하나당 한 명**이고 그 작업의 `/feature` 전 단계(정찰~커밋·PR)를 맡는다. 팀원 수는 정하지 않고 위 "동시 실행 제한" 신호를 따른다(`orchestration`은 한 번에 4명 안팎을 권한다).
+- **시작** — 어느 방식이든 **worktree를 먼저 만든다**: `orca worktree create --name <이름> --branch <브랜치 전략의 접두사/이름> --base-branch origin/master --no-parent`(`<repoId>`·경로는 결과의 `id`, 또는 `orca repo list --json`). `worker-start --worktree new-top-level`은 `--branch`가 없어 Orca 기본 접두사가 붙은 브랜치(예: `Noname-dev01/<이름>`)를 만들므로 쓰지 않는다(2026-11-26 시험).
+  - 결과를 팀장이 받아야 하면(기본) `orca orchestration worker-start --environment local --spec-file <인수인계 문서> --task-title "<제목>" --worktree id:<repoId>::<경로> --agent claude`. 팀원이 끝나면 `worker_done`으로 팀장이 깨어난다(`orca orchestration check …` 안내가 온다). 실패하면 `escalation`이 온다 — 예: 사용량 한도(`usageLimitReached`)는 `worker-stop --dispatch <id>` 뒤 `worker-start --task <taskId> --retry-of <dispatchId> --worktree id:… --agent claude`로 다시 시작한다(`--retry-of`는 배치를 물려받지 않으므로 `--worktree`·`--agent`를 다시 준다). 끝난 팀원 터미널은 남아 있으니 아무도 그 대화를 쓰지 않으면 놓아 준다.
+  - 넘기고 끝이면 인수인계 문서를 worktree 루트에 두고 `orca agent launch --agent claude --worktree id:<repoId>::<경로> --prompt "<문서를 읽고 /feature로 진행>"`. 이후 지시는 `SendMessage`(세션 이름은 `ListAgents`)로 한다 — 결과는 돌아오지 않는다.
+  - 2026-11-26 확인(Orca 1.4.277): 위 두 방식 모두 실제로 실행해 팀원 시작·`worker_done` 수신(기본 방식)·재시도까지 확인했다.
+- **배정 전 충돌 점검**: 메인 체크아웃과 모든 worktree의 `git status --short`·`git diff --stat origin/master...<브랜치>`를 모아 새 작업이 고칠 파일과 겹치는지 본다. 겹치면 인수인계 문서에 적고(누가 어떤 변경을 하는지), 순서를 바꿀지 사용자에게 묻는다. 예: 2026-11-26 SOLID 1번과 시험 데이터 누수 작업이 둘 다 `LocalDiskFileStorageTest`를 고쳤다.
+- **자원 배정**: 팀원마다 앱 포트(8081부터)와 실기용 일회용 DB 포트(3397부터)를 겹치지 않게 정해 인수인계 문서에 적는다. dev DB는 공유이므로 실기는 일회용 DB를 권한다.
+- **인수인계 문서**(`HANDOFF-<이름>.md`, 팀원 worktree 루트, **커밋하지 않고 읽은 뒤 지운다**):
+  1. 무엇을·왜 — 배경, 이미 받은 사용자 결정(다시 묻지 않게)
+  2. 확인된 사실 — 기준 커밋·파일·줄 번호와 "다시 확인할 것" 표시(추측과 사실을 나눈다)
+  3. 예상 위험 영역·경로(정식/경량) — 판정은 팀원이 직접 한다
+  4. 병행 주의 — 충돌 점검 결과, 다른 세션이 쓰는 위치(메인 체크아웃은 건드리지 않는다)
+  5. 배정 자원 — 앱 포트·일회용 DB 포트
+  6. 첫 할 일 — 읽을 문서, `/feature` 호출 인자, 남은 단계 순서
+- **질문 경계**: 팀원의 `ask`(또는 `SendMessage`) 중 **사실 확인**(코드·문서·다른 worktree 상태)은 팀장이 확인해 답한다. **사용자 결정**(경로 확인, grilling, 계획 승인, 커밋·PR·이슈 등록 확인, 범위 변경)은 팀장이 대신 답하지 않는다 — 팀원이 사용자에게 직접 묻게 하거나, 팀장이 질문 창으로 사용자에게 물어 그 답을 그대로 전한다.
+- **금지(사례)**: 2026-11-26 팀장 세션이 메인 체크아웃에서 `git switch -c`로 작업 브랜치를 만들자, 같은 디렉터리에서 일하던 다른 세션의 작업 트리가 그 브랜치로 함께 옮겨졌다(즉시 되돌림). 브랜치 작업은 반드시 worktree에서 한다.
+
 ### worktree 정리 (머지 확인 뒤)
 worktree와 로컬 브랜치 삭제는 Orca의 "병합된 워크스페이스 삭제"에 맡긴다(2026-11-24 PR #311로 확인). 마지막 활동 1시간 뒤의 매시간 검사에서 지워지므로 기다리지 않는다.
 
