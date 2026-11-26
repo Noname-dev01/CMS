@@ -49,8 +49,8 @@ class ClockUsageConventionTest {
     private static final Map<String, String> ALLOWED_NOW_ARGUMENT = Map.of(
             // 저장 디렉터리 샤딩 이름(yyyy/MM/dd)일 뿐 시각 비교·저장 의미가 없다
             "LocalDiskFileStorage.java", "",
-            // static 팩토리라 Clock 주입이 불가능한 응답 전용 timestamp — 시간대만 AppConfig.KST로 통일
-            "ApiErrorResponse.java", "AppConfig.KST"
+            // static 팩토리라 Clock 주입이 불가능한 응답 전용 timestamp — 시간대만 AppTimeZone.KST로 통일
+            "ApiErrorResponse.java", "AppTimeZone.KST"
     );
 
     /** Clock 팩토리 호출을 허용하는 유일한 파일(빈 정의). */
@@ -93,8 +93,10 @@ class ClockUsageConventionTest {
         assertNoViolation("Foo.java", "// LocalDateTime.now() 는 주석이라 무시\n/* Instant.now() */");
         assertNoViolation("AppConfig.java", "return Clock.system(KST);");
         assertNoViolation("LocalDiskFileStorage.java", "var d = LocalDate.now();");
-        assertNoViolation("ApiErrorResponse.java", "var t = LocalDateTime.now(AppConfig.KST);");
+        assertNoViolation("ApiErrorResponse.java", "var t = LocalDateTime.now(AppTimeZone.KST);");
         // 허용 목록은 파일·인자가 함께 맞아야 한다
+        // 옛 이름(config 패키지 상수)은 더 이상 허용 인자가 아니다 — common → config 의존을 되살리지 않게
+        assertViolation("ApiErrorResponse.java", "var t = LocalDateTime.now(AppConfig.KST);");
         assertViolation("LocalDiskFileStorage.java", "var d = LocalDate.now(clock2);");
         assertViolation("ApiErrorResponse.java", "var t = LocalDateTime.now();");
     }

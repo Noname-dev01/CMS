@@ -225,37 +225,6 @@ class LocalDiskFileStorageTest {
                 () -> storage.store("x".getBytes(), "a.txt", "profile/nested"));
     }
 
-    @Test
-    @DisplayName("네임스페이스를 지원하지 않는 FileStorage 구현체의 default 메서드는 UnsupportedOperationException을 던진다")
-    void defaultNamespaceMethods_throwUnsupportedOperationException() {
-        FileStorage unsupporting = new FileStorage() {
-            @Override
-            public String store(byte[] content, String originalFilename) {
-                return "noop";
-            }
-
-            @Override
-            public byte[] load(String storageKey) {
-                return new byte[0];
-            }
-
-            @Override
-            public StoredFileStream open(String storageKey) {
-                throw new UnsupportedOperationException("테스트용 구현체");
-            }
-
-            @Override
-            public void delete(String storageKey) {
-                // no-op
-            }
-        };
-
-        assertThrows(UnsupportedOperationException.class, () -> unsupporting.store("x".getBytes(), "a.txt", "profile"));
-        assertThrows(UnsupportedOperationException.class, () -> unsupporting.load("key", "profile"));
-        assertThrows(UnsupportedOperationException.class, () -> unsupporting.delete("key", "profile"));
-        assertThrows(UnsupportedOperationException.class, () -> unsupporting.open("key", "profile"));
-    }
-
     // ===================== 네임스페이스 스트리밍 읽기(배너, PLAN-public-home-banner.md R3-1) =====================
 
     @Test

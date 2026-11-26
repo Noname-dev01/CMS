@@ -1,6 +1,7 @@
 package com.cms.config;
 
 import com.cms.admin.member.passkey.PasskeyJson;
+import com.cms.common.time.AppTimeZone;
 import com.cms.config.auth.CustomUserDetailsService;
 import com.cms.config.auth.PasskeyLoginService;
 import org.mockito.Mockito;
@@ -29,7 +30,7 @@ public class PasskeyLoginTestConfig {
     /** 필터가 챌린지 만료 판정에 쓰는 시계 — 이 슬라이스들은 {@code AppConfig}를 올리지 않는다 */
     @Bean
     public Clock clock() {
-        return Clock.system(AppConfig.KST);
+        return Clock.system(AppTimeZone.KST);
     }
 
     @Bean

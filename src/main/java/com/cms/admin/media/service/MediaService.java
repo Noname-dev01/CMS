@@ -11,6 +11,7 @@ import com.cms.admin.contentimage.domain.ContentImageUsage;
 import com.cms.admin.contentimage.repository.ContentImageRefRepository;
 import com.cms.admin.contentimage.repository.ContentImageRepository;
 import com.cms.admin.contentimage.repository.ContentImageUsageRepository;
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
@@ -133,9 +134,7 @@ public class MediaService {
     public ImageFile getFile(Long id) {
         ContentImage image = visibleImage(imageRepository.findById(id), currentAuthentication());
         try {
-            byte[] content = image.isRootNamespace()
-                    ? fileStorage.load(image.getStorageKey())
-                    : fileStorage.load(image.getStorageKey(), image.getNamespace());
+            byte[] content = ContentImageFiles.load(fileStorage, image.getStorageKey(), image.getNamespace());
             return new ImageFile(image.getContentType(), content);
         } catch (StorageFileNotFoundException e) {
             throw new ResourceNotFoundException("이미지 파일을 찾을 수 없습니다.");
