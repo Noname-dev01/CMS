@@ -153,6 +153,19 @@ tasks.register('installPlaywrightBrowsers', JavaExec) {
     args = ['install', '--with-deps', 'chromium']
 }
 
+// 시험의 파일 저장소(adversarial-review/plan/PLAN-test-data-leak.md) — 개발 서버의 ./data/attachments와 섞이지 않게 build 아래로 격리하고,
+// 실행 전에 비우며, 실행이 끝났을 때 남은 파일이 있으면 누수로 보고 빌드를 실패시킨다.
+def testFileStorageRoot = layout.buildDirectory.dir('test-file-storage').get().asFile.toPath().toAbsolutePath().normalize()
+
+// 루트 자체가 없을 때만 null — 접근 오류처럼 존재를 확인할 수 없는 경우는 예외로 실패시킨다(Files.exists는 그때도 false를 돌려준다).
+def testFileStorageAttributes = { java.nio.file.Path root ->
+    try {
+        return java.nio.file.Files.readAttributes(root, java.nio.file.attribute.BasicFileAttributes, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    } catch (java.nio.file.NoSuchFileException ignored) {
+        return null
+    }
+}
+
 tasks.named('test') {
     // CI는 브라우저 시험(@Tag("browser") — BrowserTestSupport 상속 클래스)을 별도 job으로 나눠 병렬로 돌린다
     // (.github/workflows/ci.yml): -PbrowserTests=exclude | only. 지정하지 않으면 지금처럼 전체를 돌린다(로컬 기본).
@@ -165,7 +178,8 @@ tasks.named('test') {
         if (browserTests == 'exclude') {
             excludeTags 'browser'
         } else if (browserTests == 'only') {
-            includeTags 'browser'
+            // 저장소 격리 확인 시험(TestFileStorageIsolationTest)은 브라우저 전용 실행에서도 돌아야 그 실행의 누수 검사가 공허하지 않다.
+            includeTags 'browser', 'storage-isolation'
         } else if (browserTests != null) {
             throw new GradleException("browserTests는 exclude 또는 only만 허용한다: ${browserTests}")
         }
@@ -183,6 +197,43 @@ tasks.named('test') {
     environment 'CMS_RATE_LIMIT_ENABLED', 'false'
     // 시험이 비밀번호를 정할 때 외부(HIBP)로 나가지 않게 한다. 검사기 자체는 로컬 서버로, 판정 흐름은 가짜 구현으로 시험한다.
     environment 'CMS_PASSWORD_BREACH_CHECK_ENABLED', 'false'
+    // 파일 저장소 격리 — 셸에 같은 환경변수가 있어도 이 값이 쓰인다. Gradle 없이(IDE에서) 실행한 시험에는 적용되지 않는다.
+    environment 'APP_FILE_STORAGE_ROOT', testFileStorageRoot.toString()
+    doFirst {
+        // 검사할 경로와 시험이 쓸 경로가 어긋나면 누수 검사가 엉뚱한 폴더를 보게 된다.
+        def injected = environment['APP_FILE_STORAGE_ROOT']
+        if (injected == null || java.nio.file.Paths.get(injected.toString()).toAbsolutePath().normalize() != testFileStorageRoot) {
+            throw new GradleException("시험 파일 저장소 환경변수 APP_FILE_STORAGE_ROOT(${injected})가 누수 검사 경로(${testFileStorageRoot})와 다르다")
+        }
+        // 이전 실행(시험 실패·강제 종료)이 남긴 파일을 이번 실행의 누수로 오인하지 않게 비운다. 삭제 실패는 예외로 실패시킨다.
+        if (testFileStorageAttributes(testFileStorageRoot) != null) {
+            java.nio.file.Files.walk(testFileStorageRoot).withCloseable { paths ->
+                paths.sorted(Comparator.reverseOrder()).forEach { java.nio.file.Files.delete(it) }
+            }
+        }
+    }
+    doLast {
+        // 시험이 모두 성공한 뒤에만 온다(실패한 실행의 잔여는 다음 실행의 doFirst가 지운다). 시험마다 자기 파일을 지웠는지까지는 보지 못한다 —
+        // MediaTestSupport.cleanLibrary처럼 넓게 지우는 정리가 앞선 시험의 누수를 가릴 수 있다.
+        if (testFileStorageAttributes(testFileStorageRoot) == null) {
+            return
+        }
+        List<java.nio.file.Path> leaked = java.nio.file.Files.walk(testFileStorageRoot).withCloseable { paths ->
+            paths.filter { !java.nio.file.Files.isDirectory(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) }.sorted().toList()
+        }
+        if (!leaked.isEmpty()) {
+            // 수정 시각은 시험 결과 XML의 timestamp와 같은 UTC 형식(예: 2026-11-26T07:47:40Z)으로 보여 바로 대조할 수 있게 한다.
+            def lines = leaked.take(20).collect { path ->
+                def modified = java.nio.file.Files.getLastModifiedTime(path, java.nio.file.LinkOption.NOFOLLOW_LINKS).toInstant()
+                        .truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+                def size = java.nio.file.Files.size(path)
+                "  ${testFileStorageRoot.relativize(path)}  (수정 ${modified}, ${size}바이트)"
+            }
+            throw new GradleException("시험이 파일 저장소에 파일 ${leaked.size()}개를 남겼다(${testFileStorageRoot}):\n" + lines.join('\n')
+                    + (leaked.size() > 20 ? "\n  … 외 ${leaked.size() - 20}개" : '')
+                    + '\n수정 시각을 build/test-results/test/*.xml의 timestamp와 맞춰 후보 시험을 찾고, 그 클래스를 --tests로 단독 실행해 재현한다(src/test/java/CLAUDE.md).')
+        }
+    }
     // MariaDbContainerSupport는 static 필드로 컨테이너를 시작하는 진짜 싱글턴이다 —
     // "테스트 JVM(워커)당 컨테이너 1개"라는 계약이 성립하려면 프로세스가 여러 개
     // 뜨거나 하나의 프로세스가 순차적으로 재기동되지 않아야 한다. maxParallelForks는
