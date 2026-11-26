@@ -8,6 +8,7 @@ import com.cms.admin.contentimage.repository.ContentImageRefRepository;
 import com.cms.admin.contentimage.repository.ContentImageRepository;
 import com.cms.admin.contentimage.repository.ContentImageThumbRepository;
 import com.cms.admin.contentimage.repository.ContentImageUsageRepository;
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.FileStorageTransactionSupport;
@@ -66,7 +67,7 @@ public class MediaImageRemover {
                     "image thumb id=" + image.getId());
         });
         imageRepository.delete(image);
-        if (image.isRootNamespace()) {
+        if (ContentImageFiles.isRoot(image.getNamespace())) {
             FileStorageTransactionSupport.deleteAfterCommit(fileStorage, image.getStorageKey(), "image id=" + image.getId());
         } else {
             FileStorageTransactionSupport.deleteAfterCommit(fileStorage, image.getStorageKey(), image.getNamespace(),

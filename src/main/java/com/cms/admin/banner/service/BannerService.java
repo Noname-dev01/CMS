@@ -12,6 +12,7 @@ import com.cms.admin.banner.repository.BannerRepository;
 import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.domain.ContentImageRef;
 import com.cms.admin.contentimage.repository.ContentImageRefRepository;
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.log.annotation.AdminActionLogged;
 import com.cms.admin.log.constant.AdminActionTypes;
@@ -257,9 +258,7 @@ public class BannerService {
         MediaImageInfo image = imageLookup.forOwner(ContentImageService.OWNER_BANNER, id)
                 .orElseThrow(() -> new ResourceNotFoundException("배너 이미지를 찾을 수 없습니다."));
         try {
-            byte[] content = image.isRootNamespace()
-                    ? fileStorage.load(image.storageKey())
-                    : fileStorage.load(image.storageKey(), image.namespace());
+            byte[] content = ContentImageFiles.load(fileStorage, image.storageKey(), image.namespace());
             return new BannerImageDownload(image.contentType(), content);
         } catch (StorageFileNotFoundException e) {
             throw new ResourceNotFoundException("배너 이미지 파일을 찾을 수 없습니다.");

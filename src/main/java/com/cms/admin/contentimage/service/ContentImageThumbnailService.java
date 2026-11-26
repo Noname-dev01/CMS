@@ -104,9 +104,7 @@ public class ContentImageThumbnailService {
         try {
             byte[] original;
             try {
-                original = image.isRootNamespace()
-                        ? fileStorage.load(image.getStorageKey())
-                        : fileStorage.load(image.getStorageKey(), image.getNamespace());
+                original = ContentImageFiles.load(fileStorage, image.getStorageKey(), image.getNamespace());
             } catch (StorageFileNotFoundException e) {
                 // 파일이 없는 이미지는 공개 화면에서도 404다 — 대표로 쓸 수 없다
                 throw new InvalidRequestException(ImageThumbnailer.FAILED_MESSAGE);

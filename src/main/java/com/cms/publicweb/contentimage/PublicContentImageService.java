@@ -5,6 +5,7 @@ import com.cms.admin.contentimage.domain.ContentImageThumb;
 import com.cms.admin.contentimage.repository.ContentImageRefRepository;
 import com.cms.admin.contentimage.repository.ContentImageRepository;
 import com.cms.admin.contentimage.repository.ContentImageThumbRepository;
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.permission.AdminFeature;
 import com.cms.admin.permission.AdminPermissionEvaluator;
@@ -77,9 +78,7 @@ public class PublicContentImageService {
     /** 트랜잭션 없음(의도). 파일이 없으면 empty(404), 그 외 실패는 전파(500). 반환 스트림은 호출자가 닫는다. */
     public Optional<ContentImageDownload> open(ContentImageMeta meta) {
         try {
-            StoredFileStream opened = meta.namespace() == null || meta.namespace().isEmpty()
-                    ? fileStorage.open(meta.storageKey())
-                    : fileStorage.open(meta.storageKey(), meta.namespace());
+            StoredFileStream opened = ContentImageFiles.open(fileStorage, meta.storageKey(), meta.namespace());
             return Optional.of(new ContentImageDownload(meta.contentType(), opened.size(), opened.inputStream()));
         } catch (StorageFileNotFoundException e) {
             return Optional.empty();

@@ -1,6 +1,7 @@
 package com.cms.publicweb.banner;
 
 import com.cms.admin.banner.repository.BannerRepository;
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.media.service.MediaImageLookup;
 import com.cms.common.storage.FileStorage;
@@ -56,9 +57,7 @@ public class PublicBannerService {
      */
     public Optional<StoredFileStream> open(PublicBannerImageRef ref) {
         try {
-            return Optional.of(ref.namespace().isEmpty()
-                    ? fileStorage.open(ref.storageKey())
-                    : fileStorage.open(ref.storageKey(), ref.namespace()));
+            return Optional.of(ContentImageFiles.open(fileStorage, ref.storageKey(), ref.namespace()));
         } catch (StorageFileNotFoundException e) {
             return Optional.empty();
         }

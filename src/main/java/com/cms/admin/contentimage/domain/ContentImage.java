@@ -65,9 +65,4 @@ public class ContentImage {
     /** 검색·표시용 원본 파일명(서버가 정리한 값). 이관된 행은 배너·팝업 제목, 본문 이미지는 NULL일 수 있다. */
     @Column(name = "original_name", length = 200)
     private String originalName;
-
-    /** 루트 영역 파일인지(네임스페이스 API가 아니라 루트 API로 읽고 지워야 하는지). */
-    public boolean isRootNamespace() {
-        return namespace == null || namespace.isEmpty();
-    }
 }

@@ -5,6 +5,7 @@ import com.cms.admin.contentimage.domain.ContentImage;
 import com.cms.admin.contentimage.domain.ContentImageUsage;
 import com.cms.admin.contentimage.repository.ContentImageRepository;
 import com.cms.admin.contentimage.repository.ContentImageUsageRepository;
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.common.exception.InvalidRequestException;
 import com.cms.common.storage.FileStorage;
 import com.cms.common.storage.FileStorageTransactionSupport;
@@ -45,7 +46,7 @@ public class MediaImageRegistrar {
                 .orElseThrow(() -> new IllegalStateException("content_image_usage 카운터 행이 없습니다(V2 시드 누락)."));
         usage.reserve(content.length, properties.getMaxTotalBytes(), properties.getMaxCount());
 
-        boolean root = namespace == null || namespace.isEmpty();
+        boolean root = ContentImageFiles.isRoot(namespace);
         String filename = (root ? "image." : namespace + ".") + extensionFor(contentType);
         String storageKey;
         if (root) {

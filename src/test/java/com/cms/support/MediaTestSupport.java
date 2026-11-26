@@ -1,5 +1,6 @@
 package com.cms.support;
 
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.common.storage.FileStorage;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -28,7 +29,7 @@ public final class MediaTestSupport {
         for (Map<String, Object> row : rows) {
             String key = (String) row.get("storage_key");
             String namespace = (String) row.get("namespace");
-            if (namespace == null || namespace.isEmpty()) {
+            if (ContentImageFiles.isRoot(namespace)) {
                 fileStorage.delete(key);
             } else {
                 fileStorage.delete(key, namespace);

@@ -1,5 +1,6 @@
 package com.cms.publicweb.popup;
 
+import com.cms.admin.contentimage.service.ContentImageFiles;
 import com.cms.admin.popup.repository.PopupRepository;
 import com.cms.admin.contentimage.service.ContentImageService;
 import com.cms.admin.media.service.MediaImageLookup;
@@ -59,9 +60,7 @@ public class PublicPopupService {
     /** 파일을 스트림으로 연다. <b>트랜잭션 없음</b>(의도). 파일이 없으면 empty(404), 그 외 실패는 전파(500). 반환 스트림은 받은 쪽이 닫는다. */
     public Optional<StoredFileStream> open(PublicPopupImageRef ref) {
         try {
-            return Optional.of(ref.namespace().isEmpty()
-                    ? fileStorage.open(ref.storageKey())
-                    : fileStorage.open(ref.storageKey(), ref.namespace()));
+            return Optional.of(ContentImageFiles.open(fileStorage, ref.storageKey(), ref.namespace()));
         } catch (StorageFileNotFoundException e) {
             return Optional.empty();
         }
