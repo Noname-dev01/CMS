@@ -7,12 +7,17 @@ import com.cms.admin.member.domain.Role;
 import com.cms.admin.member.repository.MemberRepository;
 import com.cms.support.CmsTestApplication;
 import com.cms.support.MariaDbContainerSupport;
+import com.cms.support.TestMembers;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -32,6 +37,18 @@ class MemberProfileImageInsertIntegrationTest extends MariaDbContainerSupport {
     @Autowired
     MemberRepository memberRepository;
 
+    @Autowired
+    JdbcTemplate jdbc;
+
+    private final List<Long> createdMemberIds = new ArrayList<>();
+
+    /** 만든 ADMIN이 남으면 이후 시험의 알림 수신자·회원 수 전제가 바뀐다(PLAN-test-data-leak.md 결정 5). */
+    @AfterEach
+    void cleanUp() {
+        TestMembers.delete(jdbc, createdMemberIds);
+        createdMemberIds.clear();
+    }
+
     @Test
     @DisplayName("profileImageKind를 지정하지 않고 저장해도 NOT NULL 위반 없이 NONE으로 저장된다")
     void save_withoutExplicitProfileImageKind_defaultsToNoneWithoutConstraintViolation() {
@@ -49,6 +66,7 @@ class MemberProfileImageInsertIntegrationTest extends MariaDbContainerSupport {
                 .build(); // profileImageKind 미지정 — 기존 3개 생성 경로와 동일한 패턴
 
         Member saved = assertDoesNotThrow(() -> memberRepository.saveAndFlush(member));
+        createdMemberIds.add(saved.getId());
 
         assertEquals(ProfileImageKind.NONE, saved.getProfileImageKind());
 

@@ -79,8 +79,8 @@ class LocalDiskFileStorageTest {
 
     @Test
     @DisplayName("같은 원본 파일명으로 두 번 저장해도 서로 다른 storageKey가 생성되고 내용이 섞이지 않는다")
-    void store_sameFilenameTwice_distinctKeysAndContent() {
-        LocalDiskFileStorage storage = newStorage(tempDirForTest());
+    void store_sameFilenameTwice_distinctKeysAndContent(@TempDir Path tempDir) {
+        LocalDiskFileStorage storage = newStorage(tempDir);
         String key1 = storage.store("first".getBytes(), "a.txt");
         String key2 = storage.store("second".getBytes(), "a.txt");
 
@@ -160,15 +160,6 @@ class LocalDiskFileStorageTest {
         // — 존재 여부와 내용 둘 다 보존되어야 한다.
         assertTrue(Files.exists(target), "이 호출이 만들지 않은 기존 파일은 삭제되면 안 된다");
         assertArrayEquals("original".getBytes(), Files.readAllBytes(target));
-    }
-
-    /** {@code @TempDir}는 파라미터 주입 전용이라, 메서드 내부에서 여러 번 storage를 만들 때는 직접 생성한다. */
-    private Path tempDirForTest() {
-        try {
-            return Files.createTempDirectory("notice-attachment-test");
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
     }
 
     // ===================== 네임스페이스(프로필 이미지, PLAN-profile-image-storage.md 쟁점 2·v6) =====================
